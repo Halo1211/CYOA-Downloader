@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CYOA Downloader v7.2.1 — Dokumentasi Lengkap</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0c0e12;--surface:#151821;--surface2:#1c2030;--border:#2a2e3e;--fg:#e4e7ef;--muted:#7c8298;--accent:#60a5fa;--accent2:#818cf8;--green:#34d399;--amber:#fbbf24;--red:#f87171;--purple:#a78bfa;--code-bg:#1a1e2e}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:'Plus Jakarta Sans',system-ui,sans-serif;font-size:15px;line-height:1.7;max-width:920px;margin:0 auto;padding:32px 24px 80px}
+h1{font-size:2.2rem;font-weight:800;letter-spacing:-0.03em;margin:0 0 8px;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+h2{font-size:1.35rem;font-weight:700;margin:48px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border);color:var(--accent)}
+h3{font-size:1.1rem;font-weight:700;margin:28px 0 10px;color:var(--fg)}
+h4{font-size:0.95rem;font-weight:600;margin:20px 0 8px;color:var(--accent2)}
+p{margin:0 0 12px}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+.subtitle{color:var(--muted);font-size:1rem;margin-bottom:32px}
+.badge{display:inline-block;padding:2px 10px;border-radius:12px;font-size:0.75rem;font-weight:600;margin-right:6px}
+.badge-green{background:#064e3b;color:var(--green)}
+.badge-amber{background:#78350f;color:var(--amber)}
+.badge-red{background:#7f1d1d;color:var(--red)}
+.badge-purple{background:#3b0764;color:var(--purple)}
+.badge-blue{background:#1e3a5f;color:var(--accent)}
+table{width:100%;border-collapse:collapse;margin:12px 0 20px;font-size:0.9rem}
+th{text-align:left;padding:8px 12px;background:var(--surface2);color:var(--accent);border:1px solid var(--border);font-weight:600;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.05em}
+td{padding:8px 12px;border:1px solid var(--border);vertical-align:top}
+tr:nth-child(even) td{background:var(--surface)}
+code{font-family:'JetBrains Mono',monospace;font-size:0.85em;background:var(--code-bg);padding:2px 6px;border-radius:4px;color:var(--green)}
+pre{background:var(--code-bg);padding:16px;border-radius:8px;overflow-x:auto;margin:12px 0 20px;border:1px solid var(--border)}
+pre code{background:none;padding:0;font-size:0.82rem;line-height:1.6}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px 20px;margin:12px 0}
+.card-title{font-weight:700;font-size:0.95rem;margin-bottom:6px}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:700px){.grid-2{grid-template-columns:1fr}}
+.toc{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px 24px;margin:24px 0}
+.toc a{display:block;padding:3px 0;color:var(--muted);font-size:0.9rem}
+.toc a:hover{color:var(--accent)}
+.warn{background:#451a0320;border-left:3px solid var(--amber);padding:10px 16px;border-radius:0 8px 8px 0;margin:12px 0;font-size:0.9rem}
+.info{background:#1e3a5f20;border-left:3px solid var(--accent);padding:10px 16px;border-radius:0 8px 8px 0;margin:12px 0;font-size:0.9rem}
+.flow{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:12px 0}
+.flow-step{background:var(--surface2);padding:4px 12px;border-radius:6px;font-size:0.85rem;border:1px solid var(--border)}
+.flow-arrow{color:var(--muted);font-size:0.8rem}
+</style>
+</head>
+<body>
+
+<h1>CYOA Downloader v7.2.1</h1>
+<p class="subtitle">Desktop tool untuk download, package, dan serve CYOA secara offline — GUI + CLI</p>
+<p>
+<span class="badge badge-green">Python 3.9+</span>
+<span class="badge badge-blue">11,861 lines</span>
+<span class="badge badge-purple">334 functions</span>
+<span class="badge badge-amber">GUI + CLI</span>
+</p>
+
+<div class="toc">
+<strong style="color:var(--fg)">Daftar Isi</strong>
+<a href="#overview">1. Overview & Arsitektur</a>
+<a href="#install">2. Instalasi & Dependensi</a>
+<a href="#gui">3. GUI Layout</a>
+<a href="#modes">4. Mode Download</a>
+<a href="#detection">5. 5-Phase Detection Pipeline</a>
+<a href="#images">6. Image Pipeline A–F</a>
+<a href="#audio">7. Audio & YouTube</a>
+<a href="#deep-scan">8. Deep Scan (BFS Convergence)</a>
+<a href="#offline">9. Offline Viewer Injection</a>
+<a href="#cheat">10. Cheat Overlay</a>
+<a href="#ai">11. AI Assist System</a>
+<a href="#server">12. Local Server</a>
+<a href="#network">13. Network (Proxy, DNS, CF Bypass, BW Throttle)</a>
+<a href="#features">14. Feature Panels</a>
+<a href="#cyoa-mgr">15. CYOA Manager Integration</a>
+<a href="#cli">16. CLI Usage</a>
+<a href="#internals">17. Internals & Architecture</a>
+<a href="#changelog">18. Changelog (dari v7.2.0)</a>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<h2 id="overview">1. Overview & Arsitektur</h2>
+
+<p>CYOA Downloader adalah tool desktop untuk download dan packaging <strong>Interactive CYOA</strong> (Choose Your Own Adventure) dari berbagai hosting. Tool ini mendukung viewer ICC Plus, ICC Remix, cyoap_vue, dan custom React/Vue viewers. Output berupa folder offline yang bisa dibuka langsung di browser tanpa internet.</p>
+
+<h3>Arsitektur High-Level</h3>
+<pre><code>┌─────────────────────────────────────────────────┐
+│                  GUI / CLI                       │
+│  Queue → _worker → run_download (per-URL)       │
+├─────────────────────────────────────────────────┤
+│  Detection Pipeline (5 Phase)                    │
+│  Phase 1: Filename → Phase 2: Regex → Phase 3:  │
+│  Content → Phase 4: Iframes → Phase 5: AI       │
+├─────────────────────────────────────────────────┤
+│  Download Engine                                 │
+│  Image Pipeline A–F │ Audio/YT │ Website DL     │
+├─────────────────────────────────────────────────┤
+│  Deep Scan (BFS) │ Manifest Probe │ AI Scan     │
+├─────────────────────────────────────────────────┤
+│  Offline Viewer Injection (Strategy A/B/C)       │
+│  Cheat Overlay │ Asset Copy │ YouTube Stub       │
+├─────────────────────────────────────────────────┤
+│  Network Layer                                   │
+│  Retry Session │ Proxy │ DNS │ CF Bypass │ BW   │
+└─────────────────────────────────────────────────┘</code></pre>
+
+<h3>5 Classes</h3>
+<table>
+<tr><th>Class</th><th>Methods</th><th>Fungsi</th></tr>
+<tr><td><code>GUILogHandler</code></td><td>2</td><td>Bridge logging → GUI text widget</td></tr>
+<tr><td><code>CYOADownloaderGUI</code></td><td>56</td><td>Main GUI application (tkinter + customtkinter)</td></tr>
+<tr><td><code>WebsiteDownloader</code></td><td>26</td><td>Recursive website download (HTML/CSS/JS/assets)</td></tr>
+<tr><td><code>CYOAHandler</code></td><td>4</td><td>HTTP server handler (nested in _start_server)</td></tr>
+<tr><td><code>_CMDBManager</code></td><td>context</td><td>CYOA Manager SQLite context manager</td></tr>
+</table>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<h2 id="install">2. Instalasi & Dependensi</h2>
+
+<h3>Required</h3>
+<pre><code>pip install requests customtkinter Pillow</code></pre>
+
+<h3>Optional (auto-detected)</h3>
+<table>
+<tr><th>Package</th><th>Fungsi</th><th>Install</th></tr>
+<tr><td><code>cloudscraper</code></td><td>Cloudflare bypass</td><td><code>pip install cloudscraper</code></td></tr>
+<tr><td><code>yt-dlp</code></td><td>YouTube audio download</td><td><code>pip install yt-dlp</code></td></tr>
+<tr><td><code>gallery-dl</code></td><td>Image fallback (Imgur, Pixiv, etc)</td><td><code>pip install gallery-dl</code></td></tr>
+<tr><td><code>plyer</code></td><td>Desktop notifications</td><td><code>pip install plyer</code></td></tr>
+<tr><td><code>browser-cookie3</code></td><td>Auto-import browser cookies</td><td><code>pip install browser-cookie3</code></td></tr>
+<tr><td><code>playwright</code></td><td>Headless browser (JS-rendered pages)</td><td><code>pip install playwright && playwright install</code></td></tr>
+<tr><td><code>openpyxl</code></td><td>Import queue dari .xlsx</td><td><code>pip install openpyxl</code></td></tr>
+<tr><td><code>rarfile</code></td><td>RAR viewer archives</td><td><code>pip install rarfile</code></td></tr>
+<tr><td><code>ffmpeg</code></td><td>Audio conversion (MP3)</td><td>System install (5-layer auto-detect)</td></tr>
+</table>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<h2 id="gui">3. GUI Layout</h2>
+
+<h3>Row Layout</h3>
+<pre><code>┌────────────────────────────────────────────────┐
+│  URL Input  [+ Add]  [📁 Import]  [Mode ▼]    │  ← Input row
+├────────────────────────────────────────────────┤
+│  Row 1: Threads ┊ Wait ┊ Max-img ┊ BW ┊ Proxy │  ← Numerik + Network
+│  Row 2: ☑Fonts ☑Analysis ☑CF ☑YT ☑CYOA ☑AI  │  ← Toggles
+├────────────────────────────────────────────────┤
+│  Output folder: [__________] [Browse]          │
+├────────────────────────────────────────────────┤
+│  [▶ Download]  [Preview]  [0 KB/s ▁▂▃█]       │  ← Action + Speed
+├────────────────────────────────────────────────┤
+│  Pause│Cache│Viewers│Batch Export│Updates│      │
+│  Batch Check│CM Import│🤖 AI ON│Guide│Serve   │  ← Pill buttons
+├────────────────────────────────────────────────┤
+│  Log output (scrollable)                       │
+├────────────────────────────────────────────────┤
+│  Queue list (scrollable rows)                  │
+└────────────────────────────────────────────────┘</code></pre>
+
+<h3>Row 2 Toggles</h3>
+<table>
+<tr><th>Toggle</th><th>Default</th><th>Fungsi</th></tr>
+<tr><td>Fonts</td><td>ON</td><td>Download Google Fonts referenced in project</td></tr>
+<tr><td>Font Analysis</td><td>ON</td><td>Show font analysis report after download</td></tr>
+<tr><td>CF Bypass</td><td>OFF</td><td>Use cloudscraper for Cloudflare-protected sites</td></tr>
+<tr><td>YT Audio</td><td>ON</td><td>Download YouTube audio via yt-dlp</td></tr>
+<tr><td>→ CYOA Mgr</td><td>Auto</td><td>Register downloads in CYOA Manager library</td></tr>
+<tr><td>🤖 AI Assist</td><td>OFF</td><td>Enable AI-assisted detection + asset discovery</td></tr>
+</table>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<h2 id="modes">4. Mode Download</h2>
+
+<table>
+<tr><th>Mode</th><th>Output</th><th>Kapan dipakai</th></tr>
+<tr><td><code>auto</code></td><td>Auto-detect</td><td>Default — probes URL untuk determine tipe</td></tr>
+<tr><td><code>project_json</code></td><td>project.json + images</td><td>Standard ICC Plus/Remix CYOA</td></tr>
+<tr><td><code>zip</code></td><td>ZIP archive</td><td>Output sebagai ZIP</td></tr>
+<tr><td><code>folder</code></td><td>Folder</td><td>Output sebagai folder</td></tr>
+<tr><td><code>website_zip</code></td><td>Website → ZIP</td><td>Download seluruh website kemudian ZIP</td></tr>
+<tr><td><code>website_folder</code></td><td>Website → Folder</td><td>Download seluruh website ke folder</td></tr>
+<tr><td><code>offline_viewer</code></td><td>Viewer + project</td><td>Inject project ke offline viewer</td></tr>
+</table>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<h2 id="detection">5. 5-Phase Detection Pipeline</h2>
+
+<p>Fungsi <code>get_project_source()</code> mencoba 5 strategi berurutan untuk menemukan data project.json:</p>
+
+<div class="flow">
+<span class="flow-step" style="border-color:var(--green)">Phase 1: Filename Candidates</span>
+<span class="flow-arrow">→</span>
+<span class="flow-step" style="border-color:var(--accent)">Phase 2: Regex in HTML</span>
+<span class="flow-arrow">→</span>
+<span class="flow-step" style="border-color:var(--amber)">Phase 3: Content Probe</span>
+<span class="flow-arrow">→</span>
+<span class="flow-step" style="border-color:var(--red)">Phase 4: Iframe Recursion</span>
+<span class="flow-arrow">→</span>
+<span class="flow-step" style="border-color:var(--purple)">Phase 5: AI Detection</span>
+</div>
+
+<h4>Phase 1 — Filename Candidates (60+ URLs)</h4>
+<p><code>build_default_project_candidates()</code> generates candidate URLs berdasarkan URL patterns. Termasuk <code>project.json</code>, <code>project.txt</code>, <code>data.json</code>, subpath variations, dan archive.org patterns. Semua di-HEAD check secara parallel.</p>
+
+<h4>Phase 2 — Regex Extraction</h4>
+<p>Scan HTML source untuk <code>fetch("...")</code>, <code>src="..."</code>, dan script tags yang load project data. Match patterns seperti <code>fetch("./project.json")</code> atau <code>&lt;script src="app.js"&gt;</code>.</p>
+
+<h4>Phase 3 — Content Analysis</h4>
+<p>Download JS bundles dan scan untuk embedded project data. Gunakan <code>extract_embedded_project_from_js()</code> yang mendeteksi balanced-brace JSON objects di dalam minified JS.</p>
+
+<h4>Phase 4 — Iframe Recursion</h4>
+<p>Cari <code>&lt;iframe&gt;</code> tags di HTML dan recursively apply Phase 1-3 ke iframe URLs. Max depth: 4 levels. Handles cyoa.cafe wrapper URLs.</p>
+
+<h4>Phase 5 — AI-Assisted Detection</h4>
+<p>Jika Phase 1-4 gagal DAN AI Assist aktif: kirim HTML (truncated 8KB) ke Claude API. AI menganalisa patterns (fetch, XHR, script tags) dan return candidate URL. Candidate di-verify via GET request.</p>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<h2 id="images">6. Image Pipeline A–F</h2>
+
+<p><code>process_images()</code> mendownload semua image + audio yang direferensikan di project.json. Ada 6 layer fallback:</p>
+
+<table>
+<tr><th>Layer</th><th>Metode</th><th>Kapan dipakai</th></tr>
+<tr><td><span class="badge badge-green">A</span></td><td>Direct GET</td><td>Default — request langsung dengan domain-specific headers</td></tr>
+<tr><td><span class="badge badge-blue">B</span></td><td>Disk Cache</td><td>URL sudah pernah di-download sebelumnya</td></tr>
+<tr><td><span class="badge badge-amber">C</span></td><td>CDN Headers (25+ domain)</td><td>Domain butuh header khusus (Imgur, Imgchest, Catbox, dll)</td></tr>
+<tr><td><span class="badge badge-red">D</span></td><td>Exponential Backoff</td><td>Rate-limited (429) — retry 3× dengan delay 2s→4s→8s</td></tr>
+<tr><td><span class="badge badge-purple">E</span></td><td>Cookie Session</td><td>Site butuh auth cookies (browser-cookie3)</td></tr>
+<tr><td><span class="badge badge-blue">F</span></td><td>gallery-dl</td><td>Imgur, Pixiv, DeviantArt, dll — specialized downloaders</td></tr>
+</table>
+
+<h3>CDN Headers (25+ domains)</h3>
+<p><code>get_headers_for_url()</code> returns domain-specific headers untuk bypass hotlink protection. Termasuk: Imgur, Imgchest, Catbox, Imgbb, PostImages, i.redd.it, Cloudinary, Discord CDN, Google Drive, Dropbox, dan lainnya.</p>
+
+<h3>Image Deduplication</h3>
+<p><code>_check_image_dedup()</code> — SHA256 hash check untuk skip identical files yang sudah didownload di session ini.</p>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<h2 id="audio">7. Audio & YouTube</h2>
+
+<h3>Audio Fields (26 field names)</h3>
+<p><code>_deep_scan_project_assets()</code> walks seluruh JSON tree dan extract audio dari 26+ field names: <code>audio</code>, <code>audioSrc</code>, <code>backgroundMusic</code>, <code>sfx</code>, <code>bgm</code>, <code>voiceover</code>, <code>narration</code>, <code>soundEffect</code>, <code>clickSound</code>, dll.</p>
+
+<h3>YouTube Audio (yt-dlp)</h3>
+<p>Alur: detect <code>bgmId</code> + <code>useAudioURL</code> siblings → classify as YouTube ID or direct URL → download via yt-dlp → convert ke MP3 (ffmpeg) → patch project JSON references.</p>
+
+<h3>ffmpeg 5-Layer Detection</h3>
+<p><code>_find_ffmpeg()</code> mencari ffmpeg di: (1) PATH, (2) bundled binary, (3) yt-dlp's bundled ffmpeg, (4) common install dirs (win32), (5) pyffmpeg package.</p>
+
+<h3>YouTube Stub (Offline)</h3>
+<p>Untuk offline viewer: inject YouTube IFrame API stub yang fire <code>onYouTubeIframeAPI</code> dan <code>onYouTubeIframeAPIReady</code> callbacks tanpa network access.</p>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<h2 id="deep-scan">8. Deep Scan (BFS Convergence)</h2>
+
+<p><code>_deep_scan_and_download_assets()</code> — iterative scanner yang menemukan asset di JS/CSS/HTML yang tidak ada di project.json.</p>
+
+<h3>Alur BFS</h3>
+<div class="flow">
+<span class="flow-step">Manifest Probe</span>
+<span class="flow-arrow">→</span>
+<span class="flow-step">Scan all text files</span>
+<span class="flow-arrow">→</span>
+<span class="flow-step">HEAD check candidates</span>
+<span class="flow-arrow">→</span>
+<span class="flow-step">Download existing</span>
+<span class="flow-arrow">→</span>
+<span class="flow-step">Re-scan new files</span>
+<span class="flow-arrow">→</span>
+<span class="flow-step">Repeat until converged</span>
+<span class="flow-arrow">→</span>
+<span class="flow-step">AI scan round</span>
+</div>
+
+<h3>Manifest Probing (sebelum BFS)</h3>
+<p>Probe 4 common manifest URLs sebelum BFS mulai: <code>.vite/manifest.json</code>, <code>asset-manifest.json</code>, <code>manifest.json</code>, <code>build/asset-manifest.json</code>. Kalau ada, download dan scan → round 1 langsung punya semua chunks.</p>
+
+<h3>Asset Detection Patterns (15 patterns)</h3>
+<table>
+<tr><th>#</th><th>Pattern</th><th>Target</th></tr>
+<tr><td>1</td><td>CSS <code>url()</code> — di SEMUA file (termasuk JS)</td><td>Images, fonts, backgrounds</td></tr>
+<tr><td>2</td><td>CSS <code>image-set()</code></td><td>Responsive images</td></tr>
+<tr><td>3</td><td>String literals <code>"path.ext"</code>, <code>'path.ext'</code>, <code>`path.ext`</code></td><td>Semua assets — termasuk single-quote</td></tr>
+<tr><td>4</td><td>Static ES import <code>from "./file.js"</code></td><td>Module dependencies</td></tr>
+<tr><td>5</td><td>Vite <code>__vite__mapDeps</code> array</td><td>Lazy chunk names</td></tr>
+<tr><td>6</td><td>Dynamic <code>import("./chunk.js")</code></td><td>Code-split chunks</td></tr>
+<tr><td>7</td><td><code>import/require("asset.ext")</code></td><td>Bundled assets</td></tr>
+<tr><td>8</td><td>Bare filenames (no path separator)</td><td>Audio files + images di common subdirs</td></tr>
+<tr><td>9</td><td>HTML <code>srcset</code> attribute</td><td>Responsive images</td></tr>
+<tr><td>10</td><td><code>data-src</code>, <code>data-lazy</code>, <code>poster</code>, <code>data-bg</code></td><td>Lazy-loaded images, video posters</td></tr>
+<tr><td>11</td><td><code>&lt;source src&gt;</code></td><td>HTML5 media elements</td></tr>
+<tr><td>12</td><td><code>&lt;link rel="preload"&gt;</code></td><td>Preloaded assets</td></tr>
+<tr><td>13</td><td>SVG <code>&lt;image href&gt;</code></td><td>Raster images in SVGs</td></tr>
+<tr><td>14</td><td>JSON manifest recursive walk</td><td>Vite/Webpack/CRA manifests</td></tr>
+<tr><td>15</td><td>Service Worker <code>__precacheManifest</code></td><td>SW pre-cached assets</td></tr>
+</table>
+
+<h3>Supported Extensions</h3>
+<p>Images: <code>.webp .avif .png .jpg .jpeg .gif .svg .ico .bmp .tiff</code><br>
+Audio: <code>.mp3 .ogg .wav .m4a .aac .flac</code><br>
+Video: <code>.mp4 .webm .mov</code><br>
+Fonts: <code>.woff2 .woff .ttf .otf .eot</code><br>
+Data: <code>.json .css</code><br>
+Code: <code>.js .mjs .cjs</code></p>
+
+<h3>Project JSON Deep Walker</h3>
+<p><code>_deep_scan_project_assets()</code> juga punya 4 pattern tambahan untuk extract asset dari DALAM project.json:</p>
+<table>
+<tr><th>Pattern</th><th>Contoh</th></tr>
+<tr><td>Relative path catch</td><td><code>"gallery": "images/hero.png"</code> (key bukan di IMAGE_FIELDS)</td></tr>
+<tr><td>HTML <code>&lt;img&gt;</code> in text</td><td><code>"text": "Choose: &lt;img src='dragon.webp'&gt;"</code></td></tr>
+<tr><td>Markdown <code>![](url)</code></td><td><code>"desc": "![hero](hero.png)"</code></td></tr>
+<tr><td>CSS <code>url()</code> in styles</td><td><code>"style": "background: url(bg.webp)"</code></td></tr>
+</table>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<h2 id="offline">9. Offline Viewer Injection</h2>
+
+<p><code>_apply_offline_viewer()</code> — 3-strategy system untuk inject project data ke offline viewer:</p>
+
+<h3>Strategy A — Template Markers (ICC Remix)</h3>
+<p>ICC Remix punya <code>{{ICC_PROJECT_DATA_SCRIPT}}</code> placeholder di <code>index.html</code>. Replace dengan <code>&lt;script&gt;</code> tag berisi project JSON.</p>
+
+<h3>Strategy B — Balanced-Brace Injection (ICC Plus)</h3>
+<p>ICC Plus app.js punya komentar <code>/*! Delete and replace this part...*/</code> diikuti default state object. Inject project JSON menggantikan default state. Regex: <code>_ICC_MARKER_RE</code> (module-level).</p>
+
+<h3>Strategy C — Fetch Interceptor (Fallback)</h3>
+<p>Inject script ke <code>&lt;head&gt;</code> yang intercept <code>fetch()</code> dan <code>XMLHttpRequest</code>. Ketika viewer request <code>project.json</code>, interceptor return injected data. Works untuk semua viewer types.</p>
+
+<h3>Viewer Registry</h3>
+<p>Viewers disimpan di <code>~/.cyoa_downloader/offline_viewers/</code> dengan manifest <code>viewers.json</code>. Auto-register bundled viewers saat startup. Scoring system memilih viewer terbaik berdasarkan: version match (+10), type match (+8), LocalViewer bonus (+5), priority tier (+3).</p>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<h2 id="cheat">10. Cheat Overlay</h2>
+<p>Injected ke semua offline viewer folders. Gear button (⚙) di pojok kanan bawah → panel berisi:</p>
+<p>Point Editor — ubah point values langsung. Requirement Remover — hapus semua requirement checks. Select All — auto-select semua choices. Toggle via GUI button atau otomatis saat offline viewer mode.</p>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<h2 id="ai">11. AI Assist System</h2>
+
+<p>Menggunakan Anthropic Claude API (model: <code>claude-sonnet-4-20250514</code>). Toggle ON/OFF di row2 dan settings panel. API key disimpan di <code>settings.json</code>.</p>
+
+<h3>4 Fungsi AI</h3>
+<table>
+<tr><th>Fungsi</th><th>Tugas</th><th>Kapan dipanggil</th></tr>
+<tr><td><code>_ai_call()</code></td><td>Low-level API wrapper</td><td>Dipanggil oleh 3 fungsi lainnya</td></tr>
+<tr><td><code>_ai_detect_project_json()</code></td><td>Phase 5: cari project.json URL</td><td><code>get_project_source()</code> setelah Phase 4 gagal</td></tr>
+<tr><td><code>_ai_analyze_js_for_assets()</code></td><td>Reverse-engineer JS bundles → extract asset URLs</td><td><code>_deep_scan_and_download_assets()</code> setelah BFS converge</td></tr>
+<tr><td><code>_ai_analyze_viewer_logic()</code></td><td>Diagnosa arsitektur viewer</td><td><code>run_download()</code> saat project detection gagal total</td></tr>
+</table>
+
+<h3>Alur ai_api_key</h3>
+<pre><code>Settings GUI → _ai_api_key + _ai_enabled toggle
+  → _worker (only passes key if toggle ON)
+    → run_download(ai_api_key=...)
+      ├→ get_project_source(ai_api_key=...)    → Phase 5
+      ├→ _ai_analyze_viewer_logic()            → Diagnostic on fail
+      ├→ WebsiteDownloader(ai_api_key=...)     → deep_scan AI round
+      └→ _deep_scan_and_download_assets(ai_api_key=...) → AI round</code></pre>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<h2 id="server">12. Local Server</h2>
+
+<p>Built-in HTTP server untuk serve downloaded CYOAs. Diakses via pill button "⚡ Serve".</p>
+
+<table>
+<tr><th>Feature</th><th>Detail</th></tr>
+<tr><td>Engine</td><td><code>ThreadingHTTPServer</code> — concurrent request handling</td></tr>
+<tr><td>CORS</td><td><code>Access-Control-Allow-Origin: *</code> + preflight handler</td></tr>
+<tr><td>Caching</td><td>Assets: <code>max-age=3600, immutable</code>; HTML: <code>no-cache</code></td></tr>
+<tr><td>Compression</td><td>Gzip level 4 untuk JS/CSS/HTML/JSON/SVG</td></tr>
+<tr><td>MIME Types</td><td>15+ tambahan: .webp, .avif, .woff2, .mjs, .webm, dll</td></tr>
+<tr><td>Auto-open</td><td>Browser dibuka otomatis ke <code>http://localhost:PORT</code></td></tr>
+</table>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<h2 id="network">13. Network Layer</h2>
+
+<h3>Proxy</h3>
+<p>Konfigurasi via GUI input atau <code>--proxy</code> flag. Format: <code>http://127.0.0.1:7890</code> atau <code>socks5://...</code>. Otomatis skip proxy untuk localhost/bare IPs. Rebuild shared session saat proxy berubah.</p>
+
+<h3>Custom DNS</h3>
+<p><code>_set_active_dns()</code> — patch <code>socket.getaddrinfo</code> globally. Resolves via UDP ke DNS server yang ditentukan (e.g., <code>1.1.1.1</code>, <code>8.8.8.8</code>). Berguna untuk bypass ISP blocking.</p>
+
+<h3>CF Bypass (Cloudflare)</h3>
+<p>Toggle di row2. Menggunakan <code>cloudscraper</code> library yang auto-solve JS challenges. Shared session terpisah (<code>_shared_session_cf</code>) dari regular session.</p>
+
+<h3>Bandwidth Throttle</h3>
+<p><code>_throttle_bandwidth()</code> — sliding window rate limiter. Set via GUI input (KB/s) atau <code>--bandwidth</code> flag. 0 = unlimited. Juga serves sebagai hook point untuk speed graph tracking.</p>
+
+<h3>Domain Rate Limiter</h3>
+<p><code>_domain_throttle()</code> — per-domain minimum interval (200ms default). Exponential backoff on 429/5xx. Auto-halve backoff on success. Prevents slamming individual servers.</p>
+
+<h3>Retry Session</h3>
+<p><code>create_retry_session()</code> — requests.Session dengan retry strategy: 3 retries, backoff factor 0.5, retry on 429/500/502/503/504.</p>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<h2 id="features">14. Feature Panels (Row B Pills)</h2>
+
+<table>
+<tr><th>Pill</th><th>Fungsi</th></tr>
+<tr><td>⏸ Pause</td><td>Pause/resume download via <code>threading.Event</code></td></tr>
+<tr><td>💾 Cache</td><td>Cache stats + clear button. Shows disk usage dan file count.</td></tr>
+<tr><td>📦 Viewers</td><td>Manage offline viewer registry — register, unregister, view metadata</td></tr>
+<tr><td>📦 Batch Export</td><td>Export multiple downloaded CYOAs ke ZIP/folder</td></tr>
+<tr><td>🔄 Updates</td><td>Auto-update checker — GitHub Releases API comparison</td></tr>
+<tr><td>📥 Batch Check</td><td>Batch update checker — HEAD check previously downloaded URLs for changes</td></tr>
+<tr><td>📚 CM Import</td><td>Browse CYOA Manager library → select + queue for re-download</td></tr>
+<tr><td>🤖 AI ON/OFF</td><td>AI settings panel — API key, toggle, capability description</td></tr>
+<tr><td>📖 Guide</td><td>Feature overview + quick-reference guide</td></tr>
+<tr><td>⚡ Serve</td><td>Start/stop local HTTP server</td></tr>
+</table>
+
+<h3>Speed Graph</h3>
+<p>Canvas 110×32px di sebelah progress bar. Realtime speed tracking via <code>_gui_speed_cb</code> global callback yang dipanggil dari <code>_throttle_bandwidth()</code>. Rolling 60-second history, polygon fill + smooth line, auto-scale peak, update setiap 1 detik.</p>
+
+<h3>Desktop Notifications</h3>
+<p><code>_send_desktop_notification()</code> — plyer-based notification saat download selesai atau error. Best-effort, non-blocking.</p>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<h2 id="cyoa-mgr">15. CYOA Manager Integration</h2>
+
+<h3>Export (Auto)</h3>
+<p><code>add_to_cyoa_manager()</code> — setelah download sukses, register project di CYOA Manager's <code>library.sqlite3</code>. Map download mode ke viewer preference. Auto-detect DB path di common locations.</p>
+
+<h3>Import (CM Import pill)</h3>
+<p><code>_list_cyoa_manager_projects()</code> — read <code>library_projects</code> table → <code>_import_from_cyoa_manager_panel()</code> shows searchable list dengan checkbox → queue selected URLs for download.</p>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<h2 id="cli">16. CLI Usage</h2>
+
+<pre><code># Basic download
+python cyoa_downloader_v7_2_1.py "https://example.com/cyoa/"
+
+# Batch download dari file
+python cyoa_downloader_v7_2_1.py --batch urls.txt
+
+# Website mode
+python cyoa_downloader_v7_2_1.py --website "https://example.com/cyoa/"
+
+# Dengan opsi
+python cyoa_downloader_v7_2_1.py "URL" \
+    --mode offline_viewer \
+    --output ./downloads \
+    --threads 8 \
+    --wait 500 \
+    --proxy http://127.0.0.1:7890 \
+    --dns 1.1.1.1 \
+    --bandwidth 1024 \
+    --cf-bypass \
+    --no-ytdlp \
+    --no-fonts</code></pre>
+
+<h3>CLI Flags</h3>
+<table>
+<tr><th>Flag</th><th>Default</th><th>Deskripsi</th></tr>
+<tr><td><code>--mode</code></td><td>auto</td><td>Download mode</td></tr>
+<tr><td><code>--output</code></td><td>cwd</td><td>Output directory</td></tr>
+<tr><td><code>--threads</code></td><td>6</td><td>Max concurrent downloads</td></tr>
+<tr><td><code>--wait</code></td><td>250</td><td>Wait between requests (ms)</td></tr>
+<tr><td><code>--max-images</code></td><td>0 (no limit)</td><td>Max images to download</td></tr>
+<tr><td><code>--bandwidth</code></td><td>0 (unlimited)</td><td>Bandwidth limit (KB/s)</td></tr>
+<tr><td><code>--proxy</code></td><td>none</td><td>HTTP/SOCKS proxy</td></tr>
+<tr><td><code>--dns</code></td><td>system</td><td>Custom DNS server</td></tr>
+<tr><td><code>--cf-bypass</code></td><td>off</td><td>Enable Cloudflare bypass</td></tr>
+<tr><td><code>--batch</code></td><td>none</td><td>Batch file (txt/csv/xlsx)</td></tr>
+<tr><td><code>--website</code></td><td>off</td><td>Force website download mode</td></tr>
+<tr><td><code>--no-ytdlp</code></td><td>on</td><td>Disable yt-dlp</td></tr>
+<tr><td><code>--no-fonts</code></td><td>on</td><td>Skip font download</td></tr>
+</table>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<h2 id="internals">17. Internals & Architecture</h2>
+
+<h3>File Layout</h3>
+<pre><code>~/.cyoa_downloader/
+├── settings.json          ← AI key, toggles, CYOA Manager prefs
+├── history.json           ← Download history (URL → timestamp, hash)
+├── image_cache/           ← Disk cache untuk images
+├── offline_viewers/       ← Registered viewer ZIPs/RARs
+│   ├── viewers.json       ← Viewer registry manifest
+│   ├── ICC_Plus_Viewer_v2_9_1_local.zip
+│   ├── ICCPlus_LocalViewer.zip
+│   ├── ICC_Remix.zip
+│   └── ...
+└── logs/                  ← Rotating log files</code></pre>
+
+<h3>Threading Model</h3>
+<p>GUI thread (tkinter mainloop) + worker thread (download). Worker spawns ThreadPoolExecutor untuk parallel image/asset downloads. Communication via <code>root.after()</code> callbacks. Pause via <code>threading.Event</code>.</p>
+
+<h3>Session Management</h3>
+<p><code>_get_shared_session(use_cf=False)</code> — lazy-creates dan caches 2 session types: regular (<code>_shared_session</code>) dan cloudscraper (<code>_shared_session_cf</code>). Reset to None saat proxy/DNS berubah → re-created on next use.</p>
+
+<h3>Key Constants</h3>
+<table>
+<tr><th>Constant</th><th>Value</th></tr>
+<tr><td><code>DEFAULT_MAX_WORKERS</code></td><td>6</td></tr>
+<tr><td><code>DEFAULT_WAIT_TIME</code></td><td>250ms</td></tr>
+<tr><td><code>IMAGE_FIELDS</code></td><td>10 field names</td></tr>
+<tr><td><code>AUDIO_FIELDS</code></td><td>26 field names</td></tr>
+<tr><td><code>BGMLIST_FIELDS</code></td><td>7 field names</td></tr>
+<tr><td><code>VIEWER_TYPE_HINTS</code></td><td>5 viewer types × multi hints</td></tr>
+<tr><td>Deep scan max rounds</td><td>6</td></tr>
+<tr><td>Phase 4 max recursion</td><td>4</td></tr>
+</table>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<h2 id="changelog">18. Changelog (dari v7.2.0 → v7.2.1)</h2>
+
+<h3>🔴 Critical Bug Fixes</h3>
+<p><code>NameError: _ICC_MARKER_RE</code> — offline viewer injection crash untuk semua non-Remix viewers. Regex dipindah ke module level. <code>NameError: _get_shared_session</code> — CF Bypass mode crash. Fungsi baru dibuat dengan lazy session creation.</p>
+
+<h3>🧹 Dead Code Removal</h3>
+<p>354 lines dead code dihapus dari 6 lokasi (str_replace collision artifacts dari sesi sebelumnya).</p>
+
+<h3>🆕 New Features</h3>
+<table>
+<tr><th>Feature</th><th>Detail</th></tr>
+<tr><td>AI Assist System</td><td>4 fungsi AI, toggle ON/OFF, settings panel, wired ke 3 pipeline points</td></tr>
+<tr><td>CYOA Manager Import</td><td>Browse + queue dari CYOA Manager library (SQLite read)</td></tr>
+<tr><td>Speed Graph</td><td>Realtime 60s rolling canvas, KB/s label, wired via _throttle_bandwidth</td></tr>
+<tr><td>Asset Detection +15 patterns</td><td>Single-quote, video exts, image-set, srcset, SVG, manifests, SW precache</td></tr>
+<tr><td>Project JSON +4 patterns</td><td>Relative path catch, HTML-in-JSON, Markdown, CSS-in-JSON</td></tr>
+<tr><td>Expanded AUDIO_FIELDS</td><td>+15 field names (sfx, bgm, voiceover, narration, etc)</td></tr>
+<tr><td>Manifest Probing</td><td>Auto-probe 4 manifest URLs sebelum BFS starts</td></tr>
+</table>
+
+<h3>🔧 Server Improvements</h3>
+<p>ThreadingHTTPServer (concurrent), gzip compression, asset caching (max-age=3600, immutable), 15+ MIME types, CORS preflight handler, silent logging.</p>
+
+<h3>📊 Stats</h3>
+<table>
+<tr><td>Lines</td><td>10,895 → 11,861 (+966)</td></tr>
+<tr><td>Functions</td><td>296 → 334 (+38)</td></tr>
+<tr><td>Dead code removed</td><td>354 lines</td></tr>
+<tr><td>Net new code</td><td>~1,320 lines</td></tr>
+</table>
+
+<hr style="margin:48px 0 24px;border:none;border-top:1px solid var(--border)">
+<p style="text-align:center;color:var(--muted);font-size:0.85rem">
+CYOA Downloader v7.2.1 — Generated May 2026
+</p>
+
+</body>
+</html>
