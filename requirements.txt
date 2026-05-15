@@ -1,0 +1,18 @@
+# Core dependencies
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+customtkinter>=5.2.0
+tldextract>=5.1.0
+Pillow>=10.0.0
+
+# Optional but recommended features
+cloudscraper>=1.2.71
+yt-dlp>=2024.1.0
+plyer>=2.1.0
+rarfile>=4.1
+openpyxl>=3.1.2
+
+# Optional advanced fallback
+# Install only if you need browser based detection
+# playwright>=1.40.0
+# selenium>=4.15.0
