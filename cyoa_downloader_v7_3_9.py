@@ -1,5 +1,5 @@
 """
-CYOA Downloader — v7.3.3 AI provider options
+CYOA Downloader — v7.3.9 AI provider options
 Features:
   • Parallel image downloads (ThreadPoolExecutor)
   • All image fields: image, backgroundImage, rowBackgroundImage, objectBackgroundImage
