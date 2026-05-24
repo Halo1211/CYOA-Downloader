@@ -1,199 +1,116 @@
-# CYOA Downloader v7.2.1
+# CYOA Downloader v7.3.9
 
-CYOA Downloader is a Python desktop tool for downloading, packaging, and preserving Interactive CYOA projects for offline playback.
+CYOA Downloader is a Python GUI and CLI tool for downloading, packaging, and preserving Interactive CYOA projects for offline playback.
 
-It supports multiple Interactive CYOA formats and viewer engines, including ICC Plus, ICC Remix, cyoap_vue, and custom React or Vue based CYOA pages. The tool can download project data, images, audio, fonts, scripts, styles, and full website assets, then package everything into offline friendly formats.
+It supports ICC Plus, ICC Remix, ICC Original style projects, cyoap_vue projects, CYOA Manager workflows, and many custom React or Vue based CYOA websites when their project data and assets can be detected.
 
-> This project is pure vibe code with Claude AI.  
-> It was built, expanded, debugged, and documented through AI assisted development rather than a traditional software engineering workflow.
+> This project is experimental, AI-assisted, and feature rich. Use it carefully. Keep backups. Read `cyoa_downloader.log` and `backup_report.txt` when something breaks.
 
-## What This Tool Does
+## Table of contents
 
-CYOA Downloader helps users archive Interactive CYOAs so they can be opened later without relying on the original website staying online.
+- [What this tool does](#what-this-tool-does)
+- [Main features](#main-features)
+- [Supported output modes](#supported-output-modes)
+- [Installation](#installation)
+- [Optional system dependencies](#optional-system-dependencies)
+- [Quick start](#quick-start)
+- [CLI usage](#cli-usage)
+- [Batch download](#batch-download)
+- [Cloudflare and FlareSolverr](#cloudflare-and-flaresolverr)
+- [BebasDNS and DNS options](#bebasdns-and-dns-options)
+- [HTTP/2 support](#http2-support)
+- [AI Assist](#ai-assist)
+- [gallery-dl fallback](#gallery-dl-fallback)
+- [Local preview server](#local-preview-server)
+- [Reports and logs](#reports-and-logs)
+- [Troubleshooting](#troubleshooting)
+- [Recommended repository structure](#recommended-repository-structure)
+- [Known limitations](#known-limitations)
+- [Ethical use](#ethical-use)
+- [License](#license)
+
+## What this tool does
+
+CYOA Downloader helps archive Interactive CYOA projects so they can be opened later without depending on the original website staying online.
 
 It can:
 
-- Download Interactive CYOA projects from direct URLs
-- Resolve cyoa.cafe iframe links automatically
-- Handle archive.org CYOA catalog redirects
-- Detect ICC compatible project JSON files
-- Download images, audio, fonts, scripts, CSS, and site assets
-- Package projects into multiple offline formats
-- Create website folders that can be opened locally
-- Inject projects into offline viewer packages
-- Import downloaded projects into CYOA Manager
-- Run from either GUI or CLI
-- Process single URLs or batch queues
+- Download Interactive CYOA projects from direct URLs.
+- Resolve many `cyoa.cafe` links.
+- Detect ICC compatible `project.json`, `project.txt`, or `project.zip` files.
+- Download project images, audio, fonts, scripts, styles, and website assets.
+- Package projects into embedded JSON, ZIP, website folder, website ZIP, or both formats.
+- Download cyoap_vue projects through `dist/platform.json` and node files.
+- Inject downloaded data into compatible offline viewer packages.
+- Import downloaded projects into CYOA Manager when its SQLite database is available.
+- Run from a desktop GUI or CLI.
+- Process single URLs or batch queue files.
+- Run a local no-cache preview server for browser playback.
 
-## Main Features
+## Main features
 
-### Multiple Download Modes
+### Download and packaging
 
-CYOA Downloader supports several output modes:
+- Website Folder and Website ZIP output.
+- Embedded JSON output with base64 image embedding.
+- ZIP output with `project.json` plus asset folders.
+- Both mode for embedded JSON plus ZIP.
+- Pure Website mode for custom sites where project JSON is not available.
+- Dedicated cyoap_vue detection and backup mode.
+- Offline viewer injection for supported viewer packages.
 
-| Mode | Description |
-|---|---|
-| Website Folder | Downloads the full site with viewer files and assets |
-| Website ZIP | Same as Website Folder, but compressed into a ZIP archive |
-| Embedded JSON | Creates a single JSON file with base64 embedded images |
-| ZIP Archive | Saves `project.json` with a separate `images/` folder |
-| Both | Creates both Embedded JSON and ZIP output |
-| cyoap_vue Folder | Downloads cyoap_vue projects using `dist/platform.json` and node files |
-| Offline Viewer Folder | Injects a downloaded project into a compatible offline viewer |
+### Asset detection
 
-### Supported Sources
+The downloader scans for:
 
-The tool supports:
+- Choice images.
+- Background images.
+- Row and object background images.
+- Icons, avatars, portraits, thumbnails, and cover images.
+- Markdown image links.
+- HTML image tags inside JSON fields.
+- Relative and absolute asset paths.
+- Audio files, background music, and sound effects.
+- CSS referenced images and fonts.
+- JavaScript referenced static assets during website mode and deep scan.
 
-- Direct Interactive CYOA URLs
-- Neocities pages
-- Netlify pages
-- Vercel pages
-- GitHub Pages
-- cyoa.cafe links
-- archive.org CYOA catalog links
-- Sites that expose an ICC compatible `project.json`
-- cyoap_vue based CYOA projects
-- Custom React or Vue based CYOA websites when assets can be detected
+### Network and recovery helpers
 
-### Asset Detection
+- Proxy support.
+- BebasDNS DNS-over-HTTPS presets.
+- Custom DNS-over-HTTPS endpoint support.
+- HTTP/2 deep-scan support through `httpx[h2]`.
+- Cloudflare modes: `off`, `auto`, `cloudscraper`, and `flaresolverr`.
+- Optional `gallery-dl` fallback for supported gallery or post URLs.
+- Optional AI Assist for difficult project detection and recovery.
 
-The downloader scans for many types of assets, including:
+### GUI features
 
-- Main choice images
-- Background images
-- Row background images
-- Object background images
-- Icons
-- Avatars
-- Portraits
-- Thumbnails
-- Cover images
-- Audio files
-- Background music
-- Sound effects
-- Fonts
-- CSS referenced assets
-- Markdown image links
-- HTML image tags inside JSON fields
-- Relative asset paths inside project data
+- Dark and light theme.
+- Indonesian and English UI toggle.
+- Queue and batch support.
+- Download history.
+- Bandwidth limit.
+- Local preview server.
+- Feature guide panel.
+- CYOA Manager integration.
+- Offline Viewer Manager.
+- Cloudflare and FlareSolverr configuration panel.
+- AI Assist configuration panel.
 
-### Offline Viewer Support
+## Supported output modes
 
-The tool can inject downloaded CYOA data into offline viewer packages.
-
-Supported viewer targets include:
-
-- ICC Plus
-- ICC Remix
-- ICC Original compatible viewers
-- New Viewer builds
-- Custom offline viewer ZIP packages
-
-The offline viewer system attempts multiple injection strategies, including template replacement, marker based injection, and fetch interception.
-
-### GUI and CLI
-
-You can use the tool in two ways:
-
-- GUI mode for normal users
-- CLI mode for automation, scripts, or batch workflows
-
-Running the script without arguments opens the GUI by default.
-
-## Installation
-
-### Requirements
-
-- Python 3.9 or newer
-- Windows 10 or newer, macOS, or Linux
-- Internet connection for downloading CYOA assets
-
-Tested mainly with Python 3.10 to Python 3.12.
-
-## Required Python Packages
-
-Install the required dependencies:
-
-```bash
-pip install requests beautifulsoup4 customtkinter tldextract Pillow
-```
-
-## Optional Python Packages
-
-These packages unlock extra features:
-
-```bash
-pip install cloudscraper yt-dlp plyer rarfile openpyxl
-```
-
-| Package | Feature |
-|---|---|
-| cloudscraper | Helps with Cloudflare protected sites |
-| yt-dlp | Downloads YouTube or external audio when supported |
-| plyer | Desktop notifications |
-| rarfile | Supports RAR based offline viewer packages |
-| openpyxl | Imports batch URLs from XLSX files |
-| playwright or selenium | Optional browser based fallback |
-
-## Optional System Dependencies
-
-### FFmpeg
-
-Required if you want `yt-dlp` to convert downloaded audio.
-
-Install FFmpeg:
-
-```bash
-# Windows
-winget install ffmpeg
-
-# macOS
-brew install ffmpeg
-
-# Ubuntu or Debian
-sudo apt install ffmpeg
-```
-
-### unrar
-
-Required only if you want to use RAR based offline viewer packages.
-
-```bash
-# macOS
-brew install unrar
-
-# Ubuntu or Debian
-sudo apt install unrar
-```
-
-## How to Run
-
-### Start the GUI
-
-```bash
-python cyoa_downloader_v7_2_1.py
-```
-
-The GUI will open automatically.
-
-### Use CLI Mode
-
-```bash
-python cyoa_downloader_v7_2_1.py --url "https://example.com/cyoa/" --output ./downloads
-```
-
-## Basic GUI Usage
-
-1. Open the script:
-
-```bash
-python cyoa_downloader_v7_2_1.py
-```
-
-2. Paste the CYOA URL into the URL field.
-
-3. Choose a download mode.
+| Mode | Best for | Output |
+|---|---|---|
+| Embedded JSON | Single-file backup | `.json` with base64 images |
+| ZIP | Project data plus asset folder | `.zip` with `project.json` and assets |
+| Both | Maximum project backup | Embedded JSON plus ZIP |
+| Website ZIP | Full website backup as archive | `.zip` |
+| Website Folder | Most reliable offline playback | Folder with site files and assets |
+| Pure Website ZIP | Custom sites without project JSON | `.zip` |
+| Pure Website Folder | Custom sites for local preview | Folder |
+| cyoap_vue ZIP | cyoap_vue project backup | `.zip` |
+| cyoap_vue Folder | cyoap_vue project preview | Folder |
 
 Recommended mode for most users:
 
@@ -201,134 +118,299 @@ Recommended mode for most users:
 Website Folder
 ```
 
-4. Choose the output folder.
+Use the local preview server if the project does not work through `file://`.
 
-5. Click Download.
+## Installation
 
-6. Open the generated folder or file after the process finishes.
+### Requirements
 
-## Recommended Download Modes
+- Python 3.9 or newer.
+- Windows 10 or newer, macOS, or Linux.
+- Internet connection for downloading project files and assets.
 
-### Best General Option
+Tested mainly with Python 3.10 to 3.12.
 
-Use:
+### Clone the repository
+
+```bash
+git clone https://github.com/Halo1211/CYOA-Downloader.git
+cd CYOA-Downloader
+```
+
+### Create a virtual environment
+
+Windows PowerShell:
+
+```powershell
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+```
+
+Windows CMD:
+
+```bat
+py -m venv .venv
+.venv\Scripts\activate.bat
+python -m pip install --upgrade pip
+```
+
+macOS or Linux:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+```
+
+### Install dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+If you only want the minimal GUI and normal downloader, install the core packages manually:
+
+```bash
+pip install requests beautifulsoup4 customtkinter tldextract Pillow json5
+```
+
+## Optional system dependencies
+
+### FFmpeg
+
+Required for some `yt-dlp` audio workflows.
+
+Windows:
+
+```powershell
+winget install ffmpeg
+```
+
+macOS:
+
+```bash
+brew install ffmpeg
+```
+
+Ubuntu or Debian:
+
+```bash
+sudo apt install ffmpeg
+```
+
+### unrar
+
+Required only for RAR based offline viewer packages.
+
+macOS:
+
+```bash
+brew install unrar
+```
+
+Ubuntu or Debian:
+
+```bash
+sudo apt install unrar
+```
+
+Windows users can install WinRAR or another `unrar` compatible tool.
+
+### FlareSolverr
+
+Required only if you want browser based Cloudflare solving.
+
+Docker:
+
+```bash
+docker run -d --name=flaresolverr -p 8191:8191 -e LOG_LEVEL=info --restart unless-stopped ghcr.io/flaresolverr/flaresolverr:latest
+```
+
+Windows without Docker:
+
+1. Download the Windows x64 release from the FlareSolverr releases page.
+2. Extract it to a folder such as `C:\Tools\FlareSolverr`.
+3. Run `flaresolverr.exe`.
+4. Use this API endpoint in the app:
 
 ```text
-Website Folder
+http://localhost:8191/v1
 ```
 
-This keeps the CYOA closest to the original website and is usually the safest choice for offline playback.
+### Ollama
 
-### Best for Sharing Project Data
+Required only if you want local AI Assist.
 
-Use:
+Install Ollama, then pull a model:
+
+```bash
+ollama pull llama3.1
+```
+
+Default Ollama URL:
 
 ```text
-ZIP
+http://localhost:11434
 ```
 
-This creates a smaller package with `project.json` and an `images/` folder.
+## Quick start
 
-### Best for Single File Backup
+### Start the GUI
 
-Use:
+```bash
+python cyoa_downloader_v7_3_9_no_broken_report.py
+```
+
+The GUI opens automatically when you run the script without arguments.
+
+### Basic GUI workflow
+
+1. Paste the CYOA URL.
+2. Choose the output folder.
+3. Choose a mode.
+4. Use `Website Folder` for the safest offline playback.
+5. Click `Download`.
+6. Use `Serve` if the output does not work through `file://`.
+
+## CLI usage
+
+### Download with default embedded JSON output
+
+```bash
+python cyoa_downloader_v7_3_9_no_broken_report.py --url "https://example.com/cyoa/" --output ./downloads
+```
+
+### Website Folder output
+
+```bash
+python cyoa_downloader_v7_3_9_no_broken_report.py --url "https://example.com/cyoa/" --output ./downloads --website-folder
+```
+
+### Website ZIP output
+
+```bash
+python cyoa_downloader_v7_3_9_no_broken_report.py --url "https://example.com/cyoa/" --output ./downloads --website
+```
+
+### ZIP output
+
+```bash
+python cyoa_downloader_v7_3_9_no_broken_report.py --url "https://example.com/cyoa/" --output ./downloads --zip
+```
+
+### Both embedded JSON and ZIP
+
+```bash
+python cyoa_downloader_v7_3_9_no_broken_report.py --url "https://example.com/cyoa/" --output ./downloads --both
+```
+
+### Pure Website Folder
+
+```bash
+python cyoa_downloader_v7_3_9_no_broken_report.py --url "https://example.com/custom-cyoa/" --output ./downloads --pure-website-folder
+```
+
+### cyoap_vue Folder
+
+```bash
+python cyoa_downloader_v7_3_9_no_broken_report.py --url "https://example.com/cyoa/" --output ./downloads --cyoap-vue-folder
+```
+
+### Serve the result after download
+
+```bash
+python cyoa_downloader_v7_3_9_no_broken_report.py --url "https://example.com/cyoa/" --output ./downloads --website-folder --serve
+```
+
+`--serve-port 0` auto-picks a fresh port. This is the default.
+
+## CLI option overview
+
+Common options:
 
 ```text
-Embedded JSON
+-u, --url URL                      CYOA URL
+-o, --output DIR                   Output directory
+-L, --list FILE_OR_URL             Batch input source
+-z, --zip                          ZIP mode
+-b, --both                         Embedded JSON plus ZIP
+-W, --website                      Website ZIP
+--website-folder                   Website Folder
+--pure-website                     Pure Website ZIP
+--pure-website-folder              Pure Website Folder
+--cyoap-vue                        Probe cyoap_vue before standard detection
+--cyoap-vue-website                Force cyoap_vue ZIP
+--cyoap-vue-folder                 Force cyoap_vue Folder
+-f, --fonts                        Download and localize fonts
+-a, --analyse-fonts                Font analysis only
+-t, --threads N                    Parallel workers
+-w, --wait-time N                  Wait time for browser fallback
+--serve                            Start local preview server
+--serve-port N                     Local server port. 0 means auto
+--language id|en                   UI or CLI language preference
 ```
 
-This stores images as base64 inside one JSON file. It can be large, but it is easy to keep as a single backup file.
-
-### Best for Maximum Backup
-
-Use:
+Network options:
 
 ```text
-Both
+--proxy URL                        Manual proxy URL
+--proxy-mode inherit_env|manual|disabled
+--dns IP_OR_DOH_URL                Custom DNS or DoH resolver
+--bebasdns default|security|unfiltered|family
+--http2 / --no-http2               Enable or disable HTTP/2 deep scan
+--bandwidth KBPS                   Bandwidth limit. 0 means unlimited
 ```
 
-This creates both Embedded JSON and ZIP output.
-
-### Best for cyoap_vue Projects
-
-Use:
+Cloudflare options:
 
 ```text
-cyoap_vue Folder
+--cloudflare off|auto|cloudscraper|flaresolverr
+--cf-bypass                        Legacy alias for cloudscraper
+--flaresolverr-url URL             Default: http://localhost:8191/v1
+--flaresolverr-session temporary|reuse-domain|manual
+--flaresolverr-timeout SECONDS
+--flaresolverr-wait SECONDS
+--flaresolverr-proxy inherit|none
+--flaresolverr-test
 ```
 
-This mode downloads `dist/platform.json`, `dist/nodes/list.json`, node files, and detected assets.
+AI options:
 
-## CLI Examples
-
-### Download with Default Settings
-
-```bash
-python cyoa_downloader_v7_2_1.py --url "https://example.com/cyoa/" --output ./downloads
+```text
+--ai-provider anthropic|openai|gemini|ollama
+--ai-key KEY                       Per-run key only. Not saved
+--ai-key-storage session|env|keyring|plain
+--ai-model MODEL
+--ollama-url URL
+--ai-mode off|diagnostics|auto_fallback|aggressive_recovery
+--ai-max-calls N
+--ai-max-html-chars N
+--ai-max-js-chars N
+--ai-clear-key
 ```
 
-### Save as Embedded JSON
+gallery-dl options:
 
-```bash
-python cyoa_downloader_v7_2_1.py --url "https://example.com/cyoa/" --output ./downloads --mode embed
+```text
+--gallery-dl off|smart|force
+--gallery-dl-path gallery-dl
+--gallery-dl-config path/to/config.json
 ```
 
-### Save as ZIP
+## Batch download
 
-```bash
-python cyoa_downloader_v7_2_1.py --url "https://example.com/cyoa/" --output ./downloads --mode zip
-```
+The GUI and CLI support batch input from TXT, CSV, XLSX, XLS, remote CSV, or Google Sheets CSV export links.
 
-### Save Both Embedded JSON and ZIP
-
-```bash
-python cyoa_downloader_v7_2_1.py --url "https://example.com/cyoa/" --output ./downloads --mode both
-```
-
-### Download Website Folder
-
-```bash
-python cyoa_downloader_v7_2_1.py --url "https://example.com/cyoa/" --output ./downloads --mode website_folder
-```
-
-### Download Website ZIP
-
-```bash
-python cyoa_downloader_v7_2_1.py --url "https://example.com/cyoa/" --output ./downloads --mode website_zip
-```
-
-## Batch Download
-
-The GUI supports queue based downloading.
-
-You can add multiple URLs, then download them one by one.
-
-Supported batch sources include:
-
-- TXT files
-- CSV files
-- XLSX files
-- Google Sheets CSV export links
-
-### TXT Format
+### TXT format
 
 ```text
 https://example.com/cyoa-one/
-https://example.com/cyoa-two/ | Custom File Name
-https://example.com/cyoa-three/ | Another Name | website_folder
+https://example.com/cyoa-two/ | Custom Name
+https://example.com/cyoa-three/ | Custom Name | website_folder
 ```
 
-### CSV or XLSX Columns
-
-Supported column names:
-
-| Column | Purpose |
-|---|---|
-| url or link | Required CYOA URL |
-| filename or name or title | Optional output name |
-| mode | Optional download mode |
-
-Example:
+### CSV format
 
 ```csv
 url,filename,mode
@@ -336,76 +418,197 @@ https://example.com/cyoa-one/,CYOA One,website_folder
 https://example.com/cyoa-two/,CYOA Two,zip
 ```
 
-## CYOA Manager Integration
+Supported columns:
 
-CYOA Downloader can register downloaded projects into CYOA Manager if it can find the local `library.sqlite3` database.
+| Column | Required | Purpose |
+|---|---:|---|
+| `url`, `link`, `urls`, `links` | Yes | CYOA URL |
+| `filename`, `name`, `output`, `title`, `file` | No | Output name |
+| `mode`, `output_mode`, `type` | No | Per-row output mode |
 
-It can store:
+## Cloudflare and FlareSolverr
 
-- Project name
-- Source URL
-- Local file path
-- Viewer preference
-- Tags
-- Date added
+Cloudflare mode choices:
 
-If the database is not detected automatically, you can set the path manually in the settings panel.
+| Mode | Behavior |
+|---|---|
+| `off` | No Cloudflare helper |
+| `auto` | Normal request first, then cloudscraper, then FlareSolverr if configured |
+| `cloudscraper` | Force cloudscraper path when available |
+| `flaresolverr` | Force FlareSolverr path |
+
+Recommended setting:
+
+```text
+Cloudflare Mode: auto
+```
+
+FlareSolverr should be used as a fallback, not for every asset. It runs a browser and can use significant memory.
+
+Test FlareSolverr:
+
+```bash
+python cyoa_downloader_v7_3_9_no_broken_report.py --cloudflare flaresolverr --flaresolverr-test
+```
+
+## BebasDNS and DNS options
+
+BebasDNS presets:
+
+```bash
+--bebasdns default
+--bebasdns security
+--bebasdns unfiltered
+--bebasdns family
+```
+
+Custom DoH resolver:
+
+```bash
+--dns "https://security.dns.bebasid.com/dns-query"
+```
+
+Plain DNS IP:
+
+```bash
+--dns 1.1.1.1
+```
+
+DNS changes are process-local. The program does not edit system DNS, router DNS, browser DNS, or hosts files.
+
+## HTTP/2 support
+
+HTTP/2 deep-scan support requires:
+
+```bash
+pip install "httpx[h2]"
+```
+
+Enable it:
+
+```bash
+python cyoa_downloader_v7_3_9_no_broken_report.py --url "https://example.com/cyoa/" --website-folder --http2
+```
+
+Use `--no-http2` to disable it for a run.
 
 ## AI Assist
 
-AI Assist is an optional helper feature for difficult websites.
+AI Assist is optional. It helps diagnose difficult projects when normal detection cannot find project data or hidden assets.
 
-When enabled and configured with an API key, it can help analyze HTML or JavaScript to locate hidden project data or project URLs.
+Supported providers:
 
-This is mainly useful when normal project detection fails.
+| Provider | Default key source | Notes |
+|---|---|---|
+| Anthropic | `ANTHROPIC_API_KEY` | Claude models |
+| OpenAI | `OPENAI_API_KEY` | GPT models |
+| Gemini | `GEMINI_API_KEY` or `GOOGLE_API_KEY` | Gemini models |
+| Ollama | No API key | Local models |
 
-## Download Pipeline
+AI modes:
 
-The downloader follows this general process:
+| Mode | Behavior |
+|---|---|
+| `off` | AI disabled |
+| `diagnostics` | Analyze only, no recovery changes |
+| `auto_fallback` | Use AI when normal detection fails |
+| `aggressive_recovery` | Also use AI for JS or deep-scan asset discovery |
 
-1. Normalize the input URL
-2. Resolve special links such as cyoa.cafe or archive.org
-3. Detect the project type
-4. Search for project JSON
-5. Scan HTML and JavaScript bundles
-6. Extract project data
-7. Detect images, audio, fonts, and other assets
-8. Download or embed assets depending on selected mode
-9. Build the selected output format
-10. Optionally inject the result into an offline viewer
-11. Save metadata and history
+API key storage options:
 
-## Local Preview Server
+| Storage | Security | Behavior |
+|---|---|---|
+| `session` | Best default | Key stays in memory only |
+| `env` | Good | Reads provider environment variable |
+| `keyring` | Best persistent | Uses OS Credential Manager through `keyring` |
+| `plain` | Not recommended | Stores key in settings as plain text |
 
-Some CYOAs do not work correctly when opened directly through `file://`.
+Examples:
 
-For those cases, use the local preview server from the GUI, then open the generated local address in your browser.
+```bash
+# Anthropic through environment variable
+setx ANTHROPIC_API_KEY "sk-ant-..."
+python cyoa_downloader_v7_3_9_no_broken_report.py --url "https://example.com/cyoa/" --ai-provider anthropic --ai-key-storage env --ai-mode auto_fallback
+```
 
-This helps with projects that expect HTTP behavior, relative paths, scripts, or browser security rules.
+```bash
+# OpenAI through environment variable
+setx OPENAI_API_KEY "sk-..."
+python cyoa_downloader_v7_3_9_no_broken_report.py --url "https://example.com/cyoa/" --ai-provider openai --ai-key-storage env --ai-mode auto_fallback
+```
+
+```bash
+# Ollama local AI, no key required
+python cyoa_downloader_v7_3_9_no_broken_report.py --url "https://example.com/cyoa/" --ai-provider ollama --ollama-url http://localhost:11434 --ai-mode auto_fallback
+```
+
+## gallery-dl fallback
+
+`gallery-dl` is optional. It should not be treated as a universal image downloader.
+
+Recommended mode:
+
+```text
+gallery-dl: off
+```
+
+Use `smart` only when the source URL is a supported post or gallery URL:
+
+```bash
+python cyoa_downloader_v7_3_9_no_broken_report.py --url "https://example.com/cyoa/" --gallery-dl smart
+```
+
+Use `force` only for advanced debugging.
+
+## Local preview server
+
+Some CYOAs do not work correctly when opened through `file://`. Use the local preview server instead.
+
+The server:
+
+- Uses a fresh port by default.
+- Serves the selected output folder explicitly.
+- Sends no-cache headers.
+- Opens a cache-clearing route first.
+- Clears browser storage when possible.
+- Redirects to the fresh preview URL with a cache-busting query string.
+
+CLI:
+
+```bash
+python cyoa_downloader_v7_3_9_no_broken_report.py --url "https://example.com/cyoa/" --website-folder --serve
+```
+
+## Reports and logs
+
+| File | Purpose |
+|---|---|
+| `cyoa_downloader.log` | Main technical log |
+| `backup_report.txt` | Website or cyoap backup summary |
+| `failed_assets.txt` | Failed asset list for non-website outputs |
+| `failed_images.txt` | Failed image list used by retry image workflows |
+| `failed_urls.txt` | Failed batch URL list |
+| `download_history.json` | Local history file in the user config folder |
+
+`broken_assets_report.html` is no longer generated.
 
 ## Troubleshooting
 
-### The CYOA opens but images are missing
+### The CYOA opens but shows an old project
 
-Try these steps:
+Use the built-in `Serve` function instead of opening the HTML file directly. Close old preview tabs, then serve again. If needed, test in an incognito window.
 
-1. Use Website Folder mode instead of Embedded JSON.
-2. Enable deep scan if available.
-3. Check whether the original site blocks hotlinking.
-4. Try using cloudscraper.
-5. Check the generated backup report.
-
-### The website works online but not offline
+### Images are missing
 
 Try:
 
-```text
-Website Folder
-```
+1. Use `Website Folder` mode.
+2. Enable fonts if needed with `--fonts`.
+3. Check `backup_report.txt` or `failed_assets.txt`.
+4. Try `--cloudflare auto` if the site is protected.
+5. Try `--gallery-dl smart` only if the missing asset comes from a supported gallery or post URL.
 
-Then open it using the local preview server instead of opening the HTML file directly.
-
-### Download fails on a Cloudflare protected website
+### Cloudflare blocks the download
 
 Install cloudscraper:
 
@@ -413,148 +616,156 @@ Install cloudscraper:
 pip install cloudscraper
 ```
 
-Then enable Cloudflare bypass in the GUI if available.
+Then run:
+
+```bash
+python cyoa_downloader_v7_3_9_no_broken_report.py --url "https://example.com/cyoa/" --cloudflare auto
+```
+
+For harder challenges, start FlareSolverr and use:
+
+```bash
+python cyoa_downloader_v7_3_9_no_broken_report.py --url "https://example.com/cyoa/" --cloudflare auto --flaresolverr-url http://localhost:8191/v1
+```
+
+### HTTP/2 does not work
+
+Install HTTP/2 support:
+
+```bash
+pip install "httpx[h2]"
+```
+
+Then retry with:
+
+```bash
+--http2
+```
 
 ### YouTube or external audio does not download
 
-Install yt-dlp and FFmpeg:
+Install yt-dlp:
 
 ```bash
 pip install yt-dlp
 ```
 
-Then install FFmpeg using your operating system package manager.
+Install FFmpeg using your OS package manager.
 
-### RAR viewer package does not work
+### RAR viewer package does not extract
 
-Install rarfile and unrar:
+Install rarfile:
 
 ```bash
 pip install rarfile
 ```
 
-Then install `unrar` for your operating system.
+Install `unrar` or WinRAR at the system level.
 
-### Batch import from XLSX does not work
+### XLSX batch import fails
 
-Install openpyxl:
+Install:
 
 ```bash
-pip install openpyxl
+pip install openpyxl pandas
 ```
 
-## Known Limitations
+### AI Assist does not run
 
-This tool is not perfect.
+Check:
 
-Some CYOAs may still fail because:
+1. `--ai-mode` is not `off`.
+2. Provider is correct.
+3. API key storage is correct.
+4. Environment variable exists if using `env`.
+5. Ollama is running if using local AI.
+6. `--ai-max-calls` is not exhausted.
 
-- The source website blocks automated downloads
-- The project uses heavily obfuscated JavaScript
-- Assets are generated dynamically at runtime
-- Assets require login, cookies, or special headers
-- The CYOA depends on remote APIs
-- The viewer format is custom and unsupported
-- Browser security blocks local file playback
-- Audio hosted on external platforms cannot always be preserved
-
-## Development Status
-
-Current version:
-
-```text
-v7.2.1
-```
-
-Current project scale:
-
-```text
-11,976 lines
-336 functions
-5 classes
-```
-
-Recent improvements include:
-
-- Fixed non website download modes
-- Fixed Embedded JSON mode
-- Fixed ZIP mode
-- Fixed Both mode
-- Fixed offline viewer injection
-- Improved deep scan performance
-- Added better asset detection
-- Added CYOA Manager import support
-- Added speed graph support
-- Added AI Assist pipeline
-- Added stronger documentation
-
-## Important Disclaimer
-
-This project is pure vibe code with Claude AI.
-
-That means the code was created and improved through experimental AI assisted development. It is useful, practical, and feature rich, but it should not be treated as professionally audited production software.
-
-Use it carefully.  
-Expect bugs.  
-Back up your files.  
-Read the logs when something breaks.
-
-## Ethical Use
-
-This tool is intended for personal archival, preservation, and offline access.
-
-Please respect:
-
-- Original CYOA creators
-- Website terms of service
-- Copyright rules
-- Community sharing rules
-- Private or restricted content
-
-Do not use this tool to redistribute content without permission.
-
-## Suggested Repository Structure
+## Recommended repository structure
 
 ```text
 CYOA-Downloader/
-├── cyoa_downloader_v7_2_1.py
-├── CYOA_Downloader_v721_Docs.html
 ├── README.md
 ├── requirements.txt
-├── LICENSE
-└── examples/
-    └── batch_urls_example.txt
+├── cyoa_downloader_v7_3_9_no_broken_report.py
+├── CYOA_Downloader_v739_Docs_COMPLETE.html
+├── CYOA_Downloader_Handoff_v20_NO_BROKEN_REPORT.md
+├── examples/
+│   ├── batch_urls_example.txt
+│   └── batch_urls_example.csv
+└── LICENSE
 ```
 
-## requirements.txt
+## Known limitations
+
+This tool is useful, but not perfect.
+
+Some projects can still fail because:
+
+- The source blocks automated access.
+- Assets require login or cookies.
+- Assets are generated dynamically at runtime.
+- The viewer is heavily custom.
+- JavaScript is obfuscated.
+- Remote APIs are required after page load.
+- Cloudflare or other bot protection blocks requests.
+- Browser service workers or local storage preserve old viewer state.
+- Audio sources use platforms that cannot be archived reliably.
+
+Known architectural issue:
+
+- The main download pipeline still uses a global working-directory change protected by a lock. It works for normal usage, but the ideal future refactor is a full absolute-path pipeline.
+
+## Bug report template
+
+When reporting a bug, include:
 
 ```text
-requests
-beautifulsoup4
-customtkinter
-tldextract
-Pillow
-cloudscraper
-yt-dlp
-plyer
-rarfile
-openpyxl
+CYOA Downloader version:
+Python version:
+Operating system:
+Command or GUI mode used:
+CYOA URL:
+Output mode:
+Cloudflare mode:
+DNS or BebasDNS mode:
+HTTP/2 enabled: yes/no
+AI provider and AI mode:
+gallery-dl mode:
+Relevant log lines:
+Expected result:
+Actual result:
 ```
 
-You can remove optional packages if you want a smaller installation.
+Attach:
+
+- `cyoa_downloader.log`
+- `backup_report.txt` if available
+- `failed_assets.txt` if available
+- Screenshot of the GUI error if relevant
+
+## Ethical use
+
+Use this tool for personal archival, preservation, and offline access.
+
+Respect:
+
+- Original CYOA creators.
+- Website terms of service.
+- Copyright rules.
+- Community sharing rules.
+- Private or restricted content.
+
+Do not use this tool to redistribute content without permission.
 
 ## License
 
-Choose a license that fits your release goal.
+Choose the license that matches your release goal.
 
-Recommended options:
-
-- MIT License for open use
-- GPLv3 if you want derivative works to stay open source
-- No license if you do not want to grant reuse rights automatically
+- GPLv3
 
 ## Credits
 
-Built with pure vibe code with Claude AI.
+Created for Interactive CYOA preservation, offline playback, and personal archival.
 
-Created for Interactive CYOA preservation, offline playback, and personal archiving.
+Developed through iterative AI-assisted debugging, testing, and documentation.
