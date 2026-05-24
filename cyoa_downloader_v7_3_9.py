@@ -1,5 +1,5 @@
 """
-CYOA Downloader — v7.1 patched
+CYOA Downloader — v7.3.3 AI provider options
 Features:
   • Parallel image downloads (ThreadPoolExecutor)
   • All image fields: image, backgroundImage, rowBackgroundImage, objectBackgroundImage
@@ -37,7 +37,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-_APP_VERSION = "7.2.1"
+_APP_VERSION = "7.3.9"
 _GITHUB_RELEASE_API = ""   # Set to "https://api.github.com/repos/YOUR/REPO/releases/latest" to enable auto-update checks
 
 try:
@@ -149,11 +149,21 @@ DEFAULT_MAX_WORKERS = 4
 # ─────────────────────────────────────────────────────────────────
 
 logger = logging.getLogger("cyoa_downloader")
-_stream_handler = logging.StreamHandler()
 _formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-_stream_handler.setFormatter(_formatter)
-logger.addHandler(_stream_handler)
 logger.setLevel(logging.INFO)
+# Prevent duplicate console lines when the module is reloaded or embedded.
+logger.propagate = False
+_stream_handler = next(
+    (h for h in logger.handlers if getattr(h, "_cyoa_console_handler", False)),
+    None,
+)
+if _stream_handler is None:
+    _stream_handler = logging.StreamHandler()
+    setattr(_stream_handler, "_cyoa_console_handler", True)
+    _stream_handler.setFormatter(_formatter)
+    logger.addHandler(_stream_handler)
+else:
+    _stream_handler.setFormatter(_formatter)
 
 # ── File logging — written to <output_dir>/cyoa_downloader.log ────────────
 # Initialized lazily when the first download starts so we know output_dir.
@@ -167,6 +177,10 @@ def setup_file_logging(output_dir: str) -> None:
     for h in logger.handlers[:]:
         if isinstance(h, RotatingFileHandler) or isinstance(h, logging.FileHandler):
             logger.removeHandler(h)
+            try:
+                h.close()
+            except Exception:
+                pass
     _file_handler = None
     log_path = os.path.join(output_dir, "cyoa_downloader.log")
     try:
@@ -187,6 +201,11 @@ def setup_file_logging(output_dir: str) -> None:
 
 
 wait_time: int = DEFAULT_WAIT_TIME
+
+# Serializes run_download because the legacy pipeline still uses os.chdir().
+# This prevents concurrent GUI/batch jobs from changing process cwd at the same time.
+_RUN_DOWNLOAD_LOCK = threading.RLock()
+_LAST_PREVIEW_FOLDER: Optional[str] = None
 
 
 class GUILogHandler(logging.Handler):
@@ -329,8 +348,244 @@ def write_failed_url_log(
 
 
 
+
+
+
+_DEPRECATED_BROKEN_ASSET_REPORT = "broken_assets_report.html"
+
+def _remove_deprecated_broken_asset_report(output_dir: str) -> None:
+    """Remove the old HTML broken-asset report if it exists.
+
+    v7.3.9 no longer generates broken_assets_report.html. Failed asset
+    details are appended to backup_report.txt when available, or written to
+    failed_assets.txt for non-website outputs. This cleanup only prevents stale
+    HTML reports from older runs from staying visible in output folders.
+    """
+    try:
+        target_dir = output_dir if output_dir else os.getcwd()
+        stale = os.path.join(target_dir, _DEPRECATED_BROKEN_ASSET_REPORT)
+        if os.path.exists(stale):
+            os.remove(stale)
+            logger.info(f"Removed deprecated report: {stale}")
+    except Exception as e:
+        logger.debug(f"Could not remove deprecated broken asset report: {e}")
+
+def append_asset_failures_to_backup_report(
+    failed_items: List[Dict[str, str]],
+    report_path: str,
+    *,
+    source_url: str = "",
+    title: str = "Asset Download Failures",
+) -> Optional[str]:
+    """Append failed asset details to backup_report.txt.
+
+    This is the canonical reporting path from v7.3.9 onward. No separate
+    broken_assets_report.html is created.
+    """
+    if not failed_items or not report_path:
+        return None
+    try:
+        os.makedirs(os.path.dirname(report_path) or os.getcwd(), exist_ok=True)
+        generated = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        lines = [
+            "",
+            "=" * 60,
+            title.upper(),
+            "=" * 60,
+            f"Generated : {generated}",
+            f"Source    : {source_url or '-'}",
+            f"Total     : {len(failed_items)}",
+            "",
+        ]
+        for i, item in enumerate(failed_items, 1):
+            url = item.get("url", "")
+            path = item.get("path") or item.get("local") or ""
+            err = item.get("error", "")
+            kind = item.get("kind", "asset") or "asset"
+            lines.append(f"[{i}] {kind}")
+            lines.append(f"  Path : {path or '-'}")
+            lines.append(f"  URL  : {url or '-'}")
+            lines.append(f"  Err  : {err or '-'}")
+            lines.append("")
+        with open(report_path, "a", encoding="utf-8") as f:
+            f.write("\n" + "\n".join(lines))
+        logger.info(f"Asset failure details appended to: {report_path}")
+        return report_path
+    except Exception as e:
+        logger.debug(f"Could not append asset failure details to backup report: {e}")
+        return None
+
+def write_failed_assets_log(
+    failed_items: List[Dict[str, str]],
+    output_dir: str,
+    *,
+    source_url: str = "",
+    title: str = "Asset Download Failures",
+    filename: str = "failed_assets.txt",
+) -> Optional[str]:
+    """Write a plain text failed-assets log for non-website outputs.
+
+    The old HTML report was intentionally removed because it created duplicate
+    report files and did not add enough value over backup_report.txt/logs.
+    """
+    if not failed_items:
+        return None
+    try:
+        target_dir = output_dir if output_dir else os.getcwd()
+        os.makedirs(target_dir, exist_ok=True)
+        report_path = _safe_join(target_dir, filename, fallback="failed_assets.txt")
+        generated = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        lines = [
+            title,
+            "=" * len(title),
+            f"Generated : {generated}",
+            f"Source    : {source_url or '-'}",
+            f"Total     : {len(failed_items)}",
+            "",
+        ]
+        for i, item in enumerate(failed_items, 1):
+            url = item.get("url", "")
+            path = item.get("path") or item.get("local") or ""
+            err = item.get("error", "")
+            kind = item.get("kind", "asset") or "asset"
+            lines.append(f"[{i}] {kind}")
+            lines.append(f"  Path : {path or '-'}")
+            lines.append(f"  URL  : {url or '-'}")
+            lines.append(f"  Err  : {err or '-'}")
+            lines.append("")
+        pathlib.Path(report_path).write_text("\n".join(lines), encoding="utf-8")
+        logger.info(f"Failed asset log saved: {report_path}")
+        return report_path
+    except Exception as e:
+        logger.debug(f"Could not write failed asset log: {e}")
+        return None
+
+def write_asset_failure_summary(
+    failed_items: List[Dict[str, str]],
+    output_dir: str,
+    *,
+    source_url: str = "",
+    title: str = "Asset Download Failures",
+    filename: str = "failed_assets.txt",
+    prefer_single_report: bool = True,
+) -> Optional[str]:
+    """Write failed asset details without creating an HTML report.
+
+    Preferred behavior:
+      1. Append to backup_report.txt when it exists.
+      2. Otherwise write failed_assets.txt.
+      3. Remove stale broken_assets_report.html from older runs.
+    """
+    if not failed_items:
+        return None
+    target_dir = output_dir if output_dir else os.getcwd()
+    _remove_deprecated_broken_asset_report(target_dir)
+    backup_path = os.path.join(target_dir, "backup_report.txt")
+    if prefer_single_report and os.path.exists(backup_path):
+        appended = append_asset_failures_to_backup_report(
+            failed_items, backup_path, source_url=source_url, title=title
+        )
+        if appended:
+            return appended
+    return write_failed_assets_log(
+        failed_items, target_dir, source_url=source_url, title=title, filename=filename
+    )
+
+
 def is_probable_url(value: str) -> bool:
     return bool(re.match(r"^https?://", str(value).strip(), re.IGNORECASE))
+
+
+def _safe_rel_path(value: str, fallback: str = "asset") -> str:
+    """Return a sanitized relative path safe for writing inside an output folder."""
+    raw = unquote(str(value or "")).replace("\\", "/")
+    raw = raw.split("?", 1)[0].split("#", 1)[0].replace("\x00", "")
+    parts: List[str] = []
+    for part in raw.split("/"):
+        part = part.strip()
+        if not part or part in {".", ".."}:
+            continue
+        # Prevent Windows drive names and illegal filename characters.
+        part = re.sub(r'^[A-Za-z]:', "_", part)
+        part = re.sub(r'[<>:"|?*\x00-\x1f\x7f]', "_", part)
+        part = part.strip(". ")
+        if part:
+            parts.append(part)
+    return "/".join(parts) or fallback
+
+
+def _safe_join(root: str, rel_path: str, fallback: str = "asset") -> str:
+    """Join root + rel_path after sanitizing URL-derived asset paths."""
+    root_abs = os.path.abspath(root or os.getcwd())
+    safe_rel = _safe_rel_path(rel_path, fallback=fallback)
+    target = os.path.abspath(os.path.join(root_abs, *safe_rel.split("/")))
+    if target != root_abs and not target.startswith(root_abs + os.sep):
+        raise ValueError(f"Unsafe output path rejected: {rel_path!r}")
+    return target
+
+
+def _safe_archive_rel_path(member: str) -> str:
+    """Validate archive member path strictly. Reject traversal instead of normalizing it."""
+    raw = unquote(str(member or "")).replace("\\", "/").replace("\x00", "")
+    if not raw or raw.startswith(("/", "//")) or re.match(r"^[A-Za-z]:", raw):
+        raise ValueError(f"Unsafe archive path rejected: {member!r}")
+    parts: List[str] = []
+    for part in raw.split("/"):
+        if part in {"", ".", ".."} or part.strip() != part:
+            raise ValueError(f"Unsafe archive path rejected: {member!r}")
+        if re.match(r"^[A-Za-z]:", part) or any(ch in part for ch in "<>:\"|?*\x00"):
+            raise ValueError(f"Unsafe archive path rejected: {member!r}")
+        parts.append(part)
+    if not parts:
+        raise ValueError(f"Unsafe archive path rejected: {member!r}")
+    return "/".join(parts)
+
+
+def _safe_archive_join(root: str, member: str) -> str:
+    """Join archive member to root only after strict archive-member validation."""
+    root_abs = os.path.abspath(root or os.getcwd())
+    rel = _safe_archive_rel_path(member)
+    target = os.path.abspath(os.path.join(root_abs, *rel.split("/")))
+    if target == root_abs or not target.startswith(root_abs + os.sep):
+        raise ValueError(f"Unsafe archive path rejected: {member!r}")
+    return target
+
+
+def _copytree_merge_safe(src_dir: str, dst_dir: str, *, label: str = "assets") -> int:
+    """Copy src_dir into dst_dir without deleting existing user/output folders."""
+    if not src_dir or not os.path.isdir(src_dir):
+        return 0
+    count = 0
+    for root, _dirs, files in os.walk(src_dir):
+        rel_root = os.path.relpath(root, src_dir)
+        if rel_root == ".":
+            rel_root = ""
+        for name in files:
+            src_file = os.path.join(root, name)
+            rel = os.path.join(rel_root, name).replace("\\", "/")
+            dst_file = _safe_join(dst_dir, rel, fallback=name or "asset")
+            os.makedirs(os.path.dirname(dst_file), exist_ok=True)
+            try:
+                shutil.copy2(src_file, dst_file)
+                count += 1
+            except Exception as e:
+                logger.debug(f"Copy {label} failed: {src_file} → {dst_file}: {e}")
+    return count
+
+
+def _set_http2_enabled(enabled: bool) -> None:
+    """Enable/disable optional HTTP/2 fetches. Falls back to requests if httpx is missing."""
+    global _HTTP2_ENABLED
+    _HTTP2_ENABLED = bool(enabled)
+    if _HTTP2_ENABLED:
+        try:
+            import httpx  # type: ignore  # noqa: F401
+            logger.info("HTTP/2 enabled for deep-scan fetches via httpx.")
+        except Exception as e:
+            _HTTP2_ENABLED = False
+            logger.warning(f"HTTP/2 requested but httpx is unavailable: {e}. Install: pip install httpx[h2]")
+    else:
+        logger.info("HTTP/2 disabled; using requests.")
 
 
 def prepare_clean_output_folder(folder: str) -> None:
@@ -358,9 +613,10 @@ def import_queue_items_from_source(source: str) -> List[Dict[str, str]]:
         return []
     url = _google_sheet_csv_export_url(source) if "docs.google.com/spreadsheets" in source else source
     try:
-        r = create_retry_session().get(url, timeout=30)
-        r.raise_for_status()
-        text = r.text
+        r = fetch_response(url, timeout=30, extra_headers={"User-Agent": "Mozilla/5.0"}, as_bytes=True)
+        if r is None:
+            raise RuntimeError("request failed")
+        text = _safe_response_text(r)
     except Exception as e:
         logger.error(f"Failed to import remote list: {e}")
         return []
@@ -489,7 +745,7 @@ def _cyoap_local_path(output_folder: str, remote_url: str) -> str:
     remote_path = unquote(parsed.path.lstrip("/"))
     if not remote_path or remote_path.endswith("/"):
         remote_path = remote_path + "index.html" if remote_path else "index.html"
-    return os.path.join(output_folder, *[p for p in remote_path.split("/") if p])
+    return _safe_join(output_folder, remote_path, fallback="index.html")
 
 
 def _same_origin(url_a: str, url_b: str) -> bool:
@@ -596,11 +852,14 @@ def try_download_cyoap_vue_site(
             headers.setdefault("Referer", referrer)
             headers.setdefault("Origin", f"{parsed.scheme}://{parsed.netloc}")
         try:
-            r = session.get(remote_url, timeout=30, headers=headers)
+            r = fetch_response(remote_url, timeout=30, extra_headers=headers, as_bytes=True)
+            if r is None:
+                record_failed(remote_url, kind, "request failed")
+                return None
             if r.status_code != 200:
                 record_failed(remote_url, kind, f"HTTP {r.status_code}")
                 return None
-            return r.content if binary else r.text
+            return r.content if binary else _safe_response_text(r)
         except Exception as e:
             record_failed(remote_url, kind, str(e))
             return None
@@ -765,6 +1024,14 @@ def try_download_cyoap_vue_site(
     )
     pathlib.Path(report_path).write_text(report_text, encoding="utf-8")
     logger.info("cyoap_vue backup report saved: backup_report.txt")
+    if failed_items:
+        try:
+            write_asset_failure_summary(
+                failed_items, output_folder, source_url=start_url,
+                title="Broken cyoap_vue Asset Report"
+            )
+        except Exception as e:
+            logger.debug(f"Broken asset report could not be written: {e}")
 
     if website_zip_output:
         zip_name = os.path.basename(output_folder.rstrip(os.sep)) + ".zip"
@@ -784,6 +1051,22 @@ def try_download_cyoap_vue_site(
 # ── Cloudflare bypass globals ──────────────────────────────────────────────
 use_cloudscraper: bool = False
 _ytdlp_enabled:  bool = True   # set False via GUI unchecking "YT Audio" or --no-ytdlp
+_HTTP2_ENABLED: bool = False    # optional: use httpx(http2=True) in deep-scan fetches when available
+
+# Cloudflare engine selection.
+# off          = never bypass
+# auto         = normal request → cloudscraper → FlareSolverr when challenge is detected
+# cloudscraper = use cloudscraper session first
+# flaresolverr = use FlareSolverr browser solver when needed/selected
+_CLOUDFLARE_MODE: str = "auto"
+_FLARESOLVERR_URL: str = "http://localhost:8191/v1"
+_FLARESOLVERR_SESSION_POLICY: str = "reuse-domain"
+_FLARESOLVERR_TIMEOUT: int = 60
+_FLARESOLVERR_WAIT_AFTER: int = 3
+_FLARESOLVERR_PROXY_MODE: str = "inherit"
+_FLARESOLVERR_SESSIONS: Dict[str, str] = {}
+_FLARESOLVERR_LOCK = threading.Lock()
+
 
 # ── Bandwidth throttle ─────────────────────────────────────────────────────
 # 0 = unlimited. Set via GUI slider or --bandwidth CLI flag (KB/s).
@@ -837,8 +1120,31 @@ _SETTINGS_FILE = os.path.join(
 _SETTINGS_DEFAULTS: Dict[str, Any] = {
     "cyoa_mgr_enabled": None,   # None = auto (ON if DB found, OFF otherwise)
     "cyoa_mgr_db_path": "",     # custom DB path override
-    "ai_api_key": "",           # Anthropic API key for AI project detection
+    "ai_api_key": "",           # Legacy/plain fallback only. Do not store secrets here by default.
     "ai_enabled": False,        # AI assist toggle (on/off)
+    "ai_provider": "anthropic", # anthropic/openai/gemini/ollama
+    "ai_model": "claude-sonnet-4-6",
+    "ai_mode": "auto_fallback", # off/diagnostics/auto_fallback/aggressive_recovery
+    "ai_key_storage": "session", # session/env/keyring/plain
+    "ai_api_key_anthropic": "",
+    "ai_api_key_openai": "",
+    "ai_api_key_gemini": "",
+    "ollama_url": "http://localhost:11434",
+    "ai_max_calls_per_download": 3,
+    "ai_max_html_chars": 8000,
+    "ai_max_js_chars": 14000,
+    "ai_confirm_large_payload": True,
+    "language": "id",          # GUI language: id/en
+    "http2_enabled": False,    # optional HTTP/2 via httpx for deep scans
+    "dns": "",                 # plain DNS IP or DoH endpoint URL
+    "bebasdns_variant": "",    # default/security/unfiltered/family when selected
+    "gallery_dl_mode": "off",    # off/smart/force. Default off because gallery-dl needs post/gallery URLs
+    "cloudflare_mode": "auto",   # off/auto/cloudscraper/flaresolverr
+    "flaresolverr_url": "http://localhost:8191/v1",
+    "flaresolverr_session_policy": "reuse-domain",  # temporary/reuse-domain/manual
+    "flaresolverr_timeout": 60,   # seconds
+    "flaresolverr_wait_after": 3, # seconds
+    "flaresolverr_proxy_mode": "inherit",  # inherit/none
 }
 
 def _load_settings() -> Dict[str, Any]:
@@ -846,8 +1152,12 @@ def _load_settings() -> Dict[str, Any]:
         if os.path.exists(_SETTINGS_FILE):
             with open(_SETTINGS_FILE, encoding="utf-8") as f:
                 data = json.load(f)
-            # Merge with defaults so new keys are always present
-            return {**_SETTINGS_DEFAULTS, **data}
+            merged = {**_SETTINGS_DEFAULTS, **data}
+            # Migration: old versions stored Anthropic keys directly in settings.json.
+            # Preserve old behavior only when an old key exists and no explicit storage mode was saved.
+            if data.get("ai_api_key") and "ai_key_storage" not in data:
+                merged["ai_key_storage"] = "plain"
+            return merged
     except Exception:
         pass
     return dict(_SETTINGS_DEFAULTS)
@@ -860,6 +1170,345 @@ def _save_settings(settings: Dict[str, Any]) -> None:
     except Exception as e:
         logger.warning(f"Could not save settings: {e}")
 
+
+# ── AI Assist provider + key storage ───────────────────────────────────────
+AI_KEYRING_SERVICE = "cyoa_downloader"
+_VALID_AI_KEY_STORAGE = {"session", "env", "keyring", "plain"}
+_VALID_AI_MODES = {"off", "diagnostics", "auto_fallback", "aggressive_recovery"}
+_VALID_AI_PROVIDERS = {"anthropic", "openai", "gemini", "ollama"}
+AI_PROVIDER_LABELS: Dict[str, str] = {
+    "anthropic": "Anthropic Claude",
+    "openai": "OpenAI",
+    "gemini": "Google Gemini",
+    "ollama": "Ollama / Local",
+}
+AI_PROVIDER_ENV_VARS: Dict[str, List[str]] = {
+    "anthropic": ["ANTHROPIC_API_KEY"],
+    "openai": ["OPENAI_API_KEY"],
+    "gemini": ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+    "ollama": [],
+}
+AI_MODEL_OPTIONS: Dict[str, List[str]] = {
+    # Editable recommendations. Providers add/deprecate models over time; users can pass
+    # any custom model id via CLI --ai-model. GUI presets use currently documented IDs.
+    "anthropic": ["claude-sonnet-4-6", "claude-opus-4-7", "claude-haiku-4-5-20251001"],
+    "openai": ["gpt-5.5", "gpt-5.4", "gpt-4.1-mini"],
+    "gemini": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-3.1-pro-preview", "gemini-3.5-flash"],
+    "ollama": ["llama3.1", "qwen2.5-coder", "mistral", "gemma2"],
+}
+AI_PROVIDER_DEFAULT_MODEL: Dict[str, str] = {
+    "anthropic": "claude-sonnet-4-6",
+    "openai": "gpt-5.5",
+    "gemini": "gemini-2.5-flash",
+    "ollama": "llama3.1",
+}
+OLLAMA_DEFAULT_URL = "http://localhost:11434"
+
+
+def _normalize_ai_provider(value: str) -> str:
+    v = (value or "anthropic").strip().lower().replace(" ", "_").replace("-", "_")
+    aliases = {
+        "claude": "anthropic",
+        "anthropic_claude": "anthropic",
+        "open_ai": "openai",
+        "gpt": "openai",
+        "google": "gemini",
+        "google_gemini": "gemini",
+        "local": "ollama",
+        "ollama_local": "ollama",
+    }
+    v = aliases.get(v, v)
+    return v if v in _VALID_AI_PROVIDERS else "anthropic"
+
+
+def _ai_provider_label(provider: str) -> str:
+    return AI_PROVIDER_LABELS.get(_normalize_ai_provider(provider), provider or "AI")
+
+
+def _ai_env_vars(provider: Optional[str] = None) -> List[str]:
+    return AI_PROVIDER_ENV_VARS.get(_normalize_ai_provider(provider or _get_ai_provider()), [])
+
+
+def _ai_primary_env_var(provider: Optional[str] = None) -> str:
+    vars_ = _ai_env_vars(provider)
+    return vars_[0] if vars_ else ""
+
+
+def _ai_model_options(provider: Optional[str] = None) -> List[str]:
+    p = _normalize_ai_provider(provider or _get_ai_provider())
+    return list(AI_MODEL_OPTIONS.get(p, []))
+
+
+def _default_ai_model(provider: Optional[str] = None) -> str:
+    p = _normalize_ai_provider(provider or _get_ai_provider())
+    return AI_PROVIDER_DEFAULT_MODEL.get(p, "claude-sonnet-4-6")
+
+
+def _normalize_ai_key_storage(value: str) -> str:
+    v = (value or "session").strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "environment": "env",
+        "environment_variable": "env",
+        "os_credential_manager": "keyring",
+        "credential_manager": "keyring",
+        "os_keyring": "keyring",
+        "settings": "plain",
+        "settings_json": "plain",
+        "plain_settings_json": "plain",
+        "session_only": "session",
+    }
+    v = aliases.get(v, v)
+    return v if v in _VALID_AI_KEY_STORAGE else "session"
+
+
+def _normalize_ai_mode(value: str) -> str:
+    v = (value or "auto_fallback").strip().lower().replace("-", "_")
+    aliases = {"auto": "auto_fallback", "aggressive": "aggressive_recovery", "diagnostics_only": "diagnostics"}
+    v = aliases.get(v, v)
+    return v if v in _VALID_AI_MODES else "auto_fallback"
+
+
+
+def _ai_provider_needs_key(provider: Optional[str] = None) -> bool:
+    """Return True if this provider needs a remote API key."""
+    return _normalize_ai_provider(provider or _get_ai_provider()) != "ollama"
+
+
+def _ai_is_available(api_key: str = "", provider: Optional[str] = None) -> bool:
+    """Provider-aware availability check. Ollama/local does not require an API key."""
+    p = _normalize_ai_provider(provider or _get_ai_provider())
+    return (p == "ollama") or bool((api_key or "").strip())
+
+
+def _ai_mode_allows(kind: str, mode: Optional[str] = None) -> bool:
+    """Map AI Assist mode to concrete behavior.
+
+    kind values:
+      - diagnostics: non-mutating viewer diagnostics/logging
+      - project_detect: AI can suggest a project.json URL and the app may fetch it
+      - asset_scan: AI can suggest extra JS/CSS/image/audio candidates
+    """
+    m = _normalize_ai_mode(mode or _load_settings().get("ai_mode", "auto_fallback"))
+    if m == "off":
+        return False
+    if m == "diagnostics":
+        return kind == "diagnostics"
+    if m == "auto_fallback":
+        return kind in {"diagnostics", "project_detect"}
+    if m == "aggressive_recovery":
+        return kind in {"diagnostics", "project_detect", "asset_scan"}
+    return False
+
+
+def _get_ai_int_setting(name: str, default: int, *, min_value: int = 0, max_value: int = 1000000) -> int:
+    try:
+        val = int(_load_settings().get(name, default) or default)
+    except Exception:
+        val = default
+    return max(min_value, min(max_value, val))
+
+
+class AIUsageBudget:
+    """Small per-download budget so AI Assist cannot call paid APIs repeatedly by accident."""
+    def __init__(self, max_calls: Optional[int] = None) -> None:
+        self.max_calls = _get_ai_int_setting("ai_max_calls_per_download", 3, min_value=0, max_value=50) if max_calls is None else int(max_calls)
+        self.calls = 0
+
+    def can_call(self) -> bool:
+        return self.max_calls <= 0 or self.calls < self.max_calls
+
+    def consume(self, label: str = "AI") -> bool:
+        if not self.can_call():
+            logger.info(f"[{label}] AI call budget exhausted ({self.calls}/{self.max_calls})")
+            return False
+        self.calls += 1
+        return True
+
+
+def _ai_budget_consume(budget: Optional[AIUsageBudget], label: str) -> bool:
+    if budget is None:
+        return True
+    return budget.consume(label)
+
+
+def _clear_ai_plain_keys(settings: Optional[Dict[str, Any]] = None, provider: Optional[str] = None) -> Dict[str, Any]:
+    """Remove plain-text AI keys from settings. If provider is None, remove all provider keys."""
+    st = settings if settings is not None else _load_settings()
+    providers = [_normalize_ai_provider(provider)] if provider else list(_VALID_AI_PROVIDERS)
+    for p in providers:
+        if p != "ollama":
+            st[f"ai_api_key_{p}"] = ""
+    st["ai_api_key"] = ""  # legacy Anthropic key
+    return st
+
+
+def _sanitize_ai_candidate_url(value: str) -> Optional[str]:
+    """Whitelist AI URL/path outputs before urljoin/fetch."""
+    v = (value or "").strip().strip('"\'')
+    if not v or v.upper() in {"NONE", "NULL", "N/A", "[]"}:
+        return None
+    if len(v) > 600 or any(ord(ch) < 32 for ch in v):
+        return None
+    if re.match(r"^[A-Za-z]:[\\/]", v) or v.startswith(("\\", "///")):
+        return None
+    lower = v.lower()
+    if lower.startswith(("javascript:", "file:", "data:", "mailto:", "ftp:", "chrome:", "about:")):
+        return None
+    if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", v) and not lower.startswith(("http://", "https://")):
+        return None
+    if v.startswith("//"):
+        host = urlparse("https:" + v).hostname
+        return v if host else None
+    return v
+
+def _get_ai_provider() -> str:
+    st = _load_settings()
+    return _normalize_ai_provider(st.get("ai_provider", "anthropic"))
+
+
+def _get_ai_model(provider: Optional[str] = None) -> str:
+    st = _load_settings()
+    p = _normalize_ai_provider(provider or st.get("ai_provider", "anthropic"))
+    m = (st.get("ai_model") or "").strip()
+    if not m:
+        return _default_ai_model(p)
+    # If provider changed but the old provider's default model is still saved, move to the new provider default.
+    other_defaults = {v for k, v in AI_PROVIDER_DEFAULT_MODEL.items() if k != p}
+    return _default_ai_model(p) if m in other_defaults else m
+
+
+def _plain_ai_key_setting(provider: Optional[str] = None) -> str:
+    return f"ai_api_key_{_normalize_ai_provider(provider or _get_ai_provider())}"
+
+
+def _keyring_username(provider: Optional[str] = None) -> str:
+    return f"{_normalize_ai_provider(provider or _get_ai_provider())}_api_key"
+
+
+def _keyring_module():
+    try:
+        import keyring  # type: ignore
+        return keyring
+    except Exception:
+        return None
+
+
+def _read_ai_key_from_keyring(provider: Optional[str] = None) -> str:
+    kr = _keyring_module()
+    if kr is None:
+        return ""
+    user = _keyring_username(provider)
+    try:
+        val = kr.get_password(AI_KEYRING_SERVICE, user) or ""
+        if not val and _normalize_ai_provider(provider or _get_ai_provider()) == "anthropic":
+            # Backward compatibility with v7.3.3 keyring username.
+            val = kr.get_password(AI_KEYRING_SERVICE, "anthropic_api_key") or ""
+        return val
+    except Exception as e:
+        logger.debug(f"AI keyring read failed: {e}")
+        return ""
+
+
+def _write_ai_key_to_keyring(api_key: str, provider: Optional[str] = None) -> bool:
+    kr = _keyring_module()
+    if kr is None:
+        return False
+    user = _keyring_username(provider)
+    try:
+        if api_key:
+            kr.set_password(AI_KEYRING_SERVICE, user, api_key)
+        else:
+            for username in {user, "anthropic_api_key" if _normalize_ai_provider(provider or _get_ai_provider()) == "anthropic" else user}:
+                try:
+                    kr.delete_password(AI_KEYRING_SERVICE, username)
+                except Exception:
+                    pass
+        return True
+    except Exception as e:
+        logger.warning(f"AI keyring write failed: {e}")
+        return False
+
+
+def _mask_secret(value: str) -> str:
+    value = value or ""
+    if not value:
+        return ""
+    if len(value) <= 8:
+        return "•" * len(value)
+    return value[:4] + "…" + value[-4:]
+
+
+def _resolve_ai_api_key(explicit_key: str = "", session_key: str = "", storage: Optional[str] = None,
+                        provider: Optional[str] = None) -> str:
+    """Resolve a provider-specific AI key without forcing it into settings.json.
+
+    Priority:
+      1. explicit_key passed by CLI/caller
+      2. storage=session  → in-memory session_key
+      3. storage=env      → provider env var, e.g. ANTHROPIC_API_KEY/OPENAI_API_KEY/GEMINI_API_KEY
+      4. storage=keyring  → provider-specific OS credential entry
+      5. storage=plain    → provider-specific settings.json fallback
+
+    Ollama/local does not require an API key.
+    """
+    p = _normalize_ai_provider(provider or _get_ai_provider())
+    if p == "ollama":
+        return ""
+    if explicit_key:
+        return explicit_key.strip()
+    st = _load_settings()
+    mode = _normalize_ai_key_storage(storage or st.get("ai_key_storage", "session"))
+    if mode == "session":
+        return (session_key or "").strip()
+    if mode == "env":
+        for env_name in _ai_env_vars(p):
+            val = os.environ.get(env_name, "").strip()
+            if val:
+                return val
+        return ""
+    if mode == "keyring":
+        return _read_ai_key_from_keyring(p).strip()
+    if mode == "plain":
+        return (st.get(_plain_ai_key_setting(p)) or (st.get("ai_api_key") if p == "anthropic" else "") or "").strip()
+    return ""
+
+
+def _clear_ai_api_key_storage(storage: Optional[str] = None, provider: Optional[str] = None, clear_all: bool = False) -> None:
+    """Clear AI API keys.
+
+    clear_all=True removes session-adjacent persistent copies from both plain settings
+    and OS Credential Manager for the selected provider. Environment variables cannot
+    be removed from inside the process, so they are only reported to the user.
+    """
+    st = _load_settings()
+    p = _normalize_ai_provider(provider or st.get("ai_provider", "anthropic"))
+    mode = _normalize_ai_key_storage(storage or st.get("ai_key_storage", "session"))
+    if clear_all or mode == "plain":
+        _clear_ai_plain_keys(st, p)
+        _save_settings(st)
+    if clear_all or mode == "keyring":
+        _write_ai_key_to_keyring("", p)
+    if mode == "env" and not clear_all:
+        logger.info("AI key storage is environment-based; unset the environment variable to remove it.")
+
+
+def _ai_key_status_text(storage: Optional[str] = None, session_key: str = "", provider: Optional[str] = None) -> str:
+    st = _load_settings()
+    p = _normalize_ai_provider(provider or st.get("ai_provider", "anthropic"))
+    if p == "ollama":
+        return f"{_ai_provider_label(p)} uses local Ollama and does not need an API key."
+    mode = _normalize_ai_key_storage(storage or st.get("ai_key_storage", "session"))
+    key = _resolve_ai_api_key(session_key=session_key, storage=mode, provider=p)
+    if key:
+        src = {"session": "session", "env": "/".join(_ai_env_vars(p)), "keyring": "OS Credential Manager", "plain": "settings.json"}.get(mode, mode)
+        return f"{_ai_provider_label(p)} key found via {src}: {_mask_secret(key)}"
+    if mode == "env":
+        return f"No key found in {' or '.join(_ai_env_vars(p))}"
+    if mode == "keyring":
+        return "No key found in OS Credential Manager" if _keyring_module() else "keyring package not installed"
+    if mode == "plain":
+        return "No key saved in settings.json"
+    return "Session key not set"
 # ── CYOA Manager Integration ───────────────────────────────────────────────
 # CYOA Manager (https://github.com/alexncode/CYOA-Manager) stores its library
 # in a SQLite database. We can insert downloaded projects directly into it so
@@ -1423,6 +2072,7 @@ def _apply_offline_viewer(
     project_json_str: str,
     viewer_meta: Dict,
     file_name: str = "project",
+    asset_source_dirs: Optional[Dict[str, str]] = None,
 ) -> Optional[str]:
     """
     Extract an offline viewer ZIP into output_dir and inject project data.
@@ -1479,7 +2129,7 @@ def _apply_offline_viewer(
                 target_rel = member[len(strip_prefix):] if strip_prefix else member
                 if not target_rel or target_rel.endswith("/"):
                     continue
-                target_path = os.path.join(site_folder, *target_rel.split("/"))
+                target_path = _safe_archive_join(site_folder, target_rel)
                 os.makedirs(os.path.dirname(target_path), exist_ok=True)
                 data = arc.read(member)
                 with open(target_path, "wb") as f:
@@ -1723,7 +2373,7 @@ color:#fff;padding:6px 14px;font:inherit;cursor:pointer;white-space:nowrap}
 </style>
 <div id="__cyoa_audio_banner" style="display:none">
   <span>🔇 Audio diblokir browser (autoplay policy)</span>
-  <button onclick="__cyoaUnblockAudio()">▶ Enable Audio</button>
+  <button onclick="__cyoaUnblockAudio()">▶ Aktifkan Audio</button>
   <span style="margin-left:auto;cursor:pointer;opacity:.6" onclick="document.getElementById('__cyoa_audio_banner').style.display='none'">✕</span>
 </div>
 <div id="__cyoa_panel">
@@ -1829,26 +2479,30 @@ setTimeout(function(){clearInterval(t);},30000);
     else:
         html += _CHEAT_OVERLAY
 
-    # ── Copy images/ and audio/ folders to site_folder ────────────────
-    # dl_result keeps images as URLs like "images/foo.png" and audio as
-    # "audio/ID.mp3". The offline viewer folder needs these assets alongside
-    # index.html so the viewer can load them as relative paths.
-    import shutil as _shutil
-    for _asset_dir_name in ["audio", "images"]:
-        for _asset_src_dir in [
-            os.path.join(output_dir, _asset_dir_name),
-            os.path.join(output_dir, file_name, _asset_dir_name),
-        ]:
-            if os.path.isdir(_asset_src_dir):
-                _asset_dst = os.path.join(site_folder, _asset_dir_name)
-                if not os.path.exists(_asset_dst):
-                    _shutil.copytree(_asset_src_dir, _asset_dst)
-                    _n = sum(1 for _ in os.scandir(_asset_dst))
-                    logger.info(
-                        f"  Copied {_n} {_asset_dir_name} file(s) → "
-                        f"{os.path.relpath(_asset_dst, output_dir)}"
-                    )
-                break
+    # ── Copy images/ and audio/ folders directly into the offline viewer ───
+    # The caller passes temp asset folders explicitly. This avoids copying to or
+    # deleting output_dir/images and output_dir/audio, which may belong to another run.
+    _asset_sources: Dict[str, str] = dict(asset_source_dirs or {})
+    if not _asset_sources:
+        # Backward-compatible fallback for older callers only. Never delete roots.
+        for _asset_dir_name in ("images", "audio"):
+            for _candidate in (
+                os.path.join(output_dir, file_name, _asset_dir_name),
+                os.path.join(output_dir, _asset_dir_name),
+            ):
+                if os.path.isdir(_candidate):
+                    _asset_sources.setdefault(_asset_dir_name, _candidate)
+                    break
+    for _asset_dir_name in ("images", "audio"):
+        _asset_src_dir = _asset_sources.get(_asset_dir_name, "")
+        if os.path.isdir(_asset_src_dir):
+            _asset_dst = os.path.join(site_folder, _asset_dir_name)
+            _n = _copytree_merge_safe(_asset_src_dir, _asset_dst, label=_asset_dir_name)
+            if _n:
+                logger.info(
+                    f"  Copied {_n} {_asset_dir_name} file(s) → "
+                    f"{os.path.relpath(_asset_dst, output_dir)}"
+                )
 
     try:
         pathlib.Path(index_path).write_text(html, encoding="utf-8")
@@ -1898,9 +2552,8 @@ def _record_history(url: str, file_name: str, mode: str, success: bool) -> None:
     # Capture server metadata for future batch update checking
     if success:
         try:
-            r = requests.head(url, timeout=8, allow_redirects=True,
-                              headers={"User-Agent": "Mozilla/5.0"})
-            if r.status_code == 200:
+            r = fetch_response(url, timeout=8, extra_headers={"User-Agent": "Mozilla/5.0"}, as_bytes=True)
+            if r is not None and r.status_code == 200:
                 entry["etag"]           = r.headers.get("ETag", "")
                 entry["last_modified"]  = r.headers.get("Last-Modified", "")
                 entry["content_length"] = r.headers.get("Content-Length", "")
@@ -2124,10 +2777,11 @@ def _check_for_app_updates() -> Optional[Dict[str, str]]:
     if not _GITHUB_RELEASE_API:
         return None
     try:
-        r = requests.get(_GITHUB_RELEASE_API, timeout=8,
-                         headers={"Accept": "application/vnd.github+json",
-                                  "User-Agent": "CYOA-Downloader"})
-        if r.status_code != 200:
+        r = fetch_response(_GITHUB_RELEASE_API, timeout=8,
+                           extra_headers={"Accept": "application/vnd.github+json",
+                                          "User-Agent": "CYOA-Downloader"},
+                           as_bytes=True)
+        if r is None or r.status_code != 200:
             return None
         data = r.json()
         remote_tag = data.get("tag_name", "").lstrip("vV").strip()
@@ -2164,11 +2818,10 @@ def _batch_check_updates(history: Dict[str, Dict],
     def _check(args):
         idx, (url, meta) = args
         try:
-            r = requests.head(url, timeout=10, allow_redirects=True,
-                              headers={"User-Agent": "Mozilla/5.0"})
-            if r.status_code != 200:
+            r = fetch_response(url, timeout=10, extra_headers={"User-Agent": "Mozilla/5.0"}, as_bytes=True)
+            if r is None or r.status_code != 200:
                 return {"url": url, "name": meta.get("filename", ""),
-                        "status": "unreachable", "reason": f"HTTP {r.status_code}"}
+                        "status": "unreachable", "reason": f"HTTP {getattr(r, 'status_code', 'request failed')}"}
             old_etag = meta.get("etag", "")
             old_lm   = meta.get("last_modified", "")
             old_cl   = meta.get("content_length", "")
@@ -2202,17 +2855,44 @@ def _batch_check_updates(history: Dict[str, Dict],
     return results
 
 
-def _ai_detect_project_json(url: str, html_text: str,
-                            api_key: str = "") -> Optional[str]:
-    """Phase 5: Ask Claude API to locate project.json URL from HTML.
 
-    Sends a truncated HTML sample. Requires an Anthropic API key.
-    Returns candidate URL or None.
+def _extract_single_ai_url(text_value: str) -> Optional[str]:
+    """Extract one URL/path from an AI response, rejecting unsafe schemes."""
+    if not text_value:
+        return None
+    raw = text_value.strip().strip('"').strip("'")
+    if raw.upper() in {"NONE", "NULL", "N/A", "NO", "NOT FOUND"}:
+        return None
+    if len(raw) > 600:
+        return None
+    scheme_match = re.match(r"^\s*([a-zA-Z][a-zA-Z0-9+.-]*):", raw)
+    if scheme_match and scheme_match.group(1).lower() not in {"http", "https"}:
+        return None
+    pattern = r"(https?://[^\s\"'<>`]+|//[^\s\"'<>`]+|(?:\./|\.\./|/)[A-Za-z0-9._~:/?#\[\]@!$&()*+,;=%-]+|[A-Za-z0-9._~/-]+\.(?:json|txt|zip)(?:\?[^\s\"'<>`]*)?)"
+    m = re.search(pattern, raw)
+    return m.group(1) if m else None
+
+def _ai_detect_project_json(url: str, html_text: str,
+                            api_key: str = "", provider: str = "",
+                            ai_mode: str = "auto_fallback",
+                            budget: Optional[AIUsageBudget] = None) -> Optional[str]:
+    """AI-assisted project data locator. Provider-neutral.
+
+    Returns a candidate URL only when AI mode permits recovery and the candidate
+    passes strict URL/path sanitization.
     """
+    provider = _normalize_ai_provider(provider or _get_ai_provider())
+    if not _ai_mode_allows("project_detect", ai_mode) or not _ai_is_available(api_key, provider):
+        return None
+    if not _ai_budget_consume(budget, "AI project detect"):
+        return None
+    html_budget = _get_ai_int_setting("ai_max_html_chars", 8000, min_value=1000, max_value=50000)
+    html_sample = html_text[:html_budget]
     result = _ai_call(
         api_key=api_key,
+        provider=provider,
         prompt=(
-            f"CYOA webpage at {url}.\nHTML (truncated):\n{html_text[:8000]}\n\n"
+            f"CYOA webpage at {url}.\nHTML (truncated):\n{html_sample}\n\n"
             "Find the URL where project.json data is loaded from. "
             "Look for fetch(), XHR, data-src, or script tags loading CYOA data. "
             "Reply ONLY the URL (absolute or relative). If not found, reply NONE."
@@ -2220,43 +2900,117 @@ def _ai_detect_project_json(url: str, html_text: str,
         max_tokens=300,
         label="project detect",
     )
-    if result and result.upper() != "NONE" and len(result) < 500:
-        candidate = result if result.startswith(("http://", "https://")) else urljoin(url, result)
+    candidate_raw = _sanitize_ai_candidate_url(_extract_single_ai_url(result or "") or "")
+    if candidate_raw:
+        candidate = candidate_raw if candidate_raw.startswith(("http://", "https://")) else urljoin(url, candidate_raw)
         logger.info(f"[AI detect] project candidate → {candidate}")
         return candidate
     return None
 
 
 def _ai_call(api_key: str, prompt: str, max_tokens: int = 1024,
-             system: str = "", label: str = "ai") -> Optional[str]:
-    """Low-level Claude API call. Returns response text or None."""
-    if not api_key:
+             system: str = "", label: str = "ai", model: str = "",
+             provider: str = "") -> Optional[str]:
+    """Provider-aware low-level AI call. Returns response text or None.
+
+    Supported providers:
+      - anthropic: Anthropic Messages API
+      - openai: OpenAI Responses API
+      - gemini: Google Gemini generateContent API
+      - ollama: local Ollama /api/generate
+    """
+    provider = _normalize_ai_provider(provider or _get_ai_provider())
+    model = (model or _get_ai_model(provider)).strip() or _default_ai_model(provider)
+    if provider != "ollama" and not api_key:
         return None
     try:
-        body: Dict[str, Any] = {
-            "model": "claude-sonnet-4-20250514",
-            "max_tokens": max_tokens,
-            "messages": [{"role": "user", "content": prompt}],
-        }
-        if system:
-            body["system"] = system
-        r = requests.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={"Content-Type": "application/json",
-                     "x-api-key": api_key,
-                     "anthropic-version": "2023-06-01"},
-            json=body,
-            timeout=60,
-        )
-        if r.status_code != 200:
-            logger.debug(f"[{label}] API {r.status_code}: {r.text[:200]}")
-            return None
-        data = r.json()
-        text = "".join(
-            c.get("text", "") for c in data.get("content", [])
-            if c.get("type") == "text"
-        ).strip()
-        return text or None
+        session = _get_shared_session(use_cf=False)
+        if provider == "anthropic":
+            body: Dict[str, Any] = {
+                "model": model,
+                "max_tokens": max_tokens,
+                "messages": [{"role": "user", "content": prompt}],
+            }
+            if system:
+                body["system"] = system
+            r = session.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={"Content-Type": "application/json",
+                         "x-api-key": api_key,
+                         "anthropic-version": "2023-06-01"},
+                json=body,
+                timeout=60,
+            )
+            if r.status_code != 200:
+                logger.debug(f"[{label}] Anthropic API {r.status_code}: {r.text[:300]}")
+                return None
+            data = r.json()
+            return "".join(c.get("text", "") for c in data.get("content", []) if c.get("type") == "text").strip() or None
+
+        if provider == "openai":
+            input_payload: List[Dict[str, str]] = []
+            if system:
+                input_payload.append({"role": "system", "content": system})
+            input_payload.append({"role": "user", "content": prompt})
+            body = {"model": model, "input": input_payload, "max_output_tokens": max_tokens}
+            r = session.post(
+                "https://api.openai.com/v1/responses",
+                headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
+                json=body,
+                timeout=60,
+            )
+            if r.status_code != 200:
+                logger.debug(f"[{label}] OpenAI API {r.status_code}: {r.text[:300]}")
+                return None
+            data = r.json()
+            if data.get("output_text"):
+                return str(data["output_text"]).strip() or None
+            parts: List[str] = []
+            for item in data.get("output", []) or []:
+                for c in item.get("content", []) or []:
+                    if isinstance(c, dict) and c.get("text"):
+                        parts.append(str(c.get("text")))
+            return "".join(parts).strip() or None
+
+        if provider == "gemini":
+            import urllib.parse as _up
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{_up.quote(model, safe='')}:generateContent?key={_up.quote(api_key, safe='')}"
+            body: Dict[str, Any] = {
+                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                "generationConfig": {"maxOutputTokens": max_tokens},
+            }
+            if system:
+                body["systemInstruction"] = {"parts": [{"text": system}]}
+            r = session.post(url, headers={"Content-Type": "application/json"}, json=body, timeout=60)
+            if r.status_code != 200:
+                logger.debug(f"[{label}] Gemini API {r.status_code}: {r.text[:300]}")
+                return None
+            data = r.json()
+            parts: List[str] = []
+            for cand in data.get("candidates", []) or []:
+                for part in cand.get("content", {}).get("parts", []) or []:
+                    if part.get("text"):
+                        parts.append(str(part["text"]))
+            return "".join(parts).strip() or None
+
+        if provider == "ollama":
+            st = _load_settings()
+            base = (st.get("ollama_url") or OLLAMA_DEFAULT_URL).rstrip("/")
+            body = {
+                "model": model,
+                "prompt": (system + "\n\n" if system else "") + prompt,
+                "stream": False,
+                "options": {"num_predict": max_tokens},
+            }
+            r = session.post(base + "/api/generate", headers={"Content-Type": "application/json"}, json=body, timeout=120)
+            if r.status_code != 200:
+                logger.debug(f"[{label}] Ollama API {r.status_code}: {r.text[:300]}")
+                return None
+            data = r.json()
+            return str(data.get("response", "")).strip() or None
+
+        logger.warning(f"[{label}] Unsupported AI provider: {provider}")
+        return None
     except Exception as e:
         logger.debug(f"[{label}] error: {e}")
     return None
@@ -2266,6 +3020,9 @@ def _ai_analyze_js_for_assets(
     js_files: Dict[str, str],
     base_url: str,
     api_key: str = "",
+    provider: str = "",
+    ai_mode: str = "aggressive_recovery",
+    budget_obj: Optional[AIUsageBudget] = None,
 ) -> List[str]:
     """AI-assisted JS analysis to discover asset URLs that BFS scan missed.
 
@@ -2278,20 +3035,23 @@ def _ai_analyze_js_for_assets(
 
     Returns list of candidate URLs (absolute).
     """
-    if not api_key or not js_files:
+    provider = _normalize_ai_provider(provider or _get_ai_provider())
+    if not js_files or not _ai_mode_allows("asset_scan", ai_mode) or not _ai_is_available(api_key, provider):
+        return []
+    if not _ai_budget_consume(budget_obj, "AI asset scan"):
         return []
 
     # Build a compact JS sample: filename + first N chars of each file
-    # Budget ~12K chars total across all files
-    budget = 12000
+    # Budget is user-configurable from AI settings.
+    budget = int(_load_settings().get("ai_max_js_chars", 14000) or 14000)
     per_file = max(800, budget // max(len(js_files), 1))
     samples = []
     for fname, content in js_files.items():
         snippet = content[:per_file]
         samples.append(f"--- {fname} ({len(content)} chars) ---\n{snippet}")
     combined = "\n\n".join(samples)
-    if len(combined) > 14000:
-        combined = combined[:14000]
+    if len(combined) > budget:
+        combined = combined[:budget]
 
     system_prompt = (
         "You are an expert JavaScript reverse engineer analyzing CYOA "
@@ -2323,6 +3083,7 @@ def _ai_analyze_js_for_assets(
         system=system_prompt,
         max_tokens=2000,
         label="AI asset scan",
+        provider=provider,
     )
     if not result:
         return []
@@ -2340,7 +3101,15 @@ def _ai_analyze_js_for_assets(
         for c in candidates:
             if not isinstance(c, str) or not c.strip():
                 continue
-            c = c.strip()
+            c = _sanitize_ai_candidate_url(c)
+            if not c:
+                continue
+            # Only accept likely web assets/data endpoints. MIME is validated again at download time.
+            path_l = urlparse(c).path.lower()
+            if path_l and not path_l.endswith(tuple(IMAGE_EXTENSIONS | AUDIO_EXTENSIONS | VIDEO_EXTENSIONS | SCRIPT_EXTENSIONS | STYLE_EXTENSIONS | FONT_EXTENSIONS | {".json", ".html", ".htm", ".svg"})):
+                # Keep extensionless relative fetch targets, but skip obvious non-assets.
+                if "." in os.path.basename(path_l):
+                    continue
             if c.startswith(("http://", "https://")):
                 resolved.append(c)
             else:
@@ -2357,6 +3126,9 @@ def _ai_analyze_viewer_logic(
     js_samples: Dict[str, str],
     url: str,
     api_key: str = "",
+    provider: str = "",
+    ai_mode: str = "diagnostics",
+    budget_obj: Optional[AIUsageBudget] = None,
 ) -> Dict[str, Any]:
     """AI-assisted analysis of how a CYOA viewer loads and structures data.
 
@@ -2366,14 +3138,19 @@ def _ai_analyze_viewer_logic(
     - viewer_type: detected viewer type
     - suggestions: list of recommended actions
     """
-    if not api_key:
+    provider = _normalize_ai_provider(provider or _get_ai_provider())
+    if not _ai_mode_allows("diagnostics", ai_mode) or not _ai_is_available(api_key, provider):
+        return {}
+    if not _ai_budget_consume(budget_obj, "AI viewer analysis"):
         return {}
 
     # Build compact sample
-    html_sample = html_text[:4000]
+    html_limit = min(4000, _get_ai_int_setting("ai_max_html_chars", 8000, min_value=1000, max_value=50000))
+    js_limit = min(3000, _get_ai_int_setting("ai_max_js_chars", 14000, min_value=1000, max_value=100000))
+    html_sample = html_text[:html_limit]
     js_sample_parts = []
     for fname, content in list(js_samples.items())[:3]:
-        js_sample_parts.append(f"--- {fname} ---\n{content[:3000]}")
+        js_sample_parts.append(f"--- {fname} ---\n{content[:js_limit]}")
     js_combined = "\n\n".join(js_sample_parts)
 
     result = _ai_call(
@@ -2395,13 +3172,21 @@ def _ai_analyze_viewer_logic(
         ),
         max_tokens=800,
         label="AI viewer analysis",
+        provider=provider,
     )
     if not result:
         return {}
     try:
         cleaned = re.sub(r'^```(?:json)?\s*', '', result.strip())
         cleaned = re.sub(r'\s*```$', '', cleaned)
-        return json.loads(cleaned)
+        obj = json.loads(cleaned)
+        if not isinstance(obj, dict):
+            return {}
+        allowed = {"data_source", "asset_base", "viewer_type", "chunk_pattern", "suggestions"}
+        clean: Dict[str, Any] = {k: obj.get(k) for k in allowed if k in obj}
+        if "suggestions" in clean and not isinstance(clean["suggestions"], list):
+            clean["suggestions"] = [str(clean["suggestions"])]
+        return clean
     except (json.JSONDecodeError, ValueError):
         return {}
 
@@ -2536,52 +3321,51 @@ def _fetch_headless(url: str) -> Optional[bytes]:
 
 
 # ── Layer F: gallery-dl fallback ───────────────────────────────────────────
-# Sites where gallery-dl adds real value (OAuth, session, tier-locked content)
-_GALLERY_DL_SITES: Dict[str, str] = {
-    # Pixiv — restricted/R-18 content needs OAuth
-    "i.pximg.net":               "pixiv",
-    "img-original.pximg.net":    "pixiv",
-    "img-zip-ugoira.pximg.net":  "pixiv",
-    # DeviantArt — mature content needs session
-    "c.deviantart.com":          "deviantart",
-    "a.deviantart.net":          "deviantart",
-    "wixmp.com":                 "deviantart",
-    # Twitter/X — post-API-change restrictions
-    "pbs.twimg.com":             "twitter",
-    # Hypnohub — some posts are restricted
-    "img.hypnohub.net":          "booru",
-    # Danbooru — gold+ content
-    "cdn.donmai.us":             "booru",
-    # Sankaku Complex — plus tier
-    "img3.sankakucomplex.com":   "booru",
-    "img.sankakucomplex.com":    "booru",
-    # e621/e926
-    "static1.e621.net":          "booru",
-    "static1.e926.net":          "booru",
-    # General booru CDNs — Referer sometimes not enough
-    "img3.rule34.xxx":           "booru",
-    "img.rule34.xxx":            "booru",
-    "img1.gelbooru.com":         "booru",
-    "img2.gelbooru.com":         "booru",
-    "img.rule34.paheal.net":     "booru",
-    "derpicdn.net":              "booru",
-    "tbib.org":                  "booru",
-    "xbooru.com":                "booru",
+# gallery-dl is useful for post/gallery pages that require a supported extractor
+# (Pixiv artwork pages, DeviantArt pages, booru post pages). It is NOT reliable
+# as an automatic fallback for raw CDN asset URLs such as i.pximg.net/img-original/*.
+# Default mode is off; smart mode only accepts page/post/gallery-style URLs.
+_GALLERY_DL_HOSTS: Dict[str, str] = {
+    "www.pixiv.net": "pixiv", "pixiv.net": "pixiv",
+    "www.deviantart.com": "deviantart", "deviantart.com": "deviantart",
+    "danbooru.donmai.us": "danbooru", "donmai.us": "danbooru",
+    "e621.net": "e621", "e926.net": "e621",
+    "gelbooru.com": "gelbooru", "hypnohub.net": "hypnohub",
+    "rule34.xxx": "rule34", "sankaku.app": "sankaku",
+    "chan.sankakucomplex.com": "sankaku",
+    "x.com": "twitter", "twitter.com": "twitter", "www.twitter.com": "twitter",
 }
-
-_GALLERY_DL_SUFFIX: Dict[str, str] = {
-    ".pximg.net":          "pixiv",
-    ".sankakucomplex.com": "booru",
-    ".donmai.us":          "booru",
-    ".e621.net":           "booru",
-    ".rule34.xxx":         "booru",
-    ".gelbooru.com":       "booru",
-    ".hypnohub.net":       "booru",
-    ".paheal.net":         "booru",
-    ".deviantart.com":     "deviantart",
+_GALLERY_DL_CDN_HOSTS: Set[str] = {
+    "i.pximg.net", "img-original.pximg.net", "img-zip-ugoira.pximg.net",
+    "pbs.twimg.com", "c.deviantart.com", "a.deviantart.net", "wixmp.com",
+    "cdn.donmai.us", "static1.e621.net", "static1.e926.net",
+    "img3.sankakucomplex.com", "img.sankakucomplex.com",
+    "img1.gelbooru.com", "img2.gelbooru.com", "img.hypnohub.net",
+    "img.rule34.xxx", "img3.rule34.xxx", "img.rule34.paheal.net",
 }
-
 _gdl_available: Optional[bool] = None   # cached
+_gallery_dl_mode: str = str(_load_settings().get("gallery_dl_mode", "off") or "off").lower()
+_gallery_dl_path: str = "gallery-dl"
+_gallery_dl_config: str = ""
+
+
+def _set_gallery_dl_mode(mode: str = "off", *, path: str = "", config: str = "") -> None:
+    """Set gallery-dl integration mode. Modes: off, smart, force."""
+    global _gallery_dl_mode, _gallery_dl_path, _gallery_dl_config, _gdl_available
+    m = (mode or "off").strip().lower()
+    if m not in {"off", "smart", "force"}:
+        m = "off"
+    old_path, old_config = _gallery_dl_path, _gallery_dl_config
+    _gallery_dl_mode = m
+    _gallery_dl_path = (path or "gallery-dl").strip()
+    _gallery_dl_config = (config or "").strip()
+    if old_path != _gallery_dl_path or old_config != _gallery_dl_config:
+        _gdl_available = None
+    try:
+        st = _load_settings(); st["gallery_dl_mode"] = m; _save_settings(st)
+    except Exception:
+        pass
+
 
 def _gallery_dl_is_available() -> bool:
     global _gdl_available
@@ -2595,7 +3379,7 @@ def _gallery_dl_is_available() -> bool:
         pass
     try:
         import subprocess as _sp
-        r = _sp.run(["gallery-dl", "--version"], capture_output=True, timeout=5)
+        r = _sp.run([_gallery_dl_path or "gallery-dl", "--version"], capture_output=True, timeout=5)
         _gdl_available = (r.returncode == 0)
         return _gdl_available
     except Exception:
@@ -2603,69 +3387,88 @@ def _gallery_dl_is_available() -> bool:
         return False
 
 
-def _is_gallery_dl_site(url: str) -> Optional[str]:
-    """Return site key if gallery-dl would help, None otherwise."""
+def _is_probable_raw_cdn_asset(url: str) -> bool:
     try:
-        host = urlparse(url).hostname or ""
-        if host in _GALLERY_DL_SITES:
-            return _GALLERY_DL_SITES[host]
-        for suffix, site in _GALLERY_DL_SUFFIX.items():
-            if host.endswith(suffix):
-                return site
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").lower()
+        ext = os.path.splitext(parsed.path.lower())[1]
+        return host in _GALLERY_DL_CDN_HOSTS or ext in IMAGE_EXTENSIONS
+    except Exception:
+        return True
+
+
+def _is_gallery_dl_candidate(url: str) -> Optional[str]:
+    """Return extractor key only when gallery-dl is appropriate for this URL."""
+    if _gallery_dl_mode == "off":
+        return None
+    try:
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").lower()
+        path = parsed.path.lower()
+        if _gallery_dl_mode == "smart" and _is_probable_raw_cdn_asset(url):
+            return None
+        if host in _GALLERY_DL_HOSTS:
+            return _GALLERY_DL_HOSTS[host]
+        if _gallery_dl_mode == "force":
+            # Force is an advanced/manual mode. Still avoid obviously local/data URLs.
+            if parsed.scheme in {"http", "https"}:
+                return host or "custom"
+        # Common page patterns. Keep this conservative.
+        if any(token in path for token in ("/artworks/", "/posts/", "/post/", "/view/", "/gallery/", "/status/")):
+            return host or "page"
     except Exception:
         pass
     return None
 
+# Backwards-compatible name used by older code paths.
+def _is_gallery_dl_site(url: str) -> Optional[str]:
+    return _is_gallery_dl_candidate(url)
+
 
 def _fetch_via_gallery_dl(url: str) -> Optional[bytes]:
     """
-    Layer F: Download a single image URL via gallery-dl.
-    Handles Pixiv OAuth, booru auth, DeviantArt session, etc.
-    Returns bytes on success, None on failure.
-    Install: pip install gallery-dl
+    Download a single file through gallery-dl only when explicitly enabled.
+    Uses gallery/page URLs best. Raw CDN image URLs are skipped in smart mode.
     """
-    import tempfile, subprocess as _sp, glob as _glob
+    import tempfile, subprocess as _sp
 
+    site = _is_gallery_dl_candidate(url)
+    if not site:
+        return None
     if not _gallery_dl_is_available():
+        logger.debug("[gallery-dl] unavailable; install with: pip install gallery-dl")
         return None
 
     tmpdir = tempfile.mkdtemp(prefix="cyoa_gdl_")
     try:
-        # ── Try CLI first ─────────────────────────────────────────────
         cmd = [
-            "gallery-dl",
-            "--dest",    tmpdir,
+            _gallery_dl_path or "gallery-dl",
+            "--destination", tmpdir,
             "--no-mtime",
             "--no-download-archive",
+            "--range", "1",
             "-q",
-            "--range",   "1",
-            url,
         ]
-        r = _sp.run(cmd, capture_output=True, timeout=60, text=True)
+        if _gallery_dl_config and os.path.exists(_gallery_dl_config):
+            cmd.extend(["--config", _gallery_dl_config])
+        proxy = _get_active_proxy()
+        if proxy:
+            cmd.extend(["--proxy", proxy])
+        cmd.append(url)
+
+        r = _sp.run(cmd, capture_output=True, timeout=90, text=True)
         image_files = _gdl_collect_files(tmpdir)
 
         if not image_files:
-            # ── Try Python API ─────────────────────────────────────────
-            try:
-                import gallery_dl.job as _gdl_job
-                _gdl_job.DownloadJob(url, {
-                    "base-directory": tmpdir,
-                    "filename": "{id}.{extension}",
-                    "verbose": False,
-                }).run()
-                image_files = _gdl_collect_files(tmpdir)
-            except Exception as e2:
-                logger.debug(f"[gallery-dl Python API] {e2}")
-
-        if not image_files:
-            logger.debug(f"[gallery-dl] No output for {url} | stderr={r.stderr[:100]}")
+            logger.debug(f"[gallery-dl] No output for {url} | rc={r.returncode} | stderr={(r.stderr or '')[:200]}")
             return None
 
         best = max(image_files, key=os.path.getsize)
-        data = open(best, "rb").read()
+        with open(best, "rb") as f:
+            data = f.read()
         if len(data) < 64:
             return None
-        logger.info(f"  [gallery-dl ✓] {url.split('/')[-1]} ({len(data)//1024}KB)")
+        logger.info(f"  [gallery-dl ✓] {os.path.basename(best)} ({len(data)//1024}KB)")
         return data
 
     except _sp.TimeoutExpired:
@@ -2676,28 +3479,35 @@ def _fetch_via_gallery_dl(url: str) -> Optional[bytes]:
         return None
     finally:
         import shutil as _sh
-        try: _sh.rmtree(tmpdir, ignore_errors=True)
-        except Exception: pass
+        try:
+            _sh.rmtree(tmpdir, ignore_errors=True)
+        except Exception:
+            pass
 
 
 def _gdl_collect_files(directory: str):
-    """Collect downloaded image files from gallery-dl output dir."""
+    """Collect downloaded media files from gallery-dl output dir."""
     import glob as _glob
     files = _glob.glob(os.path.join(directory, "**", "*"), recursive=True)
     return [
         f for f in files
-        if os.path.isfile(f) and not f.lower().endswith((".json", ".log", ".txt"))
+        if os.path.isfile(f) and not f.lower().endswith((".json", ".log", ".txt", ".part"))
         and os.path.getsize(f) > 64
     ]
+
+
 _image_hash_map: Dict[str, str] = {}   # sha256 → first local path (dedup)
 _hash_lock = _threading.Lock()
 
+
 def _check_image_dedup(content: bytes, local_path: str) -> Optional[str]:
     """Check if identical content already downloaded this session."""
-    if not content: return None
+    if not content:
+        return None
     h = _hashlib.sha256(content).hexdigest()
     with _hash_lock:
-        if h in _image_hash_map: return _image_hash_map[h]
+        if h in _image_hash_map:
+            return _image_hash_map[h]
         _image_hash_map[h] = local_path
     return None
 
@@ -2721,6 +3531,287 @@ def is_cloudflare_challenge(response) -> bool:
         "cf-turnstile", "DDoS protection",
     ]
     return any(m in text_sample for m in cf_markers)
+
+
+
+# ── Cloudflare / FlareSolverr integration ──────────────────────────────────
+
+def _normalize_cloudflare_mode(mode: str) -> str:
+    m = (mode or "auto").strip().lower().replace(" ", "-").replace("_", "-")
+    aliases = {
+        "off": "off", "none": "off", "disabled": "off",
+        "auto": "auto",
+        "cf-bypass": "cloudscraper", "cloudscraper": "cloudscraper", "cloud-scraper": "cloudscraper",
+        "flaresolverr": "flaresolverr", "flare-solverr": "flaresolverr", "flaversolverr": "flaresolverr",
+    }
+    return aliases.get(m, "auto")
+
+
+def _display_cloudflare_mode(mode: str) -> str:
+    m = _normalize_cloudflare_mode(mode)
+    return {"off": "Off", "auto": "Auto", "cloudscraper": "cloudscraper", "flaresolverr": "FlareSolverr"}.get(m, "Auto")
+
+
+def _normalize_flaresolverr_url(url: str) -> str:
+    u = (url or "http://localhost:8191/v1").strip().rstrip("/")
+    if not u:
+        return "http://localhost:8191/v1"
+    # Users often paste http://localhost:8191; the JSON API is /v1.
+    parsed = urlparse(u)
+    if parsed.scheme not in {"http", "https"}:
+        u = "http://" + u
+        parsed = urlparse(u)
+    if not parsed.path or parsed.path == "/":
+        u = u.rstrip("/") + "/v1"
+    elif not parsed.path.rstrip("/").endswith("/v1") and not parsed.path.rstrip("/").endswith("v1"):
+        u = u.rstrip("/") + "/v1"
+    return u
+
+
+def _load_cloudflare_settings() -> None:
+    """Load persisted Cloudflare/FlareSolverr settings into globals."""
+    st = _load_settings()
+    _set_cloudflare_config(
+        mode=st.get("cloudflare_mode", "auto"),
+        flaresolverr_url=st.get("flaresolverr_url", "http://localhost:8191/v1"),
+        session_policy=st.get("flaresolverr_session_policy", "reuse-domain"),
+        timeout=int(st.get("flaresolverr_timeout", 60) or 60),
+        wait_after=int(st.get("flaresolverr_wait_after", 3) or 3),
+        proxy_mode=st.get("flaresolverr_proxy_mode", "inherit"),
+        persist=False,
+    )
+
+
+def _set_cloudflare_config(
+    mode: str = "auto",
+    *,
+    flaresolverr_url: str = "",
+    session_policy: str = "",
+    timeout: int = 60,
+    wait_after: int = 3,
+    proxy_mode: str = "inherit",
+    persist: bool = True,
+) -> None:
+    """Set process-local Cloudflare engine configuration."""
+    global _CLOUDFLARE_MODE, use_cloudscraper, _FLARESOLVERR_URL
+    global _FLARESOLVERR_SESSION_POLICY, _FLARESOLVERR_TIMEOUT, _FLARESOLVERR_WAIT_AFTER, _FLARESOLVERR_PROXY_MODE
+    global _shared_session, _shared_session_cf
+
+    old_mode = _CLOUDFLARE_MODE
+    _CLOUDFLARE_MODE = _normalize_cloudflare_mode(mode)
+    use_cloudscraper = (_CLOUDFLARE_MODE == "cloudscraper")
+    if flaresolverr_url:
+        _FLARESOLVERR_URL = _normalize_flaresolverr_url(flaresolverr_url)
+    _FLARESOLVERR_SESSION_POLICY = (session_policy or _FLARESOLVERR_SESSION_POLICY or "reuse-domain").strip().lower()
+    if _FLARESOLVERR_SESSION_POLICY not in {"temporary", "reuse-domain", "manual"}:
+        _FLARESOLVERR_SESSION_POLICY = "reuse-domain"
+    try:
+        _FLARESOLVERR_TIMEOUT = max(5, int(timeout or 60))
+    except Exception:
+        _FLARESOLVERR_TIMEOUT = 60
+    try:
+        _FLARESOLVERR_WAIT_AFTER = max(0, int(wait_after or 0))
+    except Exception:
+        _FLARESOLVERR_WAIT_AFTER = 3
+    _FLARESOLVERR_PROXY_MODE = (proxy_mode or "inherit").strip().lower()
+    if _FLARESOLVERR_PROXY_MODE not in {"inherit", "none"}:
+        _FLARESOLVERR_PROXY_MODE = "inherit"
+
+    if old_mode != _CLOUDFLARE_MODE:
+        _shared_session = None
+        _shared_session_cf = None
+    if persist:
+        try:
+            st = _load_settings()
+            st.update({
+                "cloudflare_mode": _CLOUDFLARE_MODE,
+                "flaresolverr_url": _FLARESOLVERR_URL,
+                "flaresolverr_session_policy": _FLARESOLVERR_SESSION_POLICY,
+                "flaresolverr_timeout": _FLARESOLVERR_TIMEOUT,
+                "flaresolverr_wait_after": _FLARESOLVERR_WAIT_AFTER,
+                "flaresolverr_proxy_mode": _FLARESOLVERR_PROXY_MODE,
+            })
+            _save_settings(st)
+        except Exception as e:
+            logger.debug(f"Could not save Cloudflare settings: {e}")
+
+
+def _flaresolverr_payload_proxy() -> Optional[Dict[str, str]]:
+    """Return FlareSolverr proxy object when proxy inheritance is enabled."""
+    if _FLARESOLVERR_PROXY_MODE != "inherit":
+        return None
+    proxy = _get_active_proxy()
+    if not proxy:
+        return None
+    # FlareSolverr expects a proxy object. Minimal URL form works for HTTP/S proxies.
+    return {"url": proxy}
+
+
+def _flaresolverr_post(payload: Dict[str, Any], timeout: Optional[int] = None) -> Optional[Dict[str, Any]]:
+    """POST JSON to FlareSolverr /v1. Returns decoded JSON or None."""
+    api_url = _normalize_flaresolverr_url(_FLARESOLVERR_URL)
+    request_timeout = max((timeout or _FLARESOLVERR_TIMEOUT) + 10, 20)
+    try:
+        session = requests.Session()
+        session.trust_env = (_proxy_mode == "inherit_env")
+        proxy = _get_active_proxy()
+        if proxy and _FLARESOLVERR_PROXY_MODE == "inherit":
+            # This proxy is for reaching FlareSolverr itself. For localhost, this is usually unnecessary;
+            # requests will typically bypass localhost via NO_PROXY if configured. Keep it explicit but safe.
+            parsed = urlparse(api_url)
+            if (parsed.hostname or "").lower() not in {"localhost", "127.0.0.1", "::1"}:
+                session.proxies.update({"http": proxy, "https": proxy})
+        r = session.post(api_url, json=payload, timeout=request_timeout)
+        r.raise_for_status()
+        data = r.json()
+        if data.get("status") not in {"ok", "success"}:
+            logger.warning(f"[FlareSolverr] {data.get('message') or data.get('error') or 'request failed'}")
+        return data
+    except Exception as e:
+        logger.warning(f"[FlareSolverr] API unavailable at {api_url}: {e}")
+        return None
+
+
+def _flaresolverr_session_key(url: str) -> str:
+    host = (urlparse(url).hostname or "default").lower()
+    safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", host)[:80]
+    return f"cyoa_{safe}"
+
+
+def _flaresolverr_get_session(url: str) -> Optional[str]:
+    """Create/reuse a FlareSolverr session according to the configured policy."""
+    if _FLARESOLVERR_SESSION_POLICY == "temporary":
+        return None
+    key = _flaresolverr_session_key(url)
+    with _FLARESOLVERR_LOCK:
+        existing = _FLARESOLVERR_SESSIONS.get(key)
+        if existing:
+            return existing
+        if _FLARESOLVERR_SESSION_POLICY == "manual":
+            logger.debug(f"[FlareSolverr] Manual session policy: no auto-create for {key}")
+            return None
+        payload: Dict[str, Any] = {"cmd": "sessions.create", "session": key}
+        proxy_obj = _flaresolverr_payload_proxy()
+        if proxy_obj:
+            payload["proxy"] = proxy_obj
+        data = _flaresolverr_post(payload, timeout=10)
+        if data and data.get("status") == "ok":
+            session_name = data.get("session") or key
+            _FLARESOLVERR_SESSIONS[key] = session_name
+            logger.info(f"[FlareSolverr] Session ready: {session_name}")
+            return session_name
+    return None
+
+
+def flaresolverr_destroy_sessions() -> int:
+    """Destroy all sessions created by this app instance."""
+    destroyed = 0
+    with _FLARESOLVERR_LOCK:
+        sessions = list(_FLARESOLVERR_SESSIONS.values())
+        _FLARESOLVERR_SESSIONS.clear()
+    for sess in sessions:
+        data = _flaresolverr_post({"cmd": "sessions.destroy", "session": sess}, timeout=10)
+        if data and data.get("status") == "ok":
+            destroyed += 1
+    if destroyed:
+        logger.info(f"[FlareSolverr] Destroyed {destroyed} session(s)")
+    return destroyed
+
+
+def flaresolverr_test_connection() -> Tuple[bool, str]:
+    """Check whether FlareSolverr API is reachable."""
+    data = _flaresolverr_post({"cmd": "sessions.list"}, timeout=10)
+    if data and data.get("status") == "ok":
+        sessions = data.get("sessions", [])
+        return True, f"Connected. Sessions: {len(sessions) if isinstance(sessions, list) else 'unknown'}"
+    return False, "Not reachable. Start FlareSolverr and check the URL."
+
+
+def _apply_flaresolverr_solution_to_sessions(solution: Dict[str, Any], source_url: str) -> Dict[str, str]:
+    """Copy cookies/user-agent from FlareSolverr into requests sessions."""
+    headers: Dict[str, str] = {}
+    ua = solution.get("userAgent") or solution.get("user_agent") or ""
+    if ua:
+        headers["User-Agent"] = ua
+        try:
+            _get_shared_session(False).headers.update({"User-Agent": ua})
+            _get_shared_session(True).headers.update({"User-Agent": ua})
+        except Exception:
+            pass
+
+    host = urlparse(source_url).hostname or ""
+    cookies = solution.get("cookies") or []
+    for cookie in cookies if isinstance(cookies, list) else []:
+        try:
+            name = cookie.get("name")
+            value = cookie.get("value", "")
+            domain = cookie.get("domain") or host
+            path = cookie.get("path") or "/"
+            if name:
+                for sess in (_get_shared_session(False), _get_shared_session(True)):
+                    sess.cookies.set(name, value, domain=domain, path=path)
+        except Exception:
+            pass
+    return headers
+
+
+def _response_from_flaresolverr_solution(solution: Dict[str, Any], url: str) -> requests.Response:
+    """Build a requests.Response-like object from a FlareSolverr solution."""
+    resp = requests.Response()
+    status = int(solution.get("status") or 200)
+    body = solution.get("response") or ""
+    if isinstance(body, str):
+        raw = body.encode("utf-8", errors="replace")
+    elif isinstance(body, bytes):
+        raw = body
+    else:
+        raw = json.dumps(body).encode("utf-8")
+    resp.status_code = status
+    resp._content = raw
+    resp.url = solution.get("url") or url
+    resp.encoding = "utf-8"
+    headers = solution.get("headers") or {}
+    if isinstance(headers, dict):
+        resp.headers.update({str(k): str(v) for k, v in headers.items()})
+    if "Content-Type" not in resp.headers:
+        resp.headers["Content-Type"] = "text/html; charset=utf-8"
+    return resp
+
+
+def fetch_via_flaresolverr(url: str, extra_headers: Optional[Dict[str, str]] = None, timeout: Optional[int] = None) -> Optional[requests.Response]:
+    """Solve/fetch URL through FlareSolverr and return a Response-like object."""
+    session_name = _flaresolverr_get_session(url)
+    payload: Dict[str, Any] = {
+        "cmd": "request.get",
+        "url": url,
+        "maxTimeout": int((timeout or _FLARESOLVERR_TIMEOUT) * 1000),
+    }
+    if session_name:
+        payload["session"] = session_name
+        payload["session_ttl_minutes"] = max(5, int(_FLARESOLVERR_TIMEOUT // 2 or 30))
+    if _FLARESOLVERR_WAIT_AFTER:
+        payload["waitInSeconds"] = int(_FLARESOLVERR_WAIT_AFTER)
+    proxy_obj = _flaresolverr_payload_proxy()
+    if proxy_obj:
+        payload["proxy"] = proxy_obj
+    # Do not send arbitrary request headers here. The documented request.get API
+    # focuses on url/session/cookies/proxy/timeout/wait parameters. FlareSolverr
+    # returns the browser User-Agent, which is then reused by normal requests.
+
+    logger.info(f"[FlareSolverr] Solving/fetching: {url}")
+    data = _flaresolverr_post(payload, timeout=(timeout or _FLARESOLVERR_TIMEOUT))
+    if not data or data.get("status") not in {"ok", "success"}:
+        return None
+    solution = data.get("solution") or {}
+    if not isinstance(solution, dict):
+        return None
+    _apply_flaresolverr_solution_to_sessions(solution, url)
+    resp = _response_from_flaresolverr_solution(solution, url)
+    if resp.status_code >= 400:
+        logger.warning(f"[FlareSolverr] HTTP {resp.status_code}: {url}")
+        return None
+    logger.info(f"[FlareSolverr ✓] {url}")
+    return resp
 
 
 # ── Resume state ───────────────────────────────────────────────────────────
@@ -2805,8 +3896,8 @@ class CYOADownloaderGUI:
         # (val,  icon, name,                 desc,                         section)
         ("__sec__",            "", "OUTPUT MODE",        "",                              ""),
         ("auto",               "⚡","Auto (detect)",      "Default: Website Folder",      ""),
-        ("embed",              "📄","Embedded JSON",      "Base64-encoded images in JSON",  ""),
-        ("zip",                "🗜","ZIP",                "JSON + separate images",        ""),
+        ("embed",              "📄","Embedded JSON",      "Gambar di-base64 dalam JSON",  ""),
+        ("zip",                "🗜","ZIP",                "JSON + gambar terpisah",        ""),
         ("both",               "📦","Both",               "Embed + ZIP sekaligus",         ""),
         ("__sec__",            "", "WEBSITE MODE",       "",                              ""),
         ("website_zip",        "🌐","Website ZIP",        "Viewer + all assets",           ""),
@@ -2815,8 +3906,8 @@ class CYOADownloaderGUI:
         ("pure_website_zip",   "🔒","Pure Website ZIP",   "Viewer only, no project search",""),
         ("pure_website_folder","🔓","Pure Website Folder","Viewer only, no project search",""),
         ("__sec__",            "", "CYOAP_VUE",          "",                              ""),
-        ("cyoap_vue_zip",      "⚡","cyoap_vue ZIP",      "cyoap_vue-specific engine",       ""),
-        ("cyoap_vue_folder",   "⚡","cyoap_vue Folder",   "cyoap_vue-specific engine",       ""),
+        ("cyoap_vue_zip",      "⚡","cyoap_vue ZIP",      "Engine khusus cyoap_vue",       ""),
+        ("cyoap_vue_folder",   "⚡","cyoap_vue Folder",   "Engine khusus cyoap_vue",       ""),
     ]
 
     BADGE_COLORS = {
@@ -2835,7 +3926,7 @@ class CYOADownloaderGUI:
     def __init__(self, root) -> None:
         import customtkinter as ctk
         self.root = root
-        self.root.title("CYOA Downloader v7.2.1")
+        self.root.title(f"CYOA Downloader v{_APP_VERSION}")
         self.root.minsize(900, 640)
         self.root.geometry("1100x720")
 
@@ -2846,18 +3937,28 @@ class CYOADownloaderGUI:
         self._paused      = threading.Event()
         self._paused.set()   # not paused initially (set = running)
         self._speed_samples: List[Tuple[float, int]] = []   # (timestamp, bytes)
-        self._ai_api_key  = _load_settings().get("ai_api_key", "")
-        self._ai_enabled  = _load_settings().get("ai_enabled", False)
+        _ai_settings = _load_settings()
+        self._ai_provider = _normalize_ai_provider(_ai_settings.get("ai_provider", "anthropic"))
+        self._ai_key_storage = _normalize_ai_key_storage(_ai_settings.get("ai_key_storage", "session"))
+        self._ai_api_key  = ""  # session-only in-memory key. Secrets are not loaded into GUI by default.
+        if self._ai_key_storage == "plain":
+            self._ai_api_key = _resolve_ai_api_key(storage="plain", provider=self._ai_provider)
+        self._ai_enabled  = _ai_settings.get("ai_enabled", False)
+        self._ai_model    = _get_ai_model(self._ai_provider)
+        self._ai_mode     = _normalize_ai_mode(_ai_settings.get("ai_mode", "auto_fallback"))
         self._mode_var    = "auto"
         self._mode_btns: Dict = {}
         self._is_dark     = True
+        self._language    = _load_settings().get("language", "id") if _load_settings().get("language", "id") in {"id", "en"} else "id"
         self._themed: List = []
         self._last_results: List[Dict] = []
         self._server_thread = None
         self._server_obj    = None
         self._ytdlp_enabled = True  # default on; unchecked if yt-dlp not installed
+        _load_cloudflare_settings()
 
         self._setup_ui()
+        self._apply_language()
         self._setup_logging()
         self._poll_log()
 
@@ -2980,10 +4081,19 @@ class CYOADownloaderGUI:
             except Exception:
                 pass
 
-        # Pill
+        # Theme/language pills
         if hasattr(self, "_theme_pill"):
             try:
                 self._theme_pill.configure(
+                    fg_color=p["surface2"],
+                    selected_color=p["accent"],
+                    unselected_color=p["surface2"],
+                )
+            except Exception:
+                pass
+        if hasattr(self, "_lang_pill"):
+            try:
+                self._lang_pill.configure(
                     fg_color=p["surface2"],
                     selected_color=p["accent"],
                     unselected_color=p["surface2"],
@@ -3038,7 +4148,7 @@ class CYOADownloaderGUI:
                        font=ctk.CTkFont("Segoe UI", 13, "bold"),
                        text_color=p["fg"]),
           text_color="fg").grid(row=0, column=1, sticky="w")
-        T(ctk.CTkLabel(tb, text="v7.2.1",
+        T(ctk.CTkLabel(tb, text=f"v{_APP_VERSION}",
                        font=ctk.CTkFont("Segoe UI", 11),
                        text_color=p["muted"]),
           text_color="muted").grid(row=0, column=2, padx=(4, 0), sticky="w")
@@ -3056,8 +4166,24 @@ class CYOADownloaderGUI:
             text_color="#ffffff",
         )
         pill.set("Dark")
-        pill.grid(row=0, column=3, padx=14, pady=9, sticky="e")
+        pill.grid(row=0, column=3, padx=(8, 6), pady=9, sticky="e")
         self._theme_pill = pill
+
+        lang_pill = ctk.CTkSegmentedButton(
+            tb, values=["ID", "EN"],
+            command=self._toggle_language,
+            font=ctk.CTkFont("Segoe UI", 11),
+            width=72, height=28,
+            fg_color=p["surface2"],
+            selected_color="#3b82f6",
+            selected_hover_color="#2563eb",
+            unselected_color=p["surface2"],
+            unselected_hover_color=p["surface"],
+            text_color="#ffffff",
+        )
+        lang_pill.set("EN" if self._language == "en" else "ID")
+        lang_pill.grid(row=0, column=4, padx=(0, 14), pady=9, sticky="e")
+        self._lang_pill = lang_pill
 
         # ── SIDEBAR ─────────────────────────────────────────────────
         sb = ctk.CTkScrollableFrame(
@@ -3207,7 +4333,7 @@ class CYOADownloaderGUI:
           fg_color="input_bg", border_color="border", text_color="input_fg").grid(
             row=1, column=3, padx=(0, 6), pady=(6, 4))
 
-        ctk.CTkButton(inp, text="Add +", height=34,
+        ctk.CTkButton(inp, text="Tambah +", height=34,
                       font=ctk.CTkFont("Segoe UI", 11, "bold"),
                       fg_color="#3b82f6", hover_color="#2563eb",
                       command=self._add_to_queue).grid(
@@ -3296,11 +4422,16 @@ class CYOADownloaderGUI:
         def _on_dns_preset_change(label: str) -> None:
             ip = DNS_PRESETS.get(label, "")
             if ip == "__custom__":
-                # Show custom entry
+                # Show custom entry. Custom DNS is applied after typing pauses,
+                # not on every keystroke.
                 _dns_custom_entry.pack(side="left", padx=(2, 0))
             else:
                 _dns_custom_entry.pack_forget()
-                self._dns_var.set(ip)
+                self._dns_trace_suspended = True
+                try:
+                    self._dns_var.set(ip)
+                finally:
+                    self._dns_trace_suspended = False
                 _apply_dns(ip)
 
         def _apply_dns(ip: str) -> None:
@@ -3328,8 +4459,26 @@ class CYOADownloaderGUI:
             font=ctk.CTkFont("Consolas", 9)),
             fg_color="input_bg", border_color="border", text_color="input_fg")
 
+        self._dns_trace_suspended = False
+        self._dns_after_id = None
         def _on_dns_custom(*_):
-            _apply_dns(self._dns_var.get().strip())
+            if getattr(self, "_dns_trace_suspended", False):
+                return
+            try:
+                if not _dns_custom_entry.winfo_ismapped():
+                    return
+            except Exception:
+                return
+            # Debounce custom DNS typing to avoid applying half-written values
+            # and to avoid duplicate DNS log entries.
+            try:
+                if self._dns_after_id is not None:
+                    self.root.after_cancel(self._dns_after_id)
+            except Exception:
+                pass
+            self._dns_after_id = self.root.after(
+                750, lambda: _apply_dns(self._dns_var.get().strip())
+            )
         self._dns_var.trace_add("write", _on_dns_custom)
 
         # Only show custom entry if no preset matches
@@ -3341,14 +4490,15 @@ class CYOADownloaderGUI:
             _set_active_dns(_saved_dns)
 
         # Right side: Import + Help
-        T(ctk.CTkButton(row1, text="Import List…", height=26,
+        self._import_button = T(ctk.CTkButton(row1, text="Import List…", height=26,
                         font=ctk.CTkFont("Segoe UI", 10),
                         fg_color=p["surface2"], hover_color=p["surface"],
                         text_color=p["muted"], border_width=1,
                         border_color=p["surface2"],
                         command=self._import_list),
           fg_color="surface2", hover_color="surface", text_color="muted",
-          border_color="surface2").pack(side="right", padx=(4, 0))
+          border_color="surface2")
+        self._import_button.pack(side="right", padx=(4, 0))
         T(ctk.CTkButton(row1, text="?", width=26, height=26,
                         font=ctk.CTkFont("Segoe UI", 10),
                         fg_color=p["surface2"], hover_color=p["surface"],
@@ -3373,14 +4523,33 @@ class CYOADownloaderGUI:
 
         self._fonts_var   = ctk.BooleanVar(value=True)
         self._analyse_var = ctk.BooleanVar(value=True)
-        self._cf_bypass_var = ctk.BooleanVar(value=False)
+        self._cf_mode_var = ctk.StringVar(value=_display_cloudflare_mode(_load_settings().get("cloudflare_mode", "auto")))
+        self._http2_var = ctk.BooleanVar(value=bool(_load_settings().get("http2_enabled", False)))
         self._ytdlp_var   = ctk.BooleanVar(value=True)
 
         _chk(row2, "Fonts", self._fonts_var).pack(side="left", padx=(0, px := 12))
         _chk(row2, "Font Analysis", self._analyse_var).pack(side="left", padx=(0, 12))
-        _chk(row2, "CF Bypass", self._cf_bypass_var,
-             color="#f59e0b", hover="#d97706",
-             cmd=self._on_cf_bypass_toggle).pack(side="left", padx=(0, 12))
+
+        # Compact Cloudflare selector. Detailed settings live in the Cloudflare panel.
+        self._cf_label = _num_lbl(row2, "Cloudflare:")
+        self._cf_label.pack(side="left", padx=(0, 3))
+        self._cf_mode_menu = T(ctk.CTkOptionMenu(
+            row2, variable=self._cf_mode_var,
+            values=["Off", "Auto", "cloudscraper", "FlareSolverr"],
+            width=126, height=26,
+            font=ctk.CTkFont("Segoe UI", 9),
+            fg_color=p["surface2"], button_color=p["surface"],
+            button_hover_color=p["surface2"],
+            text_color=p["muted"], dropdown_fg_color=p["surface"],
+            dropdown_text_color=p["fg"],
+            command=self._on_cloudflare_mode_change),
+            fg_color="surface2", button_color="surface", text_color="muted")
+        self._cf_mode_menu.pack(side="left", padx=(0, 12))
+        self._on_cloudflare_mode_change(self._cf_mode_var.get(), validate=False)
+
+        _chk(row2, "HTTP/2", self._http2_var,
+             color="#06b6d4", hover="#0891b2",
+             cmd=self._on_http2_toggle).pack(side="left", padx=(0, 12))
         _chk(row2, "YT Audio", self._ytdlp_var,
              color="#ef4444", hover="#dc2626",
              cmd=self._on_ytdlp_toggle).pack(side="left", padx=(0, 12))
@@ -3420,9 +4589,10 @@ class CYOADownloaderGUI:
         dirf.grid(row=3, column=0, columnspan=5, sticky="ew", padx=14, pady=(0, 12))
         dirf.grid_columnconfigure(1, weight=1)
 
-        T(ctk.CTkLabel(dirf, text="Output folder:", font=ctk.CTkFont("Segoe UI", 11),
+        self._output_label = T(ctk.CTkLabel(dirf, text="Output folder:", font=ctk.CTkFont("Segoe UI", 11),
                        text_color=p["muted"], width=90),
-          text_color="muted").grid(row=0, column=0, sticky="w")
+          text_color="muted")
+        self._output_label.grid(row=0, column=0, sticky="w")
         self._outdir_var = ctk.StringVar(value=os.getcwd())
         T(ctk.CTkEntry(dirf, textvariable=self._outdir_var,
                        font=ctk.CTkFont("Segoe UI", 11),
@@ -3430,14 +4600,15 @@ class CYOADownloaderGUI:
                        text_color=p["muted"], height=30),
           fg_color="input_bg", border_color="border", text_color="muted").grid(
             row=0, column=1, sticky="ew", padx=(6, 6))
-        T(ctk.CTkButton(dirf, text="Browse…", height=30, width=80,
+        self._browse_button = T(ctk.CTkButton(dirf, text="Browse…", height=30, width=80,
                         font=ctk.CTkFont("Segoe UI", 11),
                         fg_color=p["surface2"], hover_color=p["surface"],
                         text_color=p["muted"], border_width=1,
                         border_color=p["surface2"],
                         command=self._browse),
           fg_color="surface2", hover_color="surface", text_color="muted",
-          border_color="surface2").grid(row=0, column=2)
+          border_color="surface2")
+        self._browse_button.grid(row=0, column=2)
 
         # ─ Queue panel ──────────────────────────────────────────────
         qf = T(ctk.CTkFrame(main, corner_radius=0, fg_color=p["bg"],
@@ -3618,12 +4789,14 @@ class CYOADownloaderGUI:
             side="left", padx=(10, 2), pady=8)
         _pill(rowB, "Batch Export", self._batch_export_panel,     icon="📦").pack(
             side="left", padx=(0, 2), pady=8)
+        _pill(rowB, "Cloudflare", self._cloudflare_panel, icon="☁").pack(
+            side="left", padx=(0, 2), pady=8)
         _sep()
 
         # Group 2 — Info
         _pill(rowB, "Results", self._show_results,      icon="📋").pack(
             side="left", padx=(0, 2), pady=8)
-        _pill(rowB, "Guide", self._show_feature_guide, icon="📖").pack(
+        _pill(rowB, "Panduan", self._show_feature_guide, icon="📖").pack(
             side="left", padx=(0, 2), pady=8)
         _sep()
 
@@ -3755,65 +4928,31 @@ class CYOADownloaderGUI:
     # ════════════════════════════════════════════════════════════════
     def _update_mode_info(self, val: str) -> None:
         """Update sidebar info box to describe current mode and expected output."""
-        INFO = {
-            "auto": (
-                "Auto (detect)",
-                "Probes URL before download to automatically select the best mode: "
-                "check cyoap_vue → check project.json → check page.",
-                "Output: depends on probe result\n(embed / website_zip / cyoap_vue_zip)"
-            ),
-            "embed": (
-                "Embedded JSON",
-                "Download project.json, encode all images to base64, save as "
-                "a single standalone JSON file. Can be opened offline without internet.",
-                "Output: ProjectName.json"
-            ),
-            "zip": (
-                "ZIP",
-                "Download project.json + all images as separate files in a ZIP. "
-                "Smaller than embed, but requires unzipping first.",
-                "Output: ProjectName.zip"
-            ),
-            "both": (
-                "Both",
-                "Creates two outputs at once: an embedded JSON file and a ZIP file.",
-                "Output: ProjectName.json + ProjectName.zip"
-            ),
-            "website_zip": (
-                "Website ZIP",
-                "Downloads the entire viewer (HTML/CSS/JS) + all image/audio/font assets "
-                "into a single ZIP. Can be opened offline by clicking index.html.",
-                "Output: ProjectName_site.zip\n→ index.html, images/, js/, css/"
-            ),
-            "website_folder": (
-                "Website Folder",
-                "Same as Website ZIP, but not zipped. Outputs a folder "
-                "that can be opened directly in the browser.",
-                "Output: ProjectName_site/\n→ index.html, images/, js/, css/"
-            ),
-            "pure_website_zip": (
-                "Pure Website ZIP",
-                "Download only viewer HTML/CSS/JS without searching for project.json. "
-                "For CYOAs with custom format (e.g. lewd_horizon).",
-                "Output: ProjectName_site.zip\n(without project search)"
-            ),
-            "pure_website_folder": (
-                "Pure Website Folder",
-                "Same as Pure Website ZIP, but with folder output.",
-                "Output: ProjectName_site/\n(without project search)"
-            ),
-            "cyoap_vue_zip": (
-                "cyoap_vue ZIP",
-                "Dedicated mode for the cyoap_vue CYOA engine. Download dist/platform.json "
-                "+ dist/nodes/ + all images. Different structure from ICC.",
-                "Output: ProjectName_site.zip\n→ dist/platform.json, dist/nodes/"
-            ),
-            "cyoap_vue_folder": (
-                "cyoap_vue Folder",
-                "Same as cyoap_vue ZIP, but with folder output.",
-                "Output: ProjectName_site/\n→ dist/platform.json, dist/nodes/"
-            ),
+        INFO_EN = {
+            "auto": ("Auto (detect)", "Probes the URL and selects the best mode: cyoap_vue → project.json → website fallback.", "Output: depends on probe\n(embed / website_zip / cyoap_vue_zip)"),
+            "embed": ("Embedded JSON", "Downloads project.json, encodes images as base64, and saves one standalone JSON file.", "Output: ProjectName.json"),
+            "zip": ("ZIP", "Downloads project.json and stores images/audio as separate files inside a ZIP.", "Output: ProjectName.zip"),
+            "both": ("Both", "Creates embedded JSON and ZIP in one run.", "Output: ProjectName.json + ProjectName.zip"),
+            "website_zip": ("Website ZIP", "Downloads the full viewer with HTML/CSS/JS plus image, audio, and font assets.", "Output: ProjectName_site.zip\n→ index.html, images/, js/, css/"),
+            "website_folder": ("Website Folder", "Same as Website ZIP, but keeps the folder uncompressed.", "Output: ProjectName_site/\n→ index.html, images/, js/, css/"),
+            "pure_website_zip": ("Pure Website ZIP", "Downloads viewer HTML/CSS/JS without project.json search. Use this for custom CYOA formats.", "Output: ProjectName_site.zip\n(no project search)"),
+            "pure_website_folder": ("Pure Website Folder", "Same as Pure Website ZIP, but keeps the folder uncompressed.", "Output: ProjectName_site/\n(no project search)"),
+            "cyoap_vue_zip": ("cyoap_vue ZIP", "Dedicated mode for the cyoap_vue engine. Downloads dist/platform.json, dist/nodes, and assets.", "Output: ProjectName_site.zip\n→ dist/platform.json, dist/nodes/"),
+            "cyoap_vue_folder": ("cyoap_vue Folder", "Same as cyoap_vue ZIP, but keeps the folder uncompressed.", "Output: ProjectName_site/\n→ dist/platform.json, dist/nodes/"),
         }
+        INFO_ID = {
+            "auto": ("Auto (deteksi)", "Mendeteksi URL dan memilih mode terbaik: cyoap_vue → project.json → fallback website.", "Output: tergantung hasil deteksi\n(embed / website_zip / cyoap_vue_zip)"),
+            "embed": ("JSON Tertanam", "Mengunduh project.json, mengubah gambar menjadi base64, lalu menyimpan satu file JSON.", "Output: NamaProject.json"),
+            "zip": ("ZIP", "Mengunduh project.json dan menyimpan gambar/audio sebagai file terpisah di dalam ZIP.", "Output: NamaProject.zip"),
+            "both": ("Keduanya", "Membuat JSON tertanam dan ZIP sekaligus.", "Output: NamaProject.json + NamaProject.zip"),
+            "website_zip": ("ZIP Website", "Mengunduh viewer lengkap beserta HTML/CSS/JS, gambar, audio, dan font.", "Output: NamaProject_site.zip\n→ index.html, images/, js/, css/"),
+            "website_folder": ("Folder Website", "Sama seperti ZIP Website, tetapi folder tidak dikompresi.", "Output: NamaProject_site/\n→ index.html, images/, js/, css/"),
+            "pure_website_zip": ("ZIP Pure Website", "Mengunduh HTML/CSS/JS viewer tanpa mencari project.json. Cocok untuk format CYOA custom.", "Output: NamaProject_site.zip\n(tanpa pencarian project)"),
+            "pure_website_folder": ("Folder Pure Website", "Sama seperti ZIP Pure Website, tetapi folder tidak dikompresi.", "Output: NamaProject_site/\n(tanpa pencarian project)"),
+            "cyoap_vue_zip": ("ZIP cyoap_vue", "Mode khusus engine cyoap_vue. Mengunduh dist/platform.json, dist/nodes, dan asset.", "Output: NamaProject_site.zip\n→ dist/platform.json, dist/nodes/"),
+            "cyoap_vue_folder": ("Folder cyoap_vue", "Sama seperti ZIP cyoap_vue, tetapi folder tidak dikompresi.", "Output: NamaProject_site/\n→ dist/platform.json, dist/nodes/"),
+        }
+        INFO = INFO_EN if getattr(self, "_language", "id") == "en" else INFO_ID
         title, body, output = INFO.get(val, (val, "", ""))
         if hasattr(self, "_info_title"):
             try:
@@ -3827,19 +4966,63 @@ class CYOADownloaderGUI:
 
 
 
-    def _on_cf_bypass_toggle(self) -> None:
-        if self._cf_bypass_var.get():
+    def _on_cloudflare_mode_change(self, value: str, validate: bool = True) -> None:
+        """Apply Cloudflare mode from the compact selector."""
+        mode = _normalize_cloudflare_mode(value)
+        st = _load_settings()
+        _set_cloudflare_config(
+            mode,
+            flaresolverr_url=st.get("flaresolverr_url", _FLARESOLVERR_URL),
+            session_policy=st.get("flaresolverr_session_policy", _FLARESOLVERR_SESSION_POLICY),
+            timeout=int(st.get("flaresolverr_timeout", _FLARESOLVERR_TIMEOUT) or _FLARESOLVERR_TIMEOUT),
+            wait_after=int(st.get("flaresolverr_wait_after", _FLARESOLVERR_WAIT_AFTER) or _FLARESOLVERR_WAIT_AFTER),
+            proxy_mode=st.get("flaresolverr_proxy_mode", _FLARESOLVERR_PROXY_MODE),
+            persist=True,
+        )
+        try:
+            self._cf_mode_var.set(_display_cloudflare_mode(mode))
+        except Exception:
+            pass
+        if validate and mode == "cloudscraper":
             try:
-                import cloudscraper
-                logger.info("CF Bypass: cloudscraper available and active")
+                import cloudscraper  # noqa
+                logger.info("[Cloudflare] cloudscraper available and active")
             except ImportError:
                 from tkinter import messagebox
-                self._cf_bypass_var.set(False)
-                messagebox.showwarning(
-                    "cloudscraper not installed",
-                    "Install dulu:\n\n  pip install cloudscraper\n\n"
-                    "then restart the program and re-enable CF Bypass."
-                )
+                if getattr(self, "_language", "id") == "en":
+                    title = "cloudscraper not installed"
+                    body = (
+                        "Install it first:\n\n  pip install cloudscraper\n\n"
+                        "or choose Auto/FlareSolverr if FlareSolverr is already running."
+                    )
+                else:
+                    title = "cloudscraper belum terpasang"
+                    body = (
+                        "Instal terlebih dahulu:\n\n  pip install cloudscraper\n\n"
+                        "atau pilih Auto/FlareSolverr jika FlareSolverr sudah berjalan."
+                    )
+                messagebox.showwarning(title, body)
+        elif validate and mode == "flaresolverr":
+            logger.info(f"[Cloudflare] FlareSolverr mode selected: {_FLARESOLVERR_URL}")
+
+    # Backward-compatible alias for old callbacks.
+    def _on_cf_bypass_toggle(self) -> None:
+        self._on_cloudflare_mode_change("cloudscraper")
+
+    def _on_http2_toggle(self) -> None:
+        enabled = bool(self._http2_var.get())
+        _set_http2_enabled(enabled)
+        if enabled and not _HTTP2_ENABLED:
+            self._http2_var.set(False)
+            from tkinter import messagebox
+            if getattr(self, "_language", "id") == "en":
+                title = "httpx not installed"
+                body = "Install it first:\n\n  pip install httpx[h2]\n\nthen restart the program and re-enable HTTP/2."
+            else:
+                title = "httpx belum terpasang"
+                body = "Instal terlebih dahulu:\n\n  pip install httpx[h2]\n\nlalu mulai ulang program dan aktifkan kembali HTTP/2."
+            messagebox.showwarning(title, body)
+        st = _load_settings(); st["http2_enabled"] = bool(self._http2_var.get()); _save_settings(st)
 
     def _on_ytdlp_toggle(self) -> None:
         if self._ytdlp_var.get():
@@ -3849,30 +5032,407 @@ class CYOADownloaderGUI:
             except ImportError:
                 from tkinter import messagebox
                 self._ytdlp_var.set(False)
-                messagebox.showwarning(
-                    "yt-dlp not installed",
-                    "Install dulu:\n\n  pip install yt-dlp\n\n"
-                    "Also requires ffmpeg for MP3 conversion:\n"
-                    "  https://ffmpeg.org/download.html\n\n"
-                    "then restart the program and re-enable YT Audio."
-                )
+                if getattr(self, "_language", "id") == "en":
+                    title = "yt-dlp not installed"
+                    body = (
+                        "Install it first:\n\n  pip install yt-dlp\n\n"
+                        "ffmpeg is also required for MP3 conversion:\n"
+                        "  https://ffmpeg.org/download.html\n\n"
+                        "then restart the program and re-enable YT Audio."
+                    )
+                else:
+                    title = "yt-dlp belum terpasang"
+                    body = (
+                        "Instal terlebih dahulu:\n\n  pip install yt-dlp\n\n"
+                        "ffmpeg juga diperlukan untuk konversi MP3:\n"
+                        "  https://ffmpeg.org/download.html\n\n"
+                        "lalu mulai ulang program dan aktifkan kembali YT Audio."
+                    )
+                messagebox.showwarning(title, body)
 
     def _toggle_theme(self, val: str) -> None:
         self._is_dark = (val == "Dark")
         self._apply_theme()
 
-        if self._cf_bypass_var.get():
+    def _toggle_language(self, val: str) -> None:
+        """Switch GUI microcopy between Indonesian and English."""
+        self._language = "en" if str(val).upper().startswith("EN") else "id"
+        st = _load_settings(); st["language"] = self._language; _save_settings(st)
+        self._apply_language()
+        logger.info(f"GUI language set: {self._language}")
+
+    def _tr(self, key: str) -> str:
+        texts = {
+            "download_all": {"id": "▶  Download Semua", "en": "▶  Download All"},
+            "browse": {"id": "Browse…", "en": "Browse…"},
+            "output_folder": {"id": "Folder output:", "en": "Output folder:"},
+            "import_list": {"id": "Import List…", "en": "Import List…"},
+            "queue_empty_title": {"id": "Queue kosong", "en": "Queue Empty"},
+            "queue_empty_body": {"id": "Tambahkan minimal satu URL.", "en": "Add at least one URL."},
+            "downloading": {"id": "Mengunduh…", "en": "Downloading…"},
+            "idle": {"id": "Siap", "en": "Idle"},
+        }
+        lang = getattr(self, "_language", "id")
+        return texts.get(key, {}).get(lang, texts.get(key, {}).get("en", key))
+
+    def _translation_pairs(self) -> Dict[str, Dict[str, str]]:
+        """Exact GUI text translation map. Keys are the English canonical text."""
+        return {
+            "Input": {"id": "Input", "en": "Input"},
+            "URL": {"id": "URL", "en": "URL"},
+            "Filename": {"id": "Nama file", "en": "Filename"},
+            "Tambah +": {"id": "Tambah +", "en": "Add +"},
+            "Threads:": {"id": "Thread:", "en": "Threads:"},
+            "Retry (s):": {"id": "Retry (d):", "en": "Retry (s):"},
+            "BW (KB/s):": {"id": "BW (KB/d):", "en": "BW (KB/s):"},
+            "Proxy:": {"id": "Proxy:", "en": "Proxy:"},
+            "DNS:": {"id": "DNS:", "en": "DNS:"},
+            "Import List…": {"id": "Import List…", "en": "Import List…"},
+            "Clear All": {"id": "Bersihkan", "en": "Clear All"},
+            "Remove": {"id": "Hapus", "en": "Remove"},
+            "▶  Download All": {"id": "▶  Download Semua", "en": "▶  Download All"},
+            "▶  Download Semua": {"id": "▶  Download Semua", "en": "▶  Download All"},
+            "🔍 Preview": {"id": "🔍 Pratinjau", "en": "🔍 Preview"},
+            "⚡ Serve": {"id": "⚡ Server", "en": "⚡ Serve"},
+            "📁 Open Folder": {"id": "📁 Buka Folder", "en": "📁 Open Folder"},
+            "Viewers": {"id": "Viewer", "en": "Viewers"},
+            "Batch Export": {"id": "Ekspor Batch", "en": "Batch Export"},
+            "Results": {"id": "Hasil", "en": "Results"},
+            "Panduan": {"id": "Panduan", "en": "Guide"},
+            "Guide": {"id": "Panduan", "en": "Guide"},
+            "Retry Failed": {"id": "Ulang Gagal", "en": "Retry Failed"},
+            "Retry Images": {"id": "Ulang Gambar", "en": "Retry Images"},
+            "Retry YT Audio": {"id": "Ulang Audio YT", "en": "Retry YT Audio"},
+            "Pause": {"id": "Jeda", "en": "Pause"},
+            "Resume": {"id": "Lanjut", "en": "Resume"},
+            "Cache": {"id": "Cache", "en": "Cache"},
+            "Updates": {"id": "Update", "en": "Updates"},
+            "Batch Check": {"id": "Cek Batch", "en": "Batch Check"},
+            "CM Import": {"id": "Import CM", "en": "CM Import"},
+            "LOG": {"id": "LOG", "en": "LOG"},
+            "Clear": {"id": "Bersihkan", "en": "Clear"},
+            "Log written to: cyoa_downloader.log in output folder": {
+                "id": "Log ditulis ke: cyoa_downloader.log di folder output",
+                "en": "Log written to: cyoa_downloader.log in output folder"
+            },
+            "OUTPUT MODE": {"id": "MODE OUTPUT", "en": "OUTPUT MODE"},
+            "WEBSITE MODE": {"id": "MODE WEBSITE", "en": "WEBSITE MODE"},
+            "PURE WEBSITE": {"id": "PURE WEBSITE", "en": "PURE WEBSITE"},
+            "Auto (detect)": {"id": "Auto (deteksi)", "en": "Auto (detect)"},
+            "Default: Website Folder": {"id": "Default: Folder Website", "en": "Default: Website Folder"},
+            "Embedded JSON": {"id": "JSON Tertanam", "en": "Embedded JSON"},
+            "Gambar di-base64 dalam JSON": {"id": "Gambar base64 di JSON", "en": "Images base64 in JSON"},
+            "ZIP": {"id": "ZIP", "en": "ZIP"},
+            "JSON + gambar terpisah": {"id": "JSON + gambar terpisah", "en": "JSON + separate images"},
+            "Both": {"id": "Keduanya", "en": "Both"},
+            "Embed + ZIP sekaligus": {"id": "Embed + ZIP sekaligus", "en": "Embed + ZIP together"},
+            "Website ZIP": {"id": "ZIP Website", "en": "Website ZIP"},
+            "Viewer + all assets": {"id": "Viewer + semua asset", "en": "Viewer + all assets"},
+            "Website Folder": {"id": "Folder Website", "en": "Website Folder"},
+            "Pure Website ZIP": {"id": "ZIP Pure Website", "en": "Pure Website ZIP"},
+            "Viewer only, no project search": {"id": "Viewer saja, tanpa pencarian project", "en": "Viewer only, no project search"},
+            "Pure Website Folder": {"id": "Folder Pure Website", "en": "Pure Website Folder"},
+            "cyoap_vue ZIP": {"id": "ZIP cyoap_vue", "en": "cyoap_vue ZIP"},
+            "Engine khusus cyoap_vue": {"id": "Engine khusus cyoap_vue", "en": "cyoap_vue special engine"},
+            "cyoap_vue Folder": {"id": "Folder cyoap_vue", "en": "cyoap_vue Folder"},
+            "Idle": {"id": "Siap", "en": "Idle"},
+            "Output folder:": {"id": "Folder output:", "en": "Output folder:"},
+            "📤 CYOA Mgr  ": {"id": "📤 CYOA Mgr  ", "en": "📤 CYOA Mgr  "},
+            "🤖 AI  ": {"id": "🤖 AI  ", "en": "🤖 AI  "},
+            "Probing URLs sebelum download dimulai…": {"id": "Mengecek URL sebelum download dimulai…", "en": "Probing URLs before download starts…"},
+            "▶ Proceed with Download": {"id": "▶ Lanjutkan Download", "en": "▶ Proceed with Download"},
+            "⏸ Pause": {"id": "⏸ Jeda", "en": "⏸ Pause"},
+            "📦  Batch Export → CYOA Manager": {"id": "📦  Ekspor Batch → CYOA Manager", "en": "📦  Batch Export → CYOA Manager"},
+            "📤 Export to CYOA Manager": {"id": "📤 Ekspor ke CYOA Manager", "en": "📤 Export to CYOA Manager"},
+            "📤  CYOA Manager Integration": {"id": "📤  Integrasi CYOA Manager", "en": "📤  CYOA Manager Integration"},
+            "Click 📂 to browse…": {"id": "Klik 📂 untuk memilih…", "en": "Click 📂 to browse…"},
+            "📄 Tambah project.json": {"id": "📄 Tambah project.json", "en": "📄 Add project.json"},
+            "📋 Add All (session ini)": {"id": "📋 Tambahkan Semua (sesi ini)", "en": "📋 Add All (this session)"},
+            "📁 Batch Export Folder": {"id": "📁 Folder Ekspor Batch", "en": "📁 Batch Export Folder"},
+            "Manual — tambahkan project.json:": {"id": "Manual — tambahkan project.json:", "en": "Manual — add project.json:"},
+            "📄 Pilih project.json": {"id": "📄 Pilih project.json", "en": "📄 Select project.json"},
+            "📋 Add All from Last Session": {"id": "📋 Tambahkan Semua dari Sesi Terakhir", "en": "📋 Add All from Last Session"},
+            "▶ Resume": {"id": "▶ Lanjut", "en": "▶ Resume"},
+            "Cache speeds up re-downloading the same images.\n": {"id": "Cache mempercepat download ulang gambar yang sama.\n", "en": "Cache speeds up re-downloading the same images.\n"},
+            "🗑  Clear Image Cache": {"id": "🗑  Bersihkan Cache Gambar", "en": "🗑  Clear Image Cache"},
+            "🔍 Search by name…": {"id": "🔍 Cari berdasarkan nama…", "en": "🔍 Search by name…"},
+            "📥 Queue Selected": {"id": "📥 Masukkan yang Dipilih ke Queue", "en": "📥 Queue Selected"},
+            "AI Assist — Claude API Integration": {"id": "AI Assist — Integrasi Claude API", "en": "AI Assist — Claude API Integration"},
+            "💾 Save": {"id": "💾 Simpan", "en": "💾 Save"},
+            "Checking…": {"id": "Mengecek…", "en": "Checking…"},
+            "All CYOAs are still up-to-date ✅": {"id": "Semua CYOA masih terbaru ✅", "en": "All CYOAs are still up-to-date ✅"},
+            "CYOA Downloader — Panduan Fitur": {"id": "CYOA Downloader — Panduan Fitur", "en": "CYOA Downloader — Feature Guide"},
+            "Panduan Fitur — CYOA Downloader v7.3.3": {"id": "Panduan Fitur — CYOA Downloader v7.3.3", "en": "Feature Guide — CYOA Downloader v7.3.3"},
+            "Offline Viewers": {"id": "Viewer Offline", "en": "Offline Viewers"},
+            "+ Add ZIP": {"id": "+ Tambah ZIP", "en": "+ Add ZIP"},
+            "Refresh": {"id": "Muat ulang", "en": "Refresh"},
+            "Remove selected": {"id": "Hapus yang dipilih", "en": "Remove selected"},
+            "No offline viewers registered.": {"id": "Belum ada viewer offline terdaftar.", "en": "No offline viewers registered."},
+            "Cloudflare Bypass": {"id": "Bypass Cloudflare", "en": "Cloudflare Bypass"},
+            "Cloudflare:": {"id": "Cloudflare:", "en": "Cloudflare:"},
+            "Cloudflare": {"id": "Cloudflare", "en": "Cloudflare"},
+            "Cloudflare Access": {"id": "Akses Cloudflare", "en": "Cloudflare Access"},
+            "Test Connection": {"id": "Tes Koneksi", "en": "Test Connection"},
+            "Clear Sessions": {"id": "Bersihkan Session", "en": "Clear Sessions"},
+            "Recommended setup": {"id": "Pengaturan yang disarankan", "en": "Recommended setup"},
+            "Network": {"id": "Jaringan", "en": "Network"},
+            "Advanced": {"id": "Lanjutan", "en": "Advanced"},
+            "Settings": {"id": "Pengaturan", "en": "Settings"},
+            "Test": {"id": "Tes", "en": "Test"},
+            "Enabled": {"id": "Aktif", "en": "Enabled"},
+            "Disabled": {"id": "Nonaktif", "en": "Disabled"},
+            "Auto": {"id": "Auto", "en": "Auto"},
+            "Save": {"id": "Simpan", "en": "Save"},
+            "Cancel": {"id": "Batal", "en": "Cancel"},
+            "Close": {"id": "Tutup", "en": "Close"},
+            "Open": {"id": "Buka", "en": "Open"},
+            "Status": {"id": "Status", "en": "Status"},
+            "Folder": {"id": "Folder", "en": "Folder"},
+            "Mode": {"id": "Mode", "en": "Mode"},
+            "Source URL": {"id": "URL sumber", "en": "Source URL"},
+            "Output": {"id": "Output", "en": "Output"},
+            "Start": {"id": "Mulai", "en": "Start"},
+            "Stop": {"id": "Berhenti", "en": "Stop"},
+            "Download": {"id": "Download", "en": "Download"},
+            "Done": {"id": "Selesai", "en": "Done"},
+            "Failed": {"id": "Gagal", "en": "Failed"},
+        }
+
+    def _translate_text(self, text: str) -> str:
+        if not isinstance(text, str):
+            return text
+        lang = getattr(self, "_language", "id")
+        pairs = self._translation_pairs()
+        if text in pairs:
+            return pairs[text].get(lang, text)
+        # Translate known phrases inside longer labels such as window titles.
+        for canonical, vals in pairs.items():
+            source_vals = set(vals.values()) | {canonical}
+            for src in source_vals:
+                if src and src in text:
+                    return text.replace(src, vals.get(lang, src))
+        # Preserve icons/prefixes in tool-strip buttons.
+        for canonical, vals in pairs.items():
+            for v in vals.values():
+                if text.endswith("  " + v):
+                    return text[:-(len(v))] + vals.get(lang, v)
+        return text
+
+    def _translate_widget_tree(self, widget) -> None:
+        try:
+            text = widget.cget("text")
+            new_text = self._translate_text(text)
+            if new_text != text:
+                widget.configure(text=new_text)
+        except Exception:
+            pass
+        try:
+            placeholder = widget.cget("placeholder_text")
+            if placeholder == "(opsional)":
+                widget.configure(placeholder_text="(optional)" if self._language == "en" else "(opsional)")
+            elif placeholder == "(optional)":
+                widget.configure(placeholder_text="(optional)" if self._language == "en" else "(opsional)")
+        except Exception:
+            pass
+        try:
+            for child in widget.winfo_children():
+                self._translate_widget_tree(child)
+        except Exception:
+            pass
+
+    def _apply_language(self) -> None:
+        """Apply Indonesian/English GUI text without rebuilding the UI."""
+        try:
+            if hasattr(self, "_lang_pill"):
+                self._lang_pill.set("EN" if self._language == "en" else "ID")
+            self._translate_widget_tree(self.root)
+            if hasattr(self, "_dl_btn"):
+                self._dl_btn.configure(text=self._tr("download_all"))
+            if hasattr(self, "_browse_button"):
+                self._browse_button.configure(text=self._tr("browse"))
+            if hasattr(self, "_output_label"):
+                self._output_label.configure(text=self._tr("output_folder"))
+            if hasattr(self, "_import_button"):
+                self._import_button.configure(text=self._tr("import_list"))
+            # Re-apply sidebar mode names/descriptions from canonical definitions.
+            mode_texts = {
+                "auto": ("Auto (detect)", "Default: Website Folder"),
+                "embed": ("Embedded JSON", "Gambar di-base64 dalam JSON"),
+                "zip": ("ZIP", "JSON + gambar terpisah"),
+                "both": ("Both", "Embed + ZIP sekaligus"),
+                "website_zip": ("Website ZIP", "Viewer + all assets"),
+                "website_folder": ("Website Folder", "Viewer + all assets"),
+                "pure_website_zip": ("Pure Website ZIP", "Viewer only, no project search"),
+                "pure_website_folder": ("Pure Website Folder", "Viewer only, no project search"),
+                "cyoap_vue_zip": ("cyoap_vue ZIP", "Engine khusus cyoap_vue"),
+                "cyoap_vue_folder": ("cyoap_vue Folder", "Engine khusus cyoap_vue"),
+            }
+            for val, (_row, _bar, _icon, name_lbl, desc_lbl) in getattr(self, "_mode_btns", {}).items():
+                if val in mode_texts:
+                    n, d = mode_texts[val]
+                    name_lbl.configure(text=self._translate_text(n))
+                    desc_lbl.configure(text=self._translate_text(d))
+            if hasattr(self, "_sec_labels"):
+                for lbl in self._sec_labels:
+                    try: lbl.configure(text=self._translate_text(lbl.cget("text")))
+                    except Exception: pass
+            self._update_mode_info(getattr(self, "_mode_var", "auto"))
+        except Exception as e:
+            logger.debug(f"Language apply failed: {e}")
+
+    # ════════════════════════════════════════════════════════════════
+    # CLOUDFLARE / FLARESOLVERR PANEL
+    # ════════════════════════════════════════════════════════════════
+    def _cloudflare_panel(self) -> None:
+        """Modern Cloudflare settings panel: Off/Auto/cloudscraper/FlareSolverr."""
+        import customtkinter as ctk
+        from tkinter import messagebox
+        p = self._p()
+        st = _load_settings()
+
+        win = ctk.CTkToplevel(self.root)
+        win.title("Cloudflare Access")
+        win.geometry("640x560")
+        win.minsize(600, 520)
+        win.grab_set()
+
+        root = ctk.CTkFrame(win, fg_color=p["bg"], corner_radius=0)
+        root.pack(fill="both", expand=True)
+        root.grid_columnconfigure(0, weight=1)
+
+        header = ctk.CTkFrame(root, fg_color=p["panel"], corner_radius=0)
+        header.grid(row=0, column=0, sticky="ew")
+        header.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(header, text="☁", width=38, height=38,
+                     font=ctk.CTkFont("Segoe UI Emoji", 20),
+                     fg_color=p["surface2"], text_color=p["accent"],
+                     corner_radius=10).grid(row=0, column=0, padx=(16, 10), pady=14)
+        ctk.CTkLabel(header, text="Cloudflare Access",
+                     font=ctk.CTkFont("Segoe UI", 17, "bold"),
+                     text_color=p["fg"], anchor="w").grid(row=0, column=1, sticky="w", pady=(12, 0))
+        ctk.CTkLabel(header, text="Normal request → cloudscraper → FlareSolverr fallback",
+                     font=ctk.CTkFont("Segoe UI", 10),
+                     text_color=p["muted"], anchor="w").grid(row=1, column=1, sticky="w", pady=(0, 12))
+
+        body = ctk.CTkScrollableFrame(root, fg_color=p["bg"], scrollbar_button_color=p["surface2"])
+        body.grid(row=1, column=0, sticky="nsew", padx=14, pady=14)
+        root.grid_rowconfigure(1, weight=1)
+        body.grid_columnconfigure(0, weight=1)
+
+        def card(title: str, subtitle: str = ""):
+            frame = ctk.CTkFrame(body, fg_color=p["panel"], border_color=p["border"], border_width=1, corner_radius=12)
+            frame.pack(fill="x", pady=(0, 12))
+            frame.grid_columnconfigure(1, weight=1)
+            ctk.CTkLabel(frame, text=title, font=ctk.CTkFont("Segoe UI", 12, "bold"),
+                         text_color=p["fg"], anchor="w").grid(row=0, column=0, columnspan=3, sticky="w", padx=14, pady=(12, 0))
+            if subtitle:
+                ctk.CTkLabel(frame, text=subtitle, font=ctk.CTkFont("Segoe UI", 10),
+                             text_color=p["muted"], anchor="w", wraplength=560, justify="left").grid(
+                    row=1, column=0, columnspan=3, sticky="ew", padx=14, pady=(1, 10))
+            return frame
+
+        access = card("Mode", "Auto is recommended. FlareSolverr is used only when the page really shows a Cloudflare challenge.")
+        mode_var = ctk.StringVar(value=_display_cloudflare_mode(st.get("cloudflare_mode", _CLOUDFLARE_MODE)))
+        ctk.CTkLabel(access, text="Cloudflare mode", text_color=p["muted"], anchor="w").grid(row=2, column=0, padx=14, pady=8, sticky="w")
+        mode_menu = ctk.CTkOptionMenu(access, variable=mode_var,
+                                      values=["Off", "Auto", "cloudscraper", "FlareSolverr"],
+                                      width=180, fg_color=p["surface2"], button_color=p["surface"],
+                                      text_color=p["fg"], dropdown_fg_color=p["surface"],
+                                      dropdown_text_color=p["fg"])
+        mode_menu.grid(row=2, column=1, sticky="w", padx=8, pady=8)
+
+        fs = card("FlareSolverr", "Run flaresolverr.exe or Docker first, then use the API endpoint below. Default: http://localhost:8191/v1")
+        url_var = ctk.StringVar(value=st.get("flaresolverr_url", _FLARESOLVERR_URL))
+        sess_var = ctk.StringVar(value=st.get("flaresolverr_session_policy", _FLARESOLVERR_SESSION_POLICY))
+        timeout_var = ctk.StringVar(value=str(st.get("flaresolverr_timeout", _FLARESOLVERR_TIMEOUT)))
+        wait_var = ctk.StringVar(value=str(st.get("flaresolverr_wait_after", _FLARESOLVERR_WAIT_AFTER)))
+        proxy_var = ctk.StringVar(value=st.get("flaresolverr_proxy_mode", _FLARESOLVERR_PROXY_MODE))
+
+        def label(row, text):
+            ctk.CTkLabel(fs, text=text, text_color=p["muted"], anchor="w").grid(row=row, column=0, padx=14, pady=6, sticky="w")
+        label(2, "API URL")
+        ctk.CTkEntry(fs, textvariable=url_var, height=32, fg_color=p["input_bg"], border_color=p["border"],
+                     text_color=p["input_fg"], font=ctk.CTkFont("Consolas", 10)).grid(row=2, column=1, columnspan=2, sticky="ew", padx=(8, 14), pady=6)
+        label(3, "Session")
+        ctk.CTkOptionMenu(fs, variable=sess_var, values=["temporary", "reuse-domain", "manual"],
+                          width=150, fg_color=p["surface2"], button_color=p["surface"], text_color=p["fg"]).grid(row=3, column=1, sticky="w", padx=8, pady=6)
+        label(4, "Timeout")
+        ctk.CTkEntry(fs, textvariable=timeout_var, width=80, height=30, justify="center",
+                     fg_color=p["input_bg"], border_color=p["border"], text_color=p["input_fg"]).grid(row=4, column=1, sticky="w", padx=8, pady=6)
+        ctk.CTkLabel(fs, text="seconds", text_color=p["muted"]).grid(row=4, column=1, sticky="w", padx=(95, 0), pady=6)
+        label(5, "Wait after solve")
+        ctk.CTkEntry(fs, textvariable=wait_var, width=80, height=30, justify="center",
+                     fg_color=p["input_bg"], border_color=p["border"], text_color=p["input_fg"]).grid(row=5, column=1, sticky="w", padx=8, pady=6)
+        ctk.CTkLabel(fs, text="seconds", text_color=p["muted"]).grid(row=5, column=1, sticky="w", padx=(95, 0), pady=6)
+        label(6, "Proxy")
+        ctk.CTkOptionMenu(fs, variable=proxy_var, values=["inherit", "none"],
+                          width=150, fg_color=p["surface2"], button_color=p["surface"], text_color=p["fg"]).grid(row=6, column=1, sticky="w", padx=8, pady=6)
+
+        status_var = ctk.StringVar(value="Status: not tested")
+        status = ctk.CTkLabel(fs, textvariable=status_var, text_color=p["muted"], anchor="w")
+        status.grid(row=7, column=0, columnspan=3, sticky="ew", padx=14, pady=(8, 2))
+
+        def apply_settings(persist=True):
             try:
-                import cloudscraper
-                logger.info("CF Bypass: cloudscraper available and active")
-            except ImportError:
-                from tkinter import messagebox
-                self._cf_bypass_var.set(False)
-                messagebox.showwarning(
-                    "cloudscraper not installed",
-                    "Install dulu:\n\n  pip install cloudscraper\n\n"
-                    "then restart the program and re-enable CF Bypass."
-                )
+                timeout_s = int(timeout_var.get() or 60)
+            except Exception:
+                timeout_s = 60
+            try:
+                wait_s = int(wait_var.get() or 3)
+            except Exception:
+                wait_s = 3
+            _set_cloudflare_config(
+                mode_var.get(),
+                flaresolverr_url=url_var.get(),
+                session_policy=sess_var.get(),
+                timeout=timeout_s,
+                wait_after=wait_s,
+                proxy_mode=proxy_var.get(),
+                persist=persist,
+            )
+            try:
+                self._cf_mode_var.set(_display_cloudflare_mode(_CLOUDFLARE_MODE))
+            except Exception:
+                pass
+
+        def do_test():
+            apply_settings(True)
+            status_var.set("Status: testing FlareSolverr…")
+            def worker():
+                ok, msg = flaresolverr_test_connection()
+                win.after(0, lambda: status_var.set(("Status: ✓ " if ok else "Status: ✗ ") + msg))
+            threading.Thread(target=worker, daemon=True).start()
+
+        def do_clear():
+            apply_settings(True)
+            def worker():
+                n = flaresolverr_destroy_sessions()
+                win.after(0, lambda: status_var.set(f"Status: cleared {n} session(s)"))
+            threading.Thread(target=worker, daemon=True).start()
+
+        actions = ctk.CTkFrame(fs, fg_color="transparent")
+        actions.grid(row=8, column=0, columnspan=3, sticky="ew", padx=14, pady=(8, 14))
+        ctk.CTkButton(actions, text="Test Connection", fg_color="#3b82f6", hover_color="#2563eb",
+                      command=do_test).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(actions, text="Clear Sessions", fg_color=p["surface2"], hover_color=p["surface"],
+                      text_color=p["muted"], command=do_clear).pack(side="left")
+
+        info = card("Recommended setup", "Windows: run flaresolverr.exe, keep the terminal open, then test http://localhost:8191/v1 here. Use Auto mode for normal downloads.")
+        ctk.CTkLabel(info, text="Recommended defaults: Auto · reuse-domain · timeout 60s · proxy inherit",
+                     font=ctk.CTkFont("Segoe UI", 10, "bold"), text_color=p["accent"], anchor="w").grid(
+            row=2, column=0, sticky="ew", padx=14, pady=(0, 14))
+
+        footer = ctk.CTkFrame(root, fg_color=p["panel"], corner_radius=0)
+        footer.grid(row=2, column=0, sticky="ew")
+        footer.grid_columnconfigure(0, weight=1)
+        def save_close():
+            apply_settings(True)
+            messagebox.showinfo("Cloudflare", f"Saved: {_display_cloudflare_mode(_CLOUDFLARE_MODE)}")
+            win.destroy()
+        ctk.CTkButton(footer, text="Save", width=90, fg_color="#3b82f6", hover_color="#2563eb",
+                      command=save_close).grid(row=0, column=1, padx=(6, 8), pady=12)
+        ctk.CTkButton(footer, text="Close", width=90, fg_color=p["surface2"], hover_color=p["surface"],
+                      text_color=p["muted"], command=win.destroy).grid(row=0, column=2, padx=(0, 14), pady=12)
 
     # ════════════════════════════════════════════════════════════════
     # QUEUE
@@ -4038,7 +5598,7 @@ class CYOADownloaderGUI:
             return
         # Dedup: skip if exact URL already in queue
         if any(it["url"] == url for it in self._queue_data):
-            logger.warning(f"URL is already in the queue: {url[:60]}")
+            logger.warning(f"URL sudah ada di queue: {url[:60]}")
             self._url_var.set("")
             return
         # History: auto-suffix filename if previously downloaded
@@ -4196,13 +5756,13 @@ class CYOADownloaderGUI:
         if self._is_running:
             return
         if not self._queue_data:
-            messagebox.showwarning("Queue Empty", "Add at least one URL.")
+            messagebox.showwarning(self._tr("queue_empty_title"), self._tr("queue_empty_body"))
             return
         self._is_running = True
         self._dl_btn.configure(state="disabled")
         self._pb.start()
         self._start_speed_graph()
-        self._status_var.set("Downloading…")
+        self._status_var.set(self._tr("downloading"))
         threading.Thread(
             target=self._worker,
             args=(list(self._queue_data),
@@ -4212,7 +5772,8 @@ class CYOADownloaderGUI:
                   self._outdir_var.get(),
                   self._fonts_var.get(),
                   self._analyse_var.get(),
-                  self._cf_bypass_var.get(),
+                  _normalize_cloudflare_mode(self._cf_mode_var.get()),
+                  self._http2_var.get(),
                   self._ytdlp_var.get(),
                   float(self._bw_var.get() or 0),
                   self._cyoa_mgr_var.get()),
@@ -4226,7 +5787,7 @@ class CYOADownloaderGUI:
             return
         if not self._queue_data:
             from tkinter import messagebox
-            messagebox.showwarning("Queue Empty", "Add at least one URL.")
+            messagebox.showwarning(self._tr("queue_empty_title"), self._tr("queue_empty_body"))
             return
 
         p    = self._p()
@@ -4240,7 +5801,7 @@ class CYOADownloaderGUI:
         ctk.CTkLabel(win, text="Pre-flight Check",
                      font=ctk.CTkFont("Segoe UI", 14, "bold"),
                      text_color=p["fg"]).pack(anchor="w", padx=16, pady=(14, 2))
-        ctk.CTkLabel(win, text="Probing URLs before download begins…",
+        ctk.CTkLabel(win, text="Probing URLs sebelum download dimulai…",
                      font=ctk.CTkFont("Segoe UI", 11),
                      text_color=p["muted"]).pack(anchor="w", padx=16, pady=(0, 10))
 
@@ -4311,18 +5872,17 @@ class CYOADownloaderGUI:
                         label  = "✓ FOUND"
                         ok += 1
                     else:
-                        # Try page HEAD
-                        import requests as _r
+                        # Try page fetch through the shared HTTP pipeline so proxy, DNS,
+                        # Cloudflare mode, and FlareSolverr settings are respected.
                         try:
-                            rp = _r.head(url, timeout=6, allow_redirects=True,
-                                         headers={"User-Agent": "Mozilla/5.0"})
-                            if rp.status_code == 200:
+                            rp = fetch_response(url, timeout=6, extra_headers={"User-Agent": "Mozilla/5.0"})
+                            if rp is not None and rp.status_code < 400:
                                 detail = "Page OK — might need JS scan"
                                 color  = "#f59e0b"
                                 label  = "⚠ JS/SCAN"
                                 warn += 1
                             else:
-                                detail = f"HTTP {rp.status_code}"
+                                detail = "No reachable page"
                                 color  = "#ef4444"
                                 label  = "✗ ERROR"
                                 fail += 1
@@ -4340,11 +5900,11 @@ class CYOADownloaderGUI:
                 win.after(0, lambda i=i, u=url, lbl=label, c=color, d=detail:
                           _add_result_row(i, u, lbl, c, d))
 
-            win.after(0, lambda: status_lbl.configure(text="Probe finished."))
+            win.after(0, lambda: status_lbl.configure(text="Probe selesai."))
             win.after(0, lambda: prog.set(1.0))
             win.after(0, lambda: proceed_btn.configure(state="normal"))
             win.after(0, lambda: summary_var.set(
-                f"✓ {ok}  ⚠ {warn}  ✗ {fail}  of {len(items)} URLs"))
+                f"✓ {ok}  ⚠ {warn}  ✗ {fail}  dari {len(items)} URL"))
 
         threading.Thread(target=_probe_worker, daemon=True).start()
 
@@ -4370,19 +5930,27 @@ class CYOADownloaderGUI:
                 pass
         self.root.after(0, _update)
 
-    def _worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_analysis, cf_bypass, ytdlp_enabled, bw_limit, cyoa_mgr) -> None:
-        import cyoa_downloader_v7_2_1 as _self_mod
-        _self_mod._ytdlp_gui_progress_cb = self._on_ytdlp_progress
-        _self_mod._gui_speed_cb = self._record_speed_bytes
+    def _worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_analysis, cloudflare_mode, http2_enabled, ytdlp_enabled, bw_limit, cyoa_mgr) -> None:
+        _self_mod = sys.modules.get(__name__)
+        if _self_mod is not None:
+            _self_mod._ytdlp_gui_progress_cb = self._on_ytdlp_progress
+            _self_mod._gui_speed_cb = self._record_speed_bytes
         global wait_time, use_cloudscraper, _shared_session, _shared_session_cf, _ytdlp_enabled, _bandwidth_limit_kbps
         _ytdlp_enabled        = ytdlp_enabled
         _bandwidth_limit_kbps = bw_limit
         wait_time        = wt
-        # Reset session cache if CF bypass setting changed
-        if use_cloudscraper != cf_bypass:
-            _shared_session    = None
-            _shared_session_cf = None
-        use_cloudscraper = cf_bypass
+        # Apply Cloudflare engine selection for this worker run.
+        _set_cloudflare_config(
+            cloudflare_mode,
+            flaresolverr_url=_load_settings().get("flaresolverr_url", _FLARESOLVERR_URL),
+            session_policy=_load_settings().get("flaresolverr_session_policy", _FLARESOLVERR_SESSION_POLICY),
+            timeout=int(_load_settings().get("flaresolverr_timeout", _FLARESOLVERR_TIMEOUT) or _FLARESOLVERR_TIMEOUT),
+            wait_after=int(_load_settings().get("flaresolverr_wait_after", _FLARESOLVERR_WAIT_AFTER) or _FLARESOLVERR_WAIT_AFTER),
+            proxy_mode=_load_settings().get("flaresolverr_proxy_mode", _FLARESOLVERR_PROXY_MODE),
+            persist=True,
+        )
+        logger.info(f"[Cloudflare] Mode: {_display_cloudflare_mode(_CLOUDFLARE_MODE)}")
+        _set_http2_enabled(bool(http2_enabled))
         setup_file_logging(outdir)
 
         # ── Resume state ───────────────────────────────────────────
@@ -4392,7 +5960,7 @@ class CYOADownloaderGUI:
 
         skipped_count = sum(1 for it in items if it["url"] in completed)
         if skipped_count:
-            logger.info(f"[Resume] Continuing from previous session — {skipped_count} URLs already finished, skipped")
+            logger.info(f"[Resume] Melanjutkan dari sesi sebelumnya — {skipped_count} URL sudah selesai, di-skip")
 
         # Mark already-completed items in the queue dots
         for idx, item in enumerate(items):
@@ -4480,7 +6048,9 @@ class CYOADownloaderGUI:
                     max_workers=threads,
                     engine_mode="cyoap_vue" if is_cyoap else "standard",
                     cyoa_mgr_enabled=cyoa_mgr,
-                    ai_api_key=self._ai_api_key if self._ai_enabled else "",
+                    ai_api_key=_resolve_ai_api_key(session_key=self._ai_api_key, storage=getattr(self, "_ai_key_storage", "session"), provider=getattr(self, "_ai_provider", "anthropic")) if self._ai_enabled and _normalize_ai_mode(getattr(self, "_ai_mode", "auto_fallback")) != "off" else "",
+                    ai_provider=getattr(self, "_ai_provider", "anthropic"),
+                    ai_mode=getattr(self, "_ai_mode", "auto_fallback"),
                 )
                 ok += 1
                 completed_urls.append(url)
@@ -4515,7 +6085,7 @@ class CYOADownloaderGUI:
             clear_resume_state(outdir)
             logger.info("[Resume] All items succeeded — state cleared")
         else:
-            logger.info(f"[Resume] {len(failed_items)} items failed — state saved for resume")
+            logger.info(f"[Resume] {len(failed_items)} item gagal — state disimpan untuk resume")
 
         # Show results popup after batch (>1 item)
         if total > 1:
@@ -4559,13 +6129,15 @@ class CYOADownloaderGUI:
         import threading as _thr
 
         def _do_retry():
-            import cyoa_downloader_v7_2_1 as _mod
-            _mod._ytdlp_gui_progress_cb = self._on_ytdlp_progress
+            _mod = sys.modules.get(__name__)
+            if _mod is not None:
+                _mod._ytdlp_gui_progress_cb = self._on_ytdlp_progress
             result = _download_youtube_audio(urls, audio_dir, log_dir=out)
-            _mod._ytdlp_gui_progress_cb = None
+            if _mod is not None:
+                _mod._ytdlp_gui_progress_cb = None
             ok = len(result)
             self.root.after(0, lambda: self._set_status(
-                f"Retry YT audio finished: {ok}/{len(urls)} succeeded"))
+                f"Retry YT audio selesai: {ok}/{len(urls)} berhasil"))
 
         _thr.Thread(target=_do_retry, daemon=True).start()
 
@@ -4588,7 +6160,7 @@ class CYOADownloaderGUI:
 
         if not os.path.exists(fail_log):
             messagebox.showinfo("Retry Failed Images",
-                                f"failed_images.txt was not found in:\n{outdir}")
+                                f"failed_images.txt tidak ditemukan di:\n{outdir}")
             return
 
         # Parse failed_images.txt — lines without # are: URL\terror
@@ -4616,7 +6188,7 @@ class CYOADownloaderGUI:
 
         if not json_files:
             messagebox.showinfo("Retry Failed Images",
-                                f"No .json project was found in:\n{outdir}")
+                                f"Tidak ada .json project ditemukan di:\n{outdir}")
             return
 
         if self._is_running:
@@ -4624,11 +6196,11 @@ class CYOADownloaderGUI:
                                    "Please wait for the current download to finish.")
             return
 
-        logger.info(f"[Retry Images] {len(failed_urls)} failed images, "
-                    f"{len(json_files)} project JSON files found.")
+        logger.info(f"[Retry Images] {len(failed_urls)} gambar gagal, "
+                    f"{len(json_files)} project JSON ditemukan.")
 
         def _do_retry():
-            import base64, mimetypes, requests as _req
+            import base64, mimetypes
             headers = {"User-Agent": "Mozilla/5.0"}
             patched_total = 0
 
@@ -4646,7 +6218,9 @@ class CYOADownloaderGUI:
                         continue
                     # Try to download
                     try:
-                        r = _req.get(url, headers=headers, timeout=30)
+                        r = fetch_response(url, extra_headers=headers, timeout=30)
+                        if r is None:
+                            raise RuntimeError("download failed")
                         r.raise_for_status()
                         mime  = r.headers.get("Content-Type", "").split(";")[0].strip() \
                                 or "image/webp"
@@ -4670,7 +6244,7 @@ class CYOADownloaderGUI:
                         logger.error(f"  Write failed for {json_path}: {e}")
 
             if patched_total:
-                logger.info(f"[Retry Images] Done — {patched_total} images successfully embedded.")
+                logger.info(f"[Retry Images] Done — {patched_total} gambar berhasil di-embed.")
             else:
                 logger.warning(f"[Retry Images] No images were successfully downloaded.")
 
@@ -4706,7 +6280,7 @@ class CYOADownloaderGUI:
         for r in self._last_results:
             if r["url"] in failed_urls:
                 r["status"] = "PENDING"
-        logger.info(f"[Retry] {len(failed_urls)} Item failed to reset — restarting the download")
+        logger.info(f"[Retry] {len(failed_urls)} item gagal di-reset — memulai ulang download")
         self._start()
 
     def _done(self) -> None:
@@ -4724,7 +6298,7 @@ class CYOADownloaderGUI:
             succeeded = int(status.split("—")[1].strip().split("/")[0].strip())
             total     = int(status.split("/")[1].strip().split(" ")[0])
             if succeeded < total:
-                logger.info(f"[Queue] {total - succeeded} Failed — queue not cleared")
+                logger.info(f"[Queue] {total - succeeded} item gagal — queue tidak di-clear")
                 return
         except Exception:
             pass
@@ -4754,7 +6328,7 @@ class CYOADownloaderGUI:
         hdr = ctk.CTkFrame(win, corner_radius=0, fg_color=p["panel"])
         hdr.pack(fill="x", padx=0, pady=0)
 
-        ctk.CTkLabel(hdr, text="Batch Download Results",
+        ctk.CTkLabel(hdr, text="Hasil Download Batch",
                      font=ctk.CTkFont("Segoe UI", 14, "bold"),
                      text_color=p["fg"]).pack(side="left", padx=16, pady=12)
 
@@ -4763,8 +6337,8 @@ class CYOADownloaderGUI:
 
         for label, val, color in [
             (f"Total: {total}", "", p["muted"]),
-            (f"✓ {ok_cnt} succeeded", "", "#22c55e"),
-            (f"✗ {fail_cnt} failed", "", "#ef4444"),
+            (f"✓ {ok_cnt} berhasil", "", "#22c55e"),
+            (f"✗ {fail_cnt} gagal", "", "#ef4444"),
         ]:
             ctk.CTkLabel(stats_frame, text=label,
                          font=ctk.CTkFont("Segoe UI", 11, "bold"),
@@ -4789,7 +6363,7 @@ class CYOADownloaderGUI:
                           hover_color="#2563eb",
                           text_color="#fff" if val == "all" else p["muted"],
                           command=lambda v=val: set_filter(v)).pack(
-                side="left", padx=(8 if label == "All" else 4, 0), pady=6)
+                side="left", padx=(8 if label == "Semua" else 4, 0), pady=6)
 
         # Export button
         def export_csv():
@@ -4902,13 +6476,13 @@ class CYOADownloaderGUI:
         body.pack(fill="both", expand=True, padx=14, pady=10)
 
         # ── Source selection ──────────────────────────────────────────
-        src_lbl = ctk.CTkLabel(body, text="File source:",
+        src_lbl = ctk.CTkLabel(body, text="Sumber file:",
                                font=ctk.CTkFont("Segoe UI", 10, "bold"),
                                text_color=p["muted"])
         src_lbl.pack(anchor="w", pady=(0, 4))
 
         files_var  = ctk.Variable(value=[])   # list of paths
-        count_var  = ctk.StringVar(value="0 files selected")
+        count_var  = ctk.StringVar(value="0 file dipilih")
         status_var = ctk.StringVar()
 
         # File list display
@@ -4933,7 +6507,7 @@ class CYOADownloaderGUI:
                 list_box.insert("end", f"  {os.path.basename(fp)}\n")
                 list_box.insert("end", f"    {fp}\n")
             list_box.configure(state="disabled")
-            count_var.set(f"{len(_file_paths)} files selected")
+            count_var.set(f"{len(_file_paths)} file dipilih")
 
         def _scan_folder() -> None:
             folder = filedialog.askdirectory(parent=win, title="Select output folder")
@@ -4954,7 +6528,7 @@ class CYOADownloaderGUI:
 
         def _pick_files() -> None:
             paths = filedialog.askopenfilenames(
-                parent=win, title="Select project.json",
+                parent=win, title="Pilih project.json",
                 filetypes=[("JSON", "*.json"), ("All", "*.*")])
             for fp in paths:
                 if fp not in _file_paths:
@@ -5034,9 +6608,9 @@ class CYOADownloaderGUI:
                     failed += 1
             prog_var.set(1.0)
             status_var.set(
-                f"✓ {added} added  •  "
-                f"{skipped} already exists  •  "
-                f"{failed} failed"
+                f"✓ {added} ditambahkan  •  "
+                f"{skipped} sudah ada  •  "
+                f"{failed} gagal"
             )
 
         ctk.CTkButton(body, text="📤 Export to CYOA Manager", height=38,
@@ -5163,7 +6737,7 @@ class CYOADownloaderGUI:
 
         def _manual_add():
             json_path = filedialog.askopenfilename(
-                parent=win, title="Select project.json",
+                parent=win, title="Pilih project.json",
                 filetypes=[("JSON", "*.json"), ("All", "*.*")])
             if not json_path: return
             db = _get_db()
@@ -5174,7 +6748,7 @@ class CYOADownloaderGUI:
                 json_path,
                 name=os.path.splitext(os.path.basename(json_path))[0],
                 db_path=db)
-            status_var.set("✓ Added" if ok else "✗ Failed")
+            status_var.set("✓ Ditambahkan" if ok else "✗ Gagal")
 
         def _add_all():
             results = getattr(self, "_last_results", [])
@@ -5192,7 +6766,7 @@ class CYOADownloaderGUI:
                     source_url=r.get("url",""),
                     db_path=db)
             )
-            status_var.set(f"✓ {added} project added.")
+            status_var.set(f"✓ {added} project ditambahkan.")
 
         def _batch_export():
             """Batch export: browse folder, find all project.json, add to library."""
@@ -5202,7 +6776,7 @@ class CYOADownloaderGUI:
                 messagebox.showerror("Error", "Library DB is invalid.", parent=win)
                 return
             folder = filedialog.askdirectory(
-                parent=win, title="Select a folder containing project.json")
+                parent=win, title="Pilih folder yang berisi project.json")
             if not folder:
                 return
             # Scan recursively for project.json files
@@ -5218,11 +6792,11 @@ class CYOADownloaderGUI:
                     name = os.path.basename(root_d)
                     if add_to_cyoa_manager(fp, name=name, db_path=db):
                         added += 1
-            status_var.set(f"✓ {added} project.json was found and added.")
+            status_var.set(f"✓ {added} project.json ditemukan dan ditambahkan.")
 
         bf = ctk.CTkFrame(body, fg_color="transparent")
         bf.pack(fill="x")
-        ctk.CTkButton(bf, text="📄 Add project.json", height=32,
+        ctk.CTkButton(bf, text="📄 Tambah project.json", height=32,
                       fg_color="#3b82f6", hover_color="#2563eb",
                       font=ctk.CTkFont("Segoe UI", 11),
                       command=_manual_add).pack(side="left", padx=(0, 8))
@@ -5291,7 +6865,7 @@ class CYOADownloaderGUI:
                      text_color=p["accent"]).pack(pady=4)
 
         # ── Manual add ────────────────────────────────────────────────
-        ctk.CTkLabel(win, text="Manual — add project.json:",
+        ctk.CTkLabel(win, text="Manual — tambahkan project.json:",
                      font=ctk.CTkFont("Segoe UI", 10, "bold"),
                      text_color=p["muted"]).pack(anchor="w", padx=16, pady=(4, 2))
 
@@ -5302,7 +6876,7 @@ class CYOADownloaderGUI:
 
         def _manual_add():
             json_path = filedialog.askopenfilename(
-                parent=win, title="Select project.json",
+                parent=win, title="Pilih project.json",
                 filetypes=[("JSON", "*.json"), ("All", "*.*")])
             if not json_path: return
             db = _get_db()
@@ -5311,7 +6885,7 @@ class CYOADownloaderGUI:
                 return
             name = os.path.splitext(os.path.basename(json_path))[0]
             ok = add_to_cyoa_manager(json_path, name=name, db_path=db)
-            status_var.set(f"{'✓ Added' if ok else '✗ Failed'}: {name}")
+            status_var.set(f"{'✓ Ditambahkan' if ok else '✗ Gagal'}: {name}")
 
         def _add_all():
             results = getattr(self, "_last_results", [])
@@ -5329,11 +6903,11 @@ class CYOADownloaderGUI:
                 if os.path.exists(jp):
                     if add_to_cyoa_manager(jp, name=fn, source_url=src_url, db_path=db):
                         added += 1
-            status_var.set(f"✓ {added} projects added.")
+            status_var.set(f"✓ {added} project ditambahkan.")
 
         bf = ctk.CTkFrame(win, fg_color="transparent")
         bf.pack(fill="x", padx=14)
-        ctk.CTkButton(bf, text="📄 Select project.json", height=34,
+        ctk.CTkButton(bf, text="📄 Pilih project.json", height=34,
                       fg_color="#3b82f6", hover_color="#2563eb",
                       font=ctk.CTkFont("Segoe UI", 11),
                       command=_manual_add).pack(side="left", padx=(0, 8))
@@ -5382,8 +6956,8 @@ class CYOADownloaderGUI:
                      text_color=p["fg"], justify="left").pack(padx=20, pady=(20, 10))
 
         ctk.CTkLabel(win,
-                     text="Caching speeds up the process of re-downloading the same images.\n"
-                          "Clear only if you need to save disk space.",
+                     text="Cache speeds up re-downloading the same images.\n"
+                          "Clear hanya jika perlu menghemat disk space.",
                      font=ctk.CTkFont("Segoe UI", 10),
                      text_color=p["muted"], wraplength=340,
                      justify="left").pack(padx=20, pady=(0, 14))
@@ -5497,7 +7071,7 @@ class CYOADownloaderGUI:
                     queued += 1
             if queued:
                 win.destroy()
-                messagebox.showinfo("Queued", f"{queued} CYOA added to queue.")
+                messagebox.showinfo("Queued", f"{queued} CYOA ditambahkan ke queue.")
             else:
                 messagebox.showwarning("Import", "Select at least 1 CYOA.")
 
@@ -5612,78 +7186,246 @@ class CYOADownloaderGUI:
             self.root.after_cancel(self._speed_timer_id)
             self._speed_timer_id = None
         # Clear global speed callback
-        import cyoa_downloader_v7_2_1 as _self_mod
-        _self_mod._gui_speed_cb = None
+        _self_mod = sys.modules.get(__name__)
+        if _self_mod is not None:
+            _self_mod._gui_speed_cb = None
 
     # ── AI API Key Settings ────────────────────────────────────────────
     def _ai_settings_panel(self) -> None:
         import customtkinter as ctk
+        from tkinter import messagebox
         p = self._p()
+        is_en = getattr(self, "_language", "id") == "en"
         win = ctk.CTkToplevel(self.root)
-        win.title("🤖 AI Assist Settings")
-        win.geometry("460x380")
+        win.title("🤖 AI Assist Settings" if is_en else "🤖 Pengaturan AI Assist")
+        win.geometry("560x600")
         win.resizable(False, False)
         win.configure(fg_color=p["bg"])
         win.transient(self.root)
         win.grab_set()
 
-        ctk.CTkLabel(
-            win, text="AI Assist — Claude API Integration",
-            font=ctk.CTkFont("Segoe UI", 13, "bold"),
-            text_color=p["fg"]
+        title = "AI Assist — Diagnostics & Recovery" if is_en else "AI Assist — Diagnostik & Pemulihan"
+        ctk.CTkLabel(win, text=title,
+            font=ctk.CTkFont("Segoe UI", 14, "bold"), text_color=p["fg"]
         ).pack(padx=20, pady=(18, 4), anchor="w")
 
-        ctk.CTkLabel(
-            win,
-            text=(
-                "When enabled, AI assists at three points in the pipeline:\n\n"
-                "① Phase 5 Detection — search for project.json in HTML code "
-                "(fetch, XHR, script tag) when Phases 1–4 fail\n\n"
-                "② JS Asset Discovery — analyzes JS bundles to find "
-                "asset URLs (images, audio, chunks) that BFS scan missed\n\n"
-                "③ Viewer Diagnostic — analyzes viewer architecture and provides "
-                "download mode recommendations when detection fails\n\n"
-                "Toggle in the options row or here. Without an API key, the toggle has no effect."
-            ),
-            font=ctk.CTkFont("Segoe UI", 10),
-            text_color=p["muted"], wraplength=420, justify="left"
-        ).pack(padx=20, pady=(0, 10), anchor="w")
-
-        # Toggle
-        toggle_var = ctk.BooleanVar(value=self._ai_enabled)
-        ctk.CTkSwitch(
-            win, text="AI Assist enabled", variable=toggle_var,
-            font=ctk.CTkFont("Segoe UI", 11),
-            text_color=p["fg"],
-            progress_color="#8b5cf6",
-        ).pack(padx=20, pady=(0, 10), anchor="w")
-
-        # API Key
-        ctk.CTkLabel(
-            win, text="Anthropic API Key",
-            font=ctk.CTkFont("Segoe UI", 11, "bold"),
-            text_color=p["fg"]
-        ).pack(padx=20, pady=(0, 2), anchor="w")
-
-        key_var = ctk.StringVar(value=self._ai_api_key)
-        entry = ctk.CTkEntry(
-            win, textvariable=key_var,
-            font=ctk.CTkFont("Segoe UI", 11),
-            fg_color=p["surface2"], text_color=p["fg"],
-            border_color=p["border"], height=34, show="•"
+        desc_en = (
+            "AI Assist is optional. It helps locate project.json, inspect JS bundles, "
+            "and diagnose custom viewers when normal detection fails. API keys are not "
+            "stored in settings.json unless you explicitly choose the plain-text option."
         )
-        entry.pack(padx=20, fill="x", pady=(0, 14))
+        desc_id = (
+            "AI Assist bersifat opsional. Fitur ini membantu mencari project.json, "
+            "menganalisis bundle JS, dan mendiagnosis viewer custom saat deteksi normal gagal. "
+            "API key tidak disimpan di settings.json kecuali Anda memilih opsi plain-text."
+        )
+        ctk.CTkLabel(win, text=desc_en if is_en else desc_id,
+            font=ctk.CTkFont("Segoe UI", 10), text_color=p["muted"],
+            wraplength=510, justify="left"
+        ).pack(padx=20, pady=(0, 12), anchor="w")
+
+        toggle_var = ctk.BooleanVar(value=self._ai_enabled)
+        ctk.CTkSwitch(win,
+            text="Enable AI Assist" if is_en else "Aktifkan AI Assist",
+            variable=toggle_var, font=ctk.CTkFont("Segoe UI", 11),
+            text_color=p["fg"], progress_color="#8b5cf6"
+        ).pack(padx=20, pady=(0, 12), anchor="w")
+
+        grid = ctk.CTkFrame(win, fg_color="transparent")
+        grid.pack(padx=20, fill="x", pady=(0, 8))
+        grid.grid_columnconfigure(1, weight=1)
+
+        def label(row, txt):
+            ctk.CTkLabel(grid, text=txt, font=ctk.CTkFont("Segoe UI", 11, "bold"),
+                         text_color=p["fg"], width=130, anchor="w").grid(row=row, column=0, sticky="w", pady=5)
+
+        st = _load_settings()
+        provider_var = ctk.StringVar(value=_normalize_ai_provider(st.get("ai_provider", "anthropic")))
+        model_var = ctk.StringVar(value=_get_ai_model(provider_var.get()))
+        mode_var = ctk.StringVar(value=_normalize_ai_mode(st.get("ai_mode", "auto_fallback")))
+        storage_var = ctk.StringVar(value=_normalize_ai_key_storage(st.get("ai_key_storage", getattr(self, "_ai_key_storage", "session"))))
+        session_key_var = ctk.StringVar(value=self._ai_api_key if storage_var.get() in {"session", "plain"} else "")
+
+        label(0, "Provider" if is_en else "Provider")
+        provider_menu = ctk.CTkOptionMenu(grid, variable=provider_var, values=["anthropic", "openai", "gemini", "ollama"],
+            fg_color=p["surface2"], button_color=p["surface2"], button_hover_color=p["surface"],
+            text_color=p["fg"], dropdown_fg_color=p["surface2"], dropdown_text_color=p["fg"],
+            height=32)
+        provider_menu.grid(row=0, column=1, sticky="ew", pady=5)
+
+        label(1, "Model" if is_en else "Model")
+        # CTkComboBox keeps curated presets but also lets advanced users type a custom model id.
+        model_menu = ctk.CTkComboBox(grid, variable=model_var,
+            values=_ai_model_options(provider_var.get()),
+            fg_color=p["surface2"], button_color=p["surface2"], button_hover_color=p["surface"],
+            text_color=p["fg"], dropdown_fg_color=p["surface2"], dropdown_text_color=p["fg"],
+            border_color=p["border"], height=32)
+        model_menu.grid(row=1, column=1, sticky="ew", pady=5)
+
+        label(2, "AI Mode" if is_en else "Mode AI")
+        ctk.CTkOptionMenu(grid, variable=mode_var,
+            values=["off", "diagnostics", "auto_fallback", "aggressive_recovery"],
+            fg_color=p["surface2"], button_color=p["surface2"], button_hover_color=p["surface"],
+            text_color=p["fg"], dropdown_fg_color=p["surface2"], dropdown_text_color=p["fg"],
+            height=32).grid(row=2, column=1, sticky="ew", pady=5)
+
+        label(3, "Key Storage" if is_en else "Penyimpanan Key")
+        ctk.CTkOptionMenu(grid, variable=storage_var,
+            values=["session", "env", "keyring", "plain"],
+            fg_color=p["surface2"], button_color=p["surface2"], button_hover_color=p["surface"],
+            text_color=p["fg"], dropdown_fg_color=p["surface2"], dropdown_text_color=p["fg"],
+            height=32).grid(row=3, column=1, sticky="ew", pady=5)
+
+        label(4, "API Key" if is_en else "API Key")
+        key_entry = ctk.CTkEntry(grid, textvariable=session_key_var,
+            font=ctk.CTkFont("Segoe UI", 11), fg_color=p["surface2"], text_color=p["fg"],
+            border_color=p["border"], height=32, show="•")
+        key_entry.grid(row=4, column=1, sticky="ew", pady=5)
+
+        label(5, "Ollama URL" if is_en else "URL Ollama")
+        ollama_url_var = ctk.StringVar(value=st.get("ollama_url", OLLAMA_DEFAULT_URL))
+        ollama_url_entry = ctk.CTkEntry(grid, textvariable=ollama_url_var,
+            font=ctk.CTkFont("Segoe UI", 11), fg_color=p["surface2"], text_color=p["fg"],
+            border_color=p["border"], height=32)
+        ollama_url_entry.grid(row=5, column=1, sticky="ew", pady=5)
+
+        status_var = ctk.StringVar(value=_ai_key_status_text(storage_var.get(), session_key_var.get(), provider_var.get()))
+        status_lbl = ctk.CTkLabel(win, textvariable=status_var,
+            font=ctk.CTkFont("Segoe UI", 10), text_color=p["muted"],
+            wraplength=510, justify="left")
+        status_lbl.pack(padx=20, pady=(0, 8), anchor="w")
+
+        warn_var = ctk.StringVar(value="")
+        warn_lbl = ctk.CTkLabel(win, textvariable=warn_var,
+            font=ctk.CTkFont("Segoe UI", 10, "bold"), text_color="#f59e0b",
+            wraplength=510, justify="left")
+        warn_lbl.pack(padx=20, pady=(0, 8), anchor="w")
+
+        def _refresh_key_ui(*_):
+            mode = _normalize_ai_key_storage(storage_var.get())
+            provider = _normalize_ai_provider(provider_var.get())
+            if provider == "ollama":
+                key_entry.configure(state="disabled", placeholder_text="Ollama uses local API")
+                try: ollama_url_entry.configure(state="normal")
+                except Exception: pass
+                warn_var.set(("Ollama runs locally by default. Set the URL if your Ollama server uses a different host or port." if is_en else
+                              "Ollama berjalan lokal secara default. Atur URL jika server Ollama memakai host atau port berbeda."))
+            elif mode == "env":
+                try: ollama_url_entry.configure(state="disabled")
+                except Exception: pass
+                key_entry.configure(state="disabled", placeholder_text=_ai_primary_env_var(provider_var.get()) or "No API key needed")
+                warn_var.set((("Set " + " or ".join(_ai_env_vars(provider_var.get())) + " in your environment. The app will not store it.") if is_en else
+                              ("Atur " + " atau ".join(_ai_env_vars(provider_var.get())) + " di environment. Aplikasi tidak akan menyimpannya.")))
+            elif mode == "keyring":
+                try: ollama_url_entry.configure(state="disabled")
+                except Exception: pass
+                key_entry.configure(state="normal", placeholder_text=("Enter key to save to OS Credential Manager" if is_en else "Masukkan key untuk disimpan ke OS Credential Manager"))
+                warn_var.set(("Requires optional package: pip install keyring" if not _keyring_module() else
+                              ("Key will be stored in the OS credential store." if is_en else "Key akan disimpan di credential store sistem operasi.")))
+            elif mode == "plain":
+                try: ollama_url_entry.configure(state="disabled")
+                except Exception: pass
+                key_entry.configure(state="normal", placeholder_text=("not needed" if _normalize_ai_provider(provider_var.get()) == "ollama" else "API key..."))
+                warn_var.set(("Warning: this stores the API key as plain text in settings.json." if is_en else
+                              "Peringatan: API key akan disimpan sebagai teks biasa di settings.json."))
+            else:
+                try: ollama_url_entry.configure(state="disabled")
+                except Exception: pass
+                key_entry.configure(state="normal", placeholder_text=("Session only. Cleared when app exits." if is_en else "Hanya sesi ini. Hilang saat aplikasi ditutup."))
+                warn_var.set(("Safest default. The key stays in memory only." if is_en else
+                              "Default paling aman. Key hanya tersimpan di memori."))
+            status_var.set(_ai_key_status_text(mode, session_key_var.get(), provider_var.get()))
+
+        storage_var.trace_add("write", _refresh_key_ui)
+
+        def _provider_changed(*_):
+            prov = _normalize_ai_provider(provider_var.get())
+            opts = _ai_model_options(prov)
+            try:
+                model_menu.configure(values=opts)
+            except Exception:
+                pass
+            if model_var.get() not in opts:
+                model_var.set(_default_ai_model(prov))
+            mode = _normalize_ai_key_storage(storage_var.get())
+            if prov == "ollama":
+                session_key_var.set("")
+            elif mode == "plain":
+                session_key_var.set(_resolve_ai_api_key(storage="plain", provider=prov))
+            elif mode in {"env", "keyring"}:
+                session_key_var.set("")
+            _refresh_key_ui()
+
+        provider_var.trace_add("write", _provider_changed)
+        session_key_var.trace_add("write", lambda *_: status_var.set(_ai_key_status_text(storage_var.get(), session_key_var.get(), provider_var.get())))
+        _refresh_key_ui()
+
+        def _test_key():
+            provider = _normalize_ai_provider(provider_var.get())
+            key = _resolve_ai_api_key(session_key=session_key_var.get(), storage=storage_var.get(), provider=provider)
+            if provider != "ollama" and not key:
+                messagebox.showwarning("AI Assist", "No API key available." if is_en else "API key belum tersedia.")
+                return
+            res = _ai_call(key, "Reply exactly: OK", max_tokens=16, label="AI key test", model=model_var.get(), provider=provider)
+            if res:
+                messagebox.showinfo("AI Assist", "API key works." if is_en else "API key berhasil digunakan.")
+            else:
+                messagebox.showerror("AI Assist", "API key test failed. Check key, model, and network." if is_en else "Tes API key gagal. Cek key, model, dan jaringan.")
+
+        def _clear_key():
+            mode = _normalize_ai_key_storage(storage_var.get())
+            provider = _normalize_ai_provider(provider_var.get())
+            _clear_ai_api_key_storage(mode, provider, clear_all=True)
+            session_key_var.set("")
+            self._ai_api_key = ""
+            status_var.set(_ai_key_status_text(mode, "", provider))
 
         def _save():
-            self._ai_api_key = key_var.get().strip()
-            self._ai_enabled = toggle_var.get()
+            mode = _normalize_ai_key_storage(storage_var.get())
+            api_key = session_key_var.get().strip()
+            settings = _load_settings()
+            settings["ai_enabled"] = bool(toggle_var.get())
+            provider = _normalize_ai_provider(provider_var.get())
+            settings["ai_provider"] = provider
+            settings["ai_model"] = model_var.get().strip() or _default_ai_model(provider)
+            settings["ai_mode"] = _normalize_ai_mode(mode_var.get())
+            settings["ai_key_storage"] = mode
+            settings["ollama_url"] = (ollama_url_var.get().strip() or OLLAMA_DEFAULT_URL)
+
+            if mode == "plain":
+                if api_key:
+                    ok = messagebox.askyesno(
+                        "Plain text API key" if is_en else "API key teks biasa",
+                        "This will store the API key as plain text in settings.json. Continue?" if is_en else
+                        "API key akan disimpan sebagai teks biasa di settings.json. Lanjutkan?"
+                    )
+                    if not ok:
+                        return
+                _clear_ai_plain_keys(settings, None)
+                settings[_plain_ai_key_setting(provider)] = api_key
+                self._ai_api_key = api_key
+            elif mode == "keyring":
+                _clear_ai_plain_keys(settings, None)
+                if api_key:
+                    if not _write_ai_key_to_keyring(api_key, provider):
+                        messagebox.showerror("AI Assist", "Failed to write to OS Credential Manager. Install keyring or choose another storage." if is_en else "Gagal menyimpan ke OS Credential Manager. Install keyring atau pilih storage lain.")
+                        return
+                self._ai_api_key = ""
+            elif mode == "session":
+                _clear_ai_plain_keys(settings, None)
+                self._ai_api_key = api_key
+            else:  # env
+                _clear_ai_plain_keys(settings, None)
+                self._ai_api_key = ""
+
+            self._ai_enabled = bool(toggle_var.get())
+            self._ai_provider = provider
+            self._ai_key_storage = mode
+            self._ai_model = settings["ai_model"]
+            self._ai_mode = settings["ai_mode"]
             if hasattr(self, "_ai_var"):
                 self._ai_var.set(self._ai_enabled)
-            settings = _load_settings()
-            settings["ai_api_key"] = self._ai_api_key
-            settings["ai_enabled"] = self._ai_enabled
             _save_settings(settings)
-            # Update Row B pill if exists
             if hasattr(self, '_ai_btn'):
                 self._ai_btn.configure(
                     text="🤖 AI  " + ("ON" if self._ai_enabled else "OFF"),
@@ -5691,18 +7433,20 @@ class CYOADownloaderGUI:
             win.destroy()
 
         bf = ctk.CTkFrame(win, fg_color="transparent")
-        bf.pack(padx=20, fill="x", pady=(0, 14))
-        ctk.CTkButton(
-            bf, text="💾 Save", height=30,
-            font=ctk.CTkFont("Segoe UI", 11, "bold"),
-            fg_color=p["accentbg"], hover_color=p["accentbg_hv"],
-            text_color=p["accent"], command=_save
+        bf.pack(padx=20, fill="x", pady=(8, 14))
+        ctk.CTkButton(bf, text="Test API Key" if is_en else "Tes API Key", height=30,
+            fg_color=p["surface2"], hover_color=p["surface"], text_color=p["fg"], command=_test_key
         ).pack(side="left", padx=(0, 6))
-        ctk.CTkButton(
-            bf, text="Cancel", height=30, width=70,
-            fg_color=p["surface2"], hover_color=p["surface"],
-            text_color=p["muted"], command=win.destroy
-        ).pack(side="left")
+        ctk.CTkButton(bf, text="Clear Key" if is_en else "Hapus Key", height=30,
+            fg_color=p["surface2"], hover_color=p["surface"], text_color=p["muted"], command=_clear_key
+        ).pack(side="left", padx=(0, 6))
+        ctk.CTkButton(bf, text="💾 Save" if is_en else "💾 Simpan", height=30,
+            font=ctk.CTkFont("Segoe UI", 11, "bold"), fg_color=p["accentbg"],
+            hover_color=p["accentbg_hv"], text_color=p["accent"], command=_save
+        ).pack(side="right", padx=(6, 0))
+        ctk.CTkButton(bf, text="Cancel" if is_en else "Batal", height=30, width=70,
+            fg_color=p["surface2"], hover_color=p["surface"], text_color=p["muted"], command=win.destroy
+        ).pack(side="right")
 
     # ── Auto-update Checker ────────────────────────────────────────────
     def _check_updates_panel(self) -> None:
@@ -5865,248 +7609,449 @@ class CYOADownloaderGUI:
             pass
 
     def _show_feature_guide(self, initial_tab: str = "download") -> None:
-        """Feature overview + quick-reference panel."""
+        """Feature overview + quick-reference panel with full Indonesian/English content."""
         import customtkinter as ctk
 
-        p   = self._p()
+        p = self._p()
+        lang = getattr(self, "_language", "id")
+        is_en = (lang == "en")
+
         win = ctk.CTkToplevel(self.root)
-        win.title("CYOA Downloader — Panduan Fitur")
-        win.geometry("760x640")
+        win.title("CYOA Downloader — Feature Guide" if is_en else "CYOA Downloader — Panduan Fitur")
+        win.geometry("780x660")
         win.grab_set()
 
-        # Header
-        hdr = ctk.CTkFrame(win, fg_color=p["panel"], corner_radius=0, height=56)
-        hdr.pack(fill="x"); hdr.pack_propagate(False)
-        ctk.CTkLabel(hdr, text="📖  Panduan Fitur — CYOA Downloader v7.2.1",
-                     font=ctk.CTkFont("Segoe UI", 13, "bold"),
-                     text_color=p["fg"]).pack(side="left", padx=16)
+        hdr = ctk.CTkFrame(win, fg_color=p["panel"], corner_radius=0, height=58)
+        hdr.pack(fill="x")
+        hdr.pack_propagate(False)
+        header_text = (
+            "📖  Feature Guide — CYOA Downloader v7.3.3"
+            if is_en else
+            "📖  Panduan Fitur — CYOA Downloader v7.3.3"
+        )
+        ctk.CTkLabel(
+            hdr,
+            text=header_text,
+            font=ctk.CTkFont("Segoe UI", 13, "bold"),
+            text_color=p["fg"],
+        ).pack(side="left", padx=16)
 
-        # Tab bar
         tab_var = ctk.StringVar(value="download")
-        tab_frame = ctk.CTkFrame(win, fg_color=p["surface"], corner_radius=0, height=40)
-        tab_frame.pack(fill="x"); tab_frame.pack_propagate(False)
+        tab_frame = ctk.CTkFrame(win, fg_color=p["surface"], corner_radius=0, height=42)
+        tab_frame.pack(fill="x")
+        tab_frame.pack_propagate(False)
 
-        TABS = [
-            ("download",  "⬇ Download"),
-            ("audio",     "🎵 Audio"),
-            ("queue",     "📋 Queue"),
-            ("viewer",    "📺 Viewer"),
-            ("cyoa_mgr",  "📤 CYOA Mgr"),
-            ("cheat",     "⚙ Cheat"),
-            ("shortcut",  "⌨ Shortcut"),
-            ("cookie",    "🍪 Cookie"),
+        TABS_EN = [
+            ("download", "⬇ Download"),
+            ("audio", "🎵 Audio"),
+            ("queue", "📋 Queue"),
+            ("viewer", "📺 Viewer"),
+            ("network", "🌐 Network"),
+            ("cyoa_mgr", "📤 Manager"),
+            ("cheat", "⚙ Cheat"),
+            ("workflow", "⌨ Workflow"),
+            ("cookies", "🍪 Cookies"),
         ]
+        TABS_ID = [
+            ("download", "⬇ Unduh"),
+            ("audio", "🎵 Audio"),
+            ("queue", "📋 Antrean"),
+            ("viewer", "📺 Viewer"),
+            ("network", "🌐 Jaringan"),
+            ("cyoa_mgr", "📤 Manager"),
+            ("cheat", "⚙ Cheat"),
+            ("workflow", "⌨ Alur"),
+            ("cookies", "🍪 Cookie"),
+        ]
+        TABS = TABS_EN if is_en else TABS_ID
 
-        content_area = ctk.CTkScrollableFrame(win, fg_color=p["bg"],
-                                               scrollbar_button_color=p["surface2"])
+        content_area = ctk.CTkScrollableFrame(
+            win,
+            fg_color=p["bg"],
+            scrollbar_button_color=p["surface2"],
+        )
         content_area.pack(fill="both", expand=True)
 
-        CONTENT = {
+        CONTENT_EN = {
             "download": [
-                ("⬇  Download Mode", "accent", [
-                    ("Auto (⚡)",        "Auto-probes URL before download. Detects ICC Plus, ICC Remix, CYOA-P Vue. Default output: Website Folder."),
-                    ("Embedded JSON",    "All images are base64-encoded in a single .json file. They can be opened offline without a server.."),
-                    ("ZIP",             "project.json + separate images in a .zip file. Smaller than an embedded file."),
-                    ("Both",            "Export .json and .zip files at the same time."),
-                    ("Website Folder",  "Downloads full viewer HTML/CSS/JS + assets to a local folder. Best for offline play."),
-                    ("Website ZIP",     "Just like a website folder, but zipped."),
-                    ("Pure Website",    "Just download the viewer; skip searching for project.json. For custom CYOA formats."),
-                    ("cyoap_vue",       "CYOA-P Vue engine: download dist/platform.json + dist/nodes/*."),
+                ("⬇  Download Modes", "accent", [
+                    ("Auto", "Probes the URL before downloading and selects the best engine. The default output is Website Folder."),
+                    ("Embedded JSON", "Stores images as base64 inside one project JSON file. Use this when you want a compact single-file backup."),
+                    ("ZIP", "Creates project.json plus separate image and audio folders inside a ZIP archive."),
+                    ("Both", "Creates an embedded JSON and a ZIP package in one run."),
+                    ("Website Folder", "Downloads viewer HTML, CSS, JavaScript, images, fonts, audio, and project data into a playable local folder."),
+                    ("Website ZIP", "Creates the same website package as Website Folder, then compresses it into a ZIP archive."),
+                    ("Pure Website", "Downloads the visible site without trying to discover a project JSON. Use it for custom viewer formats."),
+                    ("cyoap_vue", "Uses the CYOA-P Vue flow by downloading dist/platform.json and dist/nodes/*.json."),
                 ]),
                 ("🔧  Options Row", "muted", [
-                    ("Threads",         "Number of parallel threads for downloading images (default 4)."),
-                    ("Retry delay",     "Seconds to wait after 429 Too Many Requests."),
-                    ("BW limit (KB/s)", "Bandwidth limit. 0 = unlimited."),
-                    ("Download Fonts",  "Downloads fonts referenced in CSS/HTML."),
-                    ("CF Bypass",       "Enable cloudscraper for Cloudflare bypass. Requires: pip install cloudscraper."),
-                    ("YT Audio",        "Automatically download YouTube audio using yt-dlp + ffmpeg → MP3. See the Audio tab."),
-                    ("→ CYOA Mgr",      "Automatically add project.json to the CYOA Manager library after downloading."),
+                    ("Threads", "Controls parallel image downloads. Start with 4 to 8 threads for stable hosts."),
+                    ("Retry delay", "Wait time after rate-limit responses such as HTTP 429."),
+                    ("Bandwidth limit", "Limits download speed in KB/s. Use 0 for unlimited speed."),
+                    ("Download Fonts", "Downloads fonts referenced by HTML or CSS files."),
+                    ("HTTP/2", "Uses httpx with HTTP/2 for deep-scan fetches when httpx[h2] is installed."),
+                    ("YT Audio", "Downloads YouTube audio with yt-dlp and ffmpeg, then patches local audio paths into the project."),
+                    ("CYOA Manager", "Adds successful project JSON files to the CYOA Manager library."),
                 ]),
                 ("📂  Output", "muted", [
-                    ("Output folder",   "Destination folder for all downloads. Browse with the Browse… button."),
-                    ("Auto filename",   "Filename auto-generated from URL. Can be edited in the Filename field before Add."),
-                    ("Editable queue",  "Name field below the URL queue can be edited directly before download."),
+                    ("Output folder", "Destination folder for all generated files. The folder is created automatically if it does not exist."),
+                    ("Filename", "The filename is generated from the URL by default, but you can edit it before adding the URL to the queue."),
+                    ("Reports", "The program writes backup_report.txt, failed_assets.txt, failed_images.txt, and cyoa_downloader.log when relevant."),
                 ]),
             ],
             "audio": [
-                ("🎵  Offline Audio — How It Works", "accent", [
-                    ("1. Detection",       "Script to scan `project.json` for the `bgmId` field containing a YouTube video ID."),
-                    ("2. Download",      "yt-dlp downloads audio → ffmpeg converts it to MP3 → saves it to audio/ID.mp3."),
-                    ("3. Patch bgmId",   "bgmId in every object with setBgmIsOn=true is changed to 'audio/ID.mp3'."),
-                    ("4. useAudioURL",   "useAudioURL:true injected into every bgmId object AND at root level. ICC Plus reads e.useAudioURL from the row object!"),
-                    ("5. Copy",          "The audio/ folder is copied to the output folder. In website mode: to site_folder/audio/."),
+                ("🎵  Offline Audio Flow", "accent", [
+                    ("Detection", "Scans project JSON for bgmId, direct audio fields, playlists, and YouTube video IDs."),
+                    ("Download", "Uses yt-dlp to download YouTube audio, then ffmpeg converts it to MP3."),
+                    ("Patch", "Rewrites bgmId and useAudioURL so the offline viewer can load local audio files."),
+                    ("Copy", "Copies the audio folder into the JSON package, ZIP package, or website folder as needed."),
+                    ("Skipped items", "Writes skipped_youtube_audio.txt when a YouTube track cannot be downloaded."),
                 ]),
                 ("⚙  ffmpeg Detection", "yellow", [
-                    ("PATH",            "shutil.which('ffmpeg') — checks the regular PATH."),
-                    ("Subprocess",      "Tries running 'ffmpeg -version' directly — handles stale PATH."),
-                    ("Registry",        "Reads HKCU\\Environment + HKLM PATH from Windows registry."),
-                    ("winget rglob",    "Recursively scans winget packages for ffmpeg.exe (Gyan.FFmpeg nesting)."),
-                    ("Fixed paths",     "C:\\ffmpeg\\bin, scoop, chocolatey, Downloads, Desktop."),
+                    ("PATH", "Searches for ffmpeg in the active PATH."),
+                    ("Windows registry", "Reads user and machine PATH entries from the Windows registry."),
+                    ("Package managers", "Checks common winget, Scoop, Chocolatey, and local install locations."),
+                    ("Manual fix", "Install ffmpeg and restart the program if audio conversion fails."),
                 ]),
-                ("🔁  Cookie Retry", "muted", [
-                    ("First attempt",   "Download without cookies."),
-                    ("Bot detected",    "If failed, retries with cookies from: chrome → firefox → edge → brave → chromium → safari."),
-                    ("Chrome locked",   "If Chrome is open, copies DB to temp before yt-dlp reads it."),
-                    ("Quiet mode",      "Cookie errors are suppressed — not shown in GUI log."),
+                ("🔁  Browser Cookies", "muted", [
+                    ("Automatic", "Tries browser cookies from Chrome, Firefox, Edge, Brave, Chromium, and Safari."),
+                    ("Locked Chrome", "Copies the cookie database to a temporary location when Chrome keeps it locked."),
+                    ("Manual cookies.txt", "Place cookies.txt in the output folder or pass it through the CLI when automatic cookies fail."),
                 ]),
-                ("🔇  Autoplay Policy", "red", [
-                    ("Banner",          "Modern browsers block autoplay. A banner that says “🔇 Audio blocked” appears at the top of the page."),
-                    ("Unblock",         "Click ‘▶ Play Audio’ — force-play all <audio> elements that are paused."),
-                    ("Intercept",       "HTMLAudioElement.prototype.play overridden to detect NotAllowedError."),
+                ("🔇  Browser Autoplay", "red", [
+                    ("Blocked playback", "Modern browsers can block autoplay. The offline viewer adds an enable-audio banner when needed."),
+                    ("User action", "Click the audio banner once to allow playback on the local page."),
                 ]),
             ],
             "queue": [
                 ("📋  Queue Management", "accent", [
-                    ("Add URL",         "Type or paste the URL → Press Enter or click Add +. Duplicates are automatically skipped."),
-                    ("Edit name",       "Field below URL can be edited directly (real-time sync to queue data)."),
-                    ("Drag reorder",    "Drag the ⠿ handle on the left of a row to change download priority order."),
-                    ("Remove",         "Click the × on the right side of the row. ‘Remove’ deletes the last item. ‘Clear All’ deletes everything.."),
-                    ("Batch import",   "Import List… for batch URLs from .txt/.csv/.xlsx. Format: URL|Filename|Mode."),
+                    ("Add URL", "Paste a URL and press Enter or click Add. Duplicate URLs are skipped."),
+                    ("Edit name", "Edit the filename field below each queued URL before downloading."),
+                    ("Reorder", "Drag the handle at the left of a row to change download priority."),
+                    ("Remove", "Use the row close button, Remove, or Clear All to manage the queue."),
+                    ("Batch import", "Imports .txt, .csv, .xlsx, or Google Sheet CSV sources with URL, filename, and mode columns."),
                 ]),
-                ("🔍  Preview (Pre-flight)", "muted", [
-                    ("Probe first",     "Click Preview → script HEAD-checks all URLs before download begins."),
-                    ("Results",           "✓ FOUND = project.json found. ⚠ JS/SCAN = JS scan required. ✗ = error."),
-                    ("Proceed",         "Click ‘▶ Proceed with Download’ to go directly to the probe results."),
+                ("🔍  Pre-flight Preview", "muted", [
+                    ("Probe", "Checks URLs before starting downloads and shows whether project data is likely available."),
+                    ("Results", "FOUND means direct project data was detected. JS/SCAN means discovery may require script scanning. ERROR means the URL failed."),
+                    ("Proceed", "Use Proceed with Download to start immediately from the preview results."),
                 ]),
-                ("💾  Resume", "muted", [
-                    ("Auto-save",       "State is saved to download_state.json after each URL succeeds."),
-                    ("Resume",          "Restart the program → run the same batch → finished URLs are skipped."),
-                    ("Clear",          "State is automatically deleted if all items succeed."),
-                ]),
-                ("↺  Retry", "muted", [
-                    ("Retry Failed",    "Re-queues all failed URLs (red dot) for retry."),
-                    ("Retry Images",    "Re-download the images from failed_images.txt and embed them in project.json."),
+                ("💾  Resume and Retry", "muted", [
+                    ("Resume", "Successful URLs are written to download_state.json so a repeated batch can skip completed items."),
+                    ("Retry Failed", "Adds failed queue items back into the queue."),
+                    ("Retry Images", "Uses failed_images.txt to retry image downloads and patch the project JSON."),
                 ]),
             ],
             "viewer": [
                 ("📺  Offline Viewer", "accent", [
-                    ("Register viewer", "Click 🌐 Viewers → + Add ZIP to register an offline viewer (ICC Plus, ICC Remix, etc.)."),
-                    ("Auto-match",      "Script automatically matches viewer to CYOA based on HTML hints."),
-                    ("Strategy A",      "ICC Remix: replace {{ICC_PROJECT_DATA_SCRIPT}} template marker."),
-                    ("Strategy B",      "ICC Plus: balanced-brace injection after the /*! Delete and replace... */ marker."),
-                    ("Strategy C",      "Om1cr0n/Custom: patch the fetch('project.json') call in JS."),
+                    ("Register viewer", "Open Viewers and add an offline viewer ZIP such as ICC Plus, ICC Remix, or a compatible custom viewer."),
+                    ("Auto-match", "Matches a viewer to the CYOA by reading HTML and script hints."),
+                    ("ICC Remix", "Injects project data into the template marker."),
+                    ("ICC Plus", "Uses marker-based and balanced-brace injection around the project data placeholder."),
+                    ("Custom viewer", "Patches project.json fetch calls when the viewer supports local project data."),
                 ]),
                 ("⚙  Cheat Overlay", "muted", [
-                    ("Gear button",     "⚙ floating at the bottom-right of all offline viewers."),
-                    ("Set Points",      "Select point type from dropdown, set new value. Updates Vuex/Pinia store directg."),
-                    ("Remove Req",      "Removes all required fields from every row and object."),
-                    ("Unlimited",       "Sets allowedChoices:0 on all rows."),
-                    ("Select/Deselect", "Select All or Deselect All choices in the CYOA."),
+                    ("Gear button", "Adds a floating gear button to offline viewers."),
+                    ("Set Points", "Changes point values in Vuex or Pinia stores."),
+                    ("Remove Requirements", "Removes required fields from rows and objects."),
+                    ("Unlimited Choices", "Sets allowedChoices to unlimited across rows."),
+                    ("Select or Deselect", "Selects or deselects all choices in the CYOA."),
                 ]),
                 ("⚡  Local Server", "green", [
-                    ("Start",           "Click ⚡ Serve → choose a folder → the HTTP server starts automatically."),
-                    ("Browser",         "The browser automatically opens http://localhost:PORT."),
-                    ("CORS",            "The server sends Access-Control-Allow-Origin: * for audio/image requests."),
-                    ("Stop",           "Click ■ Stop Server to turn it off."),
+                    ("Start", "Use Serve to select a folder and start a local HTTP server."),
+                    ("Browser", "The browser opens to localhost on the selected server port."),
+                    ("CORS", "The local server sends permissive CORS headers for local images and audio."),
+                    ("Cache", "Serve disables browser cache and opens with a cache-busting URL so old CYOAs are not replayed."),
+                    ("Stop", "Use Stop Server to shut down the local server."),
+                ]),
+            ],
+            "network": [
+                ("🌐  Network Controls", "accent", [
+                    ("Proxy", "Applies HTTP, HTTPS, or SOCKS proxy settings to downloader requests."),
+                    ("DNS", "Uses system DNS, preset DNS, custom DNS, or BebasDNS DoH for process-local resolution."),
+                    ("BebasDNS", "Uses DNS-over-HTTPS presets without changing Windows, router, browser, or hosts-file settings."),
+                    ("HTTP/2", "Uses httpx HTTP/2 for compatible deep-scan requests."),
+                    ("Broken assets", "Writes failed asset details into backup_report.txt when available, otherwise into failed_assets.txt."),
+                ]),
+                ("☁  Cloudflare Access", "yellow", [
+                    ("Off", "Never attempts Cloudflare bypass."),
+                    ("Auto", "Tries normal request first, then cloudscraper, then FlareSolverr when available."),
+                    ("cloudscraper", "Uses cloudscraper for lighter Cloudflare challenge pages."),
+                    ("FlareSolverr", "Uses a local FlareSolverr service to solve browser-based challenge pages."),
+                    ("Endpoint", "Default API endpoint: http://localhost:8191/v1."),
+                    ("Session", "Reuse per domain keeps cookies and user-agent for the same host. Clear sessions when cookies become stale."),
+                    ("Proxy mode", "Inherit proxy sends the app proxy to FlareSolverr. None leaves FlareSolverr on its own network path."),
+                ]),
+                ("🎨  gallery-dl", "muted", [
+                    ("Off", "Default. The program never calls gallery-dl."),
+                    ("Smart", "Uses gallery-dl only for likely post, artwork, gallery, or status pages, not raw CDN images."),
+                    ("Force", "Advanced mode. Passes matching URLs to gallery-dl even when the URL shape is uncertain."),
+                    ("Authentication", "Use gallery-dl config for Pixiv OAuth, booru API keys, or account-based extractors."),
                 ]),
             ],
             "cyoa_mgr": [
                 ("📤  CYOA Manager Integration", "accent", [
-                    ("Auto-add",        "Enable the → CYOA Mgr checkbox in options row. Every successful download is auto-added to library."),
-                    ("Status button",   "The 📤 CYOA Mgr ✓/✗ button in the action bar shows status. Click to open panel."),
-                    ("Panel ON/OFF",    "Large ON (blue) / OFF (red) buttons in the panel. Changes are saved directly to settings.json."),
-                    ("Custom DB path",  "Browse to library.sqlite3 for portable/custom installations."),
+                    ("Auto-add", "Enable CYOA Manager in the options row to add successful project JSON files automatically."),
+                    ("Status button", "The CYOA Manager button shows whether the integration is enabled."),
+                    ("Database path", "Use a custom library.sqlite3 path for portable or non-standard installations."),
+                    ("Duplicate check", "The program checks existing file_path entries before inserting a new library record."),
+                    ("Viewer preference", "Stores a viewer preference so CYOA Manager can open the project with the correct viewer."),
                 ]),
                 ("📦  Batch Export", "muted", [
-                    ("Scan Folder",     "Scan the output folder and find all .json files >1KB."),
-                    ("Pick Files",      "Multi-select file picker."),
-                    ("From Session",    "Export all projects from the last download session."),
-                    ("Progress",        "Real-time progress bar. Result: N added / N already exist / N failed."),
-                ]),
-                ("🗃  Library SQLite", "muted", [
-                    ("Table",           "library_projects: id, name, file_path, source_url, viewer_preference, date_added."),
-                    ("Dup check",       "SELECT by file_path before INSERT — no duplicates."),
-                    ("Return value",    "True=new, None=duplicate, False=DB error."),
-                    ("Auto-detect",     "%LOCALAPPDATA%\\Programs\\CYOA Manager\\save\\library.sqlite3 + scan Desktop/Downloads."),
+                    ("Scan folder", "Finds project JSON files larger than 1 KB in a selected folder."),
+                    ("Pick files", "Allows manual multi-select of project JSON files."),
+                    ("Last session", "Exports projects downloaded in the last session."),
+                    ("Result", "Shows counts for added, already existing, and failed items."),
                 ]),
             ],
             "cheat": [
                 ("⚙  Cheat Overlay Detail", "accent", [
-                    ("Polling",         "Every 500ms, checks whether the Vue app has loaded. Timeout: 30 seconds."),
-                    ("Vuex store",      "window.app.__vue__.$store.state.app — for ICC Plus v1/v2."),
-                    ("Pinia store",     "window.__pinia.state.value — for ICC Plus v2.9+ with Pinia."),
-                    ("Injection",       "Injected before </body> in all offline viewer folders."),
+                    ("Polling", "Checks every 500 ms until the Vue app and store are available."),
+                    ("Vuex", "Targets window.app.__vue__.$store.state.app for older ICC Plus builds."),
+                    ("Pinia", "Targets window.__pinia.state.value for newer ICC Plus builds."),
+                    ("Injection", "Injects the overlay before the closing body tag in offline viewer folders."),
                 ]),
-                ("🔧  Modification", "muted", [
-                    ("Set Points",      "app.pointTypes[idx].startingSum = new value."),
-                    ("Remove Req",      "delete row.requireds, delete object.requireds — all at once."),
-                    ("Unlimited",       "row.allowedChoices = 0 — all rows become unlimited."),
-                    ("Select All",      "object.isSelected = true — selects all choices."),
-                    ("Deselect All",    "object.isSelected = false — deselects all choices."),
-                ]),
-            ],
-            "shortcut": [
-                ("⌨  Keyboard & Workflow", "accent", [
-                    ("Enter",           "In the URL field → add to queue (same as clicking Add +)."),
-                    ("Drag ⠿",          "Drag the handle on the left of the queue row to reorder priority."),
-                    ("× button",        "Removes a single item from the queue."),
-                    ("Clear All",       "Clears the entire queue at once."),
-                ]),
-                ("🔗  Supported URL Formats", "muted", [
-                    ("Regular HTTPS",     "https://author.neocities.org/cyoa/ — ICC Plus, ICC Remix, Om1cr0n."),
-                    ("cyoa.cafe",       "https://lordcyoa.cyoa.cafe/isekai-adventures/ — auto-resolve iframe."),
-                    ("archive.org",     "https://archive.org/download/CYOAZipArchive/Name.[date].https~~~site.zip — auto-redirects to the original site."),
-                    ("cyoap_vue",       "https://site.com/ that has dist/platform.json + dist/nodes/list.json."),
-                ]),
-                ("📁  File Output", "muted", [
-                    ("project.json",    "Embed mode: base64 images + local bgmId path."),
-                    ("audio/",          "Folder containing MP3 files generated by yt-dlp. Must be next to project.json or inside the site folder."),
-                    ("backup_report.txt","Summary of all downloaded/failed files."),
-                    ("failed_images.txt","Failed image URLs (for Retry Images)."),
-                    ("skipped_youtube_audio.txt", "Failed YouTube URLs (for 🎵 Retry YT Audio)."),
-                    ("cyoa_downloader.log","Full log saved in the output folder."),
+                ("🔧  Available Changes", "muted", [
+                    ("Set Points", "Updates starting point values."),
+                    ("Remove Requirements", "Deletes requirement arrays from rows and objects."),
+                    ("Unlimited Choices", "Sets allowedChoices to unlimited."),
+                    ("Select All", "Marks all objects as selected."),
+                    ("Deselect All", "Marks all objects as not selected."),
                 ]),
             ],
-            "cookie": [
-                ("🎵  yt-dlp — Automatic (Recommended)", "green", [
-                    ("How it works",    "yt-dlp reads cookies directly from your browser. Just log in to YouTube in your browser, then download the CYOA as usual."),
-                    ("Browser order",  "Chrome → Firefox → Edge → Brave → Chromium → Safari"),
-                    ("Chrome locked",   "If Chrome is open, the script auto-copies DB to a temp file — no need to close Chrome."),
-                    ("Requirement",          "Log in to YouTube in the browser before downloading a CYOA that has YouTube audio."),
+            "workflow": [
+                ("⌨  Keyboard and Workflow", "accent", [
+                    ("Enter", "Adds the current URL to the queue."),
+                    ("Drag handle", "Reorders queue items."),
+                    ("Open Folder", "Opens the selected output folder."),
+                    ("Preview", "Runs the URL probe without starting a full download."),
+                    ("Serve", "Starts a local server for a generated website folder."),
                 ]),
-                ("🎵  yt-dlp — Manual cookies.txt", "accent", [
-                    ("1. Install extension",   'Chrome/Firefox: search for "Get cookies.txt LOCALLY" in the web store.'),
-                    ("2. Open YouTube",        "Log in to your browser, open youtube.com."),
-                    ("3. Export cookies.txt",  "Click extension → Export → save as cookies.txt."),
-                    ("4. Place in output folder", "yt-dlp auto-detects cookies.txt if present in the same folder as output."),
-                    ("CLI manual",             "--cookies /path/to/cookies.txt"),
+                ("🔗  Supported URL Types", "muted", [
+                    ("Standard HTTPS", "Supports many Neocities, Netlify, Vercel, GitHub Pages, and self-hosted CYOA pages."),
+                    ("cyoa.cafe", "Resolves iframe-based CYOA pages when possible."),
+                    ("archive.org", "Can reconstruct original URLs from known CYOA archive patterns."),
+                    ("cyoap_vue", "Supports projects with dist/platform.json and dist/nodes/list.json."),
                 ]),
-                ("🎵  yt-dlp Troubleshoot", "yellow", [
-                    ("Sign in to confirm...", "Cookies expired/invalid. Re-export cookies.txt or try another browser."),
-                    ("Could not copy Chrome DB", "Chrome locked. Script handles this (copies to temp). If still failing, close Chrome."),
-                    ("HTTP Error 403",        "Video private/region-locked. Cannot be downloaded."),
-                    ("Video unavailable",     "Video has been deleted by the creator."),
+                ("📁  Output Files", "muted", [
+                    ("project.json", "Project data for embedded or ZIP outputs."),
+                    ("audio/", "Downloaded local audio files."),
+                    ("backup_report.txt", "Summary of downloaded and failed files."),
+                    ("failed_images.txt", "Image URLs available for retry."),
+                    ("cyoa_downloader.log", "Full session log written to the output folder."),
                 ]),
-                ("🎨  gallery-dl — Pixiv OAuth", "accent", [
-                    ("1. Install",          "pip install gallery-dl"),
-                    ("2. Run OAuth",   "gallery-dl oauth:pixiv  (browser opens → log in → authorize → paste token)"),
-                    ("3. Auto-saved",   "Token is saved in ~/.config/gallery-dl/config.json. Valid until revoked."),
-                    ("Or manual",           '{"extractor":{"pixiv":{"refresh-token":"TOKEN_FROM_OAUTH"}}}'),
+            ],
+            "cookies": [
+                ("🎵  yt-dlp Cookies", "green", [
+                    ("Automatic", "Log in to YouTube in your browser, then let yt-dlp read browser cookies automatically."),
+                    ("Browser order", "Chrome, Firefox, Edge, Brave, Chromium, then Safari."),
+                    ("Manual export", "Export cookies.txt with a browser extension when automatic cookie reading fails."),
+                    ("Common failures", "Expired cookies, private videos, deleted videos, and region locks can still fail."),
                 ]),
-                ("📦  gallery-dl — Danbooru + e621", "muted", [
-                    ("Danbooru API key",    "donmai.us → Account → Settings → API Access → Generate Key"),
-                    ("Danbooru config",     '{"extractor":{"danbooru":{"username":"name","api-key":"KEY"}}}'),
-                    ("e621 API key",        "e621.net → Account → Settings → Manage API Access → Generate"),
-                    ("e621 config",         '{"extractor":{"e621":{"username":"name","api-key":"KEY"}}}'),
-                ]),
-                ("💫  gallery-dl — Sankaku, Hypnohub, Gelbooru", "muted", [
-                    ("Sankaku config",      '{"extractor":{"sankaku":{"username":"name","password":"pass"}}}'),
-                    ("Hypnohub config",     '{"extractor":{"hypnohub":{"username":"name","password":"pass"}}}'),
-                    ("Gelbooru config",     '{"extractor":{"gelbooru":{"api-key":"KEY","user-id":"ID"}}}'),
-                    ("Gelbooru key+id",     "gelbooru.com → Account → Options → API Details"),
-                ]),
-                ("📁  Config File Location", "yellow", [
-                    ("Windows",             r"C:\Users\<name>\AppData\Roaming\gallery-dl\config.json"),
-                    ("macOS / Linux",       "~/.config/gallery-dl/config.json"),
-                    ("Test Pixiv",          "gallery-dl --list-urls https://www.pixiv.net/artworks/12345678"),
-                    ("Test yt-dlp",         "yt-dlp --cookies-from-browser chrome https://www.youtube.com/watch?v=ID"),
+                ("🎨  gallery-dl Authentication", "accent", [
+                    ("Pixiv OAuth", "Run gallery-dl oauth:pixiv, authorize in the browser, and store the token in gallery-dl config."),
+                    ("Danbooru", "Configure username and API key in gallery-dl config."),
+                    ("e621", "Configure username and API key in gallery-dl config."),
+                    ("Sankaku and similar sites", "Configure username and password only when the extractor requires an account."),
+                    ("Config location", "Windows uses AppData Roaming. macOS and Linux usually use ~/.config/gallery-dl/config.json."),
                 ]),
             ],
         }
 
+        CONTENT_ID = {
+            "download": [
+                ("⬇  Mode Unduhan", "accent", [
+                    ("Auto", "Memeriksa URL sebelum unduhan dimulai dan memilih mesin yang paling sesuai. Output bawaan adalah Folder Website."),
+                    ("JSON Tertanam", "Menyimpan gambar sebagai base64 di satu file JSON project."),
+                    ("ZIP", "Membuat project.json bersama folder gambar dan audio terpisah di arsip ZIP."),
+                    ("Keduanya", "Membuat JSON tertanam dan paket ZIP dalam satu proses."),
+                    ("Folder Website", "Mengunduh HTML, CSS, JavaScript, gambar, font, audio, dan data project ke folder lokal yang dapat dimainkan."),
+                    ("ZIP Website", "Membuat paket website seperti Folder Website, lalu mengompresnya menjadi ZIP."),
+                    ("Pure Website", "Mengunduh situs yang terlihat tanpa mencari project JSON. Gunakan untuk format viewer khusus."),
+                    ("cyoap_vue", "Memakai alur CYOA-P Vue dengan mengunduh dist/platform.json dan dist/nodes/*.json."),
+                ]),
+                ("🔧  Baris Opsi", "muted", [
+                    ("Thread", "Mengatur jumlah unduhan gambar paralel. Awali dengan 4 sampai 8 thread untuk host yang stabil."),
+                    ("Jeda retry", "Waktu tunggu setelah respons pembatasan seperti HTTP 429."),
+                    ("Batas bandwidth", "Membatasi kecepatan unduh dalam KB/detik. Gunakan 0 untuk tanpa batas."),
+                    ("Unduh Font", "Mengunduh font yang dirujuk oleh file HTML atau CSS."),
+                    ("HTTP/2", "Memakai httpx dengan HTTP/2 untuk deep scan jika httpx[h2] tersedia."),
+                    ("Audio YT", "Mengunduh audio YouTube dengan yt-dlp dan ffmpeg, lalu menambal path audio lokal ke project."),
+                    ("CYOA Manager", "Menambahkan file JSON project yang berhasil ke pustaka CYOA Manager."),
+                ]),
+                ("📂  Output", "muted", [
+                    ("Folder output", "Folder tujuan untuk semua file hasil. Folder dibuat otomatis jika belum ada."),
+                    ("Nama file", "Nama file dibuat dari URL secara otomatis, tetapi dapat diedit sebelum URL masuk antrean."),
+                    ("Laporan", "Program menulis backup_report.txt, failed_assets.txt, failed_images.txt, dan cyoa_downloader.log jika relevan."),
+                ]),
+            ],
+            "audio": [
+                ("🎵  Alur Audio Offline", "accent", [
+                    ("Deteksi", "Memindai JSON project untuk bgmId, field audio langsung, playlist, dan ID video YouTube."),
+                    ("Unduh", "Memakai yt-dlp untuk mengunduh audio YouTube, lalu ffmpeg mengonversinya ke MP3."),
+                    ("Patch", "Mengubah bgmId dan useAudioURL agar viewer offline memuat file audio lokal."),
+                    ("Salin", "Menyalin folder audio ke paket JSON, paket ZIP, atau folder website sesuai kebutuhan."),
+                    ("Item dilewati", "Menulis skipped_youtube_audio.txt jika track YouTube tidak dapat diunduh."),
+                ]),
+                ("⚙  Deteksi ffmpeg", "yellow", [
+                    ("PATH", "Mencari ffmpeg di PATH aktif."),
+                    ("Registry Windows", "Membaca PATH user dan mesin dari registry Windows."),
+                    ("Package manager", "Memeriksa lokasi umum winget, Scoop, Chocolatey, dan instalasi lokal."),
+                    ("Perbaikan manual", "Instal ffmpeg dan mulai ulang program jika konversi audio gagal."),
+                ]),
+                ("🔁  Cookie Browser", "muted", [
+                    ("Otomatis", "Mencoba cookie browser dari Chrome, Firefox, Edge, Brave, Chromium, dan Safari."),
+                    ("Chrome terkunci", "Menyalin database cookie ke lokasi sementara saat Chrome menguncinya."),
+                    ("cookies.txt manual", "Letakkan cookies.txt di folder output atau kirim lewat CLI saat cookie otomatis gagal."),
+                ]),
+                ("🔇  Autoplay Browser", "red", [
+                    ("Playback diblokir", "Browser modern dapat memblokir autoplay. Viewer offline menambahkan banner aktifkan audio jika diperlukan."),
+                    ("Aksi pengguna", "Klik banner audio satu kali agar halaman lokal boleh memutar audio."),
+                ]),
+            ],
+            "queue": [
+                ("📋  Manajemen Antrean", "accent", [
+                    ("Tambah URL", "Tempel URL dan tekan Enter atau klik Tambah. URL duplikat dilewati."),
+                    ("Edit nama", "Edit field nama file di bawah setiap URL antrean sebelum mengunduh."),
+                    ("Ubah urutan", "Seret handle di kiri baris untuk mengubah prioritas unduhan."),
+                    ("Hapus", "Gunakan tombol tutup baris, Hapus, atau Bersihkan untuk mengatur antrean."),
+                    ("Import batch", "Mengimpor sumber .txt, .csv, .xlsx, atau Google Sheet CSV dengan kolom URL, filename, dan mode."),
+                ]),
+                ("🔍  Pratinjau Awal", "muted", [
+                    ("Probe", "Memeriksa URL sebelum unduhan penuh dimulai dan menampilkan kemungkinan ketersediaan data project."),
+                    ("Hasil", "FOUND berarti data project langsung terdeteksi. JS/SCAN berarti perlu pemindaian script. ERROR berarti URL gagal."),
+                    ("Lanjut", "Gunakan Lanjutkan Download untuk mulai langsung dari hasil pratinjau."),
+                ]),
+                ("💾  Resume dan Retry", "muted", [
+                    ("Resume", "URL yang berhasil ditulis ke download_state.json agar batch ulang dapat melewati item yang selesai."),
+                    ("Ulang gagal", "Memasukkan kembali item antrean yang gagal."),
+                    ("Ulang gambar", "Memakai failed_images.txt untuk mencoba ulang unduhan gambar dan menambal JSON project."),
+                ]),
+            ],
+            "viewer": [
+                ("📺  Viewer Offline", "accent", [
+                    ("Daftarkan viewer", "Buka Viewer dan tambahkan ZIP viewer offline seperti ICC Plus, ICC Remix, atau viewer khusus yang kompatibel."),
+                    ("Cocok otomatis", "Mencocokkan viewer ke CYOA dengan membaca petunjuk HTML dan script."),
+                    ("ICC Remix", "Menyisipkan data project ke marker template."),
+                    ("ICC Plus", "Memakai injeksi berbasis marker dan balanced-brace di sekitar placeholder data project."),
+                    ("Viewer khusus", "Menambal pemanggilan fetch project.json jika viewer mendukung data project lokal."),
+                ]),
+                ("⚙  Cheat Overlay", "muted", [
+                    ("Tombol gear", "Menambahkan tombol gear mengambang ke viewer offline."),
+                    ("Atur poin", "Mengubah nilai poin di store Vuex atau Pinia."),
+                    ("Hapus syarat", "Menghapus field requirement dari row dan object."),
+                    ("Pilihan tak terbatas", "Mengatur allowedChoices menjadi tak terbatas di semua row."),
+                    ("Pilih atau batal", "Memilih atau membatalkan semua pilihan di CYOA."),
+                ]),
+                ("⚡  Server Lokal", "green", [
+                    ("Mulai", "Gunakan Serve untuk memilih folder dan menjalankan server HTTP lokal."),
+                    ("Browser", "Browser terbuka ke localhost pada port server yang dipilih."),
+                    ("CORS", "Server lokal mengirim header CORS permisif untuk gambar dan audio lokal."),
+                    ("Cache", "Serve menonaktifkan cache browser dan membuka URL cache-busting agar CYOA lama tidak terputar ulang."),
+                    ("Berhenti", "Gunakan Stop Server untuk mematikan server lokal."),
+                ]),
+            ],
+            "network": [
+                ("🌐  Kontrol Jaringan", "accent", [
+                    ("Proxy", "Menerapkan proxy HTTP, HTTPS, atau SOCKS untuk request downloader."),
+                    ("DNS", "Memakai DNS sistem, preset DNS, DNS khusus, atau BebasDNS DoH untuk resolusi lokal proses."),
+                    ("BebasDNS", "Memakai preset DNS-over-HTTPS tanpa mengubah Windows, router, browser, atau hosts file."),
+                    ("HTTP/2", "Memakai HTTP/2 dari httpx untuk request deep scan yang kompatibel."),
+                    ("Asset rusak", "Menulis detail asset gagal ke backup_report.txt jika tersedia, atau failed_assets.txt jika tidak ada backup report."),
+                ]),
+                ("☁  Akses Cloudflare", "yellow", [
+                    ("Off", "Tidak mencoba bypass Cloudflare."),
+                    ("Auto", "Mencoba request normal, lalu cloudscraper, lalu FlareSolverr jika tersedia."),
+                    ("cloudscraper", "Memakai cloudscraper untuk halaman challenge Cloudflare ringan."),
+                    ("FlareSolverr", "Memakai service FlareSolverr lokal untuk menyelesaikan halaman challenge berbasis browser."),
+                    ("Endpoint", "Endpoint API bawaan: http://localhost:8191/v1."),
+                    ("Session", "Reuse per domain menyimpan cookie dan user-agent untuk host yang sama. Bersihkan session saat cookie usang."),
+                    ("Mode proxy", "Inherit proxy mengirim proxy aplikasi ke FlareSolverr. None membiarkan FlareSolverr memakai jalur jaringan sendiri."),
+                ]),
+                ("🎨  gallery-dl", "muted", [
+                    ("Off", "Bawaan. Program tidak memanggil gallery-dl."),
+                    ("Smart", "Memakai gallery-dl hanya untuk URL post, artwork, galeri, atau status yang mungkin cocok, bukan raw CDN image."),
+                    ("Force", "Mode lanjut. Mengirim URL yang cocok ke gallery-dl meski bentuk URL belum pasti."),
+                    ("Autentikasi", "Gunakan config gallery-dl untuk OAuth Pixiv, API key booru, atau extractor berbasis akun."),
+                ]),
+            ],
+            "cyoa_mgr": [
+                ("📤  Integrasi CYOA Manager", "accent", [
+                    ("Tambah otomatis", "Aktifkan CYOA Manager di baris opsi untuk menambahkan JSON project yang berhasil secara otomatis."),
+                    ("Tombol status", "Tombol CYOA Manager menunjukkan apakah integrasi sedang aktif."),
+                    ("Path database", "Gunakan path library.sqlite3 khusus untuk instalasi portable atau tidak standar."),
+                    ("Cek duplikat", "Program memeriksa entri file_path yang sudah ada sebelum menulis record pustaka baru."),
+                    ("Preferensi viewer", "Menyimpan preferensi viewer agar CYOA Manager membuka project dengan viewer yang tepat."),
+                ]),
+                ("📦  Ekspor Batch", "muted", [
+                    ("Pindai folder", "Mencari file JSON project yang lebih besar dari 1 KB di folder terpilih."),
+                    ("Pilih file", "Mengizinkan pemilihan banyak file JSON project secara manual."),
+                    ("Sesi terakhir", "Mengekspor project yang diunduh pada sesi terakhir."),
+                    ("Hasil", "Menampilkan jumlah item ditambahkan, sudah ada, dan gagal."),
+                ]),
+            ],
+            "cheat": [
+                ("⚙  Detail Cheat Overlay", "accent", [
+                    ("Polling", "Memeriksa setiap 500 ms sampai aplikasi Vue dan store tersedia."),
+                    ("Vuex", "Menargetkan window.app.__vue__.$store.state.app untuk build ICC Plus lama."),
+                    ("Pinia", "Menargetkan window.__pinia.state.value untuk build ICC Plus baru."),
+                    ("Injeksi", "Menyisipkan overlay sebelum tag penutup body di folder viewer offline."),
+                ]),
+                ("🔧  Perubahan yang Tersedia", "muted", [
+                    ("Atur poin", "Memperbarui nilai poin awal."),
+                    ("Hapus syarat", "Menghapus array requirement dari row dan object."),
+                    ("Pilihan tak terbatas", "Mengatur allowedChoices menjadi tak terbatas."),
+                    ("Pilih semua", "Menandai semua object sebagai dipilih."),
+                    ("Batalkan semua", "Menandai semua object sebagai tidak dipilih."),
+                ]),
+            ],
+            "workflow": [
+                ("⌨  Keyboard dan Alur Kerja", "accent", [
+                    ("Enter", "Menambahkan URL aktif ke antrean."),
+                    ("Handle seret", "Mengubah urutan item antrean."),
+                    ("Buka Folder", "Membuka folder output yang dipilih."),
+                    ("Pratinjau", "Menjalankan pemeriksaan URL tanpa memulai unduhan penuh."),
+                    ("Serve", "Menjalankan server lokal untuk folder website yang dihasilkan."),
+                ]),
+                ("🔗  Jenis URL yang Didukung", "muted", [
+                    ("HTTPS standar", "Mendukung banyak halaman CYOA dari Neocities, Netlify, Vercel, GitHub Pages, dan self-hosted."),
+                    ("cyoa.cafe", "Menyelesaikan halaman CYOA berbasis iframe jika memungkinkan."),
+                    ("archive.org", "Dapat membangun ulang URL asli dari pola arsip CYOA yang dikenal."),
+                    ("cyoap_vue", "Mendukung project dengan dist/platform.json dan dist/nodes/list.json."),
+                ]),
+                ("📁  File Output", "muted", [
+                    ("project.json", "Data project untuk output tertanam atau ZIP."),
+                    ("audio/", "File audio lokal hasil unduhan."),
+                    ("backup_report.txt", "Ringkasan file yang berhasil dan gagal."),
+                    ("failed_images.txt", "URL gambar yang tersedia untuk retry."),
+                    ("cyoa_downloader.log", "Log sesi lengkap yang ditulis ke folder output."),
+                ]),
+            ],
+            "cookies": [
+                ("🎵  Cookie yt-dlp", "green", [
+                    ("Otomatis", "Login ke YouTube di browser, lalu biarkan yt-dlp membaca cookie browser secara otomatis."),
+                    ("Urutan browser", "Chrome, Firefox, Edge, Brave, Chromium, lalu Safari."),
+                    ("Ekspor manual", "Ekspor cookies.txt dengan ekstensi browser saat pembacaan cookie otomatis gagal."),
+                    ("Kegagalan umum", "Cookie kedaluwarsa, video privat, video terhapus, dan kunci wilayah tetap dapat gagal."),
+                ]),
+                ("🎨  Autentikasi gallery-dl", "accent", [
+                    ("OAuth Pixiv", "Jalankan gallery-dl oauth:pixiv, beri izin di browser, lalu simpan token di config gallery-dl."),
+                    ("Danbooru", "Atur username dan API key di config gallery-dl."),
+                    ("e621", "Atur username dan API key di config gallery-dl."),
+                    ("Sankaku dan situs sejenis", "Atur username dan password hanya jika extractor membutuhkan akun."),
+                    ("Lokasi config", "Windows memakai AppData Roaming. macOS dan Linux biasanya memakai ~/.config/gallery-dl/config.json."),
+                ]),
+            ],
+        }
+
+        CONTENT = CONTENT_EN if is_en else CONTENT_ID
+
         COLOR_MAP = {
-            "accent": "#3b82f6", "muted": "#64748b", "green": "#34d399",
-            "yellow": "#fbbf24", "red": "#f87171",
+            "accent": "#3b82f6",
+            "muted": "#64748b",
+            "green": "#34d399",
+            "yellow": "#fbbf24",
+            "red": "#f87171",
         }
 
         def _render(tab: str) -> None:
@@ -6114,35 +8059,40 @@ class CYOADownloaderGUI:
                 w.destroy()
             for section_title, color_key, items in CONTENT.get(tab, []):
                 color = COLOR_MAP.get(color_key, p["muted"])
-                # Section header
-                sh = ctk.CTkFrame(content_area, fg_color=p["surface"],
-                                  corner_radius=8)
+                sh = ctk.CTkFrame(content_area, fg_color=p["surface"], corner_radius=8)
                 sh.pack(fill="x", padx=12, pady=(10, 2))
-                ctk.CTkLabel(sh, text=section_title,
-                             font=ctk.CTkFont("Segoe UI", 12, "bold"),
-                             text_color=color, anchor="w").pack(
-                    fill="x", padx=14, pady=(10, 4))
-                # Items
+                ctk.CTkLabel(
+                    sh,
+                    text=section_title,
+                    font=ctk.CTkFont("Segoe UI", 12, "bold"),
+                    text_color=color,
+                    anchor="w",
+                ).pack(fill="x", padx=14, pady=(10, 4))
                 for feat, desc in items:
-                    row = ctk.CTkFrame(content_area, fg_color=p["surface2"]
-                                      if hasattr(p, "card") else p["surface2"],
-                                      corner_radius=6)
+                    row = ctk.CTkFrame(content_area, fg_color=p["surface2"], corner_radius=6)
                     row.pack(fill="x", padx=12, pady=1)
                     row.grid_columnconfigure(1, weight=1)
-                    ctk.CTkLabel(row, text=feat, width=130, anchor="w",
-                                 font=ctk.CTkFont("Segoe UI", 10, "bold"),
-                                 text_color=p["fg"]).grid(
-                        row=0, column=0, padx=(12, 6), pady=6, sticky="w")
-                    ctk.CTkLabel(row, text=desc, anchor="w",
-                                 font=ctk.CTkFont("Segoe UI", 10),
-                                 text_color=p["muted"], wraplength=500,
-                                 justify="left").grid(
-                        row=0, column=1, padx=(0, 12), pady=6, sticky="ew")
-                ctk.CTkFrame(content_area, height=4,
-                             fg_color="transparent").pack()
+                    ctk.CTkLabel(
+                        row,
+                        text=feat,
+                        width=145,
+                        anchor="w",
+                        font=ctk.CTkFont("Segoe UI", 10, "bold"),
+                        text_color=p["fg"],
+                    ).grid(row=0, column=0, padx=(12, 6), pady=6, sticky="w")
+                    ctk.CTkLabel(
+                        row,
+                        text=desc,
+                        anchor="w",
+                        font=ctk.CTkFont("Segoe UI", 10),
+                        text_color=p["muted"],
+                        wraplength=520,
+                        justify="left",
+                    ).grid(row=0, column=1, padx=(0, 12), pady=6, sticky="ew")
+                ctk.CTkFrame(content_area, height=4, fg_color="transparent").pack()
 
-        # Tab buttons
         tab_btns = {}
+
         def _select_tab(t: str) -> None:
             tab_var.set(t)
             _render(t)
@@ -6151,16 +8101,26 @@ class CYOADownloaderGUI:
                     fg_color="#3b82f6" if tv == t else p["surface"],
                     text_color="#ffffff" if tv == t else p["muted"],
                 )
+
         for val, label in TABS:
-            btn = ctk.CTkButton(tab_frame, text=label, height=34, width=90,
-                                font=ctk.CTkFont("Segoe UI", 10, "bold"),
-                                corner_radius=0,
-                                fg_color=p["surface"], hover_color=p["surface2"],
-                                text_color=p["muted"],
-                                command=lambda v=val: _select_tab(v))
+            btn = ctk.CTkButton(
+                tab_frame,
+                text=label,
+                height=34,
+                width=84,
+                font=ctk.CTkFont("Segoe UI", 10, "bold"),
+                corner_radius=0,
+                fg_color=p["surface"],
+                hover_color=p["surface2"],
+                text_color=p["muted"],
+                command=lambda v=val: _select_tab(v),
+            )
             btn.pack(side="left", padx=1)
             tab_btns[val] = btn
-        _select_tab(initial_tab if initial_tab in dict(TABS) else "download")
+
+        available_tabs = dict(TABS)
+        normalized_initial = "cookies" if initial_tab == "cookie" else initial_tab
+        _select_tab(normalized_initial if normalized_initial in available_tabs else "download")
 
     def _manage_offline_viewers(self) -> None:
         """
@@ -6244,12 +8204,63 @@ class CYOADownloaderGUI:
                                   text_color=p["muted2"], anchor="w").pack(anchor="w")
 
                 # Remove button
-                ctk.CTkButton(row, text="Delete", width=60, height=26,
+                ctk.CTkButton(row, text="Hapus", width=60, height=26,
                                font=ctk.CTkFont("Segoe UI", 10),
                                fg_color="#7f1d1d", hover_color="#991b1b",
                                text_color="#fca5a5",
                                command=lambda v=vid: _remove(v)).pack(
                     side="right", padx=8, pady=6)
+
+        def _add_viewer():
+            """Register a local offline viewer ZIP/RAR from the GUI."""
+            zip_path = filedialog.askopenfilename(
+                parent=win,
+                title="Select offline viewer ZIP",
+                filetypes=[("Viewer archives", "*.zip *.rar"), ("ZIP files", "*.zip"), ("RAR files", "*.rar"), ("All files", "*.*")]
+            )
+            if not zip_path:
+                return
+            # Ask for name and type
+            name_win = ctk.CTkToplevel(win)
+            name_win.title("Info Viewer")
+            name_win.geometry("400x260")
+            name_win.grab_set()
+
+            ctk.CTkLabel(name_win, text="Nama viewer:",
+                          font=ctk.CTkFont("Segoe UI", 11)).pack(anchor="w", padx=16, pady=(14,2))
+            name_var = ctk.StringVar(value=os.path.splitext(os.path.basename(zip_path))[0])
+            ctk.CTkEntry(name_win, textvariable=name_var, width=350).pack(padx=16)
+
+            ctk.CTkLabel(name_win, text="Tipe viewer:",
+                          font=ctk.CTkFont("Segoe UI", 11)).pack(anchor="w", padx=16, pady=(10,2))
+            type_var = ctk.StringVar(value="icc_plus")
+            for t in ["icc_plus", "icc", "cyoap_vue", "custom"]:
+                ctk.CTkRadioButton(name_win, text=t, variable=type_var, value=t,
+                                    font=ctk.CTkFont("Segoe UI", 11)).pack(anchor="w", padx=24)
+
+            ctk.CTkLabel(name_win, text="Description (optional):",
+                          font=ctk.CTkFont("Segoe UI", 11)).pack(anchor="w", padx=16, pady=(8,2))
+            desc_var = ctk.StringVar()
+            ctk.CTkEntry(name_win, textvariable=desc_var, width=350).pack(padx=16)
+
+            def _do_register():
+                vid = register_offline_viewer(
+                    zip_path,
+                    name=name_var.get().strip() or os.path.basename(zip_path),
+                    viewer_type=type_var.get(),
+                    description=desc_var.get().strip(),
+                )
+                name_win.destroy()
+                if vid:
+                    status_var.set(f"✓ Viewer '{vid}' berhasil didaftarkan.")
+                    _refresh_list()
+                else:
+                    messagebox.showerror("Error", "Failed to register viewer. Check log for details.",
+                                         parent=win)
+
+            ctk.CTkButton(name_win, text="Daftarkan",
+                           fg_color="#3b82f6", hover_color="#2563eb",
+                           command=_do_register).pack(pady=12)
 
         def _check_icc_update():
             """Check GitHub for latest ICCPlus release and offer to download."""
@@ -6258,10 +8269,9 @@ class CYOADownloaderGUI:
 
             def _do_check():
                 try:
-                    import requests as _rq
                     api = "https://api.github.com/repos/wahawa303/ICCPlus/releases/latest"
-                    r   = _rq.get(api, timeout=8, headers={"User-Agent": "CYOA-Downloader"})
-                    if r.status_code != 200:
+                    r   = fetch_response(api, timeout=8, extra_headers={"User-Agent": "CYOA-Downloader"})
+                    if r is None or r.status_code != 200:
                         win.after(0, lambda: status_var.set(f"GitHub API: {r.status_code}"))
                         return
                     data  = r.json()
@@ -6294,7 +8304,7 @@ class CYOADownloaderGUI:
                         if messagebox.askyesno(
                             "New ICCPlus Release",
                             f"Latest release: {tag}\nFile: {asset_name}\n\n"
-                            f"Download and register? (~a few MB)",
+                            f"Download and register? (~beberapa MB)",
                             parent=win
                         ):
                             _do_download(tag, asset_name, asset_url)
@@ -6309,16 +8319,18 @@ class CYOADownloaderGUI:
 
                 def _dl():
                     try:
-                        import requests as _rq
                         os.makedirs(_VIEWERS_DIR, exist_ok=True)
                         dest = os.path.join(_VIEWERS_DIR, asset_name)
-                        with _rq.get(asset_url, stream=True, timeout=30,
-                                     headers={"User-Agent": "CYOA-Downloader"}) as r:
+                        sess = _get_shared_session(use_cf=False)
+                        with sess.get(asset_url, stream=True, timeout=30,
+                                      headers={"User-Agent": "CYOA-Downloader"}) as r:
                             r.raise_for_status()
                             total = int(r.headers.get("content-length", 0))
                             done  = 0
                             with open(dest, "wb") as f:
                                 for chunk in r.iter_content(65536):
+                                    if not chunk:
+                                        continue
                                     f.write(chunk)
                                     done += len(chunk)
                                     if total:
@@ -6339,61 +8351,13 @@ class CYOADownloaderGUI:
                 threading.Thread(target=_dl, daemon=True).start()
 
             threading.Thread(target=_do_check, daemon=True).start()
-            zip_path = filedialog.askopenfilename(
-                parent=win,
-                title="Select offline viewer ZIP",
-                filetypes=[("ZIP files", "*.zip"), ("All files", "*.*")]
-            )
-            if not zip_path:
-                return
-            # Ask for name and type
-            name_win = ctk.CTkToplevel(win)
-            name_win.title("Viewer Info")
-            name_win.geometry("400x260")
-            name_win.grab_set()
-
-            ctk.CTkLabel(name_win, text="Viewer name:",
-                          font=ctk.CTkFont("Segoe UI", 11)).pack(anchor="w", padx=16, pady=(14,2))
-            name_var = ctk.StringVar(value=os.path.splitext(os.path.basename(zip_path))[0])
-            ctk.CTkEntry(name_win, textvariable=name_var, width=350).pack(padx=16)
-
-            ctk.CTkLabel(name_win, text="Viewer type:",
-                          font=ctk.CTkFont("Segoe UI", 11)).pack(anchor="w", padx=16, pady=(10,2))
-            type_var = ctk.StringVar(value="icc_plus")
-            for t in ["icc_plus", "icc", "cyoap_vue", "custom"]:
-                ctk.CTkRadioButton(name_win, text=t, variable=type_var, value=t,
-                                    font=ctk.CTkFont("Segoe UI", 11)).pack(anchor="w", padx=24)
-
-            ctk.CTkLabel(name_win, text="Description (optional):",
-                          font=ctk.CTkFont("Segoe UI", 11)).pack(anchor="w", padx=16, pady=(8,2))
-            desc_var = ctk.StringVar()
-            ctk.CTkEntry(name_win, textvariable=desc_var, width=350).pack(padx=16)
-
-            def _do_register():
-                vid = register_offline_viewer(
-                    zip_path,
-                    name=name_var.get().strip() or os.path.basename(zip_path),
-                    viewer_type=type_var.get(),
-                    description=desc_var.get().strip(),
-                )
-                name_win.destroy()
-                if vid:
-                    status_var.set(f"✓ Viewer '{vid}' registered successfully.")
-                    _refresh_list()
-                else:
-                    messagebox.showerror("Error", "Failed to register viewer. Check log for details.",
-                                         parent=win)
-
-            ctk.CTkButton(name_win, text="Register",
-                           fg_color="#3b82f6", hover_color="#2563eb",
-                           command=_do_register).pack(pady=12)
 
         def _remove(vid: str):
-            if messagebox.askyesno("Delete Viewer",
-                                    f"Delete '{vid}' from the registry?\n(ZIP is kept, not deleted from disk)",
+            if messagebox.askyesno("Hapus Viewer",
+                                    f"Hapus '{vid}' dari registry?\n(ZIP di-keep, tidak dihapus dari disk)",
                                     parent=win):
                 unregister_offline_viewer(vid, delete_zip=False)
-                status_var.set(f"Viewer '{vid}' deleted.")
+                status_var.set(f"Viewer '{vid}' dihapus.")
                 _refresh_list()
 
         _refresh_list()
@@ -6416,19 +8380,12 @@ class CYOADownloaderGUI:
         if not folder:
             return
 
-        # Find a free port
-        import socket
-        def free_port(start=8080):
-            for port in range(start, start + 20):
-                with socket.socket() as s:
-                    try:
-                        s.bind(("", port))
-                        return port
-                    except OSError:
-                        continue
-            return 8080
-
-        port = free_port()
+        # Do NOT reuse a fixed preview port.
+        # Browser localStorage, Cache Storage, service workers, and some SPA
+        # viewers are origin-scoped, so reusing localhost:8080 can replay the
+        # previous CYOA even when HTTP cache headers are disabled.
+        # The actual port is assigned by the OS when ThreadingHTTPServer binds
+        # to port 0 below.
 
         # Register extra MIME types for CYOA assets
         _extra_mimes = {
@@ -6460,23 +8417,69 @@ class CYOADownloaderGUI:
             def end_headers(self):
                 # CORS for cross-origin viewers
                 self.send_header("Access-Control-Allow-Origin", "*")
-                # Cache static assets aggressively, HTML not
-                path_lower = self.path.lower().split("?")[0]
-                if any(path_lower.endswith(e) for e in (
-                    ".js", ".css", ".png", ".jpg", ".jpeg", ".webp", ".gif",
-                    ".svg", ".avif", ".woff", ".woff2", ".ttf", ".otf",
-                    ".mp3", ".ogg", ".wav", ".mp4", ".webm", ".json",
-                )):
-                    self.send_header("Cache-Control", "public, max-age=3600, immutable")
-                else:
-                    self.send_header("Cache-Control", "no-cache")
+                # Development/preview server: disable browser cache aggressively.
+                # CYOA projects often reuse index.html, project.json, and asset names,
+                # so caching can make the browser show a previous CYOA after a new run.
+                self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+                self.send_header("Pragma", "no-cache")
+                self.send_header("Expires", "0")
+                try:
+                    from urllib.parse import urlparse as _urlparse
+                    _p = _urlparse(self.path).path
+                    if _p in ("", "/", "/index.html"):
+                        self.send_header("Clear-Site-Data", '"cache", "storage"')
+                except Exception:
+                    pass
                 # Keep-alive
                 self.send_header("Connection", "keep-alive")
                 super().end_headers()
 
             def do_GET(self):
-                """Override to add gzip compression for text resources."""
+                """Serve preview files and expose a cache/storage clear route."""
                 import gzip as _gz, io as _io
+                from urllib.parse import urlparse as _urlparse
+
+                # Explicit browser-side clear route. This clears localStorage,
+                # sessionStorage, Cache Storage, and service workers for the
+                # current preview origin, then redirects to the CYOA root with a
+                # fresh cache-busting URL. This fixes viewers that store the
+                # previous project client-side rather than in normal HTTP cache.
+                route_path = _urlparse(self.path).path
+                if route_path == "/__clear_cache__":
+                    stamp = str(int(time.time() * 1000))
+                    html_text = f'''<!doctype html><meta charset="utf-8"><title>Clearing preview cache...</title>
+<script>
+(async function() {{
+  try {{ localStorage.clear(); }} catch (e) {{}}
+  try {{ sessionStorage.clear(); }} catch (e) {{}}
+  try {{
+    if ('caches' in window) {{
+      const names = await caches.keys();
+      await Promise.all(names.map(n => caches.delete(n)));
+    }}
+  }} catch (e) {{}}
+  try {{
+    if ('serviceWorker' in navigator) {{
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.unregister()));
+    }}
+  }} catch (e) {{}}
+  location.replace('/?cb={stamp}&preview={stamp}');
+}})();
+</script>
+<p>Clearing preview cache...</p>'''
+                    html = html_text.encode("utf-8")
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.send_header("Content-Length", str(len(html)))
+                    self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+                    self.send_header("Pragma", "no-cache")
+                    self.send_header("Expires", "0")
+                    self.send_header("Clear-Site-Data", '"cache", "storage"')
+                    self.end_headers()
+                    self.wfile.write(html)
+                    return
+
                 # Check if client accepts gzip
                 accept_enc = self.headers.get("Accept-Encoding", "")
                 if "gzip" not in accept_enc:
@@ -6515,13 +8518,17 @@ class CYOADownloaderGUI:
                 self.end_headers()
 
         try:
-            # ThreadingHTTPServer handles multiple requests concurrently
-            server = http.server.ThreadingHTTPServer(("", port), CYOAHandler)
+            # ThreadingHTTPServer handles multiple requests concurrently.
+            # Bind to 127.0.0.1:0 so every preview gets a fresh local origin.
+            # This avoids stale localStorage/service-worker state from an older
+            # localhost:8080 preview.
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), CYOAHandler)
+            port = int(server.server_address[1])
             server.timeout = 0.5
             self._server_obj = server
 
             def _run():
-                logger.info(f"[Server] Started: http://localhost:{port}")
+                logger.info(f"[Server] Started: http://127.0.0.1:{port}")
                 server.serve_forever()
 
             self._server_thread = threading.Thread(target=_run, daemon=True)
@@ -6535,11 +8542,14 @@ class CYOADownloaderGUI:
                 hover_color="#ef4444",
                 text_color="#6ee7b7")
 
-            self._set_status(f"Server: http://localhost:{port}")
+            self._set_status(f"Server: http://127.0.0.1:{port}")
             logger.info(f"[Server] Serving: {folder}")
 
-            # Auto-open browser
-            webbrowser.open(f"http://localhost:{port}")
+            # Open the explicit clear route first. It clears browser storage for
+            # this preview origin and then redirects to the project root with a
+            # unique query string.
+            stamp = int(time.time() * 1000)
+            webbrowser.open(f"http://127.0.0.1:{port}/__clear_cache__?cb={stamp}")
 
         except Exception as e:
             messagebox.showerror("Server Error", str(e))
@@ -6610,6 +8620,9 @@ def run_download(
     engine_mode: str = "standard",
     cyoa_mgr_enabled: bool = False,
     ai_api_key: str = "",
+    ai_provider: str = "",
+    ai_mode: str = "auto_fallback",
+    analysis_only: bool = False,
 ) -> None:
     """
     Main download orchestrator.
@@ -6618,11 +8631,18 @@ def run_download(
     the viewer HTML/CSS/JS/assets. Useful for custom-format sites like
     lewd_horizon that don't use a standard ICC project file.
     """
-    global wait_time
+    global wait_time, _LAST_PREVIEW_FOLDER
+    _LAST_PREVIEW_FOLDER = None
+    ai_provider = _normalize_ai_provider(ai_provider or _get_ai_provider())
+    ai_mode = _normalize_ai_mode(ai_mode or _load_settings().get("ai_mode", "auto_fallback"))
+    ai_budget = AIUsageBudget()
+    ai_available = _ai_is_available(ai_api_key, ai_provider) and ai_mode != "off"
 
     # ── Disk space check (non-critical, just warn) ─────────────────────────
     try:
-        target = output_dir if (output_dir and os.path.isdir(output_dir)) else os.getcwd()
+        target = os.path.abspath(output_dir) if output_dir else os.getcwd()
+        if output_dir:
+            os.makedirs(target, exist_ok=True)
         if hasattr(os, "statvfs"):
             st = os.statvfs(target)
             free_mb = (st.f_bavail * st.f_frsize) / (1024 * 1024)
@@ -6653,18 +8673,24 @@ def run_download(
                 file_name = _build_output_name(original_site)
     if not file_name:
         file_name = "downloaded_cyoa"
+    file_name = clean_url_path_component(file_name)
 
+    _RUN_DOWNLOAD_LOCK.acquire()
     original_dir = os.getcwd()
-    if output_dir and os.path.isdir(output_dir):
-        os.chdir(output_dir)
-
     try:
+        if output_dir:
+            output_dir = os.path.abspath(output_dir)
+            os.makedirs(output_dir, exist_ok=True)
+            os.chdir(output_dir)
+        else:
+            output_dir = os.getcwd()
+
         # ── Pure website mode: skip project search ─────────────────
         if pure_website:
             site_folder = _unique_folder(file_name)
             logger.info(f"Pure website download (no project search) → {site_folder}/")
             prepare_clean_output_folder(site_folder)
-            viewer = WebsiteDownloader(url, site_folder, max_workers=max_workers, ai_api_key=ai_api_key)
+            viewer = WebsiteDownloader(url, site_folder, max_workers=max_workers, ai_api_key=ai_api_key, ai_provider=ai_provider, ai_mode=ai_mode, ai_budget=ai_budget)
             viewer.download()
             viewer.localize_existing_text_assets()
             # No backup_report since there's no project payload
@@ -6672,6 +8698,7 @@ def run_download(
                 # Only scan viewer HTML for fonts (no project.json to scan)
                 viewer_html_pu = get_source(url) or ""
                 _download_fonts_into_folder("", url, site_folder, html_source=viewer_html_pu)
+            _LAST_PREVIEW_FOLDER = os.path.abspath(site_folder) if not website_zip_output else None
             _finalize_site_folder(site_folder, file_name, website_zip_output)
             logger.info("Pure website download complete.")
             return
@@ -6696,16 +8723,17 @@ def run_download(
                 logger.warning(f"cyoap_vue auto probe failed, falling back to standard resolver: {e}")
 
         logger.info("Phase 1/4: resolving project source…")
-        project_source, project_url = get_project_source(url, ai_api_key=ai_api_key)
+        project_source, project_url = get_project_source(url, ai_api_key=ai_api_key, ai_provider=ai_provider, ai_mode=ai_mode, ai_budget=ai_budget)
         if not project_source:
             # ── AI viewer analysis (diagnostic) ────────────────────────
             ai_hint = ""
-            if ai_api_key:
+            if ai_available and _ai_mode_allows("diagnostics", ai_mode):
                 try:
-                    _diag_html = requests.get(url, timeout=15,
-                                              headers={"User-Agent": "Mozilla/5.0"}).text
+                    _diag_resp = fetch_response(url, timeout=15, extra_headers={"User-Agent": "Mozilla/5.0"})
+                    _diag_html = _safe_response_text(_diag_resp) if _diag_resp is not None else ""
                     analysis = _ai_analyze_viewer_logic(
-                        _diag_html, {}, url, api_key=ai_api_key)
+                        _diag_html, {}, url, api_key=ai_api_key, provider=ai_provider,
+                        ai_mode=ai_mode, budget_obj=ai_budget)
                     if analysis:
                         viewer_type = analysis.get("viewer_type", "unknown")
                         data_src = analysis.get("data_source", "unknown")
@@ -6774,6 +8802,7 @@ def run_download(
             file_name = clean_url_path_component(get_first_subdomain(project_url))
         if not file_name:
             file_name = "downloaded_cyoa"
+        file_name = clean_url_path_component(file_name)
 
         base_url = strip_document_from_url(project_url)
 
@@ -6782,6 +8811,9 @@ def run_download(
 
         if show_font_analysis:
             analyse_fonts(cleaned, base_url, html_source=viewer_html)
+            if analysis_only:
+                logger.info("Analysis-only mode complete; no download output written.")
+                return
 
         # ── Full website mode ───────────────────────────────────────
         if website_output:
@@ -6789,7 +8821,7 @@ def run_download(
             logger.info(f"Downloading full website → {site_folder}/")
             prepare_clean_output_folder(site_folder)
 
-            viewer = WebsiteDownloader(url, site_folder, max_workers=max_workers, ai_api_key=ai_api_key)
+            viewer = WebsiteDownloader(url, site_folder, max_workers=max_workers, ai_api_key=ai_api_key, ai_provider=ai_provider, ai_mode=ai_mode, ai_budget=ai_budget)
             viewer.download()
 
             working = cleaned
@@ -6840,6 +8872,9 @@ def run_download(
                     base_url=base_url,
                     output_dir=output_dir,
                     ai_api_key=ai_api_key,
+                    ai_provider=ai_provider,
+                    ai_mode=ai_mode,
+                    ai_budget=ai_budget,
                     skip_urls=_pi_urls,
                 )
             finally:
@@ -6859,6 +8894,7 @@ def run_download(
                             _rf.write(f"  {miss}\n")
                 except Exception:
                     pass
+            _LAST_PREVIEW_FOLDER = os.path.abspath(site_folder) if not website_zip_output else None
             _finalize_site_folder(site_folder, file_name, website_zip_output)
             logger.info("Website download complete.")
             return
@@ -6870,6 +8906,17 @@ def run_download(
             "both" if both_output else ("zip" if zip_output else "embed")
         )
         site_folder_local = ""  # only set in website mode above
+
+        # Detect an offline viewer before image processing. Embed-only mode normally
+        # does not write image files, but offline viewers need images/audio on disk.
+        _viewer_meta_normal = None
+        try:
+            _viewer_meta_normal = get_viewer_for_site(viewer_html or "", mode=output_mode_str)
+            if _viewer_meta_normal and not need_download:
+                need_download = True
+                logger.info("Offline viewer detected: enabling disk asset download for playable viewer output.")
+        except Exception as _vm_e:
+            logger.debug(f"Offline viewer pre-check skipped: {_vm_e}")
 
         tmp = None
         if need_download:
@@ -6913,11 +8960,8 @@ def run_download(
                 _tmp_audio = os.path.join(tmp, "audio")
                 if os.path.isdir(_tmp_audio):
                     _out_audio = os.path.join(output_dir or os.getcwd(), "audio")
-                    if os.path.isdir(_out_audio):
-                        shutil.rmtree(_out_audio)
-                    shutil.copytree(_tmp_audio, _out_audio)
-                    _n = sum(1 for _ in os.scandir(_out_audio))
-                    logger.info(f"Saved: audio/ ({_n} file(s))")
+                    _n = _copytree_merge_safe(_tmp_audio, _out_audio, label="audio")
+                    logger.info(f"Saved/merged: audio/ ({_n} file(s))")
 
             # ── CYOA Manager integration ───────────────────────────────────
             # Only runs if user has enabled "→ CYOA Mgr" checkbox
@@ -6942,7 +8986,7 @@ def run_download(
             save_string_to_file(dl_result, "project.json", tmp)
             logger.info(f"Saving: {file_name}.zip ({'with project_original.json' if has_edits_zip else 'no URL changes'})")
             zip_temp_folder(tmp, zip_name=file_name + ".zip")
-            delete_temp_folder(tmp)
+            # Keep tmp until after offline viewer injection; it contains images/audio.
 
         # ── Feature 4: Save metadata.json ─────────────────────────────────
         try:
@@ -6955,17 +8999,26 @@ def run_download(
 
         # ── Offline Viewer: apply registered viewer if available ────────────
         try:
-            _page_html = ""
-            try:
-                import requests as _rq
-                _rp = _rq.get(url, headers={"User-Agent": "Mozilla/5.0"},
-                              timeout=8, allow_redirects=True)
-                if _rp.status_code == 200:
-                    _page_html = _safe_response_text(_rp)
-            except Exception:
-                pass
-            _viewer_meta = get_viewer_for_site(_page_html, mode=output_mode_str)
+            _viewer_meta = _viewer_meta_normal
+            if not _viewer_meta:
+                _page_html = ""
+                try:
+                    _rp = fetch_response(url, timeout=8, extra_headers={"User-Agent": "Mozilla/5.0"})
+                    if _rp is not None:
+                        _page_html = _safe_response_text(_rp)
+                except Exception as e:
+                    logger.debug(f"Offline viewer page fetch skipped: {e}")
+                _viewer_meta = get_viewer_for_site(_page_html, mode=output_mode_str)
             if _viewer_meta:
+                # Pass temp image/audio folders directly into the injected viewer.
+                # Do not copy them to output_dir roots; that can delete/overwrite folders
+                # from other projects.
+                _offline_asset_sources: Dict[str, str] = {}
+                if tmp and os.path.isdir(tmp):
+                    for _asset_dir_name in ("images", "audio"):
+                        _src = os.path.join(tmp, _asset_dir_name)
+                        if os.path.isdir(_src):
+                            _offline_asset_sources[_asset_dir_name] = _src
                 # Always use dl_result (URLs kept as-is) for offline viewer injection.
                 # embed_result has images as base64 → injecting it into app.js would
                 # make the file hundreds of MB. The viewer loads images from the
@@ -6975,6 +9028,7 @@ def run_download(
                     project_json_str=dl_result,
                     viewer_meta=_viewer_meta,
                     file_name=file_name,
+                    asset_source_dirs=_offline_asset_sources,
                 )
                 if _viewer_out:
                     logger.info(
@@ -6990,17 +9044,18 @@ def run_download(
             if os.path.exists(_out_path):
                 _out_size = os.path.getsize(_out_path)
                 if _out_size < 10:
-                    logger.error(f"Validation FAIL: {_out_path} — file is too small ({_out_size} bytes), possibly corrupt")
+                    logger.error(f"Validation FAIL: {_out_path} — file terlalu kecil ({_out_size} bytes), kemungkinan corrupt")
                 else:
                     with open(_out_path, encoding="utf-8", errors="ignore") as _vf:
                         _sample = _vf.read(256)
                     if not (_sample.lstrip().startswith("{") or _sample.lstrip().startswith("[")):
-                        logger.error(f"Validation FAIL: {_out_path} — not valid JSON (may be an HTML error page)")
+                        logger.error(f"Validation FAIL: {_out_path} — bukan JSON valid (bisa jadi HTML error page)")
                     else:
                         try:
-                            _vobj = json.loads(open(_out_path, encoding="utf-8", errors="ignore").read())
+                            with open(_out_path, encoding="utf-8", errors="ignore") as _vf2:
+                                _out_text = _vf2.read()
+                            _vobj = json.loads(_out_text)
                             # Count referenced images vs actual base64 in file
-                            _out_text = open(_out_path, encoding="utf-8", errors="ignore").read()
                             _ref_count  = _out_text.count('"image":"') + _out_text.count('"image": "')
                             _b64_count  = _out_text.count("data:image/")
                             _url_count  = _ref_count - _b64_count
@@ -7012,7 +9067,7 @@ def run_download(
                             )
                             if _url_count > 0 and embed_images:
                                 logger.warning(
-                                    f"Validation WARN: {_url_count} images are still URLs (not base64) — "
+                                    f"Validation WARN: {_url_count} gambar masih berupa URL (bukan base64) — "
                                     f"may have failed to download. Check failed_images.txt"
                                 )
                         except json.JSONDecodeError:
@@ -7020,8 +9075,14 @@ def run_download(
         except Exception as _ve:
             logger.warning(f"Validation error (non-critical): {_ve}")
 
+        if tmp and os.path.isdir(tmp):
+            delete_temp_folder(tmp)
+
     finally:
-        os.chdir(original_dir)
+        try:
+            os.chdir(original_dir)
+        finally:
+            _RUN_DOWNLOAD_LOCK.release()
 
     logger.info("Download successful.")
 
@@ -7476,11 +9537,11 @@ def _download_youtube_audio(
     if not has_ytdlp or not _ytdlp_enabled:
         if not has_ytdlp:
             logger.warning(
-                f"{len(youtube_urls)} YouTube audio URL(s) — yt-dlp is not installed.\n"
+                f"{len(youtube_urls)} YouTube audio URL(s) — yt-dlp tidak terinstall.\n"
                 f"  Install: pip install yt-dlp  (+ ffmpeg for MP3 conversion)"
             )
         else:
-            logger.info(f"{len(youtube_urls)} YouTube audio URL(s) skipped (YT Audio is disabled).")
+            logger.info(f"{len(youtube_urls)} YouTube audio URL(s) dilewati (YT Audio dimatikan).")
         _write_youtube_skip_log(youtube_urls, log_dir or output_dir, source_url=source_url)
         return {}
 
@@ -7966,8 +10027,8 @@ def process_images(
         for asset_path in list(image_paths):
             if asset_path.startswith(("http://", "https://")):
                 continue
-            clean = asset_path.lstrip('./').lstrip('/')
-            disk  = os.path.join(site_folder, *clean.replace('\\', '/').split('/'))
+            clean = _safe_rel_path(asset_path.lstrip('./').lstrip('/'))
+            disk  = _safe_join(site_folder, clean)
             if os.path.exists(disk):
                 logger.debug(f"  [site exists, kept] {clean}")
                 image_paths.discard(asset_path)
@@ -8022,9 +10083,9 @@ def process_images(
                             except Exception:
                                 pass
 
-                r = requests.get(asset_url, headers=headers, timeout=30,
-                                 proxies={"http": _get_active_proxy(),
-                                          "https": _get_active_proxy()} if _get_active_proxy() else None)
+                r = fetch_response(asset_url, extra_headers=headers, timeout=30, as_bytes=True)
+                if r is None:
+                    raise requests.RequestException("fetch_response returned None")
 
                 # ── D: Handle 429 with exponential backoff ────────────
                 if r.status_code == 429:
@@ -8056,7 +10117,8 @@ def process_images(
                 try:
                     import urllib3
                     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-                    r = requests.get(asset_url, headers=headers, timeout=30, verify=False)
+                    r = _get_shared_session(use_cf=bool(use_cloudscraper)).get(
+                        asset_url, headers=headers, timeout=30, verify=False)
                     r.raise_for_status()
                     mime = r.headers.get("Content-Type", "").split(";")[0].strip() \
                            or "application/octet-stream"
@@ -8101,29 +10163,18 @@ def process_images(
         logger.error(f"All retries failed: {asset_url}")
         return asset_path, None, "", asset_url, last_err
 
+    dedup_count = 0
     if all_downloadable:
         with ThreadPoolExecutor(max_workers=max_workers) as ex:
             futures = {ex.submit(fetch_one, p): p for p in all_downloadable}
             done = 0
-            dedup_count = 0
             for fut in as_completed(futures):
                 path, content, mime, resolved, err = fut.result()
-                # Feature 8: image hash dedup — skip storing if identical content already exists
-                if content is not None:
-                    dummy_local = resolved.split("/")[-1] or "asset"
-                    existing = _check_image_dedup(content, dummy_local)
-                    if existing:
-                        dedup_count += 1
-                        logger.info(f"  [DEDUP] {resolved.split('/')[-1]} is identical to a previous asset — skipped")
-                        # Store as successful but mark content as None to skip saving
-                        # Keep in cache as successful (content exists) for URL rewriting
+                # Dedup is applied at save time, after the final local path is known.
                 fetch_cache[path] = (content, mime, resolved, err)
                 done += 1
                 status = "✓" if content is not None else "✗ FAILED"
                 logger.info(f"  [{done}/{len(all_downloadable)}] {status} {resolved.split('/')[-1]}")
-            if dedup_count:
-                logger.info(f"  [DEDUP] {dedup_count} duplicate images detected (identical content)")
-
     # ── Collect failures ───────────────────────────────────────────
     failed_images: List[Dict[str, str]] = [
         {"url": resolved, "path": path, "error": err}
@@ -8155,6 +10206,16 @@ def process_images(
             f"{len(failed_audio)} audio file(s) could not be downloaded "
             f"and will remain as external URLs."
         )
+    if failed_images or failed_audio:
+        try:
+            write_asset_failure_summary(
+                failed_images + failed_audio,
+                output_dir or os.getcwd(),
+                source_url=source_url,
+                title="Broken Project Asset Report",
+            )
+        except Exception as e:
+            logger.debug(f"Broken asset report could not be written: {e}")
 
     # ── Build replacement maps ─────────────────────────────────────
     embed_map:  Dict[str, str] = {}
@@ -8243,8 +10304,8 @@ def process_images(
                 dest_folder = audio_folder
                 rel_prefix  = "audio"
 
-            # Build full destination path (may include subdirectories)
-            dest_path = os.path.join(dest_folder, *fn.replace('\\', '/').split('/'))
+            # Build full destination path (may include subdirectories), guarded against path traversal
+            dest_path = _safe_join(dest_folder, fn, fallback=("image" if is_image else "audio") + ext)
             os.makedirs(os.path.dirname(dest_path), exist_ok=True)
 
             # Collision avoidance: check if file already exists at this path
@@ -8254,12 +10315,26 @@ def process_images(
                 dest_path = f"{base_fn_full}_{counter}{ext_fn}"
                 counter += 1
 
+            duplicate_of = _check_image_dedup(content, dest_path) if is_image else None
+            if duplicate_of and os.path.exists(duplicate_of):
+                try:
+                    rel_saved = os.path.relpath(duplicate_of, os.path.dirname(images_folder)).replace('\\', '/')
+                    download_map[path] = rel_saved
+                    dedup_count += 1
+                    logger.debug(f"  [DEDUP] {path.split('/')[-1]} -> {rel_saved}")
+                    continue
+                except Exception:
+                    pass
+
             with open(dest_path, "wb") as f:
                 f.write(content)
 
             # Relative path from site root: "images/CYOAs/Images/.../3.avif"
             rel_saved = os.path.relpath(dest_path, os.path.dirname(images_folder)).replace('\\', '/')
             download_map[path] = rel_saved
+
+    if dedup_count:
+        logger.info(f"  [DEDUP] {dedup_count} duplicate image(s) reused instead of saved again")
 
     # ── Single-pass substitution ───────────────────────────────────
     # The regex `pattern` covers IMAGE_FIELDS + AUDIO_FIELDS field names.
@@ -8457,7 +10532,8 @@ def _download_fonts_into_folder(
     def _download_one_font(item: Tuple[str, str]) -> Tuple[str, Optional[str]]:
         font_url, source = item
         try:
-            r = requests.get(font_url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
+            r = _get_shared_session(use_cf=bool(use_cloudscraper)).get(
+                font_url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
             r.raise_for_status()
             raw_fn = os.path.basename(urlparse(font_url).path)
             if not raw_fn:
@@ -8512,9 +10588,14 @@ def create_retry_session(use_cloudscraper: bool = False) -> requests.Session:
             import cloudscraper as _cs
             session = _cs.create_scraper()
         except ImportError:
+            logger.warning("cloudscraper requested but not installed; falling back to normal requests. Install: pip install cloudscraper")
             session = requests.Session()
     else:
         session = requests.Session()
+
+    # requests normally inherits HTTP(S)_PROXY env variables. Honor explicit
+    # app-level disabled/manual modes so 'Proxy disabled' really disables env proxy.
+    session.trust_env = (globals().get("_proxy_mode", "inherit_env") == "inherit_env")
 
     retry_strategy = Retry(
         total=3, connect=3, read=3, backoff_factor=1,
@@ -8544,29 +10625,45 @@ def create_retry_session(use_cloudscraper: bool = False) -> requests.Session:
 
 # ── Global proxy config ────────────────────────────────────────────────
 _active_proxy: Optional[str] = None   # e.g. "http://127.0.0.1:7890"
+_proxy_mode: str = "inherit_env"  # inherit_env | manual | disabled
 
 def _get_active_proxy() -> Optional[str]:
-    """Return currently configured proxy URL, or None."""
-    global _active_proxy
+    """Return currently configured proxy URL, or None. Honors explicit disabled mode."""
+    global _active_proxy, _proxy_mode
+    if _proxy_mode == "disabled":
+        return None
     if _active_proxy:
         return _active_proxy
-    # Also check env vars (common for system proxy / Clash / v2ray)
-    for key in ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY"):
-        val = os.environ.get(key, "")
-        if val:
-            return val
+    if _proxy_mode == "inherit_env":
+        # Also check env vars (common for system proxy / Clash / v2ray)
+        for key in ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"):
+            val = os.environ.get(key, "")
+            if val:
+                return val
     return None
 
-def _set_active_proxy(url: Optional[str]) -> None:
-    """Set global proxy. Pass None to disable. Rebuilds shared session."""
-    global _active_proxy, _shared_session, _shared_session_cf
-    _active_proxy = url.strip() if url else None
+def _set_active_proxy(url: Optional[str], *, mode: Optional[str] = None) -> None:
+    """Set global proxy. mode=disabled disables env proxy inheritance too."""
+    global _active_proxy, _proxy_mode, _shared_session, _shared_session_cf
+    if mode is None:
+        new_mode = "manual" if (url and str(url).strip()) else "disabled"
+    else:
+        new_mode = str(mode or "inherit_env").strip().lower().replace("-", "_")
+        if new_mode not in {"inherit_env", "manual", "disabled"}:
+            new_mode = "inherit_env"
+    new_proxy = str(url).strip() if (url and new_mode == "manual") else None
+    if new_proxy == _active_proxy and new_mode == _proxy_mode:
+        return
+    _active_proxy = new_proxy
+    _proxy_mode = new_mode
     _shared_session = None
     _shared_session_cf = None
-    if _active_proxy:
+    if _proxy_mode == "manual" and _active_proxy:
         logger.info(f"Proxy set: {_active_proxy}")
+    elif _proxy_mode == "inherit_env":
+        logger.info("Proxy mode: inherit environment")
     else:
-        logger.info("Proxy disabled")
+        logger.info("Proxy disabled, including environment proxies")
 
 
 # ── Global DNS config ──────────────────────────────────────────────────────
@@ -8577,6 +10674,10 @@ _orig_getaddrinfo = _socket.getaddrinfo  # save original
 
 DNS_PRESETS: Dict[str, str] = {
     "System (default)":  "",
+    "BebasDNS Default (DoH)": "https://dns.bebasid.com/dns-query",
+    "BebasDNS Security (DoH)": "https://security.dns.bebasid.com/dns-query",
+    "BebasDNS Unfiltered (DoH)": "https://unfiltered.dns.bebasid.com/dns-query",
+    "BebasDNS Family (DoH)": "https://family.dns.bebasid.com/dns-query",
     "Cloudflare 1.1.1.1": "1.1.1.1",
     "Cloudflare 1.0.0.1": "1.0.0.1",
     "Google 8.8.8.8":     "8.8.8.8",
@@ -8587,13 +10688,124 @@ DNS_PRESETS: Dict[str, str] = {
     "Custom…":            "__custom__",
 }
 
+BEBASDNS_DOH_VARIANTS: Dict[str, str] = {
+    "default": "https://dns.bebasid.com/dns-query",
+    "security": "https://security.dns.bebasid.com/dns-query",
+    "unfiltered": "https://unfiltered.dns.bebasid.com/dns-query",
+    "family": "https://family.dns.bebasid.com/dns-query",
+}
 
-def _dns_resolve_via(host: str, dns_ip: str) -> Optional[str]:
+
+_dns_bypass_local = _threading.local()
+_dns_cache: Dict[Tuple[str, str, int], Tuple[float, str]] = {}
+_DNS_CACHE_TTL_SECONDS = 300
+
+
+def _build_dns_query_wire(host: str, qtype: int = 1) -> Tuple[int, bytes]:
+    """Build a minimal DNS query packet. qtype=1 means A record."""
+    import struct, random as _rnd
+    tx_id = _rnd.randint(0, 65535)
+    header = struct.pack(">HHHHHH", tx_id, 0x0100, 1, 0, 0, 0)
+    qname = b"".join(len(p).to_bytes(1, "big") + p.encode("idna") for p in host.rstrip(".").split(".")) + b"\x00"
+    return tx_id, header + qname + struct.pack(">HH", qtype, 1)
+
+
+def _parse_dns_address_response(data: bytes, tx_id: Optional[int] = None, qtype: int = 1) -> Optional[str]:
+    """Parse the first A or AAAA answer from a DNS wire response."""
+    try:
+        import struct
+        if len(data) < 12:
+            return None
+        rid, _flags, qdcount, ancount, _nscount, _arcount = struct.unpack(">HHHHHH", data[:12])
+        if tx_id is not None and rid != tx_id:
+            return None
+        offset = 12
+
+        def _skip_name(buf: bytes, off: int) -> int:
+            while off < len(buf):
+                length = buf[off]
+                if length == 0:
+                    return off + 1
+                if length & 0xC0 == 0xC0:
+                    return off + 2
+                off += length + 1
+            return off
+
+        for _ in range(qdcount):
+            offset = _skip_name(data, offset) + 4
+        for _ in range(ancount):
+            offset = _skip_name(data, offset)
+            if offset + 10 > len(data):
+                return None
+            rtype, rclass, _ttl, rdlen = struct.unpack(">HHIH", data[offset:offset+10])
+            offset += 10
+            if offset + rdlen > len(data):
+                return None
+            if qtype == 1 and rtype == 1 and rclass == 1 and rdlen == 4:
+                return _store(".".join(str(b) for b in data[offset:offset+4]))
+            if qtype == 28 and rtype == 28 and rclass == 1 and rdlen == 16:
+                import ipaddress
+                return str(ipaddress.IPv6Address(data[offset:offset+16]))
+            offset += rdlen
+    except Exception as e:
+        logger.debug(f"DNS response parse failed: {e}")
+    return None
+
+
+def _doh_resolve_via(host: str, doh_url: str, qtype: int = 1) -> Optional[str]:
     """
-    Resolve `host` using the given DNS server IP.
-    Tries dnspython first; falls back to raw UDP DNS query.
-    Returns first IPv4 address string, or None on failure.
+    Resolve host through a DNS-over-HTTPS endpoint using RFC 8484 DNS wire format.
+    The DoH endpoint itself is resolved with the system resolver to avoid recursion
+    through our socket.getaddrinfo patch.
     """
+    if not doh_url.lower().startswith("https://"):
+        return None
+    try:
+        tx_id, payload = _build_dns_query_wire(host, qtype=qtype)
+        headers = {
+            "Accept": "application/dns-message",
+            "Content-Type": "application/dns-message",
+            "User-Agent": "Mozilla/5.0",
+        }
+        setattr(_dns_bypass_local, "enabled", True)
+        try:
+            session = requests.Session()
+            session.trust_env = (_proxy_mode == "inherit_env")
+            proxy = _get_active_proxy()
+            if proxy:
+                session.proxies.update({"http": proxy, "https": proxy})
+            r = session.post(doh_url, data=payload, headers=headers, timeout=6)
+        finally:
+            setattr(_dns_bypass_local, "enabled", False)
+        if r.status_code != 200:
+            logger.debug(f"DoH {doh_url} returned HTTP {r.status_code} for {host}")
+            return None
+        return _parse_dns_address_response(r.content, tx_id=tx_id, qtype=qtype)
+    except Exception as e:
+        try:
+            setattr(_dns_bypass_local, "enabled", False)
+        except Exception:
+            pass
+        logger.debug(f"DoH resolve failed for {host} via {doh_url}: {e}")
+        return None
+
+
+def _dns_resolve_via(host: str, dns_ip: str, qtype: int = 1) -> Optional[str]:
+    """
+    Resolve `host` using either plain DNS or DNS-over-HTTPS. qtype=1 A, qtype=28 AAAA.
+    Results are cached briefly to avoid repeated DoH/UDP lookups.
+    """
+    cache_key = (host.lower().rstrip("."), str(dns_ip), int(qtype))
+    now = time.time()
+    cached = _dns_cache.get(cache_key)
+    if cached and cached[0] > now:
+        return cached[1]
+    def _store(ip: Optional[str]) -> Optional[str]:
+        if ip:
+            _dns_cache[cache_key] = (time.time() + _DNS_CACHE_TTL_SECONDS, ip)
+        return ip
+    if (dns_ip or "").lower().startswith("https://"):
+        return _store(_doh_resolve_via(host, dns_ip, qtype=qtype))
     # ── dnspython ──────────────────────────────────────────────────────
     try:
         import dns.resolver as _dr
@@ -8601,12 +10813,15 @@ def _dns_resolve_via(host: str, dns_ip: str) -> Optional[str]:
         r.nameservers = [dns_ip]
         r.timeout    = 3
         r.lifetime   = 5
-        answers = r.resolve(host, "A")
-        return str(answers[0])
+        answers = r.resolve(host, "AAAA" if qtype == 28 else "A")
+        return _store(str(answers[0]))
     except ImportError:
         pass
     except Exception:
         pass
+
+    if qtype != 1:
+        return None
 
     # ── Raw UDP DNS query fallback (no extra deps) ─────────────────────
     try:
@@ -8648,7 +10863,7 @@ def _dns_resolve_via(host: str, dns_ip: str) -> Optional[str]:
         rtype, _, _, rdlen = struct.unpack(">HHIH", data[offset:offset+10])
         offset += 10
         if rtype == 1 and rdlen == 4:   # A record
-            return ".".join(str(b) for b in data[offset:offset+4])
+            return _store(".".join(str(b) for b in data[offset:offset+4]))
     except Exception:
         pass
 
@@ -8656,12 +10871,12 @@ def _dns_resolve_via(host: str, dns_ip: str) -> Optional[str]:
 
 
 def _patched_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
-    """socket.getaddrinfo override — resolve host via custom DNS."""
+    """socket.getaddrinfo override — resolve host via custom DNS or DoH."""
     global _active_dns
-    if not _active_dns:
+    if getattr(_dns_bypass_local, "enabled", False):
         return _orig_getaddrinfo(host, port, family, type, proto, flags)
 
-    # Don't intercept localhost or bare IPs
+    # Don't intercept localhost or bare IPs.
     try:
         _socket.inet_aton(host)
         return _orig_getaddrinfo(host, port, family, type, proto, flags)
@@ -8670,8 +10885,13 @@ def _patched_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
     if host in ("localhost", "127.0.0.1", "::1"):
         return _orig_getaddrinfo(host, port, family, type, proto, flags)
 
+    if not _active_dns:
+        return _orig_getaddrinfo(host, port, family, type, proto, flags)
+
     try:
-        ip = _dns_resolve_via(host, _active_dns)
+        ip = _dns_resolve_via(host, _active_dns, qtype=1)
+        if not ip and family in (0, getattr(_socket, "AF_INET6", -1)):
+            ip = _dns_resolve_via(host, _active_dns, qtype=28)
         if ip:
             logger.debug(f"DNS [{_active_dns}] {host} → {ip}")
             return _orig_getaddrinfo(ip, port, family, type, proto, flags)
@@ -8685,14 +10905,25 @@ def _set_active_dns(server: Optional[str]) -> None:
     """
     Set global DNS server. Patches socket.getaddrinfo globally.
     Pass None or "" to restore system DNS.
+    Idempotent: applying the same value twice does not duplicate logs or rebuild sessions.
     """
-    global _active_dns, _shared_session, _shared_session_cf
+    global _active_dns, _shared_session, _shared_session_cf, _dns_cache
     server = (server or "").strip()
-    _active_dns = server or None
+    new_dns = server or None
+    desired_getaddrinfo = _patched_getaddrinfo if new_dns else _orig_getaddrinfo
+    if new_dns == _active_dns:
+        if _socket.getaddrinfo is not desired_getaddrinfo:
+            _socket.getaddrinfo = desired_getaddrinfo
+        return
 
+    _active_dns = new_dns
+    _dns_cache.clear()
     if _active_dns:
         _socket.getaddrinfo = _patched_getaddrinfo
-        logger.info(f"DNS overridden → {_active_dns}")
+        if _active_dns.lower().startswith("https://"):
+            logger.info(f"DNS-over-HTTPS resolver active → {_active_dns}")
+        else:
+            logger.info(f"DNS overridden → {_active_dns}")
     else:
         _socket.getaddrinfo = _orig_getaddrinfo
         logger.info("DNS restored to system default")
@@ -8735,11 +10966,16 @@ class WebsiteDownloader:
     )
 
     def __init__(self, start_url: str, output_folder: str, max_workers: int = 4,
-                 ai_api_key: str = "") -> None:
+                 ai_api_key: str = "", ai_provider: str = "",
+                 ai_mode: str = "auto_fallback",
+                 ai_budget: Optional[AIUsageBudget] = None) -> None:
         self.start_url     = start_url
         self.output_folder = output_folder
         self.max_workers   = max_workers
         self.ai_api_key    = ai_api_key
+        self.ai_provider   = _normalize_ai_provider(ai_provider or _get_ai_provider())
+        self.ai_mode       = _normalize_ai_mode(ai_mode or _load_settings().get("ai_mode", "auto_fallback"))
+        self.ai_budget     = ai_budget
         # base_url = directory portion of start_url (used for resolving relative paths)
         parsed = urlparse(start_url)
         path   = parsed.path
@@ -8771,6 +11007,9 @@ class WebsiteDownloader:
             base_url=self.base_url,
             output_dir=self.output_folder,
             ai_api_key=self.ai_api_key,
+            ai_provider=self.ai_provider,
+            ai_mode=self.ai_mode,
+            ai_budget=self.ai_budget,
         )
 
     def validate_integrity(self) -> Dict[str, List[str]]:
@@ -8858,18 +11097,15 @@ class WebsiteDownloader:
     def _fetch(self, url: str) -> Optional[requests.Response]:
         headers = self._headers_for(url)
         try:
-            r = self.session.get(url, timeout=20, allow_redirects=True, headers=headers)
-            # CF challenge detection
-            if is_cloudflare_challenge(r):
-                logger.warning(f"  Cloudflare challenge: {url} — enable CF Bypass")
-                self._failed_items.append({"url": url, "error": "Cloudflare challenge"})
+            r = fetch_response(url, extra_headers=headers, timeout=20, as_bytes=True)
+            if r is None:
+                self._failed_items.append({"url": url, "error": "request failed"})
                 return None
-            r.raise_for_status()
             _throttle_bandwidth(len(r.content))  # bandwidth limiter
             return r
         except requests.exceptions.SSLError:
             # Retry without SSL verification
-            logger.warning(f"  SSL error, retry without verification: {url}")
+            logger.warning(f"  SSL error, retry tanpa verify: {url}")
             try:
                 import urllib3
                 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -8888,7 +11124,7 @@ class WebsiteDownloader:
             if "connection reset" in err or "econnreset" in err:
                 msg = f"Connection reset: {url}"
             elif "name or service not known" in err or "nodename" in err:
-                msg = f"DNS error (domain not found): {url}"
+                msg = f"DNS error (domain tidak ditemukan): {url}"
             else:
                 msg = f"Could not fetch {url}: {e}"
             logger.warning(f"  {msg}")
@@ -8990,10 +11226,7 @@ class WebsiteDownloader:
                 rel_parts = asset_path
 
             if rel_parts:
-                local_candidate = os.path.join(
-                    self.output_folder,
-                    *[p for p in rel_parts.split("/") if p],
-                )
+                local_candidate = _safe_join(self.output_folder, rel_parts)
                 os.makedirs(os.path.dirname(local_candidate), exist_ok=True)
                 local = local_candidate
                 root, ext = os.path.splitext(local)
@@ -9711,6 +11944,10 @@ class WebsiteDownloader:
         manifest_path = os.path.join(self.output_folder, "backup_report.txt")
         pathlib.Path(manifest_path).write_text(report_text, encoding="utf-8")
         logger.info(f"  Manifest: {os.path.relpath(manifest_path, self.output_folder)}")
+        if failed:
+            logger.info(
+                "  Website asset failure details are included in backup_report.txt."
+            )
         return manifest_path
 
 # ─────────────────────────────────────────────────────────────────
@@ -9729,6 +11966,7 @@ def main() -> None:
         launch_gui()
         return
 
+    _cli_saved_settings = _load_settings()
     parser = argparse.ArgumentParser(
         description=(
             "Download and process a CYOA project. Supports embedded JSON, ZIP, "
@@ -9737,6 +11975,10 @@ def main() -> None:
     )
     parser.add_argument("url", nargs="?", default="", help="URL of the CYOA project.")
     parser.add_argument("filename", nargs="?", default="", help="Optional output filename.")
+    parser.add_argument("-u", "--url", dest="url_opt", default="",
+                        help="URL of the CYOA project. Overrides positional URL when provided.")
+    parser.add_argument("-o", "--output", dest="output_dir", default=os.getcwd(),
+                        help="Output directory. Created automatically if missing.")
     parser.add_argument("-L", "--list", dest="list_file", default="",
                         help="Batch input source (.txt/.csv/.xlsx/.xls or remote CSV/Google Sheets URL) with URLs.")
     parser.add_argument("-z", "--zip",     action="store_true", help="Save as ZIP with external images.")
@@ -9760,14 +12002,142 @@ def main() -> None:
                         help="Use dedicated cyoap_vue website mode and keep folder output.")
     parser.add_argument("-a", "--analyse-fonts", action="store_true",
                         help="Print font analysis report only.")
-    parser.add_argument("-t", "--threads", type=int, default=DEFAULT_MAX_WORKERS,
+    parser.add_argument("-t", "--threads", "--workers", dest="threads", type=int, default=DEFAULT_MAX_WORKERS,
                         help=f"Parallel download threads (default: {DEFAULT_MAX_WORKERS}).")
-    parser.add_argument("-w", "--wait-time", type=int, default=DEFAULT_WAIT_TIME,
+    parser.add_argument("-w", "--wait-time", "--wait", dest="wait_time", type=int, default=DEFAULT_WAIT_TIME,
                         help=f"Seconds to wait after 429 (default: {DEFAULT_WAIT_TIME}).")
+    parser.add_argument("--proxy", default=None, help="Proxy URL, e.g. http://127.0.0.1:7890. Use --proxy-mode disabled to ignore environment proxies.")
+    parser.add_argument("--proxy-mode", choices=["inherit_env", "manual", "disabled"], default=None, help="Proxy mode. Default preserves saved/runtime behavior; disabled ignores HTTP_PROXY/HTTPS_PROXY.")
+    parser.add_argument("--dns", default=None, help="Override DNS resolver for this process. Accepts plain DNS IP or DoH URL. Empty string restores system DNS.")
+    parser.add_argument("--bebasdns", choices=["default", "security", "unfiltered", "family"], default=None,
+                        help="Use BebasDNS DoH resolver variant for this process.")
+    parser.add_argument("--cloudflare", choices=["off", "auto", "cloudscraper", "flaresolverr"],
+                        default=_load_settings().get("cloudflare_mode", "auto"),
+                        help="Cloudflare handling mode. Auto tries normal request, cloudscraper, then FlareSolverr when needed.")
+    parser.add_argument("--cf-bypass", "--cloudscraper", dest="cf_bypass", action="store_true",
+                        help="Legacy alias: force Cloudflare mode to cloudscraper when installed.")
+    parser.add_argument("--flaresolverr-url", default=_load_settings().get("flaresolverr_url", "http://localhost:8191/v1"),
+                        help="FlareSolverr API endpoint, e.g. http://localhost:8191/v1.")
+    parser.add_argument("--flaresolverr-session", choices=["temporary", "reuse-domain", "manual"],
+                        default=_load_settings().get("flaresolverr_session_policy", "reuse-domain"),
+                        help="FlareSolverr session policy. reuse-domain keeps cookies per domain.")
+    parser.add_argument("--flaresolverr-timeout", type=int, default=int(_load_settings().get("flaresolverr_timeout", 60) or 60),
+                        help="FlareSolverr solve timeout in seconds.")
+    parser.add_argument("--flaresolverr-wait", type=int, default=int(_load_settings().get("flaresolverr_wait_after", 3) or 3),
+                        help="Seconds FlareSolverr waits after page load before returning content.")
+    parser.add_argument("--flaresolverr-proxy", choices=["inherit", "none"],
+                        default=_load_settings().get("flaresolverr_proxy_mode", "inherit"),
+                        help="Whether FlareSolverr should inherit the app proxy for target requests.")
+    parser.add_argument("--flaresolverr-test", action="store_true",
+                        help="Test the configured FlareSolverr API and exit.")
+    parser.add_argument("--http2", action=argparse.BooleanOptionalAction, default=None, help="Use HTTP/2 via httpx for deep-scan asset fetches when available.")
+    parser.add_argument("--gallery-dl", choices=["off", "smart", "force"], default=None,
+                        help="Optional gallery-dl fallback. Default off; smart only uses page/post/gallery URLs; force is advanced.")
+    parser.add_argument("--gallery-dl-path", default="gallery-dl", help="gallery-dl executable path used with --gallery-dl.")
+    parser.add_argument("--gallery-dl-config", default="", help="Optional gallery-dl config.json path.")
+    parser.add_argument("--bandwidth", type=float, default=0.0, help="Bandwidth limit in KB/s. 0 means unlimited.")
+    parser.add_argument("--ai-key", dest="ai_api_key", default="", help="AI API key for this run only. It is not saved to settings.json.")
+    parser.add_argument("--ai-provider", choices=["anthropic", "openai", "gemini", "ollama"], default=None,
+                        help="AI provider for AI Assist.")
+    parser.add_argument("--ai-key-storage", choices=["session", "env", "keyring", "plain"], default=None,
+                        help="Where to read/save the AI API key. CLI default follows settings; --ai-key overrides storage for this run.")
+    parser.add_argument("--ai-model", default="", help="AI model for the selected provider. If omitted, the provider default is used.")
+    parser.add_argument("--ollama-url", default=None,
+                        help="Ollama base URL used when --ai-provider ollama. Default: http://localhost:11434")
+    parser.add_argument("--ai-mode", choices=["off", "diagnostics", "auto_fallback", "aggressive_recovery"], default=None,
+                        help="AI Assist mode. Use off to disable AI even if a key is configured.")
+    parser.add_argument("--ai-max-calls", type=int, default=None, help="Maximum AI calls per download. 0 means unlimited.")
+    parser.add_argument("--ai-max-html-chars", type=int, default=None, help="Maximum HTML characters sent to AI per call.")
+    parser.add_argument("--ai-max-js-chars", type=int, default=None, help="Maximum JS characters sent to AI per call.")
+    parser.add_argument("--ai-clear-key", action="store_true", help="Clear the configured AI key from plain settings.json or OS keyring and exit.")
+    parser.add_argument("--cyoa-manager", action="store_true", help="Add finished project.json to CYOA Manager when possible.")
+    parser.add_argument("--serve", action="store_true", help="Start local HTTP server for the output directory after download.")
+    parser.add_argument("--serve-port", type=int, default=0, help="Local server port used with --serve. 0 means auto-pick a fresh port.")
+    parser.add_argument("--language", choices=["id", "en"], default=None, help="CLI/UI language preference. Saved only when explicitly provided.")
     parser.add_argument("--no-ytdlp", action="store_true",
                         help="Disable automatic YouTube audio download via yt-dlp.")
     parser.add_argument("--gui", action="store_true", help="Force GUI.")
     args = parser.parse_args()
+    args.url = (args.url_opt or args.url or "").strip()
+    # Resolve effective AI/network settings without overwriting saved GUI settings unless
+    # the user supplied the corresponding CLI flag explicitly.
+    ai_provider_eff = _normalize_ai_provider(args.ai_provider or _cli_saved_settings.get("ai_provider", "anthropic"))
+    ai_storage_eff = _normalize_ai_key_storage(args.ai_key_storage or _cli_saved_settings.get("ai_key_storage", "session"))
+    ai_mode_eff = _normalize_ai_mode(args.ai_mode or _cli_saved_settings.get("ai_mode", "auto_fallback"))
+    ai_model_eff = args.ai_model or _get_ai_model(ai_provider_eff)
+    ollama_url_eff = args.ollama_url or _cli_saved_settings.get("ollama_url", OLLAMA_DEFAULT_URL)
+    if args.ai_clear_key:
+        _clear_ai_api_key_storage(ai_storage_eff, ai_provider_eff, clear_all=True)
+        logger.info("AI API key storage cleared.")
+        return
+    _ai_cli_settings = _load_settings()
+    changed_settings = False
+    if args.ai_provider is not None:
+        _ai_cli_settings["ai_provider"] = ai_provider_eff; changed_settings = True
+    if args.ai_key_storage is not None:
+        _ai_cli_settings["ai_key_storage"] = ai_storage_eff; changed_settings = True
+        if ai_storage_eff != "plain":
+            _clear_ai_plain_keys(_ai_cli_settings, ai_provider_eff)
+    if args.ai_model:
+        _ai_cli_settings["ai_model"] = ai_model_eff; changed_settings = True
+    if args.ai_mode is not None:
+        _ai_cli_settings["ai_mode"] = ai_mode_eff; changed_settings = True
+    if args.ai_max_calls is not None:
+        _ai_cli_settings["ai_max_calls_per_download"] = max(0, int(args.ai_max_calls)); changed_settings = True
+    if args.ai_max_html_chars is not None:
+        _ai_cli_settings["ai_max_html_chars"] = max(1000, int(args.ai_max_html_chars)); changed_settings = True
+    if args.ai_max_js_chars is not None:
+        _ai_cli_settings["ai_max_js_chars"] = max(1000, int(args.ai_max_js_chars)); changed_settings = True
+    if args.ollama_url:
+        _ai_cli_settings["ollama_url"] = ollama_url_eff; changed_settings = True
+    if changed_settings:
+        _save_settings(_ai_cli_settings)
+    resolved_ai_api_key = "" if ai_mode_eff == "off" else _resolve_ai_api_key(explicit_key=args.ai_api_key, storage=ai_storage_eff, provider=ai_provider_eff)
+    os.makedirs(args.output_dir, exist_ok=True)
+    if args.bebasdns:
+        args.dns = BEBASDNS_DOH_VARIANTS[args.bebasdns]
+    if args.proxy_mode == "disabled":
+        _set_active_proxy(None, mode="disabled")
+    elif args.proxy_mode == "inherit_env":
+        _set_active_proxy(None, mode="inherit_env")
+    elif args.proxy is not None:
+        _set_active_proxy(args.proxy or None, mode="manual" if args.proxy else "disabled")
+    if args.dns is not None:
+        _set_active_dns(args.dns or None)
+    _set_http2_enabled(bool(args.http2) if args.http2 is not None else bool(_cli_saved_settings.get("http2_enabled", False)))
+    gallery_dl_eff = args.gallery_dl or _cli_saved_settings.get("gallery_dl_mode", "off")
+    _set_gallery_dl_mode(gallery_dl_eff, path=args.gallery_dl_path, config=args.gallery_dl_config)
+    global _bandwidth_limit_kbps, use_cloudscraper
+    _bandwidth_limit_kbps = max(0.0, float(args.bandwidth or 0.0))
+    cf_mode = "cloudscraper" if bool(args.cf_bypass) else args.cloudflare
+    _set_cloudflare_config(
+        cf_mode,
+        flaresolverr_url=args.flaresolverr_url,
+        session_policy=args.flaresolverr_session,
+        timeout=args.flaresolverr_timeout,
+        wait_after=args.flaresolverr_wait,
+        proxy_mode=args.flaresolverr_proxy,
+        persist=True,
+    )
+    if args.flaresolverr_test:
+        ok, msg = flaresolverr_test_connection()
+        print(("OK: " if ok else "ERROR: ") + msg)
+        return
+    st = _load_settings(); _net_changed = False
+    if args.language is not None:
+        st["language"] = args.language; _net_changed = True
+    if args.http2 is not None:
+        st["http2_enabled"] = bool(args.http2); _net_changed = True
+    if args.gallery_dl is not None:
+        st["gallery_dl_mode"] = gallery_dl_eff; _net_changed = True
+    if args.proxy is not None:
+        st["proxy"] = args.proxy; _net_changed = True
+    if args.dns is not None:
+        st["dns"] = args.dns or ""; _net_changed = True
+    if args.bebasdns:
+        st["bebasdns_variant"] = args.bebasdns; _net_changed = True
+    if _net_changed:
+        _save_settings(st)
 
     mode_flags = [
         bool(args.zip), bool(args.both), bool(args.website), bool(args.website_folder),
@@ -9807,25 +12177,41 @@ def main() -> None:
         for idx, item in enumerate(items, 1):
             logger.info(f"Batch {idx}/{len(items)}: {item['url']}")
             try:
-                engine_mode = "cyoap_vue" if (args.cyoap_vue_website or args.cyoap_vue_folder) else ("auto" if args.cyoap_vue else "standard")
+                mode_i = (item.get("mode", "") or "").lower().replace("-", "_").replace(" ", "_")
+                zip_i = args.zip or mode_i == "zip"
+                both_i = args.both or mode_i == "both"
+                pure_i = pure_website_mode or mode_i in {"pure_website", "pure_website_zip", "pure_website_folder"}
+                website_i = website_mode or mode_i in {"website", "website_zip", "website_folder", "cyoap_vue", "cyoap_vue_zip", "cyoap_vue_folder", "pure_website", "pure_website_zip", "pure_website_folder"}
+                website_zip_i = website_zip_output
+                if mode_i in {"website_folder", "pure_website_folder", "cyoap_vue_folder"}:
+                    website_zip_i = False
+                if mode_i in {"website", "website_zip", "pure_website", "pure_website_zip", "cyoap_vue", "cyoap_vue_zip"}:
+                    website_zip_i = True
+                engine_mode = "cyoap_vue" if (args.cyoap_vue_website or args.cyoap_vue_folder or mode_i in {"cyoap_vue", "cyoap_vue_zip", "cyoap_vue_folder"}) else ("auto" if args.cyoap_vue else "standard")
                 run_download(
                     url=item["url"],
                     file_name=item.get("filename", ""),
-                    zip_output=args.zip,
-                    both_output=args.both,
-                    website_output=website_mode,
-                    website_zip_output=website_zip_output,
-                    pure_website=pure_website_mode,
+                    zip_output=zip_i,
+                    both_output=both_i,
+                    website_output=website_i,
+                    website_zip_output=website_zip_i,
+                    pure_website=pure_i,
                     download_fonts=args.fonts,
                     show_font_analysis=args.analyse_fonts or args.fonts,
+                    output_dir=args.output_dir,
                     max_workers=args.threads,
                     engine_mode=engine_mode,
+                    cyoa_mgr_enabled=args.cyoa_manager,
+                    ai_api_key=resolved_ai_api_key,
+                    ai_provider=ai_provider_eff,
+                    ai_mode=ai_mode_eff,
+                    analysis_only=args.analyse_fonts and not args.fonts,
                 )
                 ok += 1
             except Exception as e:
                 failed_items.append({"url": item["url"], "error": str(e)})
                 logger.error(f"Failed: {e}")
-        write_failed_url_log(failed_items, os.getcwd())
+        write_failed_url_log(failed_items, args.output_dir)
         logger.info(f"Batch done    : {ok}/{len(items)} succeeded")
         return
 
@@ -9848,6 +12234,15 @@ def main() -> None:
     logger.info(f"Threads      : {args.threads}")
     logger.info(f"Fonts        : {'yes' if args.fonts else 'no'}")
     logger.info(f"Wait on 429  : {args.wait_time}s")
+    logger.info(f"Output dir   : {args.output_dir}")
+    logger.info(f"HTTP/2       : {'yes' if (_HTTP2_ENABLED) else 'no'}")
+    logger.info(f"gallery-dl   : {gallery_dl_eff}")
+    logger.info(f"AI Assist    : {ai_mode_eff} | provider={ai_provider_eff} | model={ai_model_eff} | key={'not needed' if ai_provider_eff == 'ollama' else ('yes' if bool(resolved_ai_api_key) else 'no')} | storage={ai_storage_eff}")
+    logger.info(f"Cloudflare   : {_display_cloudflare_mode(_CLOUDFLARE_MODE)}")
+    if _CLOUDFLARE_MODE == "flaresolverr" or _CLOUDFLARE_MODE == "auto":
+        logger.info(f"FlareSolverr : {_FLARESOLVERR_URL} | session={_FLARESOLVERR_SESSION_POLICY} | timeout={_FLARESOLVERR_TIMEOUT}s")
+    logger.info(f"Proxy        : {args.proxy if args.proxy is not None else '[saved/env/system]'}")
+    logger.info(f"DNS          : {args.dns or '[system]'}" + (f" (BebasDNS {args.bebasdns})" if args.bebasdns else ""))
 
     engine_mode = "cyoap_vue" if (args.cyoap_vue_website or args.cyoap_vue_folder) else ("auto" if args.cyoap_vue else "standard")
     run_download(
@@ -9860,9 +12255,77 @@ def main() -> None:
         pure_website=pure_website_mode,
         download_fonts=args.fonts,
         show_font_analysis=args.analyse_fonts or args.fonts,
+        output_dir=args.output_dir,
         max_workers=args.threads,
         engine_mode=engine_mode,
+        cyoa_mgr_enabled=args.cyoa_manager,
+        ai_api_key=resolved_ai_api_key,
+        ai_provider=ai_provider_eff,
+        ai_mode=ai_mode_eff,
+        analysis_only=args.analyse_fonts and not args.fonts,
     )
+    if args.serve:
+        import http.server as _http_server
+        import webbrowser as _webbrowser
+
+        serve_dir = globals().get("_LAST_PREVIEW_FOLDER") or args.output_dir
+        serve_dir = os.path.abspath(serve_dir)
+        if not os.path.isdir(serve_dir):
+            logger.warning(f"Serve skipped: preview folder not found: {serve_dir}")
+            logger.warning("Tip: use --website-folder or --pure-website-folder when you want to preview immediately after download.")
+            return
+
+        logger.info(f"Serving {serve_dir} on 127.0.0.1…")
+
+        class _NoCacheCLIHandler(_http_server.SimpleHTTPRequestHandler):
+            def __init__(self, *a, **kw):
+                super().__init__(*a, directory=serve_dir, **kw)
+            def log_message(self, fmt, *args):
+                logger.debug("[serve] " + (fmt % args if args else fmt))
+            def end_headers(self):
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+                self.send_header("Pragma", "no-cache")
+                self.send_header("Expires", "0")
+                try:
+                    from urllib.parse import urlparse as _urlparse
+                    if _urlparse(self.path).path in ("", "/", "/index.html"):
+                        self.send_header("Clear-Site-Data", '"cache", "storage"')
+                except Exception:
+                    pass
+                super().end_headers()
+            def do_GET(self):
+                from urllib.parse import urlparse as _urlparse
+                if _urlparse(self.path).path == "/__clear_cache__":
+                    stamp = str(int(time.time() * 1000))
+                    html_text = f'''<!doctype html><meta charset="utf-8"><title>Clearing preview cache...</title><script>
+(async()=>{{try{{localStorage.clear();sessionStorage.clear();}}catch(e){{}}try{{if('caches' in window){{const n=await caches.keys();await Promise.all(n.map(x=>caches.delete(x)));}}}}catch(e){{}}try{{if('serviceWorker' in navigator){{const r=await navigator.serviceWorker.getRegistrations();await Promise.all(r.map(x=>x.unregister()));}}}}catch(e){{}}location.replace('/?cb={stamp}&preview={stamp}');}})();
+</script><p>Clearing preview cache...</p>'''
+                    html = html_text.encode("utf-8")
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.send_header("Content-Length", str(len(html)))
+                    self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+                    self.send_header("Clear-Site-Data", '"cache", "storage"')
+                    self.end_headers()
+                    self.wfile.write(html)
+                    return
+                return super().do_GET()
+
+        host = "127.0.0.1"
+        port_req = int(args.serve_port or 0)
+        with _http_server.ThreadingHTTPServer((host, port_req), _NoCacheCLIHandler) as httpd:
+            port = int(httpd.server_address[1])
+            clear_url = f"http://{host}:{port}/__clear_cache__?cb={int(time.time()*1000)}"
+            logger.info(f"Open {clear_url} to preview with cleared browser storage.")
+            try:
+                _webbrowser.open(clear_url)
+            except Exception:
+                pass
+            try:
+                httpd.serve_forever()
+            except KeyboardInterrupt:
+                logger.info("Local server stopped")
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -9875,47 +12338,40 @@ def fetch_response(
     extra_headers: Optional[Dict] = None,
     timeout: int = 20,
     as_bytes: bool = False,
+    quiet: bool = False,
 ) -> Optional[requests.Response]:
     """
     Fetch a URL with automatic fallbacks:
-    - CF bypass via cloudscraper if use_cloudscraper=True
-    - CF challenge detection on response body
+    - Cloudflare mode: off/auto/cloudscraper/flaresolverr
+    - Auto mode: normal request → cloudscraper → FlareSolverr when a challenge is detected
     - SSL error fallback: retry with verify=False + warning
     - Domain rate throttle (300ms/domain)
     - Friendly error messages for common connection issues
     """
-    _domain_throttle(url)   # Feature 3: per-domain rate limit
+    _domain_throttle(url)
     headers = get_headers_for_url(url) or {"User-Agent": "Mozilla/5.0"}
     if extra_headers:
         headers.update(extra_headers)
 
-    def _do_request(verify_ssl: bool = True) -> Optional[requests.Response]:
+    def _do_request(*, use_cf_session: bool = False, verify_ssl: bool = True):
         try:
-            if use_cloudscraper:
-                session = _get_shared_session(use_cf=True)
-                r = session.get(url, headers=headers, timeout=timeout,
-                                allow_redirects=True)
-            else:
-                r = requests.get(url, headers=headers, timeout=timeout,
-                                 allow_redirects=True, verify=verify_ssl)
-            # CF challenge detection — must be before raise_for_status
+            session = _get_shared_session(use_cf=bool(use_cf_session))
+            r = session.get(url, headers=headers, timeout=timeout,
+                            allow_redirects=True, verify=verify_ssl)
             if is_cloudflare_challenge(r):
-                logger.warning(
-                    f"Cloudflare challenge: {url}\n"
-                    f"  Enable 'CF Bypass' in GUI or --cloudscraper in CLI.\n"
-                    f"  Install: pip install cloudscraper"
-                )
-                return None
+                return "CF_CHALLENGE"
             r.raise_for_status()
+            if as_bytes:
+                _ = r.content
             return r
         except requests.exceptions.SSLError:
             return "SSL_ERROR"
         except requests.exceptions.ConnectionError as e:
             err = str(e).lower()
             if "connection reset" in err or "econnreset" in err:
-                logger.warning(f"Connection reset by server: {url} — try again later")
+                logger.warning(f"Connection reset oleh server: {url} — coba lagi nanti")
             elif "name or service not known" in err or "nodename nor servname" in err:
-                logger.error(f"Domain not found (DNS): {url}")
+                logger.error(f"Domain tidak ditemukan (DNS): {url}")
             else:
                 logger.error(f"Connection error: {url} — {e}")
             return None
@@ -9923,28 +12379,76 @@ def fetch_response(
             logger.warning(f"Timeout ({timeout}s): {url}")
             return None
         except requests.RequestException as e:
-            logger.error(f"Error: {url} — {e}")
+            # A Cloudflare-protected page often returns 403/503 without a parseable challenge body.
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            if status in {403, 429, 503}:
+                return "CF_CHALLENGE"
+            if quiet:
+                logger.debug(f"Probe miss: {url} — {e}")
+            else:
+                logger.error(f"Error: {url} — {e}")
             return None
 
-    result = _do_request(verify_ssl=True)
+    cf_mode = _normalize_cloudflare_mode(_CLOUDFLARE_MODE)
+    attempts: List[Tuple[str, bool]] = []
+    if cf_mode == "cloudscraper":
+        attempts = [("cloudscraper", True), ("normal", False)]
+    elif cf_mode == "flaresolverr":
+        attempts = [("flaresolverr", False), ("normal", False)]
+    else:
+        attempts = [("normal", False)]
 
-    # SSL fallback: retry without verification (with warning)
-    if result == "SSL_ERROR":
+    result = None
+    challenge_seen = False
+    ssl_error = False
+
+    for label, use_cf_session in attempts:
+        if label == "flaresolverr":
+            result = fetch_via_flaresolverr(url, extra_headers=headers, timeout=timeout)
+        else:
+            result = _do_request(use_cf_session=use_cf_session, verify_ssl=True)
+        if result == "CF_CHALLENGE":
+            challenge_seen = True
+            logger.warning(f"[Cloudflare] Challenge detected: {url}")
+            continue
+        if result == "SSL_ERROR":
+            ssl_error = True
+            break
+        if result is not None:
+            logger.info(f"Downloaded: {url}" + (f" via {label}" if label != "normal" else ""))
+            return result
+
+    if ssl_error:
         logger.warning(
             f"SSL certificate error: {url}\n"
-            f"  Retry without SSL verification (not secure, but continuing download)."
+            f"  Retry tanpa SSL verification (tidak aman, tapi melanjutkan download)."
         )
         import urllib3
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-        result = _do_request(verify_ssl=False)
-        if result and result != "SSL_ERROR":
-            logger.warning(f"  Succeeded without SSL verification: {url}")
+        result = _do_request(use_cf_session=(cf_mode == "cloudscraper"), verify_ssl=False)
+        if result and result not in {"SSL_ERROR", "CF_CHALLENGE"}:
+            logger.warning(f"  Berhasil tanpa SSL verify: {url}")
+            return result
 
-    if result is None or result == "SSL_ERROR":
-        return None
+    # Auto fallback chain: only escalate when a Cloudflare challenge is actually detected.
+    if cf_mode == "auto" and challenge_seen:
+        logger.info("[Cloudflare] Auto mode: trying cloudscraper fallback…")
+        result = _do_request(use_cf_session=True, verify_ssl=True)
+        if result and result not in {"SSL_ERROR", "CF_CHALLENGE"}:
+            logger.info(f"Downloaded: {url} via cloudscraper")
+            return result
+        logger.info("[Cloudflare] Auto mode: trying FlareSolverr fallback…")
+        result = fetch_via_flaresolverr(url, extra_headers=headers, timeout=timeout)
+        if result is not None:
+            return result
 
-    logger.info(f"Downloaded: {url}")
-    return result
+    if challenge_seen:
+        logger.warning(
+            f"Cloudflare challenge unresolved: {url}\n"
+            f"  GUI: set Cloudflare Mode to Auto or FlareSolverr.\n"
+            f"  CLI: use --cloudflare auto or --cloudflare flaresolverr."
+        )
+    return None
 
 
 def try_decode_bytes(raw: bytes, preferred_encoding: str = "") -> str:
@@ -10408,13 +12912,13 @@ def _extract_website_from_archive_zip_name(zip_filename: str) -> Optional[str]:
 
 
 
-def try_project_candidate(candidate_url: str, label: str = "") -> Tuple[Optional[str], str]:
+def try_project_candidate(candidate_url: str, label: str = "", quiet: bool = False) -> Tuple[Optional[str], str]:
     if label:
         logger.info(f"Trying {label}: {candidate_url}")
     else:
         logger.info(f"Trying candidate: {candidate_url}")
 
-    response = fetch_response(candidate_url, timeout=25)
+    response = fetch_response(candidate_url, timeout=25, quiet=quiet)
     if not response:
         return None, ""
 
@@ -10533,30 +13037,18 @@ def _parallel_head_check(
     max_workers: int = 12,
     timeout: int = 5,
 ) -> List[str]:
-    """
-    Send HEAD requests to all candidates simultaneously.
-    Returns those that respond HTTP 200, in original order.
-    Much faster than sequential GET for 60+ paths.
+    """Check candidate URLs through the unified fetch wrapper.
+
+    This intentionally uses lightweight GET through fetch_response instead of raw
+    HEAD so Cloudflare/FlareSolverr, proxy, DNS, and retry policy are consistent.
     """
     results: Dict[str, bool] = {}
     lock = threading.Lock()
 
     def check(url: str) -> None:
         try:
-            r = requests.head(url, allow_redirects=True, timeout=timeout,
-                              headers={"User-Agent": "Mozilla/5.0"})
-            if r.status_code == 200:
-                ok = True
-            elif r.status_code in (403, 405, 501):
-                # Server blocks HEAD (Neocities, some CDNs) — fall back to GET
-                # Use stream=True so we only download headers, not the full body
-                r2 = requests.get(url, allow_redirects=True, timeout=timeout,
-                                  headers={"User-Agent": "Mozilla/5.0"},
-                                  stream=True)
-                r2.close()
-                ok = r2.status_code == 200
-            else:
-                ok = False
+            r = fetch_response(url, timeout=timeout, extra_headers={"User-Agent": "Mozilla/5.0"}, as_bytes=True, quiet=True)
+            ok = bool(r is not None and r.status_code == 200)
         except Exception:
             ok = False
         with lock:
@@ -10568,7 +13060,9 @@ def _parallel_head_check(
     return [u for u in candidates if results.get(u)]
 
 
-def get_project_source(url: str, depth: int = 0, ai_api_key: str = "") -> Tuple[Optional[str], str]:
+def get_project_source(url: str, depth: int = 0, ai_api_key: str = "",
+                       ai_provider: str = "", ai_mode: str = "auto_fallback",
+                       ai_budget: Optional[AIUsageBudget] = None) -> Tuple[Optional[str], str]:
     if depth > 4:
         logger.warning(f"Max recursion depth at {url}")
         return None, ""
@@ -10610,9 +13104,8 @@ def get_project_source(url: str, depth: int = 0, ai_api_key: str = "") -> Tuple[
     # the actual ICC Plus viewer is at /slug/game/.
     # Detect by: loads "game/assets/*.js" + has <div id="root"> (React).
     try:
-        _shell_r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"},
-                                timeout=8, allow_redirects=True)
-        _shell_html = _shell_r.text if _shell_r.ok else ""
+        _shell_r = fetch_response(url, extra_headers={"User-Agent": "Mozilla/5.0"}, timeout=8)
+        _shell_html = _safe_response_text(_shell_r) if _shell_r is not None else ""
         if ('game/assets/' in _shell_html and
                 ('<div id="root">' in _shell_html or
                  'placeholder-content' in _shell_html) and
@@ -10641,10 +13134,28 @@ def get_project_source(url: str, depth: int = 0, ai_api_key: str = "") -> Tuple[
                 if proj:
                     return proj, proj_url
 
-    # ── Phase 1: parallel HEAD-check all default candidates ───────────────
+    # ── Phase 0c: try the canonical default locations first ───────────────
+    # This makes the control flow match user expectations and avoids waiting
+    # for a large brute-force sweep when /project.json exists.
     default_candidates = build_default_project_candidates(url)
+    canonical_defaults: List[str] = []
+    for _candidate in default_candidates:
+        _path = urlparse(_candidate).path.lower().rstrip("/")
+        if _path.endswith(("/project.json", "/project.txt", "/project.zip")):
+            canonical_defaults.append(_candidate)
+        if len(canonical_defaults) >= 3:
+            break
+    if canonical_defaults:
+        logger.info("Phase 0c: trying canonical default project locations first…")
+        for candidate in canonical_defaults:
+            proj, proj_url = try_project_candidate(candidate, label="default path", quiet=True)
+            if proj:
+                return proj, proj_url
+
+    # ── Phase 1: parallel-check remaining default candidates ───────────────
+    default_candidates = [c for c in default_candidates if c not in set(canonical_defaults)]
     logger.info(
-        f"Phase 1: HEAD-checking {len(default_candidates)} default candidates in parallel…"
+        f"Phase 1: checking {len(default_candidates)} remaining default candidates in parallel…"
     )
     live = _parallel_head_check(default_candidates, max_workers=12)
     logger.info(f"  {len(live)}/{len(default_candidates)} candidate(s) alive — fetching…")
@@ -10699,21 +13210,23 @@ def get_project_source(url: str, depth: int = 0, ai_api_key: str = "") -> Tuple[
     for idx, iframe_url in enumerate(iframe_urls, start=1):
         iframe_full = urljoin(base_url, iframe_url)
         logger.info(f"  Checking iframe {idx}/{len(iframe_urls)}: {iframe_full}")
-        proj, proj_url = get_project_source(iframe_full, depth + 1, ai_api_key=ai_api_key)
+        proj, proj_url = get_project_source(iframe_full, depth + 1, ai_api_key=ai_api_key, ai_provider=ai_provider, ai_mode=ai_mode, ai_budget=ai_budget)
         if proj:
             return proj, proj_url
 
-    # ── Phase 5: AI-assisted detection (Claude API) ────────────────────
-    if ai_api_key and depth == 0:
+    # ── Phase 5: AI-assisted detection (provider-neutral) ─────────────
+    ai_provider = _normalize_ai_provider(ai_provider or _get_ai_provider())
+    ai_mode = _normalize_ai_mode(ai_mode)
+    if depth == 0 and _ai_mode_allows("project_detect", ai_mode) and _ai_is_available(ai_api_key, ai_provider):
         logger.info("Phase 5: AI-assisted project detection…")
-        ai_candidate = _ai_detect_project_json(url, source, api_key=ai_api_key)
+        ai_candidate = _ai_detect_project_json(url, source, api_key=ai_api_key, provider=ai_provider, ai_mode=ai_mode, budget=ai_budget)
         if ai_candidate:
             try:
-                r = requests.get(ai_candidate, timeout=15,
-                                 headers={"User-Agent": "Mozilla/5.0"})
-                if r.status_code == 200 and r.text.strip()[:1] in ("{", "["):
+                r = fetch_response(ai_candidate, timeout=15, extra_headers={"User-Agent": "Mozilla/5.0"})
+                txt = _safe_response_text(r) if r is not None else ""
+                if txt.strip()[:1] in ("{", "["):
                     logger.info(f"  AI candidate confirmed: {ai_candidate}")
-                    return r.text, ai_candidate
+                    return txt, ai_candidate
             except Exception as e:
                 logger.debug(f"  AI candidate failed: {e}")
 
@@ -10723,16 +13236,8 @@ def get_project_source(url: str, depth: int = 0, ai_api_key: str = "") -> Tuple[
 
 def url_file_exists(url: str, timeout: int = 5) -> bool:
     try:
-        r = requests.head(url, allow_redirects=True, timeout=timeout,
-                          headers={"User-Agent": "Mozilla/5.0"})
-        if r.status_code == 200:
-            return True
-        if r.status_code in (403, 405, 501):
-            r2 = requests.get(url, allow_redirects=True, timeout=timeout,
-                              headers={"User-Agent": "Mozilla/5.0"}, stream=True)
-            r2.close()
-            return r2.status_code == 200
-        return False
+        r = fetch_response(url, timeout=timeout, extra_headers={"User-Agent": "Mozilla/5.0"}, as_bytes=True)
+        return bool(r is not None and r.status_code == 200)
     except Exception:
         return False
 
@@ -10846,8 +13351,9 @@ def get_iframe_url_from_cyoa_cafe(game_url: str) -> str:
             record_id = parts[1]
             api_url   = f"https://cyoa.cafe/api/collections/games/records/{record_id}"
             try:
-                r = requests.get(api_url, headers=headers, timeout=15)
-                r.raise_for_status()
+                r = fetch_response(api_url, extra_headers=headers, timeout=15)
+                if r is None:
+                    raise requests.RequestException("empty response")
                 data = r.json()
                 # PocketBase may use different field names across versions
                 for field in ("iframe_url", "iframeUrl", "url", "link", "source", "embed"):
@@ -10877,8 +13383,8 @@ def get_iframe_url_from_cyoa_cafe(game_url: str) -> str:
                         f"https://cyoa.cafe/api/collections/games/records"
                         f"?filter={requests.utils.quote(filter_expr)}&perPage=5"
                     )
-                    r = requests.get(api_url, headers=headers, timeout=15)
-                    if r.status_code == 200:
+                    r = fetch_response(api_url, extra_headers=headers, timeout=15)
+                    if r is not None:
                         data  = r.json()
                         items = data.get("items", [])
                         if items:
@@ -10892,8 +13398,8 @@ def get_iframe_url_from_cyoa_cafe(game_url: str) -> str:
 
         # Attempt 2: Fetch the page HTML and look for iframe src / embedded JSON
         try:
-            r = requests.get(game_url, headers=headers, timeout=15, allow_redirects=True)
-            if r.status_code == 200:
+            r = fetch_response(game_url, extra_headers=headers, timeout=15)
+            if r is not None:
                 html = _safe_response_text(r)
                 from bs4 import BeautifulSoup
                 soup = BeautifulSoup(html, "html.parser")
@@ -11565,6 +14071,9 @@ def _deep_scan_and_download_assets(
     wait_time: int = DEFAULT_WAIT_TIME,
     max_workers: int = DEFAULT_MAX_WORKERS,
     ai_api_key: str = "",
+    ai_provider: str = "",
+    ai_mode: str = "aggressive_recovery",
+    ai_budget: Optional[AIUsageBudget] = None,
     skip_urls: Optional[Set[str]] = None,
 ) -> Dict[str, str]:
     """
@@ -11578,6 +14087,7 @@ def _deep_scan_and_download_assets(
 
     TEXT_EXTS   = {'.js', '.css', '.html', '.htm', '.mjs', '.cjs', '.json', '.svg'}
     all_downloaded: Dict[str, str] = {}   # url → rel_path
+    failed_deep_assets: List[Dict[str, str]] = []
     scanned_files: Set[str]        = set()   # abs file paths already scanned
     known_urls:    Set[str]        = set()   # candidate URLs already seen
 
@@ -11616,7 +14126,8 @@ def _deep_scan_and_download_assets(
                 rel    = os.path.relpath(fpath, folder).replace('\\', '/')
                 f_url  = urljoin(base_url.rstrip('/') + '/', rel)
                 try:
-                    text = open(fpath, encoding='utf-8', errors='replace').read()
+                    with open(fpath, encoding='utf-8', errors='replace') as _fh:
+                        text = _fh.read()
                     urls = _scan_file_for_assets(text, f_url, base_url, ext)
                     new_candidates |= (urls - known_urls)
                 except Exception as e:
@@ -11645,21 +14156,57 @@ def _deep_scan_and_download_assets(
     if _proxy:
         _session.proxies.update({"http": _proxy, "https": _proxy})
 
+    _http2_client = None
+    if _HTTP2_ENABLED:
+        try:
+            import httpx  # type: ignore
+            _http2_kwargs = dict(
+                http2=True,
+                follow_redirects=True,
+                timeout=20,
+                headers={"User-Agent": "Mozilla/5.0"},
+            )
+            if _proxy:
+                # httpx changed proxy keyword behavior across versions. Try modern
+                # proxy= first, then fall back to proxies= for older releases.
+                try:
+                    _http2_client = httpx.Client(proxy=_proxy, **_http2_kwargs)
+                except TypeError:
+                    _http2_client = httpx.Client(proxies={"http://": _proxy, "https://": _proxy}, **_http2_kwargs)
+                logger.info("[deep scan] HTTP/2 enabled via httpx with proxy")
+            else:
+                _http2_client = httpx.Client(**_http2_kwargs)
+                logger.info("[deep scan] HTTP/2 enabled via httpx")
+        except Exception as e:
+            logger.warning(f"[deep scan] HTTP/2 unavailable, falling back to requests: {e}")
+            _http2_client = None
+
     def _try_fetch(url: str) -> Tuple[str, Optional[bytes], int]:
-        """Single-pass GET with streaming: checks status, reads body only on 200.
-        Returns (url, content_or_None, status_code).
-        Replaces the old HEAD-check-then-GET two-step."""
+        """Single-pass GET with unified fallback support.
+
+        Tries HTTP/2 first when enabled, then falls back to fetch_response so
+        Cloudflare/FlareSolverr, proxy, DNS, and retry policy remain consistent.
+        """
         try:
             _domain_throttle(url)
             hdrs = get_headers_for_url(url) or {}
-            r = _session.get(url, timeout=20, allow_redirects=True,
-                             stream=True, headers=hdrs)
-            if r.status_code == 200:
-                content = r.content  # reads the body
-                r.close()
+            if _http2_client is not None:
+                try:
+                    r2 = _http2_client.get(url, headers=hdrs)
+                    if r2.status_code == 200:
+                        content = r2.content
+                        _throttle_bandwidth(len(content))
+                        return url, content, 200
+                    if r2.status_code not in {403, 429, 503}:
+                        return url, None, r2.status_code
+                except Exception:
+                    pass
+            r = fetch_response(url, extra_headers=hdrs, timeout=20, as_bytes=True)
+            if r is not None and r.status_code == 200:
+                content = r.content
+                _throttle_bandwidth(len(content))
                 return url, content, 200
-            r.close()
-            return url, None, r.status_code
+            return url, None, int(getattr(r, "status_code", 0) or 0)
         except Exception:
             return url, None, 0
 
@@ -11682,7 +14229,7 @@ def _deep_scan_and_download_assets(
         try:
             _, content, status = _try_fetch(mp_url)
             if content and content.strip()[:1] in (b'{', b'['):
-                mp_local = os.path.join(folder, mp_rel)
+                mp_local = _safe_join(folder, mp_rel)
                 os.makedirs(os.path.dirname(mp_local), exist_ok=True)
                 with open(mp_local, 'wb') as f:
                     f.write(content)
@@ -11730,7 +14277,7 @@ def _deep_scan_and_download_assets(
                     rel = _url_to_local(url)
                     if not rel:
                         rel = os.path.basename(urlparse(url).path) or 'asset'
-                    local = os.path.join(folder, *rel.replace('\\', '/').split('/'))
+                    local = _safe_join(folder, rel)
                     os.makedirs(os.path.dirname(local), exist_ok=True)
                     try:
                         with open(local, 'wb') as f:
@@ -11740,8 +14287,10 @@ def _deep_scan_and_download_assets(
                         new_this_round += 1
                         logger.info(f"  [deep ✓] {rel}")
                     except Exception as e:
+                        failed_deep_assets.append({"url": url, "path": rel, "error": f"save failed: {e}", "kind": "deep-scan"})
                         logger.debug(f"[deep scan] save {rel}: {e}")
                 elif status != 200:
+                    failed_deep_assets.append({"url": url, "path": _url_to_local(url), "error": f"HTTP {status or 'request failed'}", "kind": "deep-scan"})
                     # Vite correction: if root-level JS 404'd, try /assets/
                     p = urlparse(url).path
                     if p.count('/') == 1 and p.lower().endswith(('.js', '.mjs')):
@@ -11759,7 +14308,7 @@ def _deep_scan_and_download_assets(
                         rel = _url_to_local(url)
                         if not rel:
                             rel = os.path.basename(urlparse(url).path) or 'asset'
-                        local = os.path.join(folder, *rel.replace('\\', '/').split('/'))
+                        local = _safe_join(folder, rel)
                         os.makedirs(os.path.dirname(local), exist_ok=True)
                         try:
                             with open(local, 'wb') as f:
@@ -11768,8 +14317,9 @@ def _deep_scan_and_download_assets(
                             _disk_files.add(rel)
                             new_this_round += 1
                             logger.info(f"  [deep ✓ Vite] {rel}")
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            failed_deep_assets.append({"url": url, "path": rel, "error": f"save failed: {e}", "kind": "deep-scan"})
+                            logger.debug(f"[deep scan] save {rel}: {e}")
             logger.debug(f"[deep scan] Vite /assets/ correction: "
                          f"{len(vite_retry)} tried")
 
@@ -11782,14 +14332,20 @@ def _deep_scan_and_download_assets(
         # Refresh disk index after downloads
         _rebuild_disk_index()
 
-    _session.close()
+    if _http2_client is not None:
+        try:
+            _http2_client.close()
+        except Exception:
+            pass
 
     if all_downloaded:
         logger.info(f"[deep scan] Complete: {len(all_downloaded)} total asset(s) downloaded"
                     f" in {round_n} round(s)")
 
     # ── AI-assisted final round ────────────────────────────────────────
-    if ai_api_key:
+    ai_provider = _normalize_ai_provider(ai_provider or _get_ai_provider())
+    ai_mode = _normalize_ai_mode(ai_mode)
+    if _ai_mode_allows("asset_scan", ai_mode) and _ai_is_available(ai_api_key, ai_provider):
         try:
             js_files_ai: Dict[str, str] = {}
             for _root, _, _files in os.walk(folder):
@@ -11804,7 +14360,8 @@ def _deep_scan_and_download_assets(
                             pass
 
             if js_files_ai:
-                ai_candidates = _ai_analyze_js_for_assets(js_files_ai, base_url, api_key=ai_api_key)
+                ai_candidates = _ai_analyze_js_for_assets(js_files_ai, base_url, api_key=ai_api_key,
+                    provider=ai_provider, ai_mode=ai_mode, budget_obj=ai_budget)
                 ai_new = [u for u in ai_candidates
                           if u not in known_urls and u not in all_downloaded]
                 if ai_new:
@@ -11812,25 +14369,8 @@ def _deep_scan_and_download_assets(
                     known_urls.update(ai_new)
 
                     ai_new_count = 0
-                    # Reopen session for AI round
-                    _session2 = requests.Session()
-                    _session2.headers.update({"User-Agent": "Mozilla/5.0"})
-                    _session2.mount("https://", _adapter)
-                    _session2.mount("http://", _adapter)
-                    if _proxy:
-                        _session2.proxies.update({"http": _proxy, "https": _proxy})
-
                     def _try_fetch_ai(url: str) -> Tuple[str, Optional[bytes], int]:
-                        try:
-                            _domain_throttle(url)
-                            hdrs = get_headers_for_url(url) or {}
-                            r = _session2.get(url, timeout=20, allow_redirects=True,
-                                              stream=True, headers=hdrs)
-                            if r.status_code == 200:
-                                c = r.content; r.close(); return url, c, 200
-                            r.close(); return url, None, r.status_code
-                        except Exception:
-                            return url, None, 0
+                        return _try_fetch(url)
 
                     with _TPE(max_workers=_dl_workers) as ex:
                         for url_ai, content_ai, _ in ex.map(_try_fetch_ai, ai_new):
@@ -11839,7 +14379,7 @@ def _deep_scan_and_download_assets(
                             rel_ai = _url_to_local(url_ai)
                             if not rel_ai:
                                 rel_ai = os.path.basename(urlparse(url_ai).path) or 'asset'
-                            local_ai = os.path.join(folder, *rel_ai.replace('\\', '/').split('/'))
+                            local_ai = _safe_join(folder, rel_ai)
                             os.makedirs(os.path.dirname(local_ai), exist_ok=True)
                             try:
                                 with open(local_ai, 'wb') as f_ai:
@@ -11849,10 +14389,21 @@ def _deep_scan_and_download_assets(
                                 logger.info(f"  [AI ✓] {rel_ai}")
                             except Exception:
                                 pass
-                    _session2.close()
                     logger.info(f"[AI scan] Done — {ai_new_count} new asset(s)")
         except Exception as e:
             logger.debug(f"[AI scan] error: {e}")
+
+    if failed_deep_assets:
+        try:
+            report_target = write_asset_failure_summary(
+                failed_deep_assets,
+                folder,
+                source_url=base_url,
+                title="Broken Deep-Scan Asset Report",
+            )
+            logger.warning(f"[deep scan] {len(failed_deep_assets)} asset(s) failed; see {os.path.basename(report_target or 'backup_report.txt')}")
+        except Exception as e:
+            logger.debug(f"[deep scan] broken report failed: {e}")
 
     return all_downloaded
 
