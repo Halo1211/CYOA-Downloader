@@ -1,43 +1,36 @@
-# CYOA Downloader v7.3.9 requirements
-# Install with: pip install -r requirements.txt
-
-# Core downloader and parsing
-requests>=2.32.3
-beautifulsoup4>=4.12.3
-tldextract>=5.1.2
-Pillow>=10.4.0
-json5>=0.9.25
-urllib3>=2.2.2
-charset-normalizer>=3.3.2
-chardet>=5.2.0
+# Core runtime
+requests>=2.31.0
+urllib3>=2.0.0
+beautifulsoup4>=4.12.0
 
 # GUI
-customtkinter>=5.2.2
-plyer>=2.1.0
+customtkinter>=5.2.0
+Pillow>=10.0.0
 
-# Network helpers
+# Batch import / Excel support
+pandas>=2.0.0
+openpyxl>=3.1.0
+xlrd>=2.0.1
+
+# Optional parsing and URL helpers
+json5>=0.9.0
+tldextract>=5.0.0
+chardet>=5.0.0
+charset-normalizer>=3.0.0
+
+# Optional network/recovery features
+httpx[h2]>=0.26.0
 cloudscraper>=1.2.71
-httpx[h2]>=0.27.0
-dnspython>=2.6.1
+dnspython>=2.4.0
 
-# Audio and media helpers
-yt-dlp>=2025.1.15
-browser-cookie3>=0.20.1
+# Optional media/browser helpers
+yt-dlp>=2024.1.0
+selenium>=4.15.0
+playwright>=1.40.0
+gallery-dl>=1.26.0
+browser-cookie3>=0.19.0
 
-# Archive support
-rarfile>=4.2
-
-# Batch import
-openpyxl>=3.1.5
-pandas>=2.2.2
-
-# AI Assist key storage
-keyring>=25.2.1
-
-# Optional gallery/post downloader fallback
-gallery-dl>=1.27.0
-
-# Optional browser fallback packages.
-# Install manually only if you need them because they are heavier.
-# playwright>=1.45.0
-# selenium>=4.23.0
+# Optional secure key storage / notifications / archives
+keyring>=24.0.0
+plyer>=2.1.0
+rarfile>=4.0

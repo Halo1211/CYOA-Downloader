@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Build / packaging
+build/
+dist/
+*.egg-info/
+*.spec
+
+# Runtime output
+outputs/
+downloads/
+cyoa_output/
+cyoa_downloader.log
+failed_urls.txt
+failed_assets.txt
+failed_images.txt
+backup_report.txt
+*.part
+*.tmp
+*.zip
+
+# Local settings and secrets
+settings.json
+*.local.json
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
