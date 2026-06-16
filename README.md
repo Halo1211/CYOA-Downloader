@@ -107,7 +107,7 @@ There are two normal ways to use this project:
 
 | Method | Best for | Status |
 | --- | --- | --- |
-| **Windows EXE** | Non-technical Windows users | Use this after an EXE is published in GitHub Releases. |
+| **Windows EXE** | Non-technical Windows users | CYOA-Downloader-v1.0-Windows-x64.exe |
 | **Python source install** | Current release, advanced users, maintainers | Fully supported now. |
 
 For the shortest beginner path, open [`START_HERE.md`](START_HERE.md). For the full step-by-step guide, open [`INSTALLATION.md`](INSTALLATION.md).
@@ -125,7 +125,7 @@ CYOA-Downloader-v1.0-Windows-x64.zip
 4. Run:
 
 ```text
-CYOA Downloader.exe
+CYOA-Downloader-v1.0-Windows-x64.exe
 ```
 
 Do **not** run the EXE directly from inside the ZIP preview window. Extract it first.
