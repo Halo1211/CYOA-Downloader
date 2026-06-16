@@ -1,231 +1,85 @@
 # Usage Guide — CYOA Downloader v1.0 Release
 
-This guide shows practical workflows for normal users, advanced users, and maintainers.
+This guide provides practical workflows.
 
 ---
 
-## 1. Recommended first run
+## 1. GUI workflow
 
 ```bash
-python cyoa_downloader.py --dependency-check
-python cyoa_downloader.py --self-test
 python cyoa_downloader.py
 ```
 
-The first command checks installed packages. The second runs internal offline checks. The third opens the GUI.
+1. Paste one or more CYOA URLs.
+2. Select **ICC Folder** for the first test run.
+3. Enable fonts if visual fidelity matters.
+4. Keep deep scan enabled unless it causes issues.
+5. Click **Preview**.
+6. Click **Download All**.
+7. Use **Serve** to preview the folder output through localhost.
+8. Review reports if any assets are missing.
 
 ---
 
-## 2. Best default backup mode
+## 2. CLI workflows
 
-For most ICC projects, use **ICC Folder** first:
+### Fast default backup
 
 ```bash
-python cyoa_downloader.py --icc-folder "URL" -o output_folder
+python cyoa_downloader.py "https://example.com/cyoa" -o output
 ```
 
-Why folder first?
-
-- easier to inspect missing assets;
-- easier to preview locally;
-- safer for very large projects;
-- easier to attach logs/reports to an issue.
-
-After confirming the folder is correct, use ICC ZIP:
+### ZIP backup
 
 ```bash
-python cyoa_downloader.py --icc "URL" -o output
+python cyoa_downloader.py --zip "https://example.com/cyoa" -o output
 ```
 
----
-
-## 3. Normal workflows
-
-### Save embedded JSON
+### Full offline ICC folder
 
 ```bash
-python cyoa_downloader.py "URL" -o output
+python cyoa_downloader.py --icc-folder "https://example.com/cyoa" -o output_folder
 ```
 
-### Save project and external assets as ZIP
+### Full offline ICC ZIP
 
 ```bash
-python cyoa_downloader.py --zip "URL" -o output
+python cyoa_downloader.py --icc "https://example.com/cyoa" -o output
 ```
 
-### Save both embedded and ZIP
+### Folder output with local preview
 
 ```bash
-python cyoa_downloader.py --both "URL" -o output
+python cyoa_downloader.py --icc-folder "https://example.com/cyoa" -o output_folder --serve
 ```
 
-### Save full offline ICC viewer ZIP
+### Download with fonts
 
 ```bash
-python cyoa_downloader.py --icc "URL" -o output
+python cyoa_downloader.py --icc-folder "https://example.com/cyoa" -o output_folder --fonts
 ```
 
-### Save full offline ICC viewer folder
+### Slow network safe mode style command
 
 ```bash
-python cyoa_downloader.py --icc-folder "URL" -o output_folder
-```
-
-### Save and open local preview
-
-```bash
-python cyoa_downloader.py --icc-folder "URL" -o output_folder --serve
+python cyoa_downloader.py --icc-folder "https://example.com/cyoa" -o output_folder --threads 2 --wait-time 120 --no-http2
 ```
 
 ---
 
-## 4. Missing asset recovery workflow
-
-Try this order:
-
-```bash
-python cyoa_downloader.py --icc-folder "URL" -o output --threads 2 --wait-time 120
-```
-
-If assets are still missing:
-
-```bash
-python cyoa_downloader.py --icc-folder "URL" -o output --gallery-dl smart
-```
-
-If the site is Cloudflare protected:
-
-```bash
-python cyoa_downloader.py --icc-folder "URL" -o output --cloudflare auto
-```
-
-If you run FlareSolverr locally:
-
-```bash
-python cyoa_downloader.py --icc-folder "URL" -o output \
-  --cloudflare flaresolverr \
-  --flaresolverr-url http://localhost:8191/v1
-```
-
-If normal detection still fails and you accept AI usage:
-
-```bash
-python cyoa_downloader.py --icc-folder "URL" -o output \
-  --ai-provider openai \
-  --ai-mode auto_fallback \
-  --ai-key "YOUR_KEY"
-```
-
----
-
-## 5. Deep scan workflows
-
-Deep scan is enabled by default:
-
-```bash
-python cyoa_downloader.py --icc-folder "URL" -o output
-```
-
-Disable only for troubleshooting:
-
-```bash
-python cyoa_downloader.py --icc-folder "URL" -o output --no-deep-scan
-```
-
-Disable headless fallback if browser automation causes problems:
-
-```bash
-python cyoa_downloader.py --icc-folder "URL" -o output --no-selenium
-```
-
-Disable `yt-dlp` if external audio extraction is unwanted:
-
-```bash
-python cyoa_downloader.py --icc-folder "URL" -o output --no-ytdlp
-```
-
----
-
-## 6. AI Assist workflows
-
-### Diagnostics only
-
-```bash
-python cyoa_downloader.py --icc-folder "URL" -o output \
-  --ai-provider ollama \
-  --ai-model llama3.1 \
-  --ai-mode diagnostics
-```
-
-### Auto fallback
-
-```bash
-python cyoa_downloader.py --icc-folder "URL" -o output \
-  --ai-provider anthropic \
-  --ai-mode auto_fallback \
-  --ai-key "YOUR_KEY"
-```
-
-### Aggressive asset recovery
-
-```bash
-python cyoa_downloader.py --icc-folder "URL" -o output \
-  --ai-provider openrouter \
-  --ai-mode aggressive_recovery \
-  --ai-max-calls 3 \
-  --ai-max-html-chars 8000 \
-  --ai-max-js-chars 14000 \
-  --ai-key "YOUR_KEY"
-```
-
----
-
-## 7. Network workflows
-
-### Use manual proxy
-
-```bash
-python cyoa_downloader.py --icc-folder "URL" -o output \
-  --proxy http://127.0.0.1:7890 \
-  --proxy-mode manual
-```
-
-### Disable proxy/environment proxy
-
-```bash
-python cyoa_downloader.py --icc-folder "URL" -o output --proxy-mode disabled
-```
-
-### DNS override
-
-```bash
-python cyoa_downloader.py --icc-folder "URL" -o output --dns 1.1.1.1
-```
-
-### BebasDNS preset
-
-```bash
-python cyoa_downloader.py --icc-folder "URL" -o output --bebasdns unfiltered
-```
-
-### Enable HTTP/2
-
-```bash
-python cyoa_downloader.py --icc-folder "URL" -o output --http2
-```
-
----
-
-## 8. Batch workflows
+## 3. Batch workflows
 
 ### TXT batch
 
+`batch.txt`:
+
 ```text
-https://example.com/cyoa/
-https://example.com/cyoa2/ | MyFilename
-https://example.com/cyoa3/ | MyZip | icc
-https://example.com/cyoa4/ | MyFolder | icc_folder
+https://example.com/cyoa-one/
+https://example.com/cyoa-two/ | CYOA Two | icc_folder
+https://example.com/cyoa-three/ | CYOA Three | zip
 ```
+
+Run:
 
 ```bash
 python cyoa_downloader.py --list batch.txt -o outputs
@@ -233,77 +87,93 @@ python cyoa_downloader.py --list batch.txt -o outputs
 
 ### CSV batch
 
+`batch.csv`:
+
 ```csv
 url,filename,mode
-https://example.com/cyoa1,Project One,icc
-https://example.com/cyoa2,Project Two,icc_folder
-https://example.com/cyoa3,Project Three,zip
+https://example.com/cyoa-one/,CYOA One,icc_folder
+https://example.com/cyoa-two/,CYOA Two,icc
+https://example.com/cyoa-three/,CYOA Three,both
 ```
+
+Run:
 
 ```bash
 python cyoa_downloader.py --list batch.csv -o outputs
 ```
 
-### Google Sheets batch
+---
+
+## 4. CYOAP Vue workflow
+
+Use this when the project uses:
+
+```text
+dist/platform.json
+dist/nodes/list.json
+```
+
+Commands:
 
 ```bash
-python cyoa_downloader.py --list "https://docs.google.com/spreadsheets/d/..." -o outputs
+python cyoa_downloader.py --cyoap-vue-website "https://example.com/project/" -o output
+python cyoa_downloader.py --cyoap-vue-folder "https://example.com/project/" -o output_folder
+```
+
+Auto-probe before standard ICC detection:
+
+```bash
+python cyoa_downloader.py --cyoap-vue --icc-folder "https://example.com/project/" -o output_folder
 ```
 
 ---
 
-## 9. CYOAP Vue workflow
+## 5. Pure Website workflow
+
+Use this for custom sites that do not expose standard CYOA project JSON in the expected way.
 
 ```bash
-python cyoa_downloader.py --cyoap-vue "URL" -o output
-python cyoa_downloader.py --cyoap-vue-website "URL" -o output
-python cyoa_downloader.py --cyoap-vue-folder "URL" -o output_folder
+python cyoa_downloader.py --pure-website "https://example.com/custom" -o output
+python cyoa_downloader.py --pure-website-folder "https://example.com/custom" -o output_folder
 ```
-
-Use CYOAP Vue mode when the project uses `dist/platform.json` and `dist/nodes/list.json`.
 
 ---
 
-## 10. Pure website workflow
+## 6. Diagnostics workflow
 
-```bash
-python cyoa_downloader.py --pure-website "URL" -o output
-python cyoa_downloader.py --pure-website-folder "URL" -o output_folder
-```
-
-Use this when the target is a custom viewer/site and normal ICC project JSON discovery is not the correct first step.
-
----
-
-## 11. Maintenance workflows
+Before opening an issue, run:
 
 ```bash
 python cyoa_downloader.py --dependency-check
 python cyoa_downloader.py --self-test
-python cyoa_downloader.py --userscript-info
-python cyoa_downloader.py --export-settings settings.redacted.json
-python cyoa_downloader.py --import-settings settings.redacted.json
-python cyoa_downloader.py --ai-clear-key --ai-provider openai --ai-key-storage keyring
 ```
+
+For userscript/helper policy:
+
+```bash
+python cyoa_downloader.py --userscript-info
+```
+
+Export settings safely:
+
+```bash
+python cyoa_downloader.py --export-settings settings.safe.json
+```
+
+The export redacts secrets and ignores raw secret import.
 
 ---
 
-## 12. v1.0 migration workflow
+## 7. Recommended issue report
 
-Old commands:
+When reporting a problem, include:
 
-```bash
-python cyoa_downloader.py --website "URL" -o output
-python cyoa_downloader.py -W "URL" -o output
-python cyoa_downloader.py --website-folder "URL" -o output_folder
-```
+- OS and Python version.
+- Command used or GUI mode selected.
+- Output mode.
+- Whether the URL requires login or Cloudflare.
+- `--dependency-check` output.
+- `backup_report.txt` if generated.
+- Relevant lines from `cyoa_downloader.log` with private URLs/tokens removed if needed.
 
-New commands:
-
-```bash
-python cyoa_downloader.py --icc "URL" -o output
-python cyoa_downloader.py --icc "URL" -o output
-python cyoa_downloader.py --icc-folder "URL" -o output_folder
-```
-
-Batch values `website_zip` and `website_folder` remain supported for old files.
+Do not share private API keys, cookies, or authentication headers.

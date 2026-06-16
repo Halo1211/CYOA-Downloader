@@ -4,62 +4,49 @@
 
 ### Added
 
+- GitHub-ready release structure.
 - MIT License.
-- Dark/light compatible logo assets.
-- GitHub-ready repository structure.
-- Expanded README with full feature overview.
-- Complete documentation pages:
-  - `docs/FEATURES.md`
-  - `docs/CLI.md`
-  - `docs/GUI.md`
-  - `docs/HOW_IT_WORKS.md`
-  - `docs/INSTALLATION.md`
-  - `docs/USAGE.md`
-  - `docs/TROUBLESHOOTING.md`
-  - `docs/EXE_BUILD.md`
-  - `docs/CREDITS.md`
-- Tests for CLI aliasing, path handling, and batch import.
-- Formal release notes.
+- Light/dark compatible project logo assets.
+- Expanded GitHub documentation:
+  - Full README.
+  - Feature inventory.
+  - Complete CLI reference.
+  - GUI guide.
+  - How-it-works architecture guide.
+  - Installation guide.
+  - Usage guide.
+  - Troubleshooting guide.
+  - Windows EXE build guide.
+  - Credits and release notes.
+- ICC CLI flags:
+  - `--icc`
+  - `--icc-folder`
+- Batch aliases:
+  - `icc`
+  - `icc_zip`
+  - `icc_folder`
+- Test scaffold for CLI aliases, path safety, batch import, and help behavior.
 
 ### Changed
 
+- User-facing Website Mode terminology replaced with ICC Mode.
 - Version branding changed to `v1.0 Release`.
-- User-facing Website Mode terminology changed to ICC Mode.
-- CLI now uses:
-  - `--icc`
-  - `--icc-folder`
-- README and docs now document advanced features including:
-  - AI Assist;
-  - deep scan;
-  - Cloudflare/cloudscraper/FlareSolverr;
-  - proxy/DNS/BebasDNS/HTTP2;
-  - gallery-dl;
-  - yt-dlp;
-  - Playwright/Selenium headless fallback;
-  - CYOAP Vue;
-  - Pure Website modes;
-  - local preview and userscript helper;
-  - CYOA Manager;
-  - itch.io support;
-  - diagnostics and maintenance commands.
+- README now documents feature matrix, CLI usage, mode behavior, reports, Serve tools, EXE build, and responsible-use policy.
 
 ### Removed
 
-- Old Website CLI flags were intentionally removed for consistency:
+- Removed legacy CLI flags for naming consistency:
   - `--website`
   - `-W`
   - `--website-folder`
 
 ### Preserved compatibility
 
-- Internal mode key `website_zip` remains supported.
-- Internal mode key `website_folder` remains supported.
-- Old batch/settings/manifest data using those internal keys remains compatible.
+- Internal mode keys remain supported:
+  - `website_zip`
+  - `website_folder`
+- Existing batch/settings/manifest data using internal keys remains compatible.
 
-### Security/stability notes
+### Notes
 
-- Safe output path handling documented.
-- Strict archive path validation documented.
-- Atomic settings/cache writes documented.
-- Sensitive log redaction documented.
-- Failed asset and failed URL reporting documented.
+- Users with old automation scripts must replace `--website`/`-W` with `--icc`, and `--website-folder` with `--icc-folder`.
