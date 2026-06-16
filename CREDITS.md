@@ -1,37 +1,67 @@
-# Credits
+# Credits — CYOA Downloader v1.0 Release
 
-## CYOA Downloader
+CYOA Downloader is distributed under the MIT License. This document lists third-party integrations, optional tools, and attribution notes.
 
-CYOA Downloader is maintained as an open-source Python utility for backing up CYOA projects into local offline formats.
+---
 
-## IntCyoaEnhancer integration
+## 1. Project license
 
-- Name: IntCyoaEnhancer
-- Author: agreg
+- Project: CYOA Downloader
+- Release: v1.0 Release
 - License: MIT
-- Source: GreasyFork script 438947
-- Source URL: https://greasyfork.org/en/scripts/438947-intcyoaenhancer
 
-CYOA Downloader includes a bundled localhost/offline helper route inspired by IntCyoaEnhancer. The helper is provided for local preview, debugging, accessibility, and quality-of-life testing of downloaded output. It is not a claim of authorship over IntCyoaEnhancer and does not replace the original project.
+See [`../LICENSE`](../LICENSE).
 
-Suggested program credit text:
+---
 
-```text
-IntCyoaEnhancer by agreg, MIT License, GreasyFork script 438947. Bundled CYOA Downloader helper is a localhost/offline integration for preview, accessibility, debugging, and QoL testing only.
-```
+## 2. IntCyoaEnhancer attribution
 
-Suggested GUI About text:
+The project includes a bundled localhost/offline helper inspired by and compatible with IntCyoaEnhancer-style workflows.
 
-```text
-IntCyoaEnhancer credit: original userscript by agreg, MIT License, GreasyFork script 438947. CYOA Downloader bundles a localhost/offline helper integration and does not claim ownership of the original work.
-```
+- Name: **IntCyoaEnhancer**
+- Author: **agreg**
+- License: **MIT**
+- Source: **GreasyFork script 438947**
+- Source URL: `https://greasyfork.org/en/scripts/438947-intcyoaenhancer`
 
-Suggested userscript integration report text:
+Important policy:
 
-```text
-Downloaded CYOA output files are not modified by the userscript integration. Serve preview exposes a bundled localhost helper at /__userscripts__/intcyoaenhancer.user.js. Use it only for localhost/offline debugging, accessibility, and QoL testing.
-```
+- CYOA Downloader does not claim ownership of IntCyoaEnhancer.
+- The bundled helper is a localhost/offline integration helper for downloaded CYOAs.
+- The helper is used for preview, diagnostics, accessibility checks, and quality-of-life testing.
+- Downloaded CYOA output files are not treated as original works of this project.
 
-## Third-party Python packages
+---
 
-This project uses Python packages such as requests, urllib3, beautifulsoup4, customtkinter, Pillow, pandas, openpyxl, json5, tldextract, httpx, yt-dlp, selenium, gallery-dl, cloudscraper, and related optional helpers. Each dependency remains governed by its own license.
+## 3. Optional tool integrations
+
+| Tool/integration | Purpose | Notes |
+| --- | --- | --- |
+| `yt-dlp` | Optional YouTube/SoundCloud media recovery | Used only when installed and not disabled. |
+| `gallery-dl` | Optional gallery/post extractor fallback | Controlled by `--gallery-dl`. |
+| `cloudscraper` | Optional Cloudflare recovery | Controlled by `--cloudflare cloudscraper` or `--cf-bypass`. |
+| FlareSolverr | Optional Cloudflare browser solver | External service; configured with `--flaresolverr-url`. |
+| Selenium | Optional rendered-page fallback | Requires local browser/driver support. |
+| CYOA Manager | Optional local library registration | Uses local SQLite library when available. |
+| itch backend/tooling | Optional itch.io asset support | Controlled by `--itch`. |
+| Ollama | Optional local AI provider | Used through AI Assist when configured. |
+
+---
+
+## 4. Python dependencies
+
+Core and optional packages are listed in `requirements.txt` and documentation. Each package remains under its own license. Users/distributors should review dependency licenses when preparing a binary release.
+
+---
+
+## 5. AI provider note
+
+AI Assist can connect to external AI providers when configured by the user. Supported provider names include Anthropic, OpenAI, Gemini, DeepSeek, Qwen, Groq, OpenRouter, custom OpenAI-compatible endpoints, and local Ollama.
+
+The project does not bundle these services and does not claim affiliation with them.
+
+---
+
+## 6. CYOA content note
+
+CYOA Downloader is a backup utility. It does not grant ownership or redistribution rights over third-party CYOA projects, images, audio, video, fonts, or viewer assets. Users are responsible for respecting author rights, site terms, and applicable law.

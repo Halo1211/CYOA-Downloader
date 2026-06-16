@@ -1,156 +1,145 @@
-# CYOA Downloader v1.0 Release — Audit Report
+# Audit Report — CYOA Downloader v1.0 Release
 
-## 1. Ringkasan audit
+This report summarizes the stabilization and GitHub-release preparation work for v1.0.
 
-Audit dilakukan pada file sumber `cyoa_downloader_v7_6_1_stabilized_patch_v46_11.py`, kemudian hasil stabilisasi diterapkan ke `cyoa_downloader.py` untuk paket rilis GitHub.
+---
 
-Fokus rilis ini:
+## 1. Release scope
 
-- Branding final menjadi **v1.0 Release**.
-- Konsistensi istilah user-facing dari Website Mode menjadi ICC Mode.
-- Penghapusan flag CLI lama `--website`, `-W`, dan `--website-folder`.
-- Penambahan flag CLI resmi `--icc` dan `--icc-folder`.
-- Pemeliharaan internal key lama `website_zip` dan `website_folder` agar batch/settings/manifest lama tetap aman.
-- Integrasi logo project yang kompatibel dengan mode dark dan light.
-- Persiapan struktur GitHub, MIT License, dokumentasi, requirements, dan test scaffold.
+Primary goals:
 
-## 2. Daftar bug yang ditemukan
+- stabilize the existing downloader without changing the core download concept;
+- preserve old internal data compatibility;
+- rename user-facing Website Mode to ICC Mode;
+- remove old Website CLI flags for consistency;
+- prepare GitHub documentation and MIT licensing;
+- document all major features in README and docs;
+- include light/dark compatible logo assets.
 
-### Bug 1 — Branding versi lama belum sesuai rilis final
+---
 
-- Lokasi bug: konstanta `_APP_VERSION`, `_STABILIZATION_PATCH_ID`, title GUI, help text, userscript report.
-- Dampak: rilis GitHub terlihat masih sebagai patch internal, bukan v1.0 Release.
-- Penyebab: string versi masih mengacu ke `7.6.1` dan patch id stabilisasi.
-- Solusi: ubah branding ke `1.0 Release` dan patch id ke `CYOA-v1.0-RELEASE`.
-- Patch/perubahan kode: update konstanta versi dan teks user-facing.
-- Risiko regresi: rendah; hanya branding, metadata, dan teks.
-- Cara verifikasi: `python cyoa_downloader.py --help` menampilkan v1.0 Release pada teks terkait.
+## 2. Important compatibility decision
 
-### Bug 2 — Flag lama Website masih aktif dan membingungkan
+The CLI flags below are intentionally removed:
 
-- Lokasi bug: `argparse` CLI parser.
-- Dampak: user-facing naming tidak konsisten karena `--website`, `-W`, dan `--website-folder` masih muncul.
-- Penyebab: flag lama dipertahankan sebagai alias dalam satu `add_argument`.
-- Solusi: hapus flag lama dan gunakan hanya `--icc` serta `--icc-folder`.
-- Patch/perubahan kode: parser sekarang hanya mendaftarkan `--icc` dan `--icc-folder` untuk destination lama.
-- Risiko regresi: sedang untuk script automation lama; diterima karena user meminta flag lama dihapus.
-- Cara verifikasi: `--icc` memetakan ke `website_zip`; `--icc-folder` memetakan ke `website_folder`; `--website` exit code 2.
+- `--website`
+- `-W`
+- `--website-folder`
 
-### Bug 3 — Label GUI/help masih campur Website dan ICC
+The internal keys below remain preserved:
 
-- Lokasi bug: GUI mode list, feature guide, help text, CLI examples, batch guide.
-- Dampak: pengguna bisa mengira Website Mode dan ICC Mode adalah dua fitur berbeda.
-- Penyebab: rename terminologi belum dilakukan menyeluruh.
-- Solusi: ubah label user-facing menjadi ICC ZIP, ICC Folder, ICC Mode, MODE ICC.
-- Patch/perubahan kode: update label GUI, panel mode, deskripsi, help, dan command example.
-- Risiko regresi: rendah; internal key tidak diubah.
-- Cara verifikasi: grep tidak menemukan `Website ZIP`, `Website Folder`, `WEBSITE MODE`, `--website`, atau `-W` selain konteks Pure Website yang memang fitur terpisah.
+- `website_zip`
+- `website_folder`
 
-### Bug 4 — Import BeautifulSoup bisa membuat program gagal start
+Reason: internal keys may already exist in CSV batch files, settings, cache data, and manifest files. Renaming them would create avoidable compatibility risk.
 
-- Lokasi bug: import global `from bs4 import BeautifulSoup`.
-- Dampak: program bisa crash saat startup jika `beautifulsoup4` belum terpasang, padahal fitur lain mungkin masih dapat digunakan.
-- Penyebab: dependency HTML parser dipanggil secara wajib pada import module.
-- Solusi: ubah menjadi import opsional dengan fallback function yang memberi pesan instalasi jelas.
-- Patch/perubahan kode: fallback error: `Missing dependency: beautifulsoup4 ... pip install beautifulsoup4`.
-- Risiko regresi: rendah; saat dependency tersedia perilaku tetap sama.
-- Cara verifikasi: syntax check lolos dan `--help` tetap berjalan.
+---
 
-### Bug 5 — Logo GUI masih placeholder dan tidak theme-aware
+## 3. Feature inventory audited/documented
 
-- Lokasi bug: titlebar GUI, frame logo lama `C↯`.
-- Dampak: branding rilis GitHub tidak masuk ke program dan kurang kompatibel dengan mode dark/light.
-- Penyebab: logo hanya berupa label teks statis.
-- Solusi: tambahkan asset logo light/dark, loader eksternal, embedded fallback, dan text fallback.
-- Patch/perubahan kode: `_load_logo_images()`, `_APP_LOGO_LIGHT_B64`, `_APP_LOGO_DARK_B64`, dan `CTkImage(light_image=..., dark_image=...)`.
-- Risiko regresi: rendah; jika Pillow/customtkinter image gagal, fallback teks tetap tampil.
-- Cara verifikasi: syntax check, asset files tersedia, loader tidak mengubah alur download.
+The documentation now covers:
 
-### Bug 6 — Batch mode belum menerima alias ICC baru
+- GUI and CLI usage;
+- batch import TXT/CSV/XLSX/XLS/remote CSV/Google Sheets;
+- embedded JSON, ZIP, Both, ICC ZIP, ICC Folder;
+- Pure Website ZIP/Folder;
+- CYOAP Vue ZIP/Folder;
+- deep scan;
+- image/audio/video/font detection;
+- Google Fonts and direct font download;
+- failed asset reporting;
+- failed batch URL reporting;
+- logging;
+- settings/cache;
+- userscript integration;
+- local serve/preview;
+- IntCyoaEnhancer bundled helper credit;
+- AI Assist;
+- Cloudflare/cloudscraper/FlareSolverr;
+- proxy/DNS/BebasDNS/HTTP2;
+- gallery-dl;
+- yt-dlp;
+- Playwright/Selenium headless fallback;
+- CYOA Manager integration;
+- itch.io optional backend;
+- EXE build guidance.
 
-- Lokasi bug: `valid_modes`, `import_queue_items_from_file`, `import_queue_items_from_source`, dan batch processing.
-- Dampak: pengguna baru yang menulis `icc_folder` di batch CSV/TXT bisa mengalami fallback mode default.
-- Penyebab: batch value lama hanya mengenal `website_zip`/`website_folder`.
-- Solusi: tambahkan alias `icc`, `icc_zip`, `icc_folder` tanpa mengubah internal key lama.
-- Patch/perubahan kode: alias CSV/remote dinormalisasi ke `website_zip`/`website_folder`; TXT raw value tetap diterima di batch processing.
-- Risiko regresi: rendah; values lama tetap didukung.
-- Cara verifikasi: test batch import dan mode alias berjalan.
+---
 
-## 3. Patch/perubahan kode yang dilakukan
+## 4. Stabilization points already present in source
 
-- Set `_APP_VERSION = "1.0 Release"`.
-- Set `_STABILIZATION_PATCH_ID = "CYOA-v1.0-RELEASE"`.
-- Removed CLI aliases: `--website`, `-W`, `--website-folder`.
-- Added/retained CLI flags: `--icc`, `--icc-folder`.
-- Kept internal mode keys: `website_zip`, `website_folder`.
-- Added batch aliases: `icc`, `icc_zip`, `icc_folder`.
-- Updated GUI sidebar to **ICC MODE**, **ICC ZIP**, and **ICC Folder**.
-- Added light/dark logo assets and GUI loader.
-- Added graceful BeautifulSoup fallback.
-- Updated README, installation, usage, credits, changelog, release notes, MIT License, requirements, and tests.
+- URL scheme guard.
+- Safe relative path normalization.
+- Safe output join under selected root.
+- Strict archive member validation.
+- Atomic settings/cache writes.
+- Corrupt settings backup handling.
+- Rotating file logging.
+- Duplicate log handler prevention.
+- Sensitive log redaction.
+- Non-blocking GUI log queue.
+- Batched GUI log flush.
+- Download lock around legacy `os.chdir()` paths.
+- Failed asset report fallback.
+- Failed URL report for batch mode.
+- Optional dependency handling for optional features.
 
-## 4. File final yang sudah diperbaiki
+---
 
-Main file:
+## 5. Bug/risk notes
 
-- `cyoa_downloader.py`
+### Old scripts using removed Website flags
 
-Repository docs/assets/tests:
+- Location: CLI argument parser.
+- Impact: old automation using `--website`, `-W`, or `--website-folder` exits with argparse error.
+- Cause: intentional v1.0 cleanup.
+- Solution: migrate to `--icc` and `--icc-folder`.
+- Regression risk: only affects old scripts, not old batch/settings internal keys.
+- Verification: tests confirm old flags are not accepted and new ICC flags are accepted.
 
-- `assets/logo-light.png`
-- `assets/logo-dark.png`
-- `README.md`
-- `CHANGELOG.md`
-- `LICENSE`
-- `CREDITS.md`
-- `INSTALLATION.md`
-- `USAGE.md`
-- `docs/CLI.md`
-- `docs/GUI.md`
-- `docs/CREDITS.md`
-- `requirements.txt`
-- `requirements-dev.txt`
-- `.gitignore`
-- `tests/test_cli_args.py`
-- `tests/test_mode_aliases.py`
-- `tests/test_paths.py`
-- `tests/test_batch_import.py`
+### Optional dependency absence
 
-## 5. Testing yang dilakukan
+- Location: optional modules such as `json5`, `httpx`, `tldextract`, `cloudscraper`, `selenium`, `yt-dlp`, `gallery-dl`, `keyring`, pandas/openpyxl/xlrd.
+- Impact: optional features may be unavailable.
+- Cause: optional feature design.
+- Solution: document dependency groups and provide `--dependency-check`.
+- Regression risk: low for core downloads.
+- Verification: dependency check and docs.
 
-```bash
-python -m py_compile cyoa_downloader.py
-python cyoa_downloader.py --help
-python -m pytest -q
-```
+### Live site variability
 
-Hasil lokal:
+- Location: remote websites and third-party viewers.
+- Impact: missing assets or blocked downloads.
+- Cause: changing site structure, rate limits, Cloudflare, dynamic rendering.
+- Solution: ICC Folder, deep scan, lower threads, Cloudflare modes, gallery-dl, Playwright/Selenium, AI fallback, reports.
+- Regression risk: external, site-dependent.
+- Verification: manual testing on representative URLs.
 
-```text
-9 passed in 13.73s
-```
+---
 
-Manual mapping check:
+## 6. Acceptance checklist
 
-| Input | Result |
-| --- | --- |
-| `--icc` | `website_output=True`, `website_zip_output=True` |
-| `--icc-folder` | `website_output=True`, `website_zip_output=False` |
-| `--website` | Removed; argparse exit code 2 |
-| `-W` | Removed; argparse exit code 2 |
+- [x] Source compiles with `py_compile`.
+- [x] CLI help works.
+- [x] `--icc` accepted.
+- [x] `--icc-folder` accepted.
+- [x] old Website CLI flags intentionally rejected.
+- [x] Tests pass.
+- [x] README expanded with full feature overview.
+- [x] Advanced features documented.
+- [x] MIT License included.
+- [x] Credits included.
+- [x] Light/dark logo assets included.
+- [x] GitHub release notes included.
 
-## 6. Risiko yang masih tersisa
+---
 
-- Penghapusan flag lama dapat memutus automation lama yang masih memakai `--website`, `-W`, atau `--website-folder`.
-- Live download tetap perlu diuji pada Windows, Linux, dan macOS karena network behavior host CYOA bisa berbeda.
-- Browser recovery seperti Selenium/Playwright bergantung pada driver/browser lokal.
-- Beberapa optional dependency mungkin perlu instalasi manual sesuai fitur yang dipakai.
-- GUI rendering logo perlu dicek manual pada Windows scaling tinggi dan Linux desktop environment tertentu.
+## 7. Recommended next development
 
-## 7. Rekomendasi pengembangan berikutnya
-
-- Pisahkan parser CLI ke fungsi `build_arg_parser()` agar unit test lebih ringan dan tidak perlu menjalankan `main()`.
-- Tambahkan CI GitHub Actions untuk syntax check, pytest, and packaging smoke test.
-- Tambahkan mode `--dry-run` untuk memverifikasi URL, output path, dan mapping mode tanpa melakukan download.
-- Pisahkan engine downloader ke modul agar maintainability meningkat tanpa mengubah format output.
-- Tambahkan screenshot GUI resmi ke folder `screenshots/` setelah diuji manual di Windows.
+- Add a dedicated `--diagnose` command that exports one consolidated diagnostic report.
+- Add GUI Help → Diagnostics dialog.
+- Add GUI Help → Open Log Folder.
+- Add GUI Help → Reset Settings with backup.
+- Add Windows EXE smoke-test script.
+- Add integration tests using local mock HTTP server.
+- Add sample fixtures for ICC, ICC Plus, CYOAP Vue, and Pure Website modes.

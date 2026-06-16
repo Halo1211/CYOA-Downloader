@@ -1,29 +1,65 @@
 # Changelog
 
-## v1.0 Release — 2026-06-17
+## v1.0 Release
 
 ### Added
 
-- Added v1.0 Release branding across the application and documentation.
-- Added light/dark compatible project logo assets in `assets/logo-light.png` and `assets/logo-dark.png`.
-- Added GUI logo loading with external asset preference, embedded fallback, and text fallback.
-- Added ICC batch aliases: `icc`, `icc_zip`, and `icc_folder`.
-- Added GitHub-ready repository files, documentation, MIT License, and test scaffolding.
+- MIT License.
+- Dark/light compatible logo assets.
+- GitHub-ready repository structure.
+- Expanded README with full feature overview.
+- Complete documentation pages:
+  - `docs/FEATURES.md`
+  - `docs/CLI.md`
+  - `docs/GUI.md`
+  - `docs/HOW_IT_WORKS.md`
+  - `docs/INSTALLATION.md`
+  - `docs/USAGE.md`
+  - `docs/TROUBLESHOOTING.md`
+  - `docs/EXE_BUILD.md`
+  - `docs/CREDITS.md`
+- Tests for CLI aliasing, path handling, and batch import.
+- Formal release notes.
 
 ### Changed
 
-- Renamed user-facing “Website ZIP/Folder” labels to “ICC ZIP/Folder”.
-- Renamed user-facing “Website Mode” section labels to “ICC Mode / MODE ICC”.
-- Updated CLI help text to use formal ICC terminology.
-- Updated guide and README text to explain that old internal keys remain unchanged for compatibility.
-- Made BeautifulSoup import failure produce a clear install message instead of failing at import time.
+- Version branding changed to `v1.0 Release`.
+- User-facing Website Mode terminology changed to ICC Mode.
+- CLI now uses:
+  - `--icc`
+  - `--icc-folder`
+- README and docs now document advanced features including:
+  - AI Assist;
+  - deep scan;
+  - Cloudflare/cloudscraper/FlareSolverr;
+  - proxy/DNS/BebasDNS/HTTP2;
+  - gallery-dl;
+  - yt-dlp;
+  - Playwright/Selenium headless fallback;
+  - CYOAP Vue;
+  - Pure Website modes;
+  - local preview and userscript helper;
+  - CYOA Manager;
+  - itch.io support;
+  - diagnostics and maintenance commands.
 
 ### Removed
 
-- Removed old CLI flags `--website`, `-W`, and `--website-folder` by request for consistent ICC CLI naming.
+- Old Website CLI flags were intentionally removed for consistency:
+  - `--website`
+  - `-W`
+  - `--website-folder`
 
-### Compatibility notes
+### Preserved compatibility
 
-- Internal mode keys remain unchanged: `website_zip` and `website_folder`.
-- Old CSV/settings/manifest values using `website_zip` and `website_folder` are still supported.
-- CLI scripts should migrate from `--website` to `--icc`, and from `--website-folder` to `--icc-folder`.
+- Internal mode key `website_zip` remains supported.
+- Internal mode key `website_folder` remains supported.
+- Old batch/settings/manifest data using those internal keys remains compatible.
+
+### Security/stability notes
+
+- Safe output path handling documented.
+- Strict archive path validation documented.
+- Atomic settings/cache writes documented.
+- Sensitive log redaction documented.
+- Failed asset and failed URL reporting documented.
