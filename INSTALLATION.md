@@ -6,7 +6,7 @@ This page is the beginner-friendly installation guide. It is intentionally more 
 
 | Method | Recommended for | What you run |
 | --- | --- | --- |
-| **A. Windows EXE** | Normal Windows users after an EXE release is published | `CYOA Downloader.exe` |
+| **A. Windows EXE** | Normal Windows users after an EXE release is published | `CYOA-Downloader-v1.0-Windows-x64.exe` |
 | **B. Python source install** | Current release, developers, and users who want all features | `python cyoa_downloader.py` |
 | **C. Development install** | Contributors and maintainers | `pytest`, editable source workflow |
 
@@ -32,16 +32,6 @@ CYOA-Downloader-v1.0-Windows-x64.zip
 
 ```text
 CYOA Downloader.exe
-```
-
-Recommended EXE folder layout:
-
-```text
-CYOA-Downloader-v1.0-Windows-x64/
-├─ CYOA Downloader.exe
-├─ README_FIRST.txt
-├─ LICENSE
-└─ assets/
 ```
 
 Do not run the EXE directly from inside the ZIP preview window. Extract it first.
