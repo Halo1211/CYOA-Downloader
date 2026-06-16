@@ -49,16 +49,6 @@ New batch files may use:
 - `icc_zip`
 - `icc_folder`
 
-## Recommended release assets
-
-For GitHub Releases:
-
-```text
-CYOA-Downloader-v1.0-Windows-x64.zip
-Source code.zip
-Source code.tar.gz
-```
-
 ## Pre-release acceptance checklist
 
 - `python -m py_compile cyoa_downloader.py`
