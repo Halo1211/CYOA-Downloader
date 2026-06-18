@@ -1,0 +1,81 @@
+name: Bug report
+description: Report a reproducible problem in the GUI, CLI, downloader, batch importer, or offline viewer workflow
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please remove tokens, cookies, API keys, private URLs, and personal data from logs before posting.
+  - type: input
+    id: version
+    attributes:
+      label: CYOA Downloader version
+      placeholder: "1.0.1"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: "Python 3.11.9"
+    validations:
+      required: true
+  - type: dropdown
+    id: interface
+    attributes:
+      label: Interface
+      options:
+        - GUI
+        - CLI
+        - Both
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include exact CLI command or GUI steps.
+      placeholder: |
+        1. Open GUI
+        2. Paste URL
+        3. Select ICC Folder
+        4. Click Download All
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Paste sanitized output of --dependency-check and --self-test if possible.
+      render: text
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant sanitized log excerpt
+      description: Remove private URLs, cookies, tokens, and keys before posting.
+      render: text

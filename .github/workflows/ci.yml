@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg xvfb
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+      - name: Compile
+        run: python -m py_compile cyoa_downloader.py
+      - name: AST parse
+        run: |
+          python - <<'EOF'
+          import ast, pathlib
+          ast.parse(pathlib.Path('cyoa_downloader.py').read_text(encoding='utf-8'))
+          print('ast.parse OK')
+          EOF
+      - name: CLI help
+        run: python cyoa_downloader.py --help
+      - name: Dependency check
+        run: python cyoa_downloader.py --dependency-check
+      - name: Self test
+        run: python cyoa_downloader.py --self-test
+      - name: Pytest
+        run: pytest -q
+      - name: Ruff undefined names
+        run: ruff check cyoa_downloader.py --select F821

@@ -1,0 +1,4 @@
+# One URL per line.
+# Optional format: URL | output filename | mode
+https://example.com/interactive-cyoa/ | sample-output | website_zip
+https://example.com/another-cyoa/

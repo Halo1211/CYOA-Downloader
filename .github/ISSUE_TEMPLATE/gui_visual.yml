@@ -1,0 +1,44 @@
+name: GUI visual issue
+description: Report a theme, layout, logo, divider, or scaling problem
+title: "[GUI]: "
+labels: [gui]
+body:
+  - type: dropdown
+    id: theme
+    attributes:
+      label: Theme
+      options:
+        - System
+        - Dark
+        - Light
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system and version
+      placeholder: "Windows 11 24H2 / macOS 15 / Ubuntu 24.04"
+    validations:
+      required: true
+  - type: input
+    id: scaling
+    attributes:
+      label: Display scaling
+      placeholder: "100%, 125%, 150%, etc."
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot or screen recording
+      description: Drag screenshots here if possible.
+  - type: textarea
+    id: details
+    attributes:
+      label: What looks wrong?
+      placeholder: "Example: toolbar divider is missing in dark mode."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected visual result
+      placeholder: "Example: a subtle but visible muted divider between the action bar and tabs."

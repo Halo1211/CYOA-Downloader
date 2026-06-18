@@ -1,0 +1,46 @@
+name: Feature request
+description: Suggest a small compatible improvement
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This project prefers small, backward-compatible additions. Please explain the workflow first, not only the desired button or flag.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or workflow
+      description: What are you trying to do, and where does the current app fall short?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: Describe the smallest useful change.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - GUI
+        - CLI
+        - Downloader engine
+        - Asset scanning
+        - Offline viewer / Manual Inject
+        - Batch mode
+        - Documentation
+        - Other
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Compatibility considerations
+      description: Does this affect existing flags, output folders, viewer behavior, settings, or dependencies?
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives tried
+      description: Existing workaround, command, or manual workflow if any.

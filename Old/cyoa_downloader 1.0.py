@@ -39,7 +39,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-_APP_VERSION = "1.0.1"
+_APP_VERSION = "1.0 Release"
 _STABILIZATION_PATCH_ID = "CYOA-v1.0-RELEASE"
 _GITHUB_RELEASE_API = ""   # Set to "https://api.github.com/repos/YOUR/REPO/releases/latest" to enable auto-update checks
 
@@ -802,7 +802,7 @@ def _set_http2_enabled(enabled: bool) -> None:
             logger.info("HTTP/2 enabled for deep-scan fetches via httpx.")
         except Exception as e:
             _HTTP2_ENABLED = False
-            logger.warning(f"HTTP/2 requested but httpx is unavailable: {e}. Install: pip install httpx[http2]")
+            logger.warning(f"HTTP/2 requested but httpx is unavailable: {e}. Install: pip install httpx[h2]")
     else:
         logger.info("HTTP/2 disabled; using requests.")
 
@@ -1555,9 +1555,7 @@ _SETTINGS_DEFAULTS: Dict[str, Any] = {
     "ai_max_html_chars": 8000,
     "ai_max_js_chars": 14000,
     "ai_confirm_large_payload": True,
-    "language": "en",          # GUI language: en/id (fresh GitHub release defaults to English)
-    "theme_mode": "System",    # GUI theme: Dark/Light/System (fresh installs follow the OS)
-    "theme_accent_color": "#3b82f6",  # optional CTk accent color for supported controls
+    "language": "id",          # GUI language: id/en
     "http2_enabled": False,    # optional HTTP/2 via httpx for deep scans
     "dns": "",                 # plain DNS IP or DoH endpoint URL
     "bebasdns_variant": "",    # default/security/unfiltered/family when selected
@@ -1642,97 +1640,6 @@ def _update_settings(updates: Dict[str, Any]) -> None:
         s = _load_settings()
         s.update(updates)
         _save_settings(s)
-
-
-# ── v1.0.1 stabilization: GUI theme + dependency diagnostics helpers ─────────────
-_THEME_MODE_CANONICAL = {
-    "dark": "Dark",
-    "light": "Light",
-    "system": "System",
-}
-
-
-def _normalize_theme_mode(value: Any) -> str:
-    """Return a CTk-compatible theme mode; unknown values fall back to System."""
-    mode = _THEME_MODE_CANONICAL.get(str(value or "").strip().lower())
-    return mode or "System"
-
-
-def _normalize_accent_color(value: Any, fallback: str = "#3b82f6") -> str:
-    """Accept only #RRGGBB accent colors; ignore unsafe/invalid values."""
-    text = str(value or "").strip()
-    if re.fullmatch(r"#[0-9a-fA-F]{6}", text):
-        return text.lower()
-    return fallback
-
-
-def _system_prefers_dark() -> bool:
-    """Best-effort OS theme probe used only when GUI theme is set to System."""
-    try:
-        import platform as _platform
-        system = _platform.system().lower()
-        if system == "windows":
-            try:
-                import winreg  # type: ignore
-                key = winreg.OpenKey(
-                    winreg.HKEY_CURRENT_USER,
-                    r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
-                )
-                value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
-                return int(value) == 0
-            except Exception:
-                return True
-        if system == "darwin":
-            try:
-                import subprocess as _sp
-                r = _sp.run(
-                    ["defaults", "read", "-g", "AppleInterfaceStyle"],
-                    stdout=_sp.PIPE, stderr=_sp.DEVNULL, timeout=2, text=True,
-                )
-                return "dark" in (r.stdout or "").lower()
-            except Exception:
-                return True
-        env_theme = (
-            os.environ.get("GTK_THEME")
-            or os.environ.get("XDG_CURRENT_DESKTOP")
-            or os.environ.get("COLORFGBG")
-            or ""
-        ).lower()
-        if "light" in env_theme:
-            return False
-        if "dark" in env_theme:
-            return True
-    except Exception:
-        pass
-    return True
-
-
-def _resolve_theme_is_dark(mode: Any) -> bool:
-    normalized = _normalize_theme_mode(mode)
-    if normalized == "Light":
-        return False
-    if normalized == "System":
-        return _system_prefers_dark()
-    return True
-
-
-def _detect_ffmpeg_path() -> Optional[str]:
-    """Return ffmpeg executable path if available on PATH; never raises."""
-    try:
-        return shutil.which("ffmpeg")
-    except Exception:
-        return None
-
-
-def _ffmpeg_install_guide() -> str:
-    return (
-        "FFMPEG install guide:\n"
-        "  Windows : winget install Gyan.FFmpeg  OR  choco install ffmpeg; then reopen Terminal.\n"
-        "  Linux   : sudo apt install ffmpeg  OR  sudo dnf install ffmpeg  OR  sudo pacman -S ffmpeg.\n"
-        "  macOS   : brew install ffmpeg.\n"
-        "  Verify  : ffmpeg -version\n"
-        "  Note    : Missing ffmpeg only disables/limits media conversion features that need it; normal JSON/asset downloads continue."
-    )
 
 
 # ── v1.0 Release Feature #1: settings export / import ─────────────────────────────
@@ -1929,8 +1836,7 @@ AI_OPENAI_COMPAT_BASE: Dict[str, str] = {
 }
 AI_MODEL_OPTIONS: Dict[str, List[str]] = {
     # Editable recommendations. Providers add/deprecate models over time; users can pass
-    # any custom model id via CLI --ai-model or the GUI field. Treat these as
-    # convenience presets, not a guarantee that a provider account has access.
+    # any custom model id via CLI --ai-model. GUI presets use currently documented IDs.
     "anthropic": ["claude-sonnet-4-6", "claude-opus-4-7", "claude-haiku-4-5-20251001"],
     "openai": ["gpt-5.5", "gpt-5.4", "gpt-4.1-mini"],
     "gemini": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-3.1-pro-preview", "gemini-3.5-flash"],
@@ -4829,31 +4735,6 @@ def _load_logo_images():
         return None, None
 
 
-
-
-def _load_window_icon_photo(root=None):
-    """Load a Tk PhotoImage for the app/window icon from assets when available.
-
-    This is intentionally best-effort: missing assets or older Tk builds should
-    never block GUI startup. The visible titlebar logo still has its embedded
-    fallback, while packaged releases can replace assets/logo-icon.png without
-    editing Python code.
-    """
-    try:
-        import tkinter as tk
-        candidates = [
-            pathlib.Path(__file__).resolve().parent / "assets" / "logo-icon.png",
-            pathlib.Path(__file__).resolve().parent / "assets" / "logo-dark.png",
-            pathlib.Path(os.getcwd()) / "assets" / "logo-icon.png",
-            pathlib.Path(os.getcwd()) / "assets" / "logo-dark.png",
-        ]
-        for icon_path in candidates:
-            if icon_path.exists():
-                return tk.PhotoImage(master=root, file=str(icon_path))
-    except Exception as e:
-        logger.debug(f"Window icon fallback used: {e}")
-    return None
-
 def launch_gui() -> None:
     try:
         import customtkinter as ctk
@@ -4874,8 +4755,7 @@ def launch_gui() -> None:
         print("customtkinter not found. Install: pip install customtkinter")
         sys.exit(1)
 
-    _theme_boot = _load_settings()
-    ctk.set_appearance_mode(_normalize_theme_mode(_theme_boot.get("theme_mode", "System")).lower())
+    ctk.set_appearance_mode("dark")
     ctk.set_default_color_theme("blue")
     root = ctk.CTk()
     CYOADownloaderGUI(root)
@@ -4919,12 +4799,6 @@ class CYOADownloaderGUI:
         import customtkinter as ctk
         self.root = root
         self.root.title(f"CYOA Downloader v{_APP_VERSION}")
-        self._window_icon = _load_window_icon_photo(self.root)
-        if self._window_icon is not None:
-            try:
-                self.root.iconphoto(True, self._window_icon)
-            except Exception as _ignored_exc:
-                logger.debug("Ignored recoverable exception while setting GUI icon: %s", _ignored_exc)
         self.root.minsize(900, 640)
         self.root.geometry("1100x720")
 
@@ -4946,11 +4820,8 @@ class CYOADownloaderGUI:
         self._ai_mode     = _normalize_ai_mode(_ai_settings.get("ai_mode", "auto_fallback"))
         self._mode_var    = "auto"
         self._mode_btns: Dict = {}
-        _theme_settings = _load_settings()
-        self._theme_mode = _normalize_theme_mode(_theme_settings.get("theme_mode", "System"))
-        self._theme_accent = _normalize_accent_color(_theme_settings.get("theme_accent_color", "#3b82f6"))
-        self._is_dark     = _resolve_theme_is_dark(self._theme_mode)
-        self._language    = _theme_settings.get("language", "en") if _theme_settings.get("language", "en") in {"id", "en"} else "en"
+        self._is_dark     = True
+        self._language    = _load_settings().get("language", "id") if _load_settings().get("language", "id") in {"id", "en"} else "id"
         self._themed: List = []
         self._last_results: List[Dict] = []
         # URLs captured at the moment a download starts. If new queue items are
@@ -4981,14 +4852,13 @@ class CYOADownloaderGUI:
 
     def _p(self) -> Dict[str, str]:
         """Return current palette."""
-        accent = _normalize_accent_color(getattr(self, "_theme_accent", "#3b82f6"))
         if self._is_dark:
             return {
                 "bg":        "#0e1117", "panel":    "#0a0d13",
                 "surface":   "#141922", "surface2": "#1e2433",
                 "fg":        "#e2e8f0", "muted":    "#475569",
-                "muted2":    "#334155", "accent":   accent,
-                "border":    "#1e2433", "separator": "#202a3a", "toolbar_separator": "#33465f", "toolbar_separator_shadow": "#162033", "sidebar":  "#0a0d13",
+                "muted2":    "#334155", "accent":   "#3b82f6",
+                "border":    "#1e2433", "sidebar":  "#0a0d13",
                 "input_bg":  "#141922", "input_fg": "#e2e8f0",
                 "log_bg":    "#0a0d13", "log_fg":   "#475569",
                 "sel_row":   "#0f1729", "sel_bar":  "#3b82f6",
@@ -5014,8 +4884,8 @@ class CYOADownloaderGUI:
             "bg":        "#f1f5f9", "panel":    "#ffffff",
             "surface":   "#e2e8f0", "surface2": "#cbd5e1",
             "fg":        "#0f172a", "muted":    "#64748b",
-            "muted2":    "#94a3b8", "accent":   accent,
-            "border":    "#e2e8f0", "separator": "#d7dee8", "toolbar_separator": "#cbd5e1", "toolbar_separator_shadow": "#e2e8f0", "sidebar":  "#f8fafc",
+            "muted2":    "#94a3b8", "accent":   "#3b82f6",
+            "border":    "#e2e8f0", "sidebar":  "#f8fafc",
             "input_bg":  "#ffffff", "input_fg": "#0f172a",
             "log_bg":    "#f8fafc", "log_fg":   "#475569",
             "sel_row":   "#dbeafe", "sel_bar":  "#3b82f6",
@@ -5041,10 +4911,8 @@ class CYOADownloaderGUI:
     def _apply_theme(self) -> None:
         """Re-apply palette to all tracked widgets + sidebar + queue rows + log."""
         import customtkinter as ctk
-        self._theme_mode = _normalize_theme_mode(getattr(self, "_theme_mode", "System"))
-        self._is_dark = _resolve_theme_is_dark(self._theme_mode)
         p = self._p()
-        ctk.set_appearance_mode(self._theme_mode.lower())
+        ctk.set_appearance_mode("dark" if self._is_dark else "light")
 
         for widget, keys in self._themed:
             try:
@@ -5067,7 +4935,7 @@ class CYOADownloaderGUI:
                 except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in _apply_theme (line 4873): %s", _ignored_exc)
         if hasattr(self, "_sec_dividers"):
             for div in self._sec_dividers:
-                try: div.configure(fg_color=p.get("separator", p["border"]))
+                try: div.configure(fg_color=p["border"])
                 except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in _apply_theme (line 4877): %s", _ignored_exc)
 
         # Mode buttons
@@ -5495,11 +5363,11 @@ class CYOADownloaderGUI:
         tb.grid_rowconfigure(0, minsize=84)
         tb.grid_columnconfigure(1, weight=1)
 
-        logo = T(ctk.CTkFrame(tb, width=62, height=56, corner_radius=18,
-                             fg_color=p["surface"], border_width=1,
-                             border_color=p.get("separator", p["border"])),
-                 fg_color="surface", border_color="separator")
-        logo.grid(row=0, column=0, padx=(16, 12), pady=(14, 14), sticky="w")
+        logo = T(ctk.CTkFrame(tb, width=56, height=48, corner_radius=14,
+                             fg_color=p["panel"], border_width=1,
+                             border_color=p["border"]),
+                 fg_color="panel", border_color="border")
+        logo.grid(row=0, column=0, padx=(14, 10), pady=(18, 18), sticky="w")
         logo.grid_propagate(False)
         self._logo_image = None
         try:
@@ -5508,17 +5376,17 @@ class CYOADownloaderGUI:
                 self._logo_image = ctk.CTkImage(
                     light_image=light_logo, dark_image=dark_logo, size=(42, 42)
                 )
-                ctk.CTkLabel(logo, text="", image=self._logo_image, fg_color="transparent").place(
+                ctk.CTkLabel(logo, text="", image=self._logo_image).place(
                     relx=0.5, rely=0.50, anchor="center"
                 )
             else:
                 raise RuntimeError("logo unavailable")
         except Exception:
             ctk.CTkLabel(logo, text="C↯", font=ctk.CTkFont("Consolas", 16, "bold"),
-                         text_color=p["fg"], fg_color="transparent").place(relx=0.5, rely=0.50, anchor="center")
+                         text_color=p["fg"]).place(relx=0.5, rely=0.50, anchor="center")
 
         title_stack = ctk.CTkFrame(tb, fg_color="transparent")
-        title_stack.grid(row=0, column=1, sticky="w", pady=(18, 16))
+        title_stack.grid(row=0, column=1, sticky="w", pady=(17, 15))
         T(ctk.CTkLabel(title_stack, text="CYOA Downloader",
                        font=ctk.CTkFont("Segoe UI", 16, "bold"),
                        text_color=p["fg"], anchor="w"),
@@ -5533,18 +5401,18 @@ class CYOADownloaderGUI:
           text_color="muted").grid(row=0, column=2, padx=(8, 0), sticky="w")
 
         pill = ctk.CTkSegmentedButton(
-            tb, values=["Dark", "Light", "System"],
+            tb, values=["Dark", "Light"],
             command=self._toggle_theme,
             font=ctk.CTkFont("Segoe UI", 11),
-            width=168, height=28,
+            width=120, height=28,
             fg_color=p["surface2"],
-            selected_color=p["accent"],
+            selected_color="#3b82f6",
             selected_hover_color="#2563eb",
             unselected_color=p["surface2"],
             unselected_hover_color=p["surface"],
             text_color="#ffffff",
         )
-        pill.set(getattr(self, "_theme_mode", "System"))
+        pill.set("Dark")
         pill.grid(row=0, column=3, padx=(8, 6), pady=(28, 28), sticky="e")
         self._theme_pill = pill
 
@@ -5554,7 +5422,7 @@ class CYOADownloaderGUI:
             font=ctk.CTkFont("Segoe UI", 11),
             width=72, height=28,
             fg_color=p["surface2"],
-            selected_color=p["accent"],
+            selected_color="#3b82f6",
             selected_hover_color="#2563eb",
             unselected_color=p["surface2"],
             unselected_hover_color=p["surface"],
@@ -5585,7 +5453,7 @@ class CYOADownloaderGUI:
                                    text_color=p["muted2"], anchor="w")
                 lbl.pack(fill="x", padx=12, pady=(6, 1))
                 self._sec_labels.append(lbl)
-                div = ctk.CTkFrame(sb, height=1, fg_color=p.get("separator", p["border"]), corner_radius=0)
+                div = ctk.CTkFrame(sb, height=1, fg_color=p["border"], corner_radius=0)
                 div.pack(fill="x", padx=10, pady=(0, 2))
                 self._sec_dividers.append(div)
                 continue
@@ -5715,8 +5583,8 @@ class CYOADownloaderGUI:
           fg_color="surface2", hover_color="surface", text_color="muted",
           border_color="surface2").pack(side="left")
 
-        T(ctk.CTkFrame(inp, height=1, fg_color=p.get("separator", p["border"]), corner_radius=0),
-          fg_color="separator").grid(row=10, column=0, columnspan=6, sticky="ew")
+        T(ctk.CTkFrame(inp, height=1, fg_color=p["border"], corner_radius=0),
+          fg_color="border").grid(row=10, column=0, columnspan=6, sticky="ew")
 
         # URL/Filename row is isolated from the dense options grid below.
         # This keeps the URL field long, the filename field medium, and the
@@ -6055,8 +5923,8 @@ class CYOADownloaderGUI:
                             border_width=0), fg_color="bg")
         qf.grid(row=1, column=0, sticky="ew")
         qf.grid_columnconfigure(0, weight=1)
-        T(ctk.CTkFrame(qf, height=1, fg_color=p.get("separator", p["border"]), corner_radius=0),
-          fg_color="separator").grid(row=0, column=0, columnspan=3, sticky="ew")
+        T(ctk.CTkFrame(qf, height=1, fg_color=p["border"], corner_radius=0),
+          fg_color="border").grid(row=0, column=0, columnspan=3, sticky="ew")
 
         qhdr = T(ctk.CTkFrame(qf, fg_color="transparent"), fg_color="bg")
         qhdr.grid(row=1, column=0, sticky="ew", padx=14, pady=(8, 4))
@@ -6094,8 +5962,8 @@ class CYOADownloaderGUI:
         self._qlist.grid(row=2, column=0, sticky="ew", padx=6, pady=(0, 8))
         self._qlist.grid_columnconfigure(0, weight=1)
 
-        T(ctk.CTkFrame(qf, height=1, fg_color=p.get("separator", p["border"]), corner_radius=0),
-          fg_color="separator").grid(row=3, column=0, sticky="ew")
+        T(ctk.CTkFrame(qf, height=1, fg_color=p["border"], corner_radius=0),
+          fg_color="border").grid(row=3, column=0, sticky="ew")
 
         # ─ Action bar ───────────────────────────────────────────────
         # ══ ACTION BAR — 2 static rows, no horizontal scroll ══════════
@@ -6103,8 +5971,6 @@ class CYOADownloaderGUI:
                             border_width=0), fg_color="panel")
         ab.grid(row=2, column=0, sticky="ew")
         ab.grid_columnconfigure(0, weight=1)
-        # Keep the action/tool divider visible even after CTk geometry recalculation.
-        ab.grid_rowconfigure(1, minsize=3)
 
         # helper — factory for secondary icon buttons
         def _ab_btn(parent, text, cmd, *, accent=False, danger=False,
@@ -6196,38 +6062,9 @@ class CYOADownloaderGUI:
             fg_color="surface2")
         self._pb.grid(row=0, column=1, sticky="ew", padx=(0, 0))
 
-        # Theme-aware divider between the primary action row and the tool strip.
-        # Rendered as a tiny stacked strip instead of a single 1 px frame: on
-        # some Windows/CustomTkinter scaling combinations a one-pixel dark line
-        # gets swallowed by the surrounding panel. This keeps the line visible
-        # without returning to the old harsh white separator.
-        self._toolbar_divider_wrap = T(
-            ctk.CTkFrame(ab, height=5, fg_color=p["panel"], corner_radius=0),
-            fg_color="panel"
-        )
-        self._toolbar_divider_wrap.grid(row=1, column=0, sticky="ew", padx=0, pady=(0, 0))
-        self._toolbar_divider_wrap.grid_propagate(False)
-        self._toolbar_divider_wrap.grid_columnconfigure(0, weight=1)
-
-        self._toolbar_divider_shadow = T(
-            ctk.CTkFrame(
-                self._toolbar_divider_wrap, height=1,
-                fg_color=p.get("toolbar_separator_shadow", p.get("separator", p["border"])),
-                corner_radius=0,
-            ),
-            fg_color="toolbar_separator_shadow"
-        )
-        self._toolbar_divider_shadow.grid(row=0, column=0, sticky="ew", padx=0, pady=(0, 0))
-
-        self._toolbar_divider = T(
-            ctk.CTkFrame(
-                self._toolbar_divider_wrap, height=2,
-                fg_color=p.get("toolbar_separator", p.get("separator", p["border"])),
-                corner_radius=0,
-            ),
-            fg_color="toolbar_separator"
-        )
-        self._toolbar_divider.grid(row=1, column=0, sticky="ew", padx=0, pady=(0, 0))
+        # Thin divider
+        ctk.CTkFrame(ab, height=1, fg_color=p["border"], corner_radius=0).grid(
+            row=1, column=0, sticky="ew")
 
         # ── Row B: compact single-line tool strip ─────────────────────
         # Keep common tools visible without burning vertical space. Buttons are
@@ -6573,10 +6410,10 @@ class CYOADownloaderGUI:
             from tkinter import messagebox
             if getattr(self, "_language", "id") == "en":
                 title = "httpx not installed"
-                body = "Install it first:\n\n  pip install httpx[http2]\n\nthen restart the program and re-enable HTTP/2."
+                body = "Install it first:\n\n  pip install httpx[h2]\n\nthen restart the program and re-enable HTTP/2."
             else:
                 title = "httpx belum terpasang"
-                body = "Instal terlebih dahulu:\n\n  pip install httpx[http2]\n\nlalu mulai ulang program dan aktifkan kembali HTTP/2."
+                body = "Instal terlebih dahulu:\n\n  pip install httpx[h2]\n\nlalu mulai ulang program dan aktifkan kembali HTTP/2."
             messagebox.showwarning(title, body)
         final_enabled = bool(self._http2_var.get())
         _update_setting("http2_enabled", final_enabled)
@@ -6618,11 +6455,8 @@ class CYOADownloaderGUI:
         logger.info(f"[Feature] Font analysis: {'enabled' if enabled else 'disabled'}")
 
     def _toggle_theme(self, val: str) -> None:
-        self._theme_mode = _normalize_theme_mode(val)
-        self._is_dark = _resolve_theme_is_dark(self._theme_mode)
-        _update_setting("theme_mode", self._theme_mode)
+        self._is_dark = (val == "Dark")
         self._apply_theme()
-        logger.info(f"GUI theme set: {self._theme_mode}")
 
     def _toggle_language(self, val: str) -> None:
         """Switch GUI microcopy between Indonesian and English."""
@@ -10831,7 +10665,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                     ("Retry delay", "Wait time after rate-limit responses such as HTTP 429."),
                     ("Bandwidth limit", "Limits download speed in KB/s. Use 0 for unlimited speed."),
                     ("Download Fonts", "Downloads fonts referenced by HTML or CSS files."),
-                    ("HTTP/2", "Uses httpx with HTTP/2 for deep-scan fetches when httpx[http2] is installed."),
+                    ("HTTP/2", "Uses httpx with HTTP/2 for deep-scan fetches when httpx[h2] is installed."),
                     ("YT Audio", "Downloads YouTube audio with yt-dlp and ffmpeg, then patches local audio paths into the project."),
                     ("AI Assist", "Optional recovery/diagnostic helper. Configure provider and keys from Settings / Maintenance."),
                     ("Gallery-dl", "Optional fallback for supported gallery/post pages. Open its config from Settings / Maintenance."),
@@ -10894,7 +10728,6 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 ("📺  Offline Viewer", "accent", [
                     ("Register viewer", "Open Viewers and add an offline viewer ZIP such as ICC Plus, ICC Remix, or a compatible custom viewer."),
                     ("Auto-match", "Matches a viewer to the CYOA by reading HTML and script hints."),
-                    ("Inject manually", "Each viewer card has an Inject button. Use it to build a playable offline viewer from a project source you already have, even when auto-match did not run. Source can be a file (project.json, app.js, or a zip/rar), a download folder (auto-scans for project.json or app*.js plus images/ and audio/), or a URL (uses the full resolver, including embedded-JS extraction and optional AI). Output is a self-contained <name>_offline folder."),
                     ("ICC Remix", "Injects project data into the template marker."),
                     ("ICC Plus", "Uses marker-based and balanced-brace injection around the project data placeholder."),
                     ("Custom viewer", "Patches project.json fetch calls when the viewer supports local project data."),
@@ -11025,7 +10858,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                     ("Jeda retry", "Waktu tunggu setelah respons pembatasan seperti HTTP 429."),
                     ("Batas bandwidth", "Membatasi kecepatan unduh dalam KB/detik. Gunakan 0 untuk tanpa batas."),
                     ("Unduh Font", "Mengunduh font yang dirujuk oleh file HTML atau CSS."),
-                    ("HTTP/2", "Memakai httpx dengan HTTP/2 untuk deep scan jika httpx[http2] tersedia."),
+                    ("HTTP/2", "Memakai httpx dengan HTTP/2 untuk deep scan jika httpx[h2] tersedia."),
                     ("Audio YT", "Mengunduh audio YouTube dengan yt-dlp dan ffmpeg, lalu menambal path audio lokal ke project."),
                     ("CYOA Manager", "Menambahkan file JSON project yang berhasil ke pustaka CYOA Manager."),
                 ]),
@@ -11082,7 +10915,6 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 ("📺  Viewer Offline", "accent", [
                     ("Daftarkan viewer", "Buka Viewer dan tambahkan ZIP viewer offline seperti ICC Plus, ICC Remix, atau viewer khusus yang kompatibel."),
                     ("Cocok otomatis", "Mencocokkan viewer ke CYOA dengan membaca petunjuk HTML dan script."),
-                    ("Inject manual", "Tiap kartu viewer punya tombol Inject. Pakai untuk membuat viewer offline yang playable dari sumber project yang sudah Anda punya, bahkan saat cocok-otomatis tidak berjalan. Sumber bisa berupa file (project.json, app.js, atau zip/rar), folder hasil download (auto-scan project.json atau app*.js plus folder images/ dan audio/), atau URL (memakai resolver penuh, termasuk ekstraksi dari JS tertanam dan AI opsional). Hasilnya folder <nama>_offline yang mandiri."),
                     ("ICC Remix", "Menyisipkan data project ke marker template."),
                     ("ICC Plus", "Memakai injeksi berbasis marker dan balanced-brace di sekitar placeholder data project."),
                     ("Viewer khusus", "Menambal pemanggilan fetch project.json jika viewer mendukung data project lokal."),
@@ -15575,18 +15407,13 @@ class WebsiteDownloader:
         if not url:
             return None
         url = url.strip().strip('"\'')
-        lowered = url.lower()
-        if lowered.startswith(("data:", "javascript:", "mailto:", "file:", "ftp:", "blob:", "chrome:", "about:")) or url.startswith("#"):
+        if url.startswith("data:") or url.startswith("javascript:") or url.startswith("mailto:") or url.startswith("#"):
             return None
         if url.startswith("//"):
             scheme = urlparse(referrer_url or self.start_url).scheme or "https"
-            return f"{scheme}:{url}" if scheme in {"http", "https"} else None
-        explicit_scheme = urlparse(url).scheme.lower()
-        if explicit_scheme and explicit_scheme not in {"http", "https"}:
-            return None
+            return f"{scheme}:{url}"
         if referrer_url:
-            joined = urljoin(referrer_url, url)
-            return joined if urlparse(joined).scheme.lower() in {"http", "https"} else None
+            return urljoin(referrer_url, url)
         return url
 
     def _normalize_cache_key(self, url: str) -> str:
@@ -16627,67 +16454,44 @@ def build_diagnostic_report(output_dir: str = "", check_network: bool = True,
 
 
 def dependency_check_report() -> str:
-    """Return an offline dependency report for GUI, network, batch, AI, media, and fallback features."""
+    """Return an offline dependency report for GUI, network, batch, AI, and fallback features."""
     import importlib.util
-
-    # module name, display name, requirement group, purpose, fallback
     checks = [
-        ("requests", "requests", "required", "Core HTTP downloader", "No network download."),
-        ("urllib3", "urllib3", "required", "Retry/HTTP adapter support used through requests", "No robust retry adapter."),
-        ("bs4", "beautifulsoup4", "required", "HTML/ICC parsing via BeautifulSoup", "HTML/project extraction is limited."),
-        ("tldextract", "tldextract", "required-for-domain-tools", "Domain/subdomain parsing", "Fallback hostname parsing is used."),
-        ("json5", "json5", "optional-parser", "Lenient JSON5 parsing fallback", "Strict JSON parsing still works."),
-        ("pandas", "pandas", "optional-batch", "CSV/XLS/XLSX queue import", "TXT batch import still works."),
-        ("openpyxl", "openpyxl", "optional-batch", ".xlsx reader backend used by pandas", "CSV/TXT import still works."),
-        ("httpx", "httpx[http2]", "optional-network", "HTTP/2 deep-scan fetch", "Falls back to requests/HTTP1."),
-        ("yt_dlp", "yt-dlp", "optional-media", "YouTube/SoundCloud and supported media download", "Media URL is skipped or logged as unavailable."),
-        ("customtkinter", "customtkinter", "required-for-gui", "Modern GUI widgets", "CLI remains usable; GUI cannot launch."),
-        ("PIL", "pillow", "optional-gui-image", "GUI/image preview utilities", "GUI runs with reduced image utilities."),
-        ("cloudscraper", "cloudscraper", "optional-network", "Cloudflare fallback", "Normal requests and FlareSolverr path remain."),
-        ("plyer", "plyer", "optional-gui", "Desktop notifications", "No desktop notification."),
-        ("rarfile", "rarfile", "optional-viewer", ".rar offline viewer import", "ZIP import remains supported."),
-        ("gallery_dl", "gallery-dl", "optional-fallback", "Gallery/post downloader fallback", "Core downloader remains active."),
-        ("keyring", "keyring", "optional-security", "OS keyring for AI/API keys", "Session/env/plain modes remain available."),
-        ("playwright", "playwright", "optional-headless", "Headless browser fallback", "Selenium/requests fallback may still work."),
-        ("selenium", "selenium", "optional-headless", "Secondary headless fallback", "Playwright/requests fallback may still work."),
+        ("requests", "required", "Core HTTP downloader"),
+        ("bs4", "required", "HTML parsing via BeautifulSoup"),
+        ("customtkinter", "required-for-gui", "Tkinter GUI"),
+        ("tldextract", "required-for-domain-tools", "Domain parsing"),
+        ("PIL", "required-for-image-tools", "Pillow image utilities"),
+        ("pandas", "optional-batch", "CSV/XLS/XLSX queue import"),
+        ("openpyxl", "optional-batch", ".xlsx reader backend used by pandas"),
+        ("cloudscraper", "optional-network", "Cloudflare fallback"),
+        ("httpx", "optional-network", "HTTP/2 deep-scan fetch"),
+        ("yt_dlp", "optional-media", "YouTube/SoundCloud audio download"),
+        ("plyer", "optional-gui", "Desktop notifications"),
+        ("rarfile", "optional-viewer", ".rar offline viewer import"),
+        ("gallery_dl", "optional-fallback", "Gallery/post downloader fallback"),
+        ("keyring", "optional-security", "OS keyring for AI API keys"),
+        ("playwright", "optional-headless", "Headless browser fallback"),
+        ("selenium", "optional-headless", "Secondary headless fallback"),
+        ("json5", "optional-parser", "Lenient JSON parsing"),
     ]
-    lines = [f"CYOA Downloader v{_APP_VERSION} dependency check", "=" * 72]
+    lines = [f"CYOA Downloader v{_APP_VERSION} dependency check", "=" * 52]
     ok = 0
-    missing_required = 0
-    for module, display, group, purpose, fallback in checks:
+    for module, group, purpose in checks:
         found = importlib.util.find_spec(module) is not None
         ok += int(found)
-        if (not found) and group == "required":
-            missing_required += 1
         status = "OK" if found else "MISSING"
-        lines.append(f"{status:7}  {display:18}  {group:22}  {purpose}")
-        if not found:
-            lines.append(f"         {'':18}  {'fallback':22}  {fallback}")
-
-    ffmpeg_path = _detect_ffmpeg_path()
-    if ffmpeg_path:
-        lines.append(f"OK       {'ffmpeg':18}  {'optional-media-cli':22}  Available on PATH: {ffmpeg_path}")
-    else:
-        lines.append(f"MISSING  {'ffmpeg':18}  {'optional-media-cli':22}  Required only for media conversion/merge used by yt-dlp or offline media features")
-        lines.append(f"         {'':18}  {'fallback':22}  Normal JSON/image/font downloads continue; media conversion is skipped/limited.")
-
-    lines.append("-" * 72)
-    lines.append(f"Installed Python modules: {ok}/{len(checks)} detected")
-    if missing_required:
-        lines.append(f"Required missing: {missing_required}. Install required modules before full downloader use.")
-    else:
-        lines.append("Required Python modules: OK")
-    lines.append("Optional modules are only needed when the related feature is enabled.")
-    lines.append("Recommended install:")
-    lines.append("  pip install -r requirements.txt")
-    lines.append("  pip install requests urllib3 beautifulsoup4 tldextract json5 pandas openpyxl yt-dlp customtkinter pillow httpx[http2]")
-    lines.append(_ffmpeg_install_guide())
+        lines.append(f"{status:7}  {module:14}  {group:20}  {purpose}")
+    lines.append("-" * 52)
+    lines.append(f"Installed: {ok}/{len(checks)} modules detected")
+    lines.append("Note: optional modules are only needed when the related feature is enabled.")
     # itch-dl is an external CLI backend (not a Python import), probed separately.
     try:
         lines.append(itch_backend_status())
     except Exception as _e:
         lines.append(f"itch-dl backend: probe error ({_e})")
     return "\n".join(lines)
+
 
 def run_internal_self_test() -> Tuple[bool, str]:
     """Run offline smoke tests for path safety, report flow, dependency reporting, and ZIP helper."""
@@ -16740,31 +16544,8 @@ def run_internal_self_test() -> Tuple[bool, str]:
         try:
             dep = dependency_check_report()
             record("dependency report generated", "dependency check" in dep.lower(), dep.splitlines()[0] if dep else "")
-            record("dependency report includes urllib3 + ffmpeg guide",
-                   ("urllib3" in dep and "ffmpeg" in dep.lower() and "ffmpeg -version" in dep), "")
         except Exception as e:
             record("dependency report generated", False, str(e))
-
-        try:
-            unsafe_urls_rejected = (
-                _sanitize_ai_candidate_url("file:///tmp/project.json") is None
-                and _sanitize_ai_candidate_url("javascript:alert(1)") is None
-                and _extract_single_ai_url("data:text/plain,abc") is None
-            )
-            record("unsafe URL schemes rejected", unsafe_urls_rejected, "file/javascript/data")
-        except Exception as e:
-            record("unsafe URL schemes rejected", False, str(e))
-
-        try:
-            theme_ok = (
-                _normalize_theme_mode("system") == "System"
-                and _normalize_theme_mode("light") == "Light"
-                and _normalize_accent_color("#ABCDEF") == "#abcdef"
-                and _normalize_accent_color("red") == "#3b82f6"
-            )
-            record("theme mode/accent normalization", theme_ok, "System/Light/Dark")
-        except Exception as e:
-            record("theme mode/accent normalization", False, str(e))
         try:
             zsrc = os.path.join(tmp_root, "zip_src")
             os.makedirs(zsrc, exist_ok=True)
@@ -21413,323 +21194,14 @@ def _v25_manage_offline_viewers(self: Any) -> None:
             ctk.CTkLabel(card, text=f"type: {vtype}  ·  entry: {meta.get('entry_point', 'index.html')}  ·  {meta.get('zip_filename', '')}", font=ctk.CTkFont("Segoe UI", 10), text_color=p["muted"], anchor="w").grid(row=1, column=1, sticky="ew")
             desc = meta.get("description") or vid
             ctk.CTkLabel(card, text=str(desc), font=ctk.CTkFont("Segoe UI", 10), text_color=p["muted2"], anchor="w", wraplength=660).grid(row=2, column=1, sticky="ew", pady=(1, 12))
-            ctk.CTkButton(card, text=("💉 Inject" if is_en else "💉 Inject"), width=96, height=30,
-                          fg_color="#1d4ed8", hover_color="#2563eb", text_color="#dbeafe",
-                          command=lambda m=dict(meta, id=vid): _v25_inject_into_viewer(self, m, parent_win=win)
-                          ).grid(row=0, column=2, rowspan=3, padx=(14, 0), pady=14)
             ctk.CTkButton(card, text=("Remove" if is_en else "Hapus"), width=92, height=30,
                           fg_color="#7f1d1d", hover_color="#991b1b", text_color="#fecaca",
-                          command=lambda v=vid: _remove(v)).grid(row=0, column=3, rowspan=3, padx=14, pady=14)
+                          command=lambda v=vid: _remove(v)).grid(row=0, column=2, rowspan=3, padx=14, pady=14)
             row += 1
         if row == 0:
             ctk.CTkLabel(list_frame, text=("No viewers match this filter." if is_en else "Tidak ada viewer yang cocok dengan filter ini."), text_color=p["muted"]).grid(row=0, column=0, pady=24)
 
     _refresh_list()
-
-
-def _v25_inject_into_viewer(self: Any, viewer_meta: Dict, parent_win: Any = None) -> None:
-    """Manually inject project data into a registered offline viewer.
-
-    Bridges an already-registered offline viewer (viewer_meta) with a project
-    source supplied by the user, then runs the existing _apply_offline_viewer
-    pipeline. The project source can be:
-
-      • File — project.json / project.txt / app.xxx.js / .zip / .rar.
-        Bytes are run through the same resolution chain used during a normal
-        download: extract_project_from_archive_bytes() for ZIP/RAR payloads,
-        otherwise extract_project_text_from_payload() (which handles embedded
-        project data inside app.xxx.js via extract_embedded_project_from_js).
-      • Folder — a previous download folder. Auto-scans for project.json /
-        project_original.json first, then app*.js as fallback, and detects
-        sibling images/ + audio/ folders to pass as asset_source_dirs.
-      • URL — uses the full get_project_source() resolver (cyoa.cafe, archive
-        wrappers, candidate probing, embedded-JS extraction, optional AI).
-
-    Output is a self-contained <name>_offline/ folder. Purely additive: does not
-    change CLI flags, output formats, or the existing auto-inject download path.
-    """
-    import customtkinter as ctk
-    import threading
-    from tkinter import filedialog, messagebox
-
-    p = self._p()
-    is_en = getattr(self, "_language", "id") == "en"
-    owner = parent_win if parent_win is not None else self.root
-
-    win = ctk.CTkToplevel(owner)
-    win.title(("Inject into Viewer" if is_en else "Inject ke Viewer"))
-    win.configure(fg_color=p["bg"])
-    _v25_center_window(win, owner, 560, 520, min_w=520, min_h=460)
-    try:
-        win.transient(owner)
-        win.grab_set()
-    except Exception as _ignored_exc:
-        logger.debug("Ignored recoverable exception in _v25_inject_into_viewer (grab): %s", _ignored_exc)
-
-    viewer_name = str(viewer_meta.get("name", viewer_meta.get("id", "viewer")))
-
-    root = ctk.CTkFrame(win, fg_color=p["bg"], corner_radius=0)
-    root.pack(fill="both", expand=True)
-    root.grid_columnconfigure(0, weight=1)
-    root.grid_rowconfigure(2, weight=1)
-
-    hdr = ctk.CTkFrame(root, fg_color=p["panel"], corner_radius=0, height=74)
-    hdr.grid(row=0, column=0, sticky="ew")
-    hdr.grid_propagate(False)
-    hdr.grid_columnconfigure(1, weight=1)
-    ctk.CTkLabel(hdr, text="💉", width=46, height=46,
-                 fg_color="#0f172a" if self._is_dark else "#dbeafe", corner_radius=12,
-                 font=ctk.CTkFont("Segoe UI Emoji", 20), text_color="#60a5fa").grid(row=0, column=0, rowspan=2, padx=(16, 10), pady=14)
-    ctk.CTkLabel(hdr, text=(f"Inject into: {viewer_name}" if is_en else f"Inject ke: {viewer_name}"),
-                 font=ctk.CTkFont("Segoe UI", 15, "bold"), text_color=p["fg"], anchor="w").grid(row=0, column=1, sticky="ew", pady=(14, 0))
-    ctk.CTkLabel(hdr, text=("Pick a project source. File can be project.json, app.js, or a zip — content is auto-detected."
-                            if is_en else "Pilih sumber project. File bisa project.json, app.js, atau zip — isinya dideteksi otomatis."),
-                 font=ctk.CTkFont("Segoe UI", 9), text_color=p["muted"], anchor="w").grid(row=1, column=1, sticky="ew", pady=(0, 12))
-
-    form = ctk.CTkFrame(root, fg_color=p["bg"], corner_radius=0)
-    form.grid(row=1, column=0, sticky="ew", padx=16, pady=(12, 4))
-    form.grid_columnconfigure(1, weight=1)
-
-    src_kind = ctk.StringVar(value="file")
-    src_path = ctk.StringVar(value="")
-    out_dir = ctk.StringVar(value="")
-
-    ctk.CTkLabel(form, text=("Source type" if is_en else "Tipe sumber"), text_color=p["muted"], anchor="w").grid(row=0, column=0, columnspan=2, sticky="w")
-    ctk.CTkSegmentedButton(form, values=["file", "folder", "url"], variable=src_kind,
-                           command=lambda *_: _on_kind(),
-                           fg_color=p["surface2"], selected_color="#3b82f6", selected_hover_color="#2563eb",
-                           unselected_color=p["surface2"], unselected_hover_color=p["surface"],
-                           text_color="#ffffff").grid(row=1, column=0, columnspan=2, sticky="ew", pady=(2, 12))
-
-    src_label = ctk.CTkLabel(form, text=("Project file" if is_en else "File project"), text_color=p["muted"], anchor="w")
-    src_label.grid(row=2, column=0, columnspan=2, sticky="w")
-    src_entry = ctk.CTkEntry(form, textvariable=src_path, fg_color=p["input_bg"], text_color=p["input_fg"],
-                             border_color=p["border"], font=ctk.CTkFont("Consolas", 10))
-    src_entry.grid(row=3, column=0, sticky="ew", pady=(2, 10))
-    src_browse = ctk.CTkButton(form, text=("Browse" if is_en else "Pilih"), width=86,
-                               fg_color=p["surface2"], hover_color=p["surface"], text_color=p["fg"],
-                               command=lambda: _browse_src())
-    src_browse.grid(row=3, column=1, padx=(8, 0), pady=(2, 10), sticky="e")
-
-    ctk.CTkLabel(form, text=("Output folder" if is_en else "Folder output"), text_color=p["muted"], anchor="w").grid(row=4, column=0, columnspan=2, sticky="w")
-    ctk.CTkEntry(form, textvariable=out_dir, fg_color=p["input_bg"], text_color=p["input_fg"],
-                 border_color=p["border"], font=ctk.CTkFont("Consolas", 10)).grid(row=5, column=0, sticky="ew", pady=(2, 4))
-    ctk.CTkButton(form, text=("Browse" if is_en else "Pilih"), width=86,
-                  fg_color=p["surface2"], hover_color=p["surface"], text_color=p["fg"],
-                  command=lambda: _browse_out()).grid(row=5, column=1, padx=(8, 0), pady=(2, 4), sticky="e")
-
-    status_box = ctk.CTkTextbox(root, fg_color=p["surface"], text_color=p["muted"],
-                                font=ctk.CTkFont("Consolas", 10), border_width=1, border_color=p["border"], wrap="word")
-    status_box.grid(row=2, column=0, sticky="nsew", padx=16, pady=(8, 6))
-    status_box.configure(state="disabled")
-
-    footer = ctk.CTkFrame(root, fg_color=p["panel"], corner_radius=0)
-    footer.grid(row=3, column=0, sticky="ew")
-    footer.grid_columnconfigure(0, weight=1)
-
-    def _log(msg: str) -> None:
-        def _do():
-            status_box.configure(state="normal")
-            status_box.insert("end", msg + "\n")
-            status_box.see("end")
-            status_box.configure(state="disabled")
-        _v25_safe_after(win, _do)
-
-    def _on_kind() -> None:
-        k = src_kind.get()
-        if k == "file":
-            src_label.configure(text=("Project file (json / app.js / zip)" if is_en else "File project (json / app.js / zip)"))
-            src_browse.configure(state="normal")
-        elif k == "folder":
-            src_label.configure(text=("Download folder (auto-scan)" if is_en else "Folder hasil download (auto-scan)"))
-            src_browse.configure(state="normal")
-        else:
-            src_label.configure(text=("Source URL" if is_en else "URL sumber"))
-            src_browse.configure(state="disabled")
-
-    def _browse_src() -> None:
-        k = src_kind.get()
-        if k == "file":
-            path = filedialog.askopenfilename(
-                parent=win,
-                title=("Select project source file" if is_en else "Pilih file sumber project"),
-                filetypes=[("Project sources", "*.json *.txt *.js *.zip *.rar"),
-                           ("All files", "*.*")])
-        elif k == "folder":
-            path = filedialog.askdirectory(parent=win,
-                                           title=("Select download folder" if is_en else "Pilih folder download"))
-        else:
-            return
-        if path:
-            src_path.set(path)
-
-    def _browse_out() -> None:
-        path = filedialog.askdirectory(parent=win, title=("Select output folder" if is_en else "Pilih folder output"))
-        if path:
-            out_dir.set(path)
-
-    # ── Project-source resolution (reuses existing extraction pipeline) ──
-    def _resolve_from_file(path: str):
-        """Return (project_str, asset_source_dirs) or (None, {})."""
-        try:
-            with open(path, "rb") as fh:
-                raw = fh.read()
-        except Exception as exc:
-            _log((f"Could not read file: {exc}" if is_en else f"Gagal membaca file: {exc}"))
-            return None, {}
-        assets: Dict[str, str] = {}
-        # ZIP/RAR (or any archive-like payload) first.
-        if is_zip_bytes(raw) or path.lower().endswith((".zip", ".rar")):
-            proj = extract_project_from_archive_bytes(raw, path)
-            if proj:
-                _log(("Resolved project from archive." if is_en else "Project ditemukan dari arsip."))
-                return proj, assets
-        text = try_decode_bytes(raw)
-        proj = extract_project_text_from_payload(text)
-        if proj:
-            _log(("Resolved project from file payload (json/app.js)."
-                  if is_en else "Project ditemukan dari isi file (json/app.js)."))
-            # Sibling images/ + audio/ next to the chosen file.
-            base = os.path.dirname(os.path.abspath(path))
-            for sub in ("images", "audio"):
-                d = os.path.join(base, sub)
-                if os.path.isdir(d):
-                    assets[sub] = d
-            return proj, assets
-        _log(("No project data found in file." if is_en else "Tidak ada data project di file."))
-        return None, {}
-
-    def _resolve_from_folder(folder: str):
-        assets: Dict[str, str] = {}
-        for sub in ("images", "audio"):
-            d = os.path.join(folder, sub)
-            if os.path.isdir(d):
-                assets[sub] = d
-        # Prefer explicit project json files.
-        for cand in ("project.json", "project_original.json"):
-            cpath = os.path.join(folder, cand)
-            if os.path.isfile(cpath):
-                proj, _a = _resolve_from_file(cpath)
-                if proj:
-                    _log((f"Using {cand} from folder." if is_en else f"Memakai {cand} dari folder."))
-                    return proj, (assets or _a)
-        # Fallback: scan app*.js / *.js for embedded project data.
-        try:
-            js_files = sorted(
-                [f for f in os.listdir(folder) if f.lower().endswith(".js")],
-                key=lambda n: (0 if n.lower().startswith("app") else 1, n.lower()))
-        except Exception:
-            js_files = []
-        for js in js_files:
-            jpath = os.path.join(folder, js)
-            try:
-                with open(jpath, "rb") as fh:
-                    raw = fh.read()
-            except Exception:
-                continue
-            proj = extract_project_text_from_payload(try_decode_bytes(raw))
-            if proj:
-                _log((f"Resolved embedded project from {js}." if is_en else f"Project tertanam ditemukan di {js}."))
-                return proj, assets
-        _log(("No project.json or embedded JS project found in folder."
-              if is_en else "project.json atau project tertanam di JS tidak ditemukan di folder."))
-        return None, assets
-
-    def _resolve_from_url(url: str):
-        try:
-            ai_provider = _get_ai_provider()
-        except Exception:
-            ai_provider = ""
-        ai_key = ""
-        try:
-            ai_key = _resolve_ai_api_key()
-        except Exception:
-            ai_key = ""
-        _log(("Resolving project from URL…" if is_en else "Mengambil project dari URL…"))
-        proj, resolved = get_project_source(
-            url, ai_api_key=ai_key or "", ai_provider=ai_provider or "",
-            ai_mode=("auto_fallback" if ai_key else "off"))
-        if proj:
-            _log((f"Resolved from {resolved or url}." if is_en else f"Berhasil dari {resolved or url}."))
-            return proj, {}
-        _log(("Could not resolve project from URL." if is_en else "Gagal mengambil project dari URL."))
-        return None, {}
-
-    def _do_inject() -> None:
-        kind = src_kind.get()
-        src = src_path.get().strip()
-        out = out_dir.get().strip()
-        if not src:
-            messagebox.showwarning("Inject", ("Please choose a project source." if is_en else "Pilih sumber project dulu."), parent=win)
-            return
-        if not out:
-            messagebox.showwarning("Inject", ("Please choose an output folder." if is_en else "Pilih folder output dulu."), parent=win)
-            return
-        inject_btn.configure(state="disabled")
-        close_btn.configure(state="disabled")
-
-        def _worker():
-            try:
-                if kind == "file":
-                    proj, assets = _resolve_from_file(src)
-                elif kind == "folder":
-                    proj, assets = _resolve_from_folder(src)
-                else:
-                    proj, assets = _resolve_from_url(src)
-                if not proj:
-                    _v25_safe_after(win, lambda: (inject_btn.configure(state="normal"), close_btn.configure(state="normal")))
-                    return
-                # Derive an output file_name stem.
-                if kind == "url":
-                    try:
-                        stem = _build_output_name(src)
-                    except Exception:
-                        stem = "project"
-                else:
-                    base = os.path.basename(src.rstrip("/\\"))
-                    stem = os.path.splitext(base)[0] or "project"
-                _log(("Injecting into viewer…" if is_en else "Meng-inject ke viewer…"))
-                out_path = _apply_offline_viewer(
-                    output_dir=out,
-                    project_json_str=proj,
-                    viewer_meta=viewer_meta,
-                    file_name=stem,
-                    asset_source_dirs=assets or None,
-                )
-                if out_path:
-                    rel = os.path.dirname(out_path)
-                    _log(("✓ Offline viewer ready." if is_en else "✓ Viewer offline siap."))
-                    _log(rel)
-
-                    def _done_ok():
-                        inject_btn.configure(state="normal")
-                        close_btn.configure(state="normal")
-                        if messagebox.askyesno("Inject",
-                                               ("Offline viewer created.\nOpen the folder?"
-                                                if is_en else "Viewer offline dibuat.\nBuka foldernya?"), parent=win):
-                            try:
-                                self._open_path_in_os(rel)
-                            except Exception as _e:
-                                logger.debug("open folder failed: %s", _e)
-                    _v25_safe_after(win, _done_ok)
-                else:
-                    _log(("✗ Injection failed — viewer index.html not found or unsupported."
-                          if is_en else "✗ Inject gagal — index.html viewer tidak ada atau tidak didukung."))
-                    _v25_safe_after(win, lambda: (inject_btn.configure(state="normal"), close_btn.configure(state="normal")))
-            except Exception as exc:
-                _log((f"✗ Error: {exc}" if is_en else f"✗ Error: {exc}"))
-                _v25_safe_after(win, lambda: (inject_btn.configure(state="normal"), close_btn.configure(state="normal")))
-
-        threading.Thread(target=_worker, daemon=True).start()
-
-    inject_btn = ctk.CTkButton(footer, text=("Inject" if is_en else "Inject"), width=130,
-                               fg_color="#3b82f6", hover_color="#2563eb", command=_do_inject)
-    inject_btn.grid(row=0, column=1, padx=(0, 8), pady=12)
-    close_btn = ctk.CTkButton(footer, text=("Close" if is_en else "Tutup"), width=100,
-                              fg_color=p["surface2"], hover_color=p["surface"], text_color=p["fg"], command=win.destroy)
-    close_btn.grid(row=0, column=2, padx=(0, 16), pady=12)
-
-    _on_kind()
 
 
 def _v25_cloudflare_panel(self: Any) -> None:
@@ -25522,7 +24994,7 @@ CYOADownloaderGUI._apply_theme = _v465_apply_theme  # type: ignore[assignment]
 # website downloader. That caused deep scan to crawl cyoa.cafe instead of the
 # authoritative viewer host. Resolve once at the run boundary and preserve the
 # legacy output name derived from the user's original URL.
-_STABILIZATION_PATCH_ID = "CYOA-v1.0.1-STAB-v46.12"
+_STABILIZATION_PATCH_ID = "CYOA-v1.0 Release-STAB-v46.11"
 _V466_PREVIOUS_RUN_DOWNLOAD = run_download
 
 
@@ -25645,7 +25117,7 @@ CYOADownloaderGUI._setup_ui = _v466_setup_ui  # type: ignore[assignment]
 
 
 # v46.8 final patch identity.
-_STABILIZATION_PATCH_ID = "CYOA-v1.0.1-STAB-v46.12"
+_STABILIZATION_PATCH_ID = "CYOA-v1.0 Release-STAB-v46.11"
 
 # ── v1.0 Release: register the built-in plugins (default behavior unchanged) ───────
 # These wrap the existing functions verbatim. Because they are the only plugins

@@ -1,0 +1,5 @@
+Manual Inject quick note
+========================
+Use Offline Viewer Center when automatic viewer matching cannot find a suitable template.
+The Inject button accepts a project source from a project.json file, a folder, a ZIP archive, or a URL.
+The generated output should be a standalone <name>_offline folder with index.html and localized assets.

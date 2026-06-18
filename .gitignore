@@ -1,4 +1,4 @@
-# Python
+# Python bytecode/cache
 __pycache__/
 *.py[cod]
 *.pyo
@@ -25,6 +25,7 @@ dist/
 outputs/
 downloads/
 cyoa_output/
+*_offline/
 cyoa_downloader.log
 failed_urls.txt
 failed_assets.txt
@@ -32,7 +33,10 @@ failed_images.txt
 backup_report.txt
 *.part
 *.tmp
+
+# Archives generated locally
 *.zip
+!examples/*.zip
 
 # Local settings and secrets
 settings.json

@@ -5,178 +5,120 @@
   </picture>
 </p>
 
-<h1 align="center">CYOA Downloader — v1.0 Release</h1>
+<h1 align="center">CYOA Downloader v1.0.1</h1>
 
 <p align="center">
-  Stable ICC/CYOA backup utility with GUI, CLI, batch import, offline viewer export, deep asset recovery, local preview tools, and GitHub-ready documentation.
+  A stable GUI and CLI utility for backing up Interactive CYOA / ICC projects, linked assets, media references, fonts, website resources, and offline viewer builds.
 </p>
 
 <p align="center">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg"></a>
-  <img alt="Python" src="https://img.shields.io/badge/Python-3.10%2B-blue.svg">
-  <img alt="Release" src="https://img.shields.io/badge/Release-v1.0-orange.svg">
+  <img alt="Python 3.10+" src="https://img.shields.io/badge/Python-3.10%2B-blue.svg">
+  <img alt="Release v1.0.1" src="https://img.shields.io/badge/Release-v1.0.1-orange.svg">
+  <img alt="GUI and CLI" src="https://img.shields.io/badge/Interface-GUI%20%2B%20CLI-purple.svg">
 </p>
 
 ---
 
 ## What is this?
 
-**CYOA Downloader** is a Python tool for creating local backups of Interactive CYOA / ICC projects. It can save a project as embedded JSON, ZIP, or a full offline ICC viewer package with HTML, CSS, JavaScript, project data, images, fonts, audio, video, and reports.
+**CYOA Downloader** creates local backups of Interactive CYOA / ICC projects. It can download the project data, scan project JSON and viewer files for linked assets, localize images/fonts/media where possible, and build ZIP or folder outputs that are easier to archive, inspect, preview, and recover.
 
-The project supports both a graphical desktop interface and a command-line interface for automation.
+The project is intentionally usable in two ways:
 
-> **v1.0 terminology note:** user-facing **Website Mode** has been renamed to **ICC Mode**. Internal keys `website_zip` and `website_folder` are intentionally preserved so older batch files, settings files, and manifests keep working.
+- **GUI mode** for normal users who want buttons, progress logs, retry tools, local preview, settings, and offline viewer utilities.
+- **CLI mode** for advanced users, automation, batch jobs, scripted backups, and testing.
 
----
-
-## Documentation map
-
-| File | Purpose |
-| --- | --- |
-| [`docs/FEATURES.md`](docs/FEATURES.md) | Full feature inventory and status matrix. |
-| [`docs/CLI.md`](docs/CLI.md) | Complete CLI reference, examples, modes, network options, AI options, batch use. |
-| [`docs/GUI.md`](docs/GUI.md) | GUI workflow, panels, queue usage, mode guide, troubleshooting from GUI. |
-| [`docs/HOW_IT_WORKS.md`](docs/HOW_IT_WORKS.md) | Internal workflow: URL intake, project detection, asset scanning, download, reporting, ZIP/folder output. |
-| [`START_HERE.md`](START_HERE.md) | Short beginner quick-start for first-time users. |
-| [`INSTALLATION.md`](INSTALLATION.md) | Full beginner-friendly installation guide. |
-| [`docs/QUICK_START.md`](docs/QUICK_START.md) | Short quick-start inside the docs folder. |
-| [`docs/INSTALLATION.md`](docs/INSTALLATION.md) | Documentation copy of the full installation guide. |
-| [`docs/USAGE.md`](docs/USAGE.md) | Common workflows and ready-to-copy command examples. |
-| [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) | Missing assets, Cloudflare, slow downloads, GUI issues, EXE notes. |
-| [`docs/EXE_BUILD.md`](docs/EXE_BUILD.md) | Recommended Windows EXE packaging workflow with PyInstaller. |
-| [`docs/CREDITS.md`](docs/CREDITS.md) | Credits and third-party integration notes. |
-| [`RELEASE_NOTES_v1.0.md`](RELEASE_NOTES_v1.0.md) | Release notes and migration guide. |
+Version **1.0.1** keeps the 1.0 input/output model and compatibility expectations intact. The stabilization work focuses on safer dependency reporting, clearer FFMPEG guidance, dark-mode visual consistency, System theme default, documentation cleanup, and additional validation gates. The program version remains exactly `1.0.1`.
 
 ---
 
-## Feature overview
+## Main capabilities
 
-### Interfaces
+### Download and archive modes
 
-- **GUI mode** with queue, progress, logs, settings, language support, feature toggles, and local preview controls.
-- **CLI mode** for automation, scripting, batch jobs, CI smoke tests, and server usage.
-- **Batch import** from TXT, CSV, XLSX, XLS, remote CSV, or Google Sheets CSV export URL.
-
-### Output modes
-
-| Mode | CLI flag | Output | Best for |
+| Mode | CLI flag | Output | Best use case |
 | --- | --- | --- | --- |
-| Embedded JSON | default | Single JSON with embedded image data | Portable project data, small/medium projects. |
-| ZIP | `--zip` | ZIP with project JSON and external assets | Keeping assets separate but compressed. |
-| Both | `--both` | Embedded JSON + ZIP | Archival backup when both formats are desired. |
-| ICC ZIP | `--icc` | Offline ICC viewer ZIP | Shareable offline viewer package. |
-| ICC Folder | `--icc-folder` | Offline ICC viewer folder | Inspection, preview, debugging, large downloads. |
-| Pure Website ZIP | `--pure-website` | Site mirror ZIP without project JSON discovery first | Custom sites that do not expose a normal project JSON. |
-| Pure Website Folder | `--pure-website-folder` | Site mirror folder | Custom-site debugging or manual inspection. |
-| CYOAP Vue ZIP | `--cyoap-vue-website` | Dedicated `dist/platform.json` + `dist/nodes/list.json` ZIP | CYOAP Vue projects. |
+| Embedded JSON | default | Single JSON file with embedded data where possible | Small projects or portable project snapshots. |
+| ZIP | `--zip` | ZIP with project JSON and external assets | Archival backups with separated files. |
+| Both | `--both` | Embedded JSON + ZIP | Conservative backups when you want both formats. |
+| ICC ZIP | `--icc` | Full offline ICC viewer ZIP | Shareable offline viewer package. |
+| ICC Folder | `--icc-folder` | Full offline ICC viewer folder | Debugging, inspection, large outputs, local preview. |
+| Pure Website ZIP | `--pure-website` | Site mirror ZIP without normal project detection first | Custom viewers or non-standard sites. |
+| Pure Website Folder | `--pure-website-folder` | Site mirror folder | Manual inspection of custom viewers. |
+| CYOAP Vue ZIP | `--cyoap-vue-website` | Dedicated CYOAP Vue ZIP | Projects using `dist/platform.json` and `dist/nodes/list.json`. |
 | CYOAP Vue Folder | `--cyoap-vue-folder` | Dedicated CYOAP Vue folder | CYOAP Vue inspection and preview. |
 
 ### Asset coverage
 
-- ICC project JSON discovery.
-- Image fields such as `image`, `backgroundImage`, `rowBackgroundImage`, `objectBackgroundImage`, `defaultImage`, `thumbnail`, `coverImage`, `icon`, `portrait`, `selectedImage`, `unselectedImage`, and related ICC Plus fields.
-- CSS/HTML/JS deep scan for linked assets.
-- Image download for PNG, JPG/JPEG, GIF, WebP, BMP, SVG, AVIF, ICO.
-- Audio detection for MP3, OGG, WAV, M4A, AAC, FLAC, OPUS, WEBA.
-- Video detection for MP4, WebM, OGV, MKV, MOV, M4V.
-- Font detection and localization for Google Fonts and direct WOFF/WOFF2/TTF/OTF/EOT files.
-- Optional YouTube/SoundCloud audio recovery through `yt-dlp`.
-- Optional gallery/post fallback through `gallery-dl`.
+The downloader handles the common CYOA/ICC asset patterns found across classic ICC, ICC Plus, and custom viewers:
 
-### Stability and safety
+- project JSON discovery from direct JSON, embedded app bundles, viewer config, and archive payloads;
+- image fields such as `image`, `backgroundImage`, `rowBackgroundImage`, `objectBackgroundImage`, `defaultImage`, `thumbnail`, `coverImage`, `headerImage`, `icon`, `portrait`, `avatar`, `selectedImage`, `unselectedImage`, and ICC Plus border/loading/backpack keys;
+- CSS, HTML, and JavaScript deep scans for linked files;
+- Google Fonts and direct font files (`woff`, `woff2`, `ttf`, `otf`, `eot`);
+- audio fields, direct BGM URLs, SoundCloud URLs, and YouTube IDs where supported by optional tools;
+- common image, audio, video, script, style, and text asset extensions;
+- failed asset reporting and retry workflows.
 
-- Retry-capable HTTP session.
-- URL scheme validation.
-- Safe output path joining to reduce path traversal risk.
-- Strict archive path validation.
+### Safety and stability features
+
+- URL scheme guard for HTTP/HTTPS sources.
+- Safer output path joining to reduce path traversal risk.
+- Strict archive member validation to reduce ZIP slip risk.
+- Archive extraction limits to reduce decompression abuse risk.
 - Atomic settings/cache writes.
-- Rotating file logs.
-- Sensitive value redaction in logs.
-- Failed asset reports and batch failed URL reports.
-- GUI log batching to avoid UI spam/freezes.
-- Thread worker cap through `--threads`.
-- 429 wait/backoff through `--wait-time`.
-- Optional Cloudflare recovery using cloudscraper or FlareSolverr.
-- Optional proxy, DNS, and HTTP/2 support.
+- Rotating log files.
+- Token, cookie, password, bearer, and API-key redaction in logs.
+- Non-blocking GUI log queue.
+- Thread cap for parallel downloads.
+- Clear dependency check output.
+- Non-fatal FFMPEG warning unless a feature truly requires FFMPEG.
+- `--self-test` for offline smoke validation.
 
 ---
 
-## Install / Quick start
+## Repository layout
 
-There are two normal ways to use this project:
+| Guide | Content |
+| --- | --- |
+| [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md) | Installation, first run, first GUI backup, first CLI backup, FFMPEG and yt-dlp setup. |
+| [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) | GUI panels, CLI workflows, batch files, output modes, Offline Viewer Center, Manual Inject. |
+| [`docs/ADVANCED_FEATURES.md`](docs/ADVANCED_FEATURES.md) | AI Assist, Cloudflare handling, proxies, DNS, HTTP/2, media recovery, theme/logo behavior, serve tools. |
+| [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) | Practical fixes for dependency errors, failed URLs, missing assets, GUI issues, FFMPEG/yt-dlp, and batch problems. |
+| [`docs/MAINTAINER_GUIDE.md`](docs/MAINTAINER_GUIDE.md) | Project structure, tests, release gates, documentation rules, and compatibility requirements. |
 
-| Method | Best for | Status |
-| --- | --- | --- |
-| **Windows EXE** | Non-technical Windows users | Use this after an EXE is published in GitHub Releases. |
-| **Python source install** | Current release, advanced users, maintainers | Fully supported now. |
+There is no second `docs/README.md`. The root README is the single entry point.
 
-For the shortest beginner path, open [`START_HERE.md`](START_HERE.md). For the full step-by-step guide, open [`INSTALLATION.md`](INSTALLATION.md).
+---
 
-### Option A — Windows EXE, when available
+## Quick start
 
-1. Open **GitHub → Releases**.
-2. Download the Windows package, for example:
+### 1. Install Python
 
-```text
-CYOA-Downloader-v1.0-Windows-x64.zip
-```
+Use **Python 3.10 or newer**. On Windows, install Python from python.org or the Microsoft Store and enable “Add Python to PATH” if the installer offers it.
 
-3. Extract the ZIP.
-4. Run:
+### 2. Create a virtual environment
 
-```text
-CYOA Downloader.exe
-```
-
-Do **not** run the EXE directly from inside the ZIP preview window. Extract it first.
-
-### Option B — Windows source install, supported now
-
-Open PowerShell inside the project folder and run:
+Windows PowerShell:
 
 ```powershell
-py -m venv .venv
+py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 pip install -r requirements.txt
-python cyoa_downloader.py
 ```
 
-If `py` is not available, replace `py` with `python`:
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-python cyoa_downloader.py
-```
-
-If PowerShell blocks `.venv` activation, run once:
-
-```powershell
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-```
-
-Then activate again:
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-```
-
-### Option C — Linux / macOS source install
+Linux / macOS:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 pip install -r requirements.txt
-python cyoa_downloader.py
 ```
 
-### Verify installation
-
-Run these from the project folder:
+### 3. Verify dependencies
 
 ```bash
 python cyoa_downloader.py --dependency-check
@@ -184,197 +126,222 @@ python cyoa_downloader.py --self-test
 python cyoa_downloader.py --help
 ```
 
-Expected behavior:
+A clean setup should show dependency status, pass the offline self-test, and print the CLI help.
 
-- dependency check prints installed/missing modules;
-- self-test runs offline smoke checks;
-- help text shows `--icc` and `--icc-folder`;
-- old Website CLI flags are intentionally removed in v1.0 Release.
-
-### Optional advanced feature setup
-
-The default full install uses:
-
-```bash
-pip install -r requirements.txt
-```
-
-If installing manually, use this map:
-
-| Feature | Packages / tools |
-| --- | --- |
-| Core downloader | `requests`, `urllib3`, `beautifulsoup4` |
-| GUI | `customtkinter`, `Pillow`, Tkinter from Python/OS |
-| Batch Excel import | `pandas`, `openpyxl`, `xlrd` |
-| Deep scan helpers | `json5`, `tldextract`, `httpx[h2]`, `dnspython` |
-| Cloudflare recovery | `cloudscraper`, optional external FlareSolverr service |
-| Browser fallback | `selenium` and/or `playwright`; for Playwright also run `python -m playwright install chromium` |
-| Media extraction | `yt-dlp`, `gallery-dl` |
-| AI key storage | `keyring`; local AI can use Ollama |
-
-Full installation details are in [`INSTALLATION.md`](INSTALLATION.md).
-
-## Run the GUI
+### 4. Start the GUI
 
 ```bash
 python cyoa_downloader.py
 ```
 
-Run with `--gui` to force GUI even when arguments are present:
+Running the script without arguments opens the GUI. You can also force it with:
 
 ```bash
 python cyoa_downloader.py --gui
 ```
 
-The GUI loads the bundled light/dark logo from `assets/logo-light.png` and `assets/logo-dark.png`. If the files are missing, the script falls back to embedded logo data and then a text fallback.
+---
+
+## First GUI backup
+
+1. Open the app with `python cyoa_downloader.py`.
+2. Paste the CYOA or viewer URL.
+3. Choose the output mode. For most beginners, start with **ICC Folder** or **ICC ZIP** if available in the GUI.
+4. Click **Download All**.
+5. Wait for the log to finish.
+6. Open the output folder.
+7. Read `backup_report.txt` or `failed_assets.txt` if some assets fail.
+8. Use **Retry Assets**, **Retry Images**, or **Retry Audio** if the GUI reports recoverable failures.
+
+For offline viewer use, open **Offline Viewer Center** and use **Auto-match** first. If auto-match cannot identify the correct viewer, use **Inject** and select a project source manually.
 
 ---
 
-## Run the CLI
+## Useful CLI examples
+
+Download the default output:
 
 ```bash
-python cyoa_downloader.py "https://example.com/cyoa" -o output
-python cyoa_downloader.py --zip "https://example.com/cyoa" -o output
-python cyoa_downloader.py --both "https://example.com/cyoa" -o output
-python cyoa_downloader.py --icc "https://example.com/cyoa" -o output
-python cyoa_downloader.py --icc-folder "https://example.com/cyoa" -o output_folder
+python cyoa_downloader.py "https://example.com/project"
 ```
 
-Preview a downloaded ICC folder through localhost:
+Create an ICC offline viewer ZIP:
 
 ```bash
-python cyoa_downloader.py --icc-folder "https://example.com/cyoa" -o output_folder --serve
+python cyoa_downloader.py "https://example.com/project" --icc
 ```
 
-Run diagnostics/smoke checks:
+Create an ICC offline viewer folder:
+
+```bash
+python cyoa_downloader.py "https://example.com/project" --icc-folder
+```
+
+Download a batch list:
+
+```bash
+python cyoa_downloader.py --list examples/batch_urls.csv --output downloads
+```
+
+Use more workers cautiously:
+
+```bash
+python cyoa_downloader.py "https://example.com/project" --icc-folder --threads 8
+```
+
+Run dependency diagnostics:
 
 ```bash
 python cyoa_downloader.py --dependency-check
-python cyoa_downloader.py --self-test
-python cyoa_downloader.py --userscript-info
 ```
 
-Full CLI documentation is in [`docs/CLI.md`](docs/CLI.md).
-
----
-
-## ICC Mode and legacy flag migration
-
-Use these v1.0 flags:
+Run offline smoke tests:
 
 ```bash
-python cyoa_downloader.py --icc "URL" -o output
-python cyoa_downloader.py --icc-folder "URL" -o output_folder
+python cyoa_downloader.py --self-test
 ```
-
-The old user-facing flags were intentionally removed for consistency:
-
-| Removed | Replacement |
-| --- | --- |
-| `--website` | `--icc` |
-| `-W` | `--icc` |
-| `--website-folder` | `--icc-folder` |
-
-Internal compatibility is still preserved:
-
-| Internal key | Status | Reason |
-| --- | --- | --- |
-| `website_zip` | Supported | Existing batch/settings/manifest compatibility. |
-| `website_folder` | Supported | Existing batch/settings/manifest compatibility. |
-
-New batch files may use `icc`, `icc_zip`, or `icc_folder`; older files using `website_zip` and `website_folder` still work.
 
 ---
 
-## Batch import
+## Batch file formats
 
-TXT format:
+TXT:
 
 ```text
-https://example.com/cyoa/
-https://example.com/cyoa2/ | MyFilename
-https://example.com/cyoa3/ | MyFilename | icc
-https://example.com/cyoa4/ | MyFolder | icc_folder
+https://example.com/cyoa-1
+https://example.com/cyoa-2 | custom-name | website_folder
 ```
 
-CSV/XLSX columns are case-insensitive:
+CSV:
 
-| Column | Required | Notes |
-| --- | --- | --- |
-| `url`, `link`, `urls`, `links` | Yes | Full URL beginning with `http://` or `https://`. |
-| `filename`, `name`, `output`, `title`, `file` | No | Output filename/folder name. |
-| `mode`, `output_mode`, `type` | No | `embed`, `zip`, `both`, `icc`, `icc_zip`, `icc_folder`, `website_zip`, `website_folder`, `pure_website_zip`, `pure_website_folder`, `cyoap_vue_zip`, `cyoap_vue_folder`. |
-
-Run a batch:
-
-```bash
-python cyoa_downloader.py --list batch.csv -o outputs
+```csv
+url,filename,mode
+https://example.com/cyoa-1,first_backup,website_folder
+https://example.com/cyoa-2,second_backup,website_zip
 ```
+
+Supported URL column names include `url`, `link`, `urls`, and `links`. Supported filename column names include `filename`, `name`, `output`, `title`, and `file`. The `mode` column is optional.
+
+If a batch file has no URL column, the program reports it clearly instead of failing silently.
 
 ---
 
-## Reports and logs
+## FFMPEG and media tools
 
-Common output files:
+FFMPEG is not required for normal project downloads. It is only required for some audio/video extraction, conversion, or merge workflows used by optional media recovery tools.
 
-| File | Purpose |
+Check FFMPEG:
+
+```bash
+ffmpeg -version
+```
+
+Install hints:
+
+- Windows: install a static build from a trusted FFMPEG distributor, then add the `bin` folder to PATH.
+- macOS: `brew install ffmpeg`.
+- Debian/Ubuntu: `sudo apt install ffmpeg`.
+- Fedora: `sudo dnf install ffmpeg` after enabling the appropriate multimedia repositories when needed.
+
+Optional media recovery:
+
+```bash
+pip install yt-dlp
+python -m pip install -U yt-dlp
+```
+
+More details are in [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md) and [`docs/ADVANCED_FEATURES.md`](docs/ADVANCED_FEATURES.md).
+
+---
+
+## Theme, logo, and GUI consistency
+
+The GUI uses the system theme by default:
+
+```json
+"theme_mode": "System"
+```
+
+Users can switch between **System**, **Dark**, and **Light** from the GUI settings. The selection is saved to the settings file. The dark toolbar divider uses a muted blue-grey line instead of a bright white separator so it remains visible without looking harsh.
+
+Logo assets are kept in `assets/`:
+
+```text
+assets/logo-light.png
+assets/logo-dark.png
+assets/logo-source.png
+```
+
+The included logo assets are from the original release package. If the app cannot load external assets, it falls back safely so the GUI still opens.
+
+---
+
+## AI Assist status
+
+AI Assist is optional. It is not needed for normal downloads and should remain off unless the user explicitly configures it.
+
+Supported modes:
+
+| Mode | Meaning |
 | --- | --- |
-| `cyoa_downloader.log` | Rotating runtime log for troubleshooting. |
-| `backup_report.txt` | Summary of downloaded and failed assets for ICC/website outputs. |
-| `failed_assets.txt` | Plain-text failed asset report when no backup report is available. |
-| `failed_urls.txt` | Batch-level URL failures. |
-| `project.json` | Extracted project data when available. |
+| `off` | No AI calls. Recommended default. |
+| `diagnostics` | Use AI only to help explain difficult detection failures. |
+| `auto_fallback` | Use AI when standard extraction fails. |
+| `aggressive_recovery` | More active recovery mode; advanced users only. |
 
-Sensitive log-looking values such as tokens, passwords, cookies, and bearer authorization strings are redacted before logging.
+Key storage options:
 
----
+| Storage | Recommended for | Notes |
+| --- | --- | --- |
+| `session` | Most users | Key is used for the current run only. |
+| `env` | Advanced users | Reads from environment variables. |
+| `keyring` | Users with OS keyring support | Safer persistent storage when available. |
+| `plain` | Local experiments only | Stores in settings; not recommended for shared machines. |
 
-## Local Serve preview and helper policy
-
-The local server is intended for downloaded/offline output only. It may expose a small localhost Tools overlay for debugging, accessibility checks, storage export/import, cache clearing, and quality-of-life testing.
-
-Bundled userscript helper credit:
-
-- Name: **IntCyoaEnhancer**
-- Author: **agreg**
-- License: **MIT**
-- Source: **GreasyFork script 438947**
-
-The bundled helper is a localhost/offline integration route. This project does not claim ownership of the original IntCyoaEnhancer project.
+The logger redacts token-like values, but users should still avoid pasting secrets into issue reports.
 
 ---
 
-## Build Windows EXE
+## Development and validation
 
-Recommended release form is a ZIP containing an onedir PyInstaller build:
+Install development dependencies:
 
 ```bash
-pip install pyinstaller
-pyinstaller --noconfirm --windowed --name "CYOA Downloader" --add-data "assets;assets" cyoa_downloader.py
+pip install -r requirements-dev.txt
 ```
 
-See [`docs/EXE_BUILD.md`](docs/EXE_BUILD.md) for icons, onedir vs onefile, and GitHub release asset recommendations.
+Run the core gates:
+
+```bash
+python -m py_compile cyoa_downloader.py
+python cyoa_downloader.py --self-test
+pytest -q
+ruff check cyoa_downloader.py --select F821
+```
+
+Maintainers should read [`docs/MAINTAINER_GUIDE.md`](docs/MAINTAINER_GUIDE.md) before changing downloader behavior, CLI flags, output formats, Offline Viewer Center, Manual Inject, userscript helper behavior, or settings compatibility.
 
 ---
 
-## Disclaimer
+## Compatibility rules
 
-Use this tool only for content you are allowed to archive. Local Serve tools, debugging helpers, userscript integration, Cloudflare recovery, and optional gallery/media backends must be used responsibly and only where permitted. The project is designed for offline backup, accessibility, debugging, and quality-of-life testing of downloaded CYOA output.
+This repository treats the following behavior as compatibility-sensitive:
+
+- existing CLI flags and aliases;
+- output folder and ZIP structure;
+- batch TXT/CSV/XLSX import format;
+- Manual Inject and Offline Viewer Center workflow;
+- local serve preview and bundled userscript helper behavior;
+- settings import/export shape;
+- dependency fallback behavior;
+- `--dependency-check`, `--self-test`, and `--help` gates.
+
+Changes should be additive unless there is a documented safety reason.
 
 ---
 
-## Credits
+## License and credits
 
-See [`docs/CREDITS.md`](docs/CREDITS.md) and [`CREDITS.md`](CREDITS.md).
+This project is released under the MIT License. See [`LICENSE`](LICENSE).
 
----
-
-## License
-
-This project is released under the **MIT License**. See [`LICENSE`](LICENSE).
-
----
-
-## Contributing
-
-Backward-compatible improvements are welcome. Please preserve old internal mode keys, avoid breaking batch/settings/manifest compatibility, and include smoke tests for CLI parsing, path safety, batch import, and ICC aliases.
+Third-party credits and bundled helper notes are listed in [`CREDITS.md`](CREDITS.md).
