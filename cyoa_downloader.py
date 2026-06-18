@@ -8630,7 +8630,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 win.clipboard_append(report_holder["text"])
                 status_lbl.configure(text=lbl["copied"])
             except Exception as e:
-                status_lbl.configure(text=f"{lbl["copy_failed"]}: {e}")
+                status_lbl.configure(text=f"{lbl['copy_failed']}: {e}")
 
         def _save_as() -> None:
             try:
@@ -8641,9 +8641,9 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                     filetypes=[("Text", "*.txt"), ("All files", "*.*")])
                 if path:
                     pathlib.Path(path).write_text(report_holder["text"], encoding="utf-8")
-                    status_lbl.configure(text=f"{lbl["saved"]}: {path}")
+                    status_lbl.configure(text=f"{lbl['saved']}: {path}")
             except Exception as e:
-                status_lbl.configure(text=f"{lbl["save_failed"]}: {e}")
+                status_lbl.configure(text=f"{lbl['save_failed']}: {e}")
 
         def _save_to_output() -> None:
             try:
@@ -8651,9 +8651,9 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 os.makedirs(folder, exist_ok=True)
                 path = os.path.join(folder, "cyoa_diagnostics.txt")
                 pathlib.Path(path).write_text(report_holder["text"], encoding="utf-8")
-                status_lbl.configure(text=f"{lbl["saved"]}: {path}")
+                status_lbl.configure(text=f"{lbl['saved']}: {path}")
             except Exception as e:
-                status_lbl.configure(text=f"{lbl["save_failed"]}: {e}")
+                status_lbl.configure(text=f"{lbl['save_failed']}: {e}")
 
         def _render(text: str, counts: Dict[str, int]) -> None:
             report_holder["text"] = text
@@ -8700,7 +8700,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             pass_lbl.configure(text=f"PASS {pcount}")
             warn_lbl.configure(text=f"WARN {wcount}")
             fail_lbl.configure(text=f"FAIL {fcount}")
-            status_lbl.configure(text=f"{lbl["done"]} — PASS {pcount}, WARN {wcount}, FAIL {fcount}")
+            status_lbl.configure(text=f"{lbl['done']} — PASS {pcount}, WARN {wcount}, FAIL {fcount}")
             _set_buttons("normal")
             run_btn.configure(state="normal")
 
