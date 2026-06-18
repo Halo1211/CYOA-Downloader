@@ -88,8 +88,6 @@ The downloader handles the common CYOA/ICC asset patterns found across classic I
 | [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) | Practical fixes for dependency errors, failed URLs, missing assets, GUI issues, FFMPEG/yt-dlp, and batch problems. |
 | [`docs/MAINTAINER_GUIDE.md`](docs/MAINTAINER_GUIDE.md) | Project structure, tests, release gates, documentation rules, and compatibility requirements. |
 
-There is no second `docs/README.md`. The root README is the single entry point.
-
 ---
 
 ## Quick start
