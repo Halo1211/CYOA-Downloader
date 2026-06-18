@@ -84,6 +84,57 @@ python --version
 
 ---
 
+## 2.1 Recommended pip install commands
+
+CYOA Downloader keeps the beginner install simple. The repository does **not** need a separate `advanced optional pip command` file.
+
+### Normal user install
+
+Use this for normal GUI/CLI backups:
+
+```bash
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+### Advanced optional feature install
+
+Use this only if you want the heavier optional features such as Cloudflare fallback, gallery fallback, safer key storage, browser-cookie helpers, DNS helpers, browser fallback, and additional encoding fallbacks:
+
+```bash
+pip install cloudscraper plyer rarfile gallery-dl keyring browser-cookie3 dnspython chardet charset-normalizer selenium playwright
+```
+
+Playwright installs only the Python package by default. If you use Playwright-based browser fallback, install Chromium separately:
+
+```bash
+python -m playwright install chromium
+```
+
+### Developer / CI install
+
+Use this if you run tests, lint checks, or GitHub Actions-style validation:
+
+```bash
+pip install -r requirements-dev.txt
+```
+
+### Complete local setup
+
+Use this when you want normal runtime dependencies, optional advanced tools, and developer tools:
+
+```bash
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+pip install cloudscraper plyer rarfile gallery-dl keyring browser-cookie3 dnspython chardet charset-normalizer selenium playwright
+pip install -r requirements-dev.txt
+python -m playwright install chromium
+```
+
+FFMPEG is not a pip package. Install it through your operating system, then verify it with `ffmpeg -version`.
+
+---
+
 ## 3. Install on macOS
 
 ```bash
@@ -395,28 +446,63 @@ For batch troubleshooting, see [Troubleshooting](./TROUBLESHOOTING.md).
 
 ## 13. FFMPEG setup
 
-Check:
+FFMPEG is not required for normal JSON/image/font backups. It is only needed for some media extraction, conversion, or merge workflows, especially when optional media tools such as `yt-dlp` need to combine audio/video streams.
+
+Check whether FFMPEG is already available:
 
 ```bash
 ffmpeg -version
 ```
 
-Windows:
+### Windows with winget
+
+If Windows Package Manager is available, this is the simplest install path:
+
+```powershell
+winget install Gyan.FFmpeg
+```
+
+After installation, close and reopen PowerShell or Command Prompt, then verify:
+
+```powershell
+ffmpeg -version
+```
+
+If `winget` cannot find the package, update winget sources and search the available FFMPEG packages:
+
+```powershell
+winget source update
+winget search ffmpeg
+```
+
+Then install the available trusted package. The recommended package name for this guide is:
+
+```powershell
+winget install Gyan.FFmpeg
+```
+
+### Windows manual install
 
 1. Download a trusted static FFMPEG build.
 2. Extract it.
-3. Add the `bin` folder to PATH.
+3. Add the extracted `bin` folder to PATH.
 4. Open a new terminal.
-5. Run `ffmpeg -version`.
+5. Run:
 
-macOS:
+```powershell
+ffmpeg -version
+```
+
+Make sure PATH points to the folder that contains `ffmpeg.exe`, not only the parent folder.
+
+### macOS
 
 ```bash
 brew install ffmpeg
 ffmpeg -version
 ```
 
-Debian/Ubuntu:
+### Debian/Ubuntu
 
 ```bash
 sudo apt update
@@ -424,7 +510,17 @@ sudo apt install ffmpeg
 ffmpeg -version
 ```
 
+### Fedora
+
+```bash
+sudo dnf install ffmpeg
+ffmpeg -version
+```
+
+If your Fedora install does not provide FFMPEG by default, enable the appropriate multimedia repository for your system first.
+
 ---
+
 
 ## 14. yt-dlp setup
 

@@ -140,6 +140,50 @@ python cyoa_downloader.py --gui
 
 ---
 
+## Dependency install options
+
+Most users only need the normal runtime dependencies. This repository keeps the dependency files simple: `requirements.txt` for normal users and `requirements-dev.txt` for maintainers/CI. Optional advanced tools are installed with a direct pip command instead of a separate optional requirements file.
+
+### Normal user install
+
+```bash
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+### Advanced optional feature install
+
+Use this only for heavier recovery features such as Cloudflare fallback, gallery fallback, safer key storage, browser-cookie helpers, DNS helpers, browser fallback, and additional encoding fallbacks:
+
+```bash
+pip install cloudscraper plyer rarfile gallery-dl keyring browser-cookie3 dnspython chardet charset-normalizer selenium playwright
+```
+
+If you use Playwright-based browser fallback, install Chromium separately:
+
+```bash
+python -m playwright install chromium
+```
+
+### Developer / CI install
+
+```bash
+pip install -r requirements-dev.txt
+```
+
+### Complete local setup
+
+```bash
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+pip install cloudscraper plyer rarfile gallery-dl keyring browser-cookie3 dnspython chardet charset-normalizer selenium playwright
+pip install -r requirements-dev.txt
+python -m playwright install chromium
+```
+
+FFMPEG is installed through the operating system, not pip. See the FFMPEG section below.
+
+
 ## First GUI backup
 
 1. Open the app with `python cyoa_downloader.py`.
@@ -236,21 +280,45 @@ ffmpeg -version
 
 Install hints:
 
-- Windows: install a static build from a trusted FFMPEG distributor, then add the `bin` folder to PATH.
-- macOS: `brew install ffmpeg`.
-- Debian/Ubuntu: `sudo apt install ffmpeg`.
-- Fedora: `sudo dnf install ffmpeg` after enabling the appropriate multimedia repositories when needed.
+- Windows with winget:
+
+  ```powershell
+  winget install Gyan.FFmpeg
+  ffmpeg -version
+  ```
+
+- Windows manual install: download a trusted static build, extract it, add the `bin` folder to PATH, reopen the terminal, then run `ffmpeg -version`.
+- macOS:
+
+  ```bash
+  brew install ffmpeg
+  ffmpeg -version
+  ```
+
+- Debian/Ubuntu:
+
+  ```bash
+  sudo apt update
+  sudo apt install ffmpeg
+  ffmpeg -version
+  ```
+
+- Fedora:
+
+  ```bash
+  sudo dnf install ffmpeg
+  ffmpeg -version
+  ```
 
 Optional media recovery:
 
 ```bash
-pip install yt-dlp
-python -m pip install -U yt-dlp
+pip install -U yt-dlp
 ```
 
 More details are in [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md) and [`docs/ADVANCED_FEATURES.md`](docs/ADVANCED_FEATURES.md).
 
----
+
 
 ## Theme, logo, and GUI consistency
 
