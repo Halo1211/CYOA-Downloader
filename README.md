@@ -29,7 +29,7 @@ The project is intentionally usable in two ways:
 - **GUI mode** for normal users who want buttons, progress logs, retry tools, local preview, settings, and offline viewer utilities.
 - **CLI mode** for advanced users, automation, batch jobs, scripted backups, and testing.
 
-Version **1.0.1** keeps the 1.0 input/output model and compatibility expectations intact. The stabilization work focuses on safer dependency reporting, clearer FFMPEG guidance, dark-mode visual consistency, System theme default, documentation cleanup, and additional validation gates. The program version remains exactly `1.0.1`.
+Version **1.0.1** keeps the 1.0 input/output model and compatibility expectations intact. The stabilization work focuses on safer dependency reporting, clearer FFMPEG guidance, dark-mode visual consistency, System theme default, documentation cleanup, and additional validation gates.
 
 ---
 
