@@ -6,7 +6,7 @@ Thank you for improving CYOA Downloader. This project is intentionally conservat
 
 1. Create an issue or describe the problem clearly in the PR.
 2. Confirm whether the change affects CLI flags, output layout, batch files, settings, Offline Viewer Center, Manual Inject, userscript helpers, or dependency behavior.
-3. Keep version `1.0.1` unless the maintainer explicitly decides to cut a new release.
+3. Keep version `1.0.2` unless the maintainer explicitly decides to cut a new release.
 4. Avoid changing the main download behavior unless the bug is clearly understood.
 5. Update documentation when user-facing behavior changes.
 

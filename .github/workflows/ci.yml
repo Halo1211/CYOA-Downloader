@@ -46,5 +46,15 @@ jobs:
         run: python cyoa_downloader.py --self-test
       - name: Pytest
         run: pytest -q
-      - name: Ruff undefined names
-        run: ruff check cyoa_downloader.py --select F821
+      - name: Ruff lint (undefined/redefined names, repeated keys)
+        run: ruff check cyoa_downloader.py --select F821,F811,F601
+      - name: Verify smoke test
+        run: |
+          python - <<'EOF'
+          import os, subprocess, json, tempfile, sys
+          d = tempfile.mkdtemp()
+          json.dump({"rows": []}, open(os.path.join(d, "project.json"), "w"))
+          r = subprocess.run([sys.executable, "cyoa_downloader.py", "--verify", d])
+          assert r.returncode == 0, "verify should pass on a valid minimal package"
+          print("verify smoke OK")
+          EOF

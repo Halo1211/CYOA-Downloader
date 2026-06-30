@@ -6,6 +6,17 @@ CYOA Downloader is designed to preserve interactive CYOA projects by downloading
 
 ---
 
+## Quick paths
+
+Two supported ways to run the application:
+
+- **Windows executable (no setup).** Download the `-Windows-x64.zip` asset from the [Releases page](../../releases), right-click → **Extract All**, then run `CYOA Downloader.exe`. If Windows SmartScreen appears, choose **More info → Run anyway** (the executable is open-source and unsigned). If you use the executable, continue with the [User Guide](./USER_GUIDE.md) to save your first backup.
+- **From Python source.** Install Python, create a virtual environment, install dependencies, and launch — three copy-paste steps, detailed in sections 2–4 below.
+
+The remainder of this guide covers the Python workflow, first GUI and CLI backups, dependency checks, and optional tools.
+
+---
+
 ## Documentation map
 
 All links below assume this file is inside the `docs/` directory.
@@ -50,6 +61,8 @@ Normal image and viewer backups do **not** require FFMPEG. Missing optional tool
 ---
 
 ## 2. Install on Windows
+
+> **What these commands do.** The first line creates an isolated environment (`.venv`) so the project's dependencies stay separate from the rest of your system. The next two lines install those dependencies. This setup is performed only once; subsequent launches require just two commands (shown at the end of this section).
 
 Open PowerShell in the project folder:
 
@@ -221,6 +234,12 @@ Recommended beginner settings:
 
 For detailed GUI workflows, read [User Guide](./USER_GUIDE.md).
 
+> **Subsequent launches (Python install).** The install is not repeated. Open a terminal in the project folder and run these two commands:
+> - Windows: `.\.venv\Scripts\Activate.ps1` then `python cyoa_downloader.py`
+> - macOS/Linux: `source .venv/bin/activate` then `python cyoa_downloader.py`
+>
+> **Tip:** save those two commands as `start.bat` (Windows) or `start.sh` (macOS/Linux) in the project folder for a one-click launcher.
+
 ---
 
 ## 7. CLI learning path
@@ -245,6 +264,8 @@ Do not start with every advanced flag. Use this progression:
 | Show help | `python cyoa_downloader.py --help` | Shows every available CLI flag. |
 | Check dependencies | `python cyoa_downloader.py --dependency-check` | Reports required/optional dependencies. |
 | Run self-test | `python cyoa_downloader.py --self-test` | Runs offline sanity checks. |
+| Check a finished backup | `python cyoa_downloader.py --verify "output_folder"` | Read-only integrity check of a folder you already downloaded. |
+| Write checksum baseline | `python cyoa_downloader.py --verify "output_folder" --write-manifest` | Records file checksums so a later `--verify` can detect corruption. |
 | Download one project | `python cyoa_downloader.py "https://example.com/project"` | Runs a normal single-project backup. |
 | Choose output folder | `python cyoa_downloader.py "https://example.com/project" --output downloads` | Writes output to `downloads/`. |
 | ICC ZIP | `python cyoa_downloader.py "https://example.com/project" --icc` | Creates an ICC-style ZIP when supported. |
@@ -371,6 +392,8 @@ Read [Advanced Features](./ADVANCED_FEATURES.md) before enabling AI recovery. No
 | `--dependency-check` | `python cyoa_downloader.py --dependency-check` | Dependency report. |
 | `--userscript-info` | `python cyoa_downloader.py --userscript-info` | Userscript helper credit/details. |
 | `--self-test` | `python cyoa_downloader.py --self-test` | Offline sanity checks. |
+| `--verify` | `python cyoa_downloader.py --verify "output_folder"` | Read-only integrity check of a finished backup folder (missing/empty/broken files). Exit code 0 = intact, 1 = problem. |
+| `--write-manifest` | `python cyoa_downloader.py --verify "output_folder" --write-manifest` | With `--verify`: write a `cyoa_manifest.json` checksum baseline so later `--verify` runs catch corrupted/truncated files. Opt-in; never created during a normal download. |
 | `--export-settings` | `python cyoa_downloader.py --export-settings settings.json` | Export settings with secrets redacted. |
 | `--import-settings` | `python cyoa_downloader.py --import-settings settings.json` | Import non-secret settings. |
 | `--gui` | `python cyoa_downloader.py --gui` | Force GUI. |

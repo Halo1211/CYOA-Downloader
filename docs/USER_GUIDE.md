@@ -92,6 +92,27 @@ Common output files:
 
 Before sharing logs publicly, review them manually. The application redacts common secret patterns, but users should still avoid sharing private URLs, cookies, API keys, or tokens.
 
+### Verifying a backup is complete
+
+After a backup finishes, you can confirm it is intact **without downloading it again**:
+
+```bash
+python cyoa_downloader.py --verify "path/to/output_folder"
+```
+
+This read-only check reports missing referenced assets, empty (zero-byte) files, and a broken or missing `project.json`. It prints `PASS`/`FAIL` and exits with code `0` (intact) or `1` (problem found), so you can use it in scripts.
+
+For the strongest check — detecting files that became **corrupted or truncated**, not just missing — record a checksum baseline once, then verify whenever you like:
+
+```bash
+# 1. Once, right after a clean download:
+python cyoa_downloader.py --verify "path/to/output_folder" --write-manifest
+# 2. Any time later:
+python cyoa_downloader.py --verify "path/to/output_folder"
+```
+
+The `cyoa_manifest.json` baseline is **opt-in** and is never written during a normal download, so your output folders are unchanged unless you ask for it.
+
 ---
 
 ## 6. Retry tools

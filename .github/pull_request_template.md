@@ -1,51 +1,32 @@
 ## Summary
 
-Describe the problem, the change, and why this approach is safe. Keep the explanation practical enough for a maintainer to review without guessing the intent.
+Briefly describe what this pull request changes and why.
 
-## Area touched
+## Type of change
 
-- [ ] CLI flags or argument parsing
-- [ ] GUI layout/theme/logo
-- [ ] Downloader/network behavior
-- [ ] Asset scanner
-- [ ] Archive/path handling
-- [ ] Offline Viewer Center or Manual Inject
-- [ ] Batch import
-- [ ] Dependency check or self-test
+- [ ] Bug fix (non-breaking change that fixes an issue)
+- [ ] New feature (non-breaking change that adds functionality)
 - [ ] Documentation only
+- [ ] Refactor / maintenance
 
-## Compatibility checklist
+## Compatibility
 
-- [ ] Existing CLI flags remain available.
-- [ ] Existing output folder/ZIP structure is preserved.
-- [ ] Batch TXT/CSV/XLSX behavior is preserved.
-- [ ] Manual Inject is preserved.
-- [ ] Offline viewer helpers are preserved.
-- [ ] Userscript serve helper behavior is preserved.
-- [ ] No new mandatory dependency was added without justification.
-- [ ] Documentation was updated if behavior changed.
+- [ ] No change to the default download path or output layout
+- [ ] No CLI flag renames or removals
+- [ ] No internal mode-key changes (`website_zip` / `website_folder`)
+- [ ] Documentation updated where user-facing behavior changed
 
-## Tests run
+## Testing
 
-```text
-python -m py_compile cyoa_downloader.py
-python -c "import ast, pathlib; ast.parse(pathlib.Path('cyoa_downloader.py').read_text(encoding='utf-8')); print('ast.parse OK')"
-python cyoa_downloader.py --help
-python cyoa_downloader.py --dependency-check
-python cyoa_downloader.py --self-test
-pytest -q
-ruff check cyoa_downloader.py --select F821
-```
+Confirm the gate suite passes locally:
 
-## GUI evidence
+- [ ] `python -m py_compile cyoa_downloader.py`
+- [ ] `python cyoa_downloader.py --help`
+- [ ] `python cyoa_downloader.py --dependency-check`
+- [ ] `python cyoa_downloader.py --self-test` (state the count, e.g. 37/37)
+- [ ] `ruff check cyoa_downloader.py --select F821,F811,F601`
+- [ ] `pytest -q` (if tests are affected)
 
-For GUI changes, add screenshots for:
+## Notes for the maintainer
 
-- System theme when possible;
-- Dark theme;
-- Light theme;
-- relevant dialog or panel.
-
-## Risk notes
-
-List any behavior that still needs manual testing, especially live websites, Cloudflare-protected URLs, media extraction, or large offline viewer packages.
+Anything reviewers should pay special attention to, plus what was and was not live-tested.

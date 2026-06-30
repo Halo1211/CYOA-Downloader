@@ -22,6 +22,7 @@ If you are new to the project, read [Getting Started](./GETTING_STARTED.md) firs
 | `python cyoa_downloader.py --self-test` | Offline sanity checks for core helpers. | Recheck file integrity and Python version. |
 | `python cyoa_downloader.py --help` | CLI parser loads successfully. | Syntax/import issue if it fails. |
 | `python -m py_compile cyoa_downloader.py` | Python syntax. | The file may be corrupted or patched incorrectly. |
+| `python cyoa_downloader.py --verify "output_folder"` | Whether a finished backup is complete and intact (missing/empty/broken files). | If it reports FAIL, re-download or use the GUI retry tools; the report names the missing files. |
 
 Use these before reporting a bug.
 
@@ -120,12 +121,13 @@ python cyoa_downloader.py "https://example.com/project" --icc-folder --threads 2
 
 Then:
 
-1. Open the missing asset URL in a browser.
-2. Check failed asset logs.
-3. Keep deep scan enabled.
-4. Retry failed assets.
-5. Check whether a proxy or Cloudflare mode is needed.
-6. If paths are relative, check whether output folder structure matches viewer expectations.
+1. **First, confirm exactly what's missing:** run `python cyoa_downloader.py --verify "your_output_folder"` — it lists the referenced files that didn't land on disk, so you know whether the problem is real or just a cosmetic warning.
+2. Open the missing asset URL in a browser.
+3. Check failed asset logs.
+4. Keep deep scan enabled.
+5. Retry failed assets.
+6. Check whether a proxy or Cloudflare mode is needed.
+7. If paths are relative, check whether output folder structure matches viewer expectations.
 
 ---
 

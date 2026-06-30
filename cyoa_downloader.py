@@ -39,8 +39,12 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-_APP_VERSION = "1.0.1"
-_STABILIZATION_PATCH_ID = "CYOA-v1.0-RELEASE"
+_APP_VERSION = "1.0.2"
+# Single source of truth for the stabilization marker. Kept free of the version
+# number itself (carried by _APP_VERSION) so banners like
+# "CYOA Downloader v{_APP_VERSION} · {_STABILIZATION_PATCH_ID}" don't read as a
+# doubled version. [STAB-v1.0.1-rev8] consolidated from 6 scattered redefinitions.
+_STABILIZATION_PATCH_ID = "CYOA-v1.0.2"
 _GITHUB_RELEASE_API = ""   # Set to "https://api.github.com/repos/YOUR/REPO/releases/latest" to enable auto-update checks
 
 # Serve-only userscript integration metadata.
@@ -408,29 +412,102 @@ _RUN_DOWNLOAD_LOCK = threading.RLock()
 _LAST_PREVIEW_FOLDER: Optional[str] = None
 
 
-class GUILogHandler(logging.Handler):
-    def __init__(self, q: log_queue_module.Queue) -> None:
-        super().__init__()
-        self.q = q
+# [STAB-v1.0.3] Removed dead duplicate definition of `GUILogHandler` (superseded by the active v46/v465 implementation later in this file).
 
-    def emit(self, record: logging.LogRecord) -> None:
-        # v46: never block a network worker because the GUI log queue is full.
-        # Preserve recent diagnostics by evicting one oldest line on saturation.
-        message = self.format(record)
-        try:
-            self.q.put_nowait(message)
-            return
-        except log_queue_module.Full as _ignored_exc:
-            _ = _ignored_exc  # expected non-blocking queue control flow
-        try:
-            self.q.get_nowait()
-        except log_queue_module.Empty as _ignored_exc:
-            _ = _ignored_exc  # expected non-blocking queue control flow
-        try:
-            self.q.put_nowait(message)
-        except log_queue_module.Full:
-            return
 
+
+_BATCH_VALID_MODES = {
+    "embed", "zip", "both",
+    "icc", "icc_zip", "icc_folder", "website", "website_zip", "website_folder",
+    "pure_website", "pure_website_zip", "pure_website_folder",
+    "cyoap_vue", "cyoap_vue_zip", "cyoap_vue_folder",
+}
+
+
+# [STAB-v1.0.1-rev18] Single source of truth for batch-row → run_download flags.
+#
+# Two batch dispatch sites (GUI loop and CLI loop) independently derived the
+# zip/both/pure_website/website_output/website_zip_output/engine_mode booleans
+# from the canonical mode string. They diverged: the GUI set omitted the bare
+# ``pure_website`` and bare ``cyoap_vue`` variants (it only matched the
+# ``_zip``/``_folder`` suffixed forms). Because ``_normalize_batch_mode`` lets
+# bare ``pure_website`` and ``cyoap_vue`` through unchanged, a TXT/CSV row like
+# ``url | name | pure_website`` reached the GUI queue and was silently coerced
+# into a normal embed/zip download (project scan NOT skipped), while
+# ``cyoap_vue`` never triggered the cyoap_vue probe (engine stayed "standard").
+# The CLI handled both correctly. This helper encodes the CLI's correct
+# semantics once so both dispatch sites stay in parity; adding a future mode in
+# one place can no longer silently mis-dispatch in the other.
+#
+# Additive only: for every mode both sites already agreed on, the returned
+# flags are byte-identical to the previous inline logic. Inputs/outputs and the
+# download concept are unchanged.
+_PURE_MODES = {"pure_website", "pure_website_zip", "pure_website_folder"}
+_CYOAP_MODES = {"cyoap_vue", "cyoap_vue_zip", "cyoap_vue_folder"}
+# ``icc``/``icc_zip``/``icc_folder`` are legacy CLI aliases that
+# ``_normalize_batch_mode`` rewrites to ``website*`` before dispatch, so they
+# never reach this helper in practice. They are kept here so the helper is a
+# defensive superset of both historical dispatch sites (the CLI loop used to
+# treat icc* as website modes); this guarantees no behavior change on any path.
+_WEBSITE_MODES = {"icc", "icc_zip", "icc_folder", "website", "website_zip", "website_folder"}
+_FOLDER_MODES = {"icc_folder", "website_folder", "pure_website_folder", "cyoap_vue_folder"}
+
+
+def _derive_mode_flags(mode: str) -> Dict[str, object]:
+    """Map a canonical batch mode key to run_download() keyword flags.
+
+    Returns a dict with keys: zip, both, pure, website, website_zip, engine.
+    Mirrors the CLI batch semantics (the reference behavior) so the GUI and
+    CLI dispatch loops cannot drift. ``mode`` should already be canonical
+    (post ``_normalize_batch_mode``); unknown values fall back to embed.
+    """
+    # Normalize separators/case defensively. Callers normally pass canonical
+    # underscore keys, but accepting the dash form too (e.g. "icc-folder")
+    # prevents a silent mis-dispatch if a future caller forgets to normalize.
+    mode = (mode or "").strip().lower().replace("-", "_").replace(" ", "_")
+    is_pure = mode in _PURE_MODES
+    is_cyoap = mode in _CYOAP_MODES
+    # website_output is True for any website-style mirror: ICC/website,
+    # cyoap_vue, and pure_website. (run_download early-returns for pure_website
+    # before website_output is consulted, but parity keeps it True to match CLI.)
+    website_output = mode in _WEBSITE_MODES or is_cyoap or is_pure
+    # ZIP unless an explicit *_folder mode was requested.
+    website_zip = mode not in _FOLDER_MODES
+    return {
+        "zip": mode == "zip",
+        "both": mode == "both",
+        "pure": is_pure,
+        "website": website_output,
+        "website_zip": website_zip,
+        "engine": "cyoap_vue" if is_cyoap else "standard",
+    }
+
+
+def _normalize_batch_mode(raw_mode: str, url: str = "") -> str:
+    """Validate/normalize a batch-row mode string for both TXT and CSV/XLSX paths.
+
+    [STAB-v1.0.1-rev10] Previously the TXT import path passed parts[2] through
+    raw, while the CSV/XLSX path validated against the mode set and mapped the
+    icc/icc_folder aliases. A TXT row like ``url | name | icc_folder`` therefore
+    reached the queue with an unknown mode key, which the downstream
+    ``mode in {...}`` dispatch silently coerced into a website ZIP instead of the
+    requested folder. Both paths now share this normalizer.
+
+    Returns the canonical internal mode key, or "" to mean "use GUI/CLI default".
+    """
+    if not raw_mode:
+        return ""
+    canon = raw_mode.strip().lower().replace("-", "_").replace(" ", "_")
+    if not canon:
+        return ""
+    if canon in {"icc", "icc_zip"}:
+        return "website_zip"
+    if canon == "icc_folder":
+        return "website_folder"
+    if canon in _BATCH_VALID_MODES:
+        return canon
+    logger.warning(f"Unknown mode '{canon}' for {url or '(row)'} — using GUI/CLI default")
+    return ""
 
 
 def import_queue_items_from_file(file_path: str) -> List[Dict[str, str]]:
@@ -467,6 +544,7 @@ def import_queue_items_from_file(file_path: str) -> List[Dict[str, str]]:
                 else:
                     url, filename, mode = line, "", ""
                 if url and is_probable_url(url):
+                    mode = _normalize_batch_mode(mode, url)
                     items.append({"url": url, "filename": filename, "mode": mode})
         return items
 
@@ -480,7 +558,18 @@ def import_queue_items_from_file(file_path: str) -> List[Dict[str, str]]:
         if ext in {".xlsx", ".xls"}:
             df = pd.read_excel(file_path)
         elif ext == ".csv":
-            df = pd.read_csv(file_path)
+            # [STAB-v1.0.1-rev6] Skip malformed rows instead of failing the whole
+            # import. Previously a single row with the wrong column count made
+            # pandas raise and the entire batch returned empty — even though the
+            # plain-text path already tolerates bad lines. on_bad_lines='skip' is
+            # pandas>=1.3; fall back to the legacy kwarg, then to a plain read.
+            try:
+                df = pd.read_csv(file_path, on_bad_lines="skip")
+            except TypeError:
+                try:
+                    df = pd.read_csv(file_path, error_bad_lines=False)
+                except TypeError:
+                    df = pd.read_csv(file_path)
         else:
             logger.warning(f"Unsupported import file: {file_path}")
             return items
@@ -504,13 +593,6 @@ def import_queue_items_from_file(file_path: str) -> List[Dict[str, str]]:
         logger.warning("Batch import: no URL/Link column found.")
         return items
 
-    valid_modes = {
-        "embed", "zip", "both",
-        "icc", "icc_zip", "icc_folder", "website", "website_zip", "website_folder",
-        "pure_website", "pure_website_zip", "pure_website_folder",
-        "cyoap_vue", "cyoap_vue_zip", "cyoap_vue_folder",
-    }
-
     for _, row in df.iterrows():
         url = "" if pd.isna(row[url_col]) else str(row[url_col]).strip()
         if not url or not is_probable_url(url):
@@ -520,15 +602,7 @@ def import_queue_items_from_file(file_path: str) -> List[Dict[str, str]]:
             filename = str(row[name_col]).strip()
         mode = ""
         if mode_col is not None and not pd.isna(row[mode_col]):
-            raw_mode = str(row[mode_col]).strip().lower().replace("-", "_").replace(" ", "_")
-            if raw_mode in {"icc", "icc_zip"}:
-                mode = "website_zip"
-            elif raw_mode == "icc_folder":
-                mode = "website_folder"
-            elif raw_mode in valid_modes:
-                mode = raw_mode
-            else:
-                logger.warning(f"Unknown mode '{raw_mode}' for {url} — using GUI/CLI default")
+            mode = _normalize_batch_mode(str(row[mode_col]), url)
         items.append({"url": url, "filename": filename, "mode": mode})
 
     return items
@@ -715,6 +789,17 @@ def is_probable_url(value: str) -> bool:
     return bool(re.match(r"^https?://", str(value).strip(), re.IGNORECASE))
 
 
+def _is_windows_reserved_basename(name: str) -> bool:
+    """True if *name*'s base (before first dot) is a Windows reserved device
+    name (CON, PRN, AUX, NUL, COM1-9, LPT1-9), case-insensitive.
+
+    [STAB-v1.0.1-rev16] Extracted so both the output-filename guard (rev8-16)
+    and the asset-path guard below share one definition.
+    """
+    base = str(name or "").split(".", 1)[0]
+    return bool(re.fullmatch(r"(?i:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])", base))
+
+
 def _safe_rel_path(value: str, fallback: str = "asset") -> str:
     """Return a sanitized relative path safe for writing inside an output folder."""
     raw = unquote(str(value or "")).replace("\\", "/")
@@ -728,6 +813,14 @@ def _safe_rel_path(value: str, fallback: str = "asset") -> str:
         part = re.sub(r'^[A-Za-z]:', "_", part)
         part = re.sub(r'[<>:"|?*\x00-\x1f\x7f]', "_", part)
         part = part.strip(". ")
+        # [STAB-v1.0.1-rev16] Neutralize Windows reserved device names per
+        # segment. rev8-16 fixed this for the output *filename* builder, but
+        # asset paths flow through here instead — a remote asset URL ending in
+        # e.g. /nul.png or /CON/icon.svg would write to a Windows device handle
+        # rather than a file, silently failing on Windows (invisible on Linux).
+        # Prefix "_" so the on-disk segment is legal everywhere yet recognizable.
+        if part and _is_windows_reserved_basename(part):
+            part = "_" + part
         if part:
             parts.append(part)
     return "/".join(parts) or fallback
@@ -807,10 +900,7 @@ def _set_http2_enabled(enabled: bool) -> None:
         logger.info("HTTP/2 disabled; using requests.")
 
 
-def prepare_clean_output_folder(folder: str) -> None:
-    if os.path.isdir(folder):
-        shutil.rmtree(folder, ignore_errors=True)
-    os.makedirs(folder, exist_ok=True)
+# [STAB-v1.0.3] Removed dead duplicate definition of `prepare_clean_output_folder` (superseded by the active v46/v465 implementation later in this file).
 
 
 def _google_sheet_csv_export_url(url: str) -> str:
@@ -847,29 +937,21 @@ def import_queue_items_from_source(source: str) -> List[Dict[str, str]]:
     header = [c.strip().lower() for c in rows[0]]
     items: List[Dict[str, str]] = []
 
-    valid_modes = {
-        "embed", "zip", "both",
-        "icc", "icc_zip", "icc_folder", "website", "website_zip", "website_folder",
-        "pure_website", "pure_website_zip", "pure_website_folder",
-        "cyoap_vue", "cyoap_vue_zip", "cyoap_vue_folder",
-    }
-
     def add_item(url_value: str, filename_value: str = "", mode_value: str = "") -> None:
         url_value      = (url_value      or "").strip()
         filename_value = (filename_value or "").strip()
-        mode_value     = (mode_value     or "").strip().lower().replace("-", "_").replace(" ", "_")
         if url_value.startswith("#"):
             return
         if not is_probable_url(url_value):
             return
-        if mode_value in {"icc", "icc_zip"}:
-            mode_value = "website_zip"
-        elif mode_value == "icc_folder":
-            mode_value = "website_folder"
-        if mode_value and mode_value not in valid_modes:
-            logger.warning(f"Unknown mode '{mode_value}' for {url_value} — using default")
-            mode_value = ""
-        items.append({"url": url_value, "filename": filename_value, "mode": mode_value})
+        # [STAB-v1.0.1-rev14] Use the shared normalizer (introduced rev10) so the
+        # remote CSV / Google Sheets path validates and maps modes identically to
+        # the local TXT/CSV path. Previously this carried its own literal
+        # `valid_modes` set + inline alias logic — a third copy that would drift
+        # silently if the mode set ever grew (a new mode valid in files but
+        # rejected in remote lists). Single source of truth: _BATCH_VALID_MODES.
+        mode_norm = _normalize_batch_mode(mode_value, url_value)
+        items.append({"url": url_value, "filename": filename_value, "mode": mode_norm})
 
     if any(h in {"url", "link", "urls", "links"} for h in header):
         url_idx  = next((i for i, h in enumerate(header) if h in {"url", "link", "urls", "links"}), 0)
@@ -2064,6 +2146,21 @@ def _get_ai_int_setting(name: str, default: int, *, min_value: int = 0, max_valu
     return max(min_value, min(max_value, val))
 
 
+def _coerce_int(raw: Any, default: int) -> int:
+    """Parse an int from a possibly-non-numeric value (settings.json that was
+    hand-edited, or an external JSON field like a FlareSolverr 'status'). Never
+    raises — falls back to `default` on any malformed input.
+
+    [STAB-v1.0.1-rev8] Several call sites did `int(x.get(k, d) or d)`, which
+    still raises ValueError when the stored value is a non-numeric string
+    (e.g. "abc"). This helper makes those parses crash-proof.
+    """
+    try:
+        return int(str(raw).strip())
+    except (ValueError, TypeError):
+        return int(default)
+
+
 class AIUsageBudget:
     """Small per-download budget so AI Assist cannot call paid APIs repeatedly by accident."""
     def __init__(self, max_calls: Optional[int] = None) -> None:
@@ -2114,8 +2211,114 @@ def _sanitize_ai_candidate_url(value: str) -> Optional[str]:
         return None
     if v.startswith("//"):
         host = urlparse("https:" + v).hostname
+        if host and _host_is_internal(host):
+            return None
         return v if host else None
+    # [STAB-v1.0.1-rev7] Block AI-suggested URLs that point at internal/loopback
+    # addresses (prompt-injection SSRF). Mirrors the cyoa.cafe resolver guard.
+    if lower.startswith(("http://", "https://")):
+        host = urlparse(v).hostname
+        if host and _host_is_internal(host):
+            return None
     return v
+
+
+def _host_is_internal(hostname: str) -> bool:
+    """Return True if a hostname targets a loopback/link-local/private address.
+
+    [STAB-v1.0.1-rev7] Defense-in-depth SSRF guard. The cyoa.cafe resolver and
+    similar paths fetch URLs that originate from untrusted remote responses; a
+    malicious entry could point at 127.0.0.1, 169.254.169.254 (cloud metadata),
+    or RFC1918 ranges. Literal-IP hosts are classified directly; obvious local
+    names are blocked by string match. We intentionally do NOT resolve DNS here
+    (that would itself be a network call / DNS-rebind surface) — this is a cheap
+    static screen layered on top of existing checks, not a complete egress
+    firewall.
+    """
+    h = (hostname or "").strip().lower().rstrip(".")
+    if not h:
+        return True  # empty host → reject
+    if h in ("localhost",) or h.endswith(".localhost") or h.endswith(".local"):
+        return True
+    # Strip IPv6 brackets if present.
+    if h.startswith("[") and h.endswith("]"):
+        h = h[1:-1]
+    try:
+        import ipaddress as _ipaddr
+        ip = _ipaddr.ip_address(h)
+        return bool(
+            ip.is_private or ip.is_loopback or ip.is_link_local
+            or ip.is_reserved or ip.is_multicast or ip.is_unspecified
+        )
+    except ValueError:
+        # Not a literal IP address — a regular hostname. Allowed by this screen.
+        return False
+
+
+# [STAB-v1.0.1-rev8] SSRF guard for the asset-fetch path.
+#
+# rev7 placed _host_is_internal() on the cyoa.cafe resolver and AI-output
+# sanitizer, but the main asset fetch path (fetch_response / process_images /
+# deep-scan) had no equivalent screen. A project.json or JS bundle from an
+# untrusted site can therefore reference cross-origin internal addresses
+# (127.0.0.1:<port>, 169.254.169.254 cloud metadata, RFC1918) and the
+# downloader would dutifully fetch them — a genuine SSRF vector plus a wasted
+# connect-timeout per bad URL.
+#
+# We must NOT break the legitimate "download my own CYOA from localhost" flow,
+# so the rule is *cross-origin only*: an asset whose host is internal is blocked
+# ONLY when it differs from the page's own origin. Same-origin internal fetches
+# (localhost CYOA pulling its own assets) always pass. A global opt-out flag
+# (--allow-internal-hosts) disables the screen entirely for power users.
+_allow_internal_hosts = False
+
+
+def _set_allow_internal_hosts(enabled: bool) -> None:
+    """Process-local opt-out for the cross-origin internal-host SSRF screen."""
+    global _allow_internal_hosts
+    _allow_internal_hosts = bool(enabled)
+
+
+def _ssrf_block_cross_origin(asset_url: str, base_url: str = "") -> bool:
+    """Return True if *asset_url* should be blocked as a cross-origin SSRF target.
+
+    Blocks only when ALL hold:
+      • the opt-out flag is not set,
+      • the asset host classifies as internal (_host_is_internal),
+      • the asset origin differs from base_url's origin (cross-origin).
+
+    Same-origin internal assets (localhost-hosted CYOA fetching its own files)
+    are always allowed so the legitimate local-preview workflow keeps working.
+    Malformed URLs are treated as not-blocked here; upstream sanitizers and the
+    normal request machinery handle those.
+    """
+    if _allow_internal_hosts:
+        return False
+    try:
+        a = urlparse(asset_url)
+        if a.scheme not in ("http", "https"):
+            return False  # non-http(s) handled elsewhere
+        a_host = (a.hostname or "")
+        if not a_host or not _host_is_internal(a_host):
+            return False
+        # Asset host is internal. Allow only if same-origin as the page.
+        if base_url:
+            b = urlparse(base_url)
+
+            def _eff_port(p):
+                if p.port is not None:
+                    return p.port
+                return {"http": 80, "https": 443}.get(p.scheme)
+
+            if (b.scheme, b.hostname, _eff_port(b)) == (a.scheme, a.hostname, _eff_port(a)):
+                return False  # exact same-origin internal → legitimate
+            # For internal targets we do NOT tolerate genuine port differences:
+            # a different port on the same internal host is a different service
+            # (e.g. localhost:8000 CYOA vs localhost:9 SSRF probe).
+        return True
+    except Exception:
+        return False
+
 
 def _get_ai_provider() -> str:
     st = _load_settings()
@@ -2364,57 +2567,60 @@ def add_to_cyoa_manager(
 
     try:
         con = _sql.connect(db_path)
-        cur = con.cursor()
+        # [STAB-v1.0.1-rev8] finally guarantees close on every path, including
+        # the exception path which previously leaked the connection.
+        try:
+            cur = con.cursor()
 
-        # Ensure schema exists (CYOA Manager creates it on first launch)
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS library_projects (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL DEFAULT '',
-                description TEXT NOT NULL DEFAULT '',
-                cover_image TEXT,
-                source_url TEXT,
-                file_path TEXT NOT NULL DEFAULT '',
-                viewer_preference TEXT,
-                favorite INTEGER NOT NULL DEFAULT 0,
-                exclude_from_perk_index INTEGER NOT NULL DEFAULT 0,
-                date_added TEXT NOT NULL DEFAULT '',
-                tags_json TEXT NOT NULL DEFAULT '[]'
-            )
-        """)
+            # Ensure schema exists (CYOA Manager creates it on first launch)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS library_projects (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL DEFAULT '',
+                    description TEXT NOT NULL DEFAULT '',
+                    cover_image TEXT,
+                    source_url TEXT,
+                    file_path TEXT NOT NULL DEFAULT '',
+                    viewer_preference TEXT,
+                    favorite INTEGER NOT NULL DEFAULT 0,
+                    exclude_from_perk_index INTEGER NOT NULL DEFAULT 0,
+                    date_added TEXT NOT NULL DEFAULT '',
+                    tags_json TEXT NOT NULL DEFAULT '[]'
+                )
+            """)
 
-        # Check if this file_path is already registered
-        cur.execute("SELECT id FROM library_projects WHERE file_path = ?", (abs_path,))
-        existing = cur.fetchone()
-        if existing:
+            # Check if this file_path is already registered
+            cur.execute("SELECT id FROM library_projects WHERE file_path = ?", (abs_path,))
+            existing = cur.fetchone()
+            if existing:
+                logger.info(
+                    f"CYOA Manager: '{display_name}' already in library "
+                    f"(id={existing[0]}) — skipping duplicate."
+                )
+                return None   # None = already exists (not True=added, not False=error)
+
+            cur.execute("""
+                INSERT INTO library_projects
+                    (id, name, description, cover_image, source_url, file_path,
+                     viewer_preference, favorite, exclude_from_perk_index,
+                     date_added, tags_json)
+                VALUES (?,?,?,NULL,?,?,?,0,0,?,?)
+            """, (
+                project_id, display_name, description or "",
+                source_url or "", abs_path,
+                viewer_preference or "icc2-plus",
+                date_added, tags_json,
+            ))
+            con.commit()
+
             logger.info(
-                f"CYOA Manager: '{display_name}' already in library "
-                f"(id={existing[0]}) — skipping duplicate."
+                f"✓ Added to CYOA Manager: '{display_name}'\n"
+                f"  file: {abs_path}\n"
+                f"  db:   {db_path}"
             )
+            return True
+        finally:
             con.close()
-            return None   # None = already exists (not True=added, not False=error)
-
-        cur.execute("""
-            INSERT INTO library_projects
-                (id, name, description, cover_image, source_url, file_path,
-                 viewer_preference, favorite, exclude_from_perk_index,
-                 date_added, tags_json)
-            VALUES (?,?,?,NULL,?,?,?,0,0,?,?)
-        """, (
-            project_id, display_name, description or "",
-            source_url or "", abs_path,
-            viewer_preference or "icc2-plus",
-            date_added, tags_json,
-        ))
-        con.commit()
-        con.close()
-
-        logger.info(
-            f"✓ Added to CYOA Manager: '{display_name}'\n"
-            f"  file: {abs_path}\n"
-            f"  db:   {db_path}"
-        )
-        return True
 
     except Exception as e:
         logger.error(f"CYOA Manager: DB write failed — {e}")
@@ -2461,16 +2667,18 @@ def _list_cyoa_manager_projects(db_path: str = "") -> List[Dict[str, str]]:
         return []
     try:
         conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT id, name, source_url, file_path, date_added, viewer_preference "
-            "FROM library_projects ORDER BY name COLLATE NOCASE"
-        ).fetchall()
-        conn.close()
-        return [
-            {k: (r[k] or "") for k in r.keys()}
-            for r in rows if r["source_url"]
-        ]
+        try:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT id, name, source_url, file_path, date_added, viewer_preference "
+                "FROM library_projects ORDER BY name COLLATE NOCASE"
+            ).fetchall()
+            return [
+                {k: (r[k] or "") for k in r.keys()}
+                for r in rows if r["source_url"]
+            ]
+        finally:
+            conn.close()
     except Exception as e:
         logger.warning(f"CYOA Manager list: {e}")
         return []
@@ -2567,9 +2775,12 @@ def register_offline_viewer(
     try:
         if is_rar:
             import rarfile as _rf
-            arc = _rf.RarFile(zip_path)
-            names = arc.namelist()
-            arc.close()
+            # [STAB-v1.0.1-rev22] Use a context manager so the RAR handle is
+            # closed even if namelist() raises. Previously close() ran only on
+            # the success path, leaking the handle on any read error (the ZIP
+            # branch below already did this correctly).
+            with _rf.RarFile(zip_path) as arc:
+                names = arc.namelist()
         else:
             if not _zf.is_zipfile(zip_path):
                 logger.error(f"Not a valid ZIP: {zip_path}")
@@ -2648,45 +2859,72 @@ def _auto_register_bundled_viewers() -> None:
 
 def _extract_iccplus_subviewers(iccplus_zip_path: str) -> None:
     """
-    Extract LocalViewer and latest Viewer from ICCPlus-main.zip,
+    Extract LocalViewer and latest Viewer from an ICC Plus source ZIP,
     package each as its own ZIP in _VIEWERS_DIR, and register them.
     LocalViewer is preferred for offline use (simpler, single JS file).
+
+    [STAB-v1.0.1-rev11] The subviewer folders were previously located by the
+    hardcoded prefix ``ICCPlus-main/``. GitHub names the root folder after the
+    download ref, so a tagged source ZIP (e.g. ``ICCPlus-2.9.23/``) extracted
+    to nothing and failed silently. Matching is now root-agnostic: the single
+    top-level root directory is detected, and the subviewer folder is taken as
+    its direct child ``<root>/<segment>/``. This deliberately ignores nested
+    decoys such as ``<root>/Old/Viewer/`` that would otherwise collide.
     """
     import zipfile as _zf, io
 
     manifest = _load_viewers_manifest()
 
     sub_viewers = [
-        # (folder_prefix_in_zip, dest_name, display_name, priority)
-        ("ICCPlus-main/LocalViewer/", "ICCPlus_LocalViewer.zip",
+        # (folder_segment, dest_name, display_name, viewer_type, priority)
+        ("LocalViewer", "ICCPlus_LocalViewer.zip",
          "ICC Plus LocalViewer (recommended)", "icc_plus", "high"),
-        ("ICCPlus-main/Viewer/",      "ICCPlus_Viewer_latest.zip",
+        ("Viewer",      "ICCPlus_Viewer_latest.zip",
          "ICC Plus Viewer (latest)",  "icc_plus", "normal"),
     ]
 
+    def _detect_root(names):
+        """Return the common single top-level directory (with trailing slash),
+        or '' if members live at the archive root / span multiple top dirs."""
+        tops = set()
+        for n in names:
+            head = n.split("/", 1)
+            tops.add(head[0] if len(head) > 1 else "")
+        non_empty = {t for t in tops if t}
+        if len(non_empty) == 1 and "" not in tops:
+            return next(iter(non_empty)) + "/"
+        return ""
+
     try:
         with _zf.ZipFile(iccplus_zip_path) as main_zf:
-            all_names = main_zf.namelist()
+            all_names = [n for n in main_zf.namelist() if not n.endswith('/')]
+            root = _detect_root(all_names)
 
-            for prefix, dest_fname, display, vtype, priority in sub_viewers:
+            for segment, dest_fname, display, vtype, priority in sub_viewers:
                 vid = os.path.splitext(dest_fname)[0]
                 if vid in manifest:
                     continue
 
                 dest_path = os.path.join(_VIEWERS_DIR, dest_fname)
-                members   = [n for n in all_names if n.startswith(prefix) and not n.endswith('/')]
 
-                if not members:
+                # Exact direct-child match: <root>/<segment>/...  (root may be '')
+                prefix = f"{root}{segment}/"
+                matched = []
+                for n in all_names:
+                    if n.startswith(prefix):
+                        rel = n[len(prefix):]
+                        if rel:
+                            matched.append((n, rel))
+
+                if not matched:
                     continue
 
-                # Re-package as flat ZIP (strip prefix)
+                # Re-package as flat ZIP (relative to the matched segment).
                 buf = io.BytesIO()
                 with _zf.ZipFile(buf, 'w', _zf.ZIP_DEFLATED) as out_zf:
-                    for member in members:
-                        rel = member[len(prefix):]
-                        if rel:
-                            data = main_zf.read(member)
-                            out_zf.writestr(rel, data)
+                    for member, rel in matched:
+                        data = main_zf.read(member)
+                        out_zf.writestr(rel, data)
 
                 atomic_write_bytes(dest_path, buf.getvalue())
 
@@ -2695,10 +2933,10 @@ def _extract_iccplus_subviewers(iccplus_zip_path: str) -> None:
                     name=display,
                     viewer_type=vtype,
                 )
-                logger.info(f"Extracted from ICCPlus-main.zip: {dest_fname} ({len(members)} files)")
+                logger.info(f"Extracted ICC Plus subviewer: {dest_fname} ({len(matched)} files)")
 
     except Exception as e:
-        logger.warning(f"Could not process ICCPlus-main.zip: {e}")
+        logger.warning(f"Could not process ICC Plus source ZIP: {e}")
 
 
 
@@ -2972,6 +3210,20 @@ def _apply_offline_viewer(
                     continue
                 target_path = _safe_archive_join(site_folder, target_rel)
                 os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                # [STAB-v1.0.1-rev8] Check the DECLARED uncompressed size before
+                # arc.read() decompresses the member fully into RAM. Without this
+                # a single crafted member that inflates to many GB would exhaust
+                # memory *before* the post-read len(data) check could fire. The
+                # post-read check below stays as defense-in-depth (a header can
+                # under-declare its real size).
+                try:
+                    _declared = int(getattr(arc.getinfo(member), "file_size", 0) or 0)
+                except Exception:
+                    _declared = 0
+                if _declared > _MAX_MEMBER_BYTES:
+                    raise ValueError(f"Viewer archive member too large (declared): {member} ({_declared} bytes)")
+                if _total_written + _declared > _MAX_TOTAL_BYTES:
+                    raise ValueError("Viewer archive exceeds total decompression budget (4 GB)")
                 data = arc.read(member)
                 if len(data) > _MAX_MEMBER_BYTES:
                     raise ValueError(f"Viewer archive member too large: {member} ({len(data)} bytes)")
@@ -3396,32 +3648,7 @@ def _save_history(history: Dict[str, Dict]) -> None:
     except Exception as e:
         logger.debug(f"History save failed: {e}")
 
-def _record_history(url: str, file_name: str, mode: str, success: bool) -> None:
-    history = _load_history()
-    entry = {
-        "last_downloaded": __import__("datetime").datetime.now().isoformat(),
-        "file_name":       file_name,
-        "filename":        file_name,   # alias for batch update
-        "mode":            mode,
-        "success":         success,
-        "url":             url,
-    }
-    # Capture server metadata for future batch update checking
-    if success:
-        try:
-            r = fetch_response(url, timeout=8, extra_headers={"User-Agent": "Mozilla/5.0"}, as_bytes=True)
-            if r is not None and r.status_code == 200:
-                entry["etag"]           = r.headers.get("ETag", "")
-                entry["last_modified"]  = r.headers.get("Last-Modified", "")
-                entry["content_length"] = r.headers.get("Content-Length", "")
-        except Exception as _ignored_exc:
-            logger.debug("Ignored recoverable exception in _record_history (line 3306): %s", _ignored_exc)
-    history[url] = entry
-    if len(history) > 1000:
-        oldest = sorted(history, key=lambda u: history[u].get("last_downloaded", ""))
-        for old in oldest[:len(history)-1000]:
-            del history[old]
-    _save_history(history)
+# [STAB-v1.0.3] Removed dead duplicate definition of `_record_history` (superseded by the active v46/v465 implementation later in this file).
 
 def _check_history(url: str) -> Optional[Dict]:
     """Return history entry if URL was previously downloaded, else None."""
@@ -3431,21 +3658,7 @@ _shared_session = None
 _shared_session_cf = None
 
 
-def _get_shared_session(use_cf: bool = False) -> "requests.Session":
-    """Return (and lazily create) the shared requests session.
-
-    When *use_cf* is True the cloudscraper-backed session is returned;
-    otherwise a plain retry session is used.  Sessions are re-created
-    after proxy or DNS changes (the callers reset the globals to None).
-    """
-    global _shared_session, _shared_session_cf
-    if use_cf:
-        if _shared_session_cf is None:
-            _shared_session_cf = create_retry_session(use_cloudscraper=True)
-        return _shared_session_cf
-    if _shared_session is None:
-        _shared_session = create_retry_session(use_cloudscraper=False)
-    return _shared_session
+# [STAB-v1.0.3] Removed dead duplicate definition of `_get_shared_session` (superseded by the active v46/v465 implementation later in this file).
 
 
 # ── Domain rate limiter ────────────────────────────────────────────────────
@@ -3462,21 +3675,7 @@ _BACKOFF_BASE   = 2.0    # seconds
 _BACKOFF_MAX    = 300.0  # 5 min cap
 _BACKOFF_JITTER = 0.25   # ±25% jitter
 
-def _domain_throttle(url: str) -> None:
-    """Enforce per-domain minimum interval + exponential backoff."""
-    try:
-        domain = urlparse(url).netloc
-        if not domain: return
-        with _domain_lock:
-            last = _domain_last_request.get(domain, 0)
-            # Check if domain is in backoff mode
-            backoff = _domain_backoff.get(domain, 0)
-            wait = max(_domain_min_interval - (_time.monotonic() - last), backoff)
-            if wait > 0:
-                _cancel_aware_sleep(wait)
-            _domain_last_request[domain] = _time.monotonic()
-    except Exception as _ignored_exc:
-        logger.debug("Ignored recoverable exception in _domain_throttle (line 3367): %s", _ignored_exc)
+# [STAB-v1.0.3] Removed dead duplicate definition of `_domain_throttle` (superseded by the active v46/v465 implementation later in this file).
 
 def _domain_record_success(url: str) -> None:
     """Domain replied OK — halve the backoff."""
@@ -3490,30 +3689,7 @@ def _domain_record_success(url: str) -> None:
     except Exception as _ignored_exc:
         logger.debug("Ignored recoverable exception in _domain_record_success (line 3379): %s", _ignored_exc)
 
-def _domain_record_failure(url: str, status: int = 0) -> float:
-    """
-    Domain failed (429 / 5xx / connection error).
-    Double the backoff and return seconds to sleep.
-    """
-    try:
-        domain = urlparse(url).netloc
-        if not domain: return 0.0
-        with _domain_backoff_lock:
-            fails = _domain_fail_count.get(domain, 0) + 1
-            _domain_fail_count[domain] = fails
-            current = _domain_backoff.get(domain, 0.0)
-            if current == 0.0:
-                new_backoff = _BACKOFF_BASE
-            else:
-                new_backoff = min(current * 2, _BACKOFF_MAX)
-            # Add jitter: ±25%
-            jitter = new_backoff * _BACKOFF_JITTER * (2 * _random.random() - 1)
-            new_backoff = max(0.1, new_backoff + jitter)
-            _domain_backoff[domain] = new_backoff
-            logger.debug(f"Backoff [{domain}] fails={fails} → {new_backoff:.1f}s (status={status})")
-            return new_backoff
-    except Exception:
-        return 0.0
+# [STAB-v1.0.3] Removed dead duplicate definition of `_domain_record_failure` (superseded by the active v46/v465 implementation later in this file).
 
 # ── E: Persistent disk image cache ────────────────────────────────────────
 import json as _json_cache
@@ -3528,20 +3704,33 @@ _cache_loaded = False
 def _cache_load() -> None:
     global _cache_loaded
     if _cache_loaded: return
-    try:
-        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        if _CACHE_IDX.exists():
-            with open(_CACHE_IDX, encoding="utf-8") as f:
-                _cache_index.update(_json_cache.load(f))
-        _cache_loaded = True
-        logger.debug(f"Image cache: {len(_cache_index)} entries loaded")
-    except Exception as e:
-        logger.debug(f"Image cache load failed: {e}")
+    # [STAB-v1.0.1-rev19] Double-checked locking. Previously the load guard
+    # (_cache_loaded check/set) and the _cache_index.update() ran unsynchronized,
+    # so N worker threads racing the first cache access could each re-read the
+    # index file from disk and re-merge it, and the _cache_loaded flag write
+    # raced with concurrent readers. The fast-path check above stays lock-free
+    # (cheap, correct once loaded); the slow path now serializes through the
+    # same _cache_lock that guards every _cache_index write. Additive only:
+    # behavior after first load is unchanged.
+    with _cache_lock:
+        if _cache_loaded: return
+        try:
+            _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            if _CACHE_IDX.exists():
+                with open(_CACHE_IDX, encoding="utf-8") as f:
+                    _cache_index.update(_json_cache.load(f))
+            _cache_loaded = True
+            logger.debug(f"Image cache: {len(_cache_index)} entries loaded")
+        except Exception as e:
+            logger.debug(f"Image cache load failed: {e}")
 
 def _cache_get(url: str) -> Optional[bytes]:
     """Return cached bytes for URL if available and valid."""
     _cache_load()
-    h = _cache_index.get(url)
+    # [STAB-rev19] Read under the same lock that guards every write, so a
+    # concurrent _cache_put()/pop() cannot interleave with this lookup.
+    with _cache_lock:
+        h = _cache_index.get(url)
     if not h: return None
     fpath = _CACHE_DIR / h[:2] / h
     if fpath.exists():
@@ -3557,39 +3746,7 @@ def _cache_get(url: str) -> Optional[bytes]:
         _cache_index.pop(url, None)
     return None
 
-def _cache_put(url: str, data: bytes) -> None:
-    """Store bytes in disk cache, keyed by URL."""
-    if not data or len(data) < 64: return  # skip tiny/empty
-    try:
-        _cache_load()
-        h = _hashlib.sha256(data).hexdigest()
-        fdir = _CACHE_DIR / h[:2]
-        fdir.mkdir(parents=True, exist_ok=True)
-        fpath = fdir / h
-        if not fpath.exists():
-            atomic_write_bytes(str(fpath), data)
-        with _cache_lock:
-            _cache_index[url] = h
-        # Async save index (don't block download thread).
-        # v7.5.6 fix: previous version spawned a thread per put, each doing a
-        # plain open("w") on the same index file — two concurrent saves could
-        # interleave and corrupt the JSON. Now serialized via _cache_lock and
-        # written atomically (tmp + os.replace).
-        def _save():
-            try:
-                # Hold the lock for the whole write: the index is small, and
-                # this guarantees two background saves can never interleave
-                # on the tmp file either.
-                with _cache_lock:
-                    tmp = str(_CACHE_IDX) + ".tmp"
-                    with open(tmp, "w", encoding="utf-8") as f:
-                        _json_cache.dump(dict(_cache_index), f)
-                    os.replace(tmp, _CACHE_IDX)
-            except Exception as _ignored_exc:
-                logger.debug("Ignored recoverable exception in _save (line 3477): %s", _ignored_exc)
-        _threading.Thread(target=_save, daemon=True).start()
-    except Exception as e:
-        logger.debug(f"Image cache put failed: {e}")
+# [STAB-v1.0.3] Removed dead duplicate definition of `_cache_put` (superseded by the active v46/v465 implementation later in this file).
 
 def _cache_stats() -> Dict[str, int]:
     _cache_load()
@@ -3955,7 +4112,7 @@ def _ai_analyze_js_for_assets(
 
     # Build a compact JS sample: filename + first N chars of each file
     # Budget is user-configurable from AI settings.
-    budget = int(_load_settings().get("ai_max_js_chars", 14000) or 14000)
+    budget = _coerce_int(_load_settings().get("ai_max_js_chars", 14000), 14000)
     per_file = max(800, budget // max(len(js_files), 1))
     samples = []
     for fname, content in js_files.items():
@@ -4174,19 +4331,29 @@ def _fetch_headless(url: str) -> Optional[bytes]:
         from playwright.sync_api import sync_playwright
         with sync_playwright() as pw:
             browser = pw.chromium.launch(headless=True, args=["--no-sandbox"])
-            ctx = browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                ignore_https_errors=True,
-            )
-            page = ctx.new_page()
-            resp = page.goto(url, wait_until="networkidle", timeout=30_000)
-            if resp and resp.ok:
-                # For images, get raw bytes from response body
-                content = resp.body()
-                browser.close()
-                logger.info(f"  [Headless/Playwright] {url} → {len(content)} bytes")
-                return content
-            browser.close()
+            # [STAB-v1.0.1-rev8] try/finally so the launched Chromium process is
+            # always closed. Previously, if page.goto()/resp.body() raised (the
+            # common case that triggers this headless fallback in the first
+            # place), browser.close() was skipped and the browser process leaked.
+            # The `with sync_playwright()` block closes the driver, not the
+            # launched browser. The Selenium path below already did this right.
+            try:
+                ctx = browser.new_context(
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    ignore_https_errors=True,
+                )
+                page = ctx.new_page()
+                resp = page.goto(url, wait_until="networkidle", timeout=30_000)
+                if resp and resp.ok:
+                    # For images, get raw bytes from response body
+                    content = resp.body()
+                    logger.info(f"  [Headless/Playwright] {url} → {len(content)} bytes")
+                    return content
+            finally:
+                try:
+                    browser.close()
+                except Exception as _ignored_close:
+                    logger.debug("Ignored Playwright browser-close exception: %s", _ignored_close)
     except ImportError as _ignored_exc:
         logger.debug("Ignored recoverable exception in _fetch_headless (line 4072): %s", _ignored_exc)
     except Exception as e:
@@ -4507,8 +4674,8 @@ def _load_cloudflare_settings() -> None:
         mode=st.get("cloudflare_mode", "auto"),
         flaresolverr_url=st.get("flaresolverr_url", "http://localhost:8191/v1"),
         session_policy=st.get("flaresolverr_session_policy", "reuse-domain"),
-        timeout=int(st.get("flaresolverr_timeout", 60) or 60),
-        wait_after=int(st.get("flaresolverr_wait_after", 3) or 3),
+        timeout=_coerce_int(st.get("flaresolverr_timeout", 60), 60),
+        wait_after=_coerce_int(st.get("flaresolverr_wait_after", 3), 3),
         proxy_mode=st.get("flaresolverr_proxy_mode", "inherit"),
         persist=False,
     )
@@ -4687,7 +4854,7 @@ def _apply_flaresolverr_solution_to_sessions(solution: Dict[str, Any], source_ur
 def _response_from_flaresolverr_solution(solution: Dict[str, Any], url: str) -> requests.Response:
     """Build a requests.Response-like object from a FlareSolverr solution."""
     resp = requests.Response()
-    status = int(solution.get("status") or 200)
+    status = _coerce_int(solution.get("status"), 200)
     body = solution.get("response") or ""
     if isinstance(body, str):
         raw = body.encode("utf-8", errors="replace")
@@ -4850,6 +5017,13 @@ def _load_window_icon_photo(root=None):
         for icon_path in candidates:
             if icon_path.exists():
                 return tk.PhotoImage(master=root, file=str(icon_path))
+        # [STAB-v1.0.1-rev8] No external asset files (the common single-file
+        # case): fall back to the embedded dark logo so the window/taskbar still
+        # gets a real icon instead of the generic Tk feather.
+        try:
+            return tk.PhotoImage(master=root, data=_APP_LOGO_DARK_B64)
+        except Exception as _embedded_icon_exc:
+            logger.debug("Embedded window-icon fallback failed: %s", _embedded_icon_exc)
     except Exception as e:
         logger.debug(f"Window icon fallback used: {e}")
     return None
@@ -5495,10 +5669,14 @@ class CYOADownloaderGUI:
         tb.grid_rowconfigure(0, minsize=84)
         tb.grid_columnconfigure(1, weight=1)
 
-        logo = T(ctk.CTkFrame(tb, width=62, height=56, corner_radius=18,
-                             fg_color=p["surface"], border_width=1,
-                             border_color=p.get("separator", p["border"])),
-                 fg_color="surface", border_color="separator")
+        # [STAB-v1.0.1-rev13] Borderless logo: drop the surface fill + 1px
+        # border so the temple emblem stands on its own against the toolbar,
+        # per request. The 56x56 square footprint and centred placement from
+        # rev12 are kept so spacing/alignment stay consistent — only the badge
+        # chrome (fill + border) is removed. Emblem artwork unchanged.
+        logo = T(ctk.CTkFrame(tb, width=56, height=56, corner_radius=0,
+                             fg_color="transparent", border_width=0),
+                 fg_color="transparent")
         logo.grid(row=0, column=0, padx=(16, 12), pady=(14, 14), sticky="w")
         logo.grid_propagate(False)
         self._logo_image = None
@@ -5509,16 +5687,21 @@ class CYOADownloaderGUI:
                     light_image=light_logo, dark_image=dark_logo, size=(42, 42)
                 )
                 ctk.CTkLabel(logo, text="", image=self._logo_image, fg_color="transparent").place(
-                    relx=0.5, rely=0.50, anchor="center"
+                    relx=0.5, rely=0.5, anchor="center"
                 )
             else:
                 raise RuntimeError("logo unavailable")
         except Exception:
             ctk.CTkLabel(logo, text="C↯", font=ctk.CTkFont("Consolas", 16, "bold"),
-                         text_color=p["fg"], fg_color="transparent").place(relx=0.5, rely=0.50, anchor="center")
+                         text_color=p["fg"], fg_color="transparent").place(relx=0.5, rely=0.5, anchor="center")
 
+        # Align the title block to the logo's vertical centre. Previously the
+        # title used pady=(18,16) while the logo used (14,14), so the text sat
+        # slightly high relative to the emblem. sticky="ns" + symmetric pady
+        # puts both on the same optical centre line.
         title_stack = ctk.CTkFrame(tb, fg_color="transparent")
-        title_stack.grid(row=0, column=1, sticky="w", pady=(18, 16))
+        title_stack.grid(row=0, column=1, sticky="nsw", pady=(14, 14))
+        title_stack.grid_rowconfigure(0, weight=1)
         T(ctk.CTkLabel(title_stack, text="CYOA Downloader",
                        font=ctk.CTkFont("Segoe UI", 16, "bold"),
                        text_color=p["fg"], anchor="w"),
@@ -6528,8 +6711,8 @@ class CYOADownloaderGUI:
             mode,
             flaresolverr_url=st.get("flaresolverr_url", _FLARESOLVERR_URL),
             session_policy=st.get("flaresolverr_session_policy", _FLARESOLVERR_SESSION_POLICY),
-            timeout=int(st.get("flaresolverr_timeout", _FLARESOLVERR_TIMEOUT) or _FLARESOLVERR_TIMEOUT),
-            wait_after=int(st.get("flaresolverr_wait_after", _FLARESOLVERR_WAIT_AFTER) or _FLARESOLVERR_WAIT_AFTER),
+            timeout=_coerce_int(st.get("flaresolverr_timeout", _FLARESOLVERR_TIMEOUT), _FLARESOLVERR_TIMEOUT),
+            wait_after=_coerce_int(st.get("flaresolverr_wait_after", _FLARESOLVERR_WAIT_AFTER), _FLARESOLVERR_WAIT_AFTER),
             proxy_mode=st.get("flaresolverr_proxy_mode", _FLARESOLVERR_PROXY_MODE),
             persist=True,
         )
@@ -6710,9 +6893,6 @@ class CYOADownloaderGUI:
             "Embedded JSON": {"id": "JSON Tertanam", "en": "Embedded JSON"},
             "ZIP": {"id": "ZIP", "en": "ZIP"},
             "Both": {"id": "Keduanya", "en": "Both"},
-            "ICC ZIP": {"id": "ICC ZIP", "en": "ICC ZIP"},
-            "ICC Folder": {"id": "ICC Folder", "en": "ICC Folder"},
-            "ICC MODE": {"id": "MODE ICC", "en": "ICC MODE"},
             "ICC ZIP": {"id": "ZIP ICC", "en": "ICC ZIP"},
             "ICC Folder": {"id": "Folder ICC", "en": "ICC Folder"},
             "Pure Website ZIP": {"id": "ZIP Pure Website", "en": "Pure Website ZIP"},
@@ -7667,6 +7847,8 @@ Rows without a valid URL are skipped. If mode is empty, the current GUI mode is 
 -------------------------------
 • CLI dependency check:  python cyoa_downloader.py --dependency-check
 • CLI self-test:          python cyoa_downloader.py --self-test
+• Verify a finished backup (read-only):  python cyoa_downloader.py --verify "OUTPUT_FOLDER"
+• Optional checksum baseline (run once):  python cyoa_downloader.py --verify "OUTPUT_FOLDER" --write-manifest
 • Failed assets: appended to backup_report.txt when available; otherwise failed_assets.txt.
 • 429 rate-limit: handled as rate-limit/backoff, not automatically as Cloudflare.
 • SSL verify=False fallback is kept for difficult hosts but should be treated as a last-resort recovery path.
@@ -7676,7 +7858,7 @@ Rows without a valid URL are skipped. If mode is empty, the current GUI mode is 
 • Serve now opens the preview with a small local Tools overlay.
 • Tools are local-only: clear storage/cache, export/import localStorage and IndexedDB, hard reload, open reports, inspect Svelte/debugApp, and temporarily reveal/enable disabled UI controls for offline testing.
 • The helpers are intended for debugging downloaded CYOAs, not for attacking live websites.
-• Serve Tools now appears automatically in served HTML preview. v7.4.9 pins it to the top-right with a forced z-index and visible button controls. Use ?no_tools=1 for a clean preview.
+• Serve Tools now appears automatically in served HTML preview, pinned to the top-right with a forced z-index and visible button controls. Use ?no_tools=1 for a clean preview.
 • Manual routes: /__serve_tools__ opens the tools page; /__clear_cache__ clears browser preview state.
 • Userscript Lab can optionally load IntCyoaEnhancer from a local .user.js file or from GreasyFork for localhost preview only. Use ?load_ice=local or ?load_ice=web to auto-load it in the preview page.
 • Credits are shown in the GUI: source inspirations, viewer/helper projects, optional backends, community acknowledgements, and AI assistance are listed in the Credits panel.
@@ -7688,7 +7870,7 @@ Rows without a valid URL are skipped. If mode is empty, the current GUI mode is 
 • Serve Developer Tools can export/import IndexedDB because ICC Plus build saves are commonly stored in cyoaPlusDB/buildStore.
 • Normal Serve preview no longer clears storage automatically; use /__clear_cache__ only when you intentionally want a clean preview.
 
-7) v7.4.9 operational guidelines
+7) Operational guidelines
 --------------------------------
 • Avoid destructive folder operations. Merge assets instead of deleting existing images/audio folders.
 • Use unified fetch_response() for network requests so proxy, Cloudflare, SSL, DNS, and logs stay consistent.
@@ -7763,6 +7945,8 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
 -------------------------------
 • Cek dependency CLI:  python cyoa_downloader.py --dependency-check
 • Self-test CLI:       python cyoa_downloader.py --self-test
+• Verifikasi backup yang sudah selesai (read-only):  python cyoa_downloader.py --verify "FOLDER_OUTPUT"
+• Baseline checksum opsional (jalankan sekali):  python cyoa_downloader.py --verify "FOLDER_OUTPUT" --write-manifest
 • Aset gagal: ditambahkan ke backup_report.txt jika ada; jika tidak, ditulis ke failed_assets.txt.
 • 429 rate-limit: diperlakukan sebagai rate-limit/backoff, bukan otomatis sebagai Cloudflare.
 • Fallback SSL verify=False masih tersedia untuk host sulit, tetapi sebaiknya dianggap jalur pemulihan terakhir.
@@ -7772,14 +7956,20 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
 • Serve sekarang membuka preview dengan overlay Tools kecil.
 • Tools bersifat lokal: clear storage/cache, export/import localStorage dan IndexedDB, hard reload, buka report, inspeksi Svelte/debugApp, dan sementara menampilkan/mengaktifkan kontrol UI yang tersembunyi/disabled untuk testing offline.
 • Helper ini ditujukan untuk debugging CYOA hasil download, bukan untuk menyerang website live.
-• Serve Tools sekarang muncul otomatis di preview HTML lokal. v7.4.9 memaksa tombol berada di kanan atas dengan z-index maksimum dan kontrol tombol yang terlihat. Gunakan ?no_tools=1 untuk preview bersih.
+• Serve Tools sekarang muncul otomatis di preview HTML lokal, dipaksa berada di kanan atas dengan z-index maksimum dan kontrol tombol yang terlihat. Gunakan ?no_tools=1 untuk preview bersih.
 • Route manual: /__serve_tools__ membuka halaman tools; /__clear_cache__ membersihkan state preview browser.
 • Userscript Lab dapat memuat IntCyoaEnhancer dari file .user.js lokal atau dari GreasyFork khusus untuk preview localhost. Gunakan ?load_ice=local atau ?load_ice=web untuk auto-load di halaman preview.
 • Kredit ditampilkan di GUI: inspirasi sumber, proyek viewer/helper, backend opsional, komunitas, dan bantuan AI dicantumkan di panel Credits.
 • Native Bridge menyediakan $serveTools di browser console untuk inspeksi lokal saat userscript eksternal tidak tersedia.
 
-6) Guideline operasional v7.4.9
--------------------------------
+6) Catatan kompatibilitas ICC Plus
+----------------------------------
+• Project ICC Plus/Svelte dapat memakai viewerConfig, googleFonts/customFonts/customCSS, loadingBgImage, favicon, gambar border, gambar backpack, dan gambar design-group.
+• Serve Developer Tools dapat export/import IndexedDB karena save build ICC Plus umumnya disimpan di cyoaPlusDB/buildStore.
+• Preview Serve normal tidak lagi menghapus storage secara otomatis; gunakan /__clear_cache__ hanya jika Anda memang ingin preview bersih.
+
+7) Guideline operasional
+------------------------
 • Hindari operasi folder destruktif. Gabungkan aset, jangan hapus folder images/audio yang sudah ada.
 • Gunakan fetch_response() untuk request jaringan agar proxy, Cloudflare, SSL, DNS, dan log tetap konsisten.
 • CLI tidak boleh menyimpan setting GUI/network kecuali flag terkait memang diberikan secara eksplisit.
@@ -7832,7 +8022,8 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 win.clipboard_clear()
                 win.clipboard_append(content)
                 copy_btn.configure(text=copied_text)
-                win.after(1200, lambda: copy_btn.configure(text=copy_text))
+                _v25_safe_after_widget(win, copy_btn,
+                                       lambda: copy_btn.configure(text=copy_text), delay=1200)
             except Exception as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _copy_help (line 7588): %s", _ignored_exc)
 
@@ -7989,12 +8180,18 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             row_widgets.append(row)
 
         def _probe_worker():
+            # [STAB-v1.0.1-rev5] Route every cross-thread Tk update through
+            # _v25_safe_after so closing the probe window mid-run can no longer
+            # raise TclError ("invalid command name") from a daemon thread that
+            # still holds references to destroyed widgets. This matches the
+            # guarded pattern already used by the viewer/update panels; behavior
+            # while the window is open is unchanged.
             ok = warn = fail = 0
             for i, item in enumerate(items):
                 url = item["url"]
-                win.after(0, lambda u=url, i=i: status_lbl.configure(
+                _v25_safe_after(win, lambda u=url, i=i: status_lbl.configure(
                     text=f"[{i+1}/{len(items)}] Probing: {u[:50]}…"))
-                win.after(0, lambda v=(i+1)/len(items): prog.set(v))
+                _v25_safe_after(win, lambda v=(i+1)/len(items): prog.set(v))
 
                 # Quick HEAD check of project candidates
                 try:
@@ -8031,13 +8228,13 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                     label  = "✗ ERROR"
                     fail += 1
 
-                win.after(0, lambda i=i, u=url, lbl=label, c=color, d=detail:
+                _v25_safe_after(win, lambda i=i, u=url, lbl=label, c=color, d=detail:
                           _add_result_row(i, u, lbl, c, d))
 
-            win.after(0, lambda: status_lbl.configure(text="Probe selesai."))
-            win.after(0, lambda: prog.set(1.0))
-            win.after(0, lambda: proceed_btn.configure(state="normal"))
-            win.after(0, lambda: summary_var.set(
+            _v25_safe_after(win, lambda: status_lbl.configure(text="Probe selesai."))
+            _v25_safe_after(win, lambda: prog.set(1.0))
+            _v25_safe_after(win, lambda: proceed_btn.configure(state="normal"))
+            _v25_safe_after(win, lambda: summary_var.set(
                 f"✓ {ok}  ⚠ {warn}  ✗ {fail}  dari {len(items)} URL"))
 
         threading.Thread(target=_probe_worker, daemon=True).start()
@@ -8125,10 +8322,10 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 if it.get("auto_detected") and i < len(self._queue_rows):
                     _, _, _, badge_lbl, _ = self._queue_rows[i]
                     bg, fg = self._badge_colors(it["mode"])
-                    self.root.after(0, lambda b=badge_lbl, bg=bg, fg=fg,
-                                   m=it["mode"]: b.configure(
-                                       text=m.replace("_", " ") + " *",
-                                       fg_color=bg, text_color=fg))
+                    _v25_safe_after_widget(
+                        self.root, badge_lbl,
+                        lambda b=badge_lbl, bg=bg, fg=fg, m=it["mode"]: b.configure(
+                            text=m.replace("_", " ") + " *", fg_color=bg, text_color=fg))
 
         # ── Download phase ─────────────────────────────────────────
         pending = [it for it in items if it["url"] not in completed]
@@ -8164,23 +8361,20 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             self._set_dot(real_idx, "running")
 
             try:
-                is_pure  = mode in {"pure_website_zip", "pure_website_folder"}
-                is_cyoap = mode in {"cyoap_vue_zip", "cyoap_vue_folder"}
+                _mf = _derive_mode_flags(mode)
                 run_download(
                     url=url,
                     file_name=item.get("filename", ""),
-                    zip_output=(mode == "zip"),
-                    both_output=(mode == "both"),
-                    website_output=(mode in {"website", "website_zip", "website_folder",
-                                             "cyoap_vue_zip", "cyoap_vue_folder"}),
-                    website_zip_output=(mode not in {"website_folder", "cyoap_vue_folder",
-                                                     "pure_website_folder"}),
-                    pure_website=is_pure,
+                    zip_output=_mf["zip"],
+                    both_output=_mf["both"],
+                    website_output=_mf["website"],
+                    website_zip_output=_mf["website_zip"],
+                    pure_website=_mf["pure"],
                     download_fonts=dl_fonts,
                     show_font_analysis=show_analysis,
                     output_dir=outdir,
                     max_workers=threads,
-                    engine_mode="cyoap_vue" if is_cyoap else "standard",
+                    engine_mode=_mf["engine"],
                     cyoa_mgr_enabled=cyoa_mgr,
                     ai_api_key=_resolve_ai_api_key(session_key=self._ai_api_key, storage=getattr(self, "_ai_key_storage", "session"), provider=getattr(self, "_ai_provider", "anthropic")) if self._ai_enabled and _normalize_ai_mode(getattr(self, "_ai_mode", "auto_fallback")) != "off" else "",
                     ai_provider=getattr(self, "_ai_provider", "anthropic"),
@@ -8859,8 +9053,11 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
 
             for json_path in json_files:
                 try:
-                    project_str = open(json_path, encoding="utf-8",
-                                       errors="replace").read()
+                    # STAB-v1.0.2: Use a context manager so the file handle is
+                    # released deterministically even on non-CPython runtimes.
+                    with open(json_path, encoding="utf-8",
+                              errors="replace") as _jf:
+                        project_str = _jf.read()
                 except Exception as e:
                     logger.warning(f"  Cannot read {json_path}: {e}")
                     continue
@@ -8971,7 +9168,17 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 self._active_run_urls = set()
                 return
         except Exception as _ignored_exc:
+            # [STAB-v1.0.1-rev23] Conservative on unparseable status. Previously
+            # a status string that didn't match the "… — N/M …" shape (localized
+            # text, error status, format drift) let the IndexError/ValueError be
+            # swallowed and execution FELL THROUGH to the row-removal/clear path
+            # below — silently defeating the failure-preservation safeguard a few
+            # lines up (a failed run could have its queue cleared). When we can't
+            # confirm every item succeeded, we must NOT clear: preserve the queue
+            # and return, matching the partial-failure branch above.
             logger.debug("Ignored recoverable exception in _done (line 8725): %s", _ignored_exc)
+            self._active_run_urls = set()
+            return
 
         active_urls = set(getattr(self, "_active_run_urls", set()))
         if active_urls:
@@ -9167,7 +9374,6 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                                text_color=p["muted"])
         src_lbl.pack(anchor="w", pady=(0, 4))
 
-        files_var  = ctk.Variable(value=[])   # list of paths
         count_var  = ctk.StringVar(value="0 file dipilih")
         status_var = ctk.StringVar()
 
@@ -10349,7 +10555,8 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
         def _run():
             def _prog(done, total):
                 if total:
-                    self.root.after(0, lambda: pb.set(done / total))
+                    _v25_safe_after_widget(self.root, pb,
+                                           lambda: pb.set(done / total))
 
             results = _batch_check_updates(history, progress_cb=_prog)
 
@@ -10556,6 +10763,86 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 "role_en": "Optional headless browser automation",
                 "role_id": "Otomasi browser headless opsional",
                 "license": "Apache-2.0",
+            },
+            {
+                "title": "Playwright",
+                "desc_en": "Thank you for the modern, reliable headless-browser engine used as the preferred JavaScript-rendering fallback when plain HTTP fetches are not enough.",
+                "desc_id": "Terima kasih atas engine headless-browser modern dan andal yang dipakai sebagai fallback render JavaScript utama saat fetch HTTP biasa tidak cukup.",
+                "url": "https://playwright.dev/",
+                "category": "library",
+                "role_en": "Preferred headless JS-rendering fallback",
+                "role_id": "Fallback render JS headless utama",
+                "license": "Apache-2.0",
+            },
+            {
+                "title": "requests + urllib3",
+                "desc_en": "The dependable HTTP foundation behind nearly every network request this tool makes — retries, sessions, streaming, and proxy handling all build on it.",
+                "desc_id": "Fondasi HTTP yang andal di balik hampir semua permintaan jaringan tool ini — retry, session, streaming, dan penanganan proxy semuanya dibangun di atasnya.",
+                "url": "https://requests.readthedocs.io/",
+                "category": "library",
+                "role_en": "Core HTTP client (downloader backbone)",
+                "role_id": "Klien HTTP inti (tulang punggung downloader)",
+                "license": "Apache-2.0",
+            },
+            {
+                "title": "BeautifulSoup4",
+                "desc_en": "Thank you for the forgiving HTML parser that makes resolving viewers, scripts, and project hints from messy real-world pages possible.",
+                "desc_id": "Terima kasih atas parser HTML yang toleran sehingga viewer, script, dan petunjuk project bisa di-resolve dari halaman dunia nyata yang berantakan.",
+                "url": "https://www.crummy.com/software/BeautifulSoup/",
+                "category": "library",
+                "role_en": "HTML parsing & viewer/script detection",
+                "role_id": "Parsing HTML & deteksi viewer/script",
+                "license": "MIT",
+            },
+            {
+                "title": "Pillow",
+                "desc_en": "Thank you to the Pillow maintainers for the image-handling toolkit used for placeholders, validation, and asset processing.",
+                "desc_id": "Terima kasih kepada para pengembang Pillow atas toolkit penanganan gambar yang dipakai untuk placeholder, validasi, dan pemrosesan aset.",
+                "url": "https://python-pillow.org/",
+                "category": "library",
+                "role_en": "Image handling & placeholders",
+                "role_id": "Penanganan gambar & placeholder",
+                "license": "MIT-CMU",
+            },
+            {
+                "title": "CustomTkinter",
+                "desc_en": "Thank you for the modern themed widget toolkit that gives this app its desktop GUI without leaving the Python/Tk ecosystem.",
+                "desc_id": "Terima kasih atas toolkit widget bertema modern yang memberi aplikasi ini GUI desktop tanpa keluar dari ekosistem Python/Tk.",
+                "url": "https://github.com/TomSchimansky/CustomTkinter",
+                "category": "library",
+                "role_en": "Desktop GUI framework",
+                "role_id": "Framework GUI desktop",
+                "license": "MIT",
+            },
+            {
+                "title": "yt-dlp + FFmpeg",
+                "desc_en": "Thank you to yt-dlp and FFmpeg for the media download/transcode pipeline that lets background audio be preserved for offline playback.",
+                "desc_id": "Terima kasih kepada yt-dlp dan FFmpeg atas pipeline unduh/transcode media yang memungkinkan audio latar disimpan untuk pemutaran offline.",
+                "url": "https://github.com/yt-dlp/yt-dlp",
+                "category": "library",
+                "role_en": "Optional audio download & conversion",
+                "role_id": "Unduh & konversi audio opsional",
+                "license": "Unlicense / LGPL",
+            },
+            {
+                "title": "httpx + h2 · cloudscraper · tldextract · pandas · json5 · keyring · rarfile · plyer",
+                "desc_en": "A quiet thank-you to the many focused libraries that power individual features: HTTP/2 deep scan, Cloudflare handling, domain parsing, batch import, lenient JSON, OS keyring storage, RAR viewers, and desktop notifications.",
+                "desc_id": "Terima kasih diam-diam untuk banyak library terfokus yang menggerakkan fitur masing-masing: deep scan HTTP/2, penanganan Cloudflare, parsing domain, import batch, JSON longgar, penyimpanan keyring OS, viewer RAR, dan notifikasi desktop.",
+                "url": None,
+                "category": "library",
+                "role_en": "Per-feature optional libraries",
+                "role_id": "Library opsional per-fitur",
+                "license": "Mixed (BSD/MIT/Apache)",
+            },
+            {
+                "title": "FlareSolverr",
+                "desc_en": "Thank you for the external challenge-solving proxy that helps reach viewers behind tougher Cloudflare protections for personal preservation.",
+                "desc_id": "Terima kasih atas proxy penyelesai tantangan eksternal yang membantu menjangkau viewer di balik proteksi Cloudflare yang lebih ketat untuk preservasi pribadi.",
+                "url": "https://github.com/FlareSolverr/FlareSolverr",
+                "category": "library",
+                "role_en": "Optional Cloudflare challenge solver",
+                "role_id": "Penyelesai tantangan Cloudflare opsional",
+                "license": "MIT",
             },
             {
                 "title": "CYOA community",
@@ -11855,7 +12142,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                         vid = register_offline_viewer(
                             dest, name=f"ICCPlus {tag} (auto)", viewer_type="icc_plus"
                         )
-                        win.after(0, lambda: (
+                        _v25_safe_after_widget(win, win, lambda: (
                             status_var.set(f"✓ {asset_name} registered as '{vid}'."),
                             _refresh_list()
                         ))
@@ -12960,6 +13247,16 @@ def run_download(
     """
     global wait_time, _LAST_PREVIEW_FOLDER
     _LAST_PREVIEW_FOLDER = None
+    # STAB-v1.0.2: Clamp worker count at the single CLI/programmatic entry point.
+    # The GUI already clamps via max(1, ...), but the CLI passed args.threads
+    # straight through, so --threads 0 (or negative) reached
+    # ThreadPoolExecutor(max_workers=0) and raised
+    # "ValueError: max_workers must be greater than 0". Additive guard only;
+    # download concept/inputs/outputs unchanged.
+    try:
+        max_workers = max(1, min(64, int(max_workers)))
+    except (TypeError, ValueError):
+        max_workers = DEFAULT_MAX_WORKERS
     ai_provider = _normalize_ai_provider(ai_provider or _get_ai_provider())
     ai_mode = _normalize_ai_mode(ai_mode or _load_settings().get("ai_mode", "auto_fallback"))
     ai_budget = AIUsageBudget()
@@ -13004,6 +13301,7 @@ def run_download(
 
     _RUN_DOWNLOAD_LOCK.acquire()
     original_dir = os.getcwd()
+    tmp = None  # [STAB-v1.0.1-rev8] pre-bind so finally cleanup is NameError-safe
     try:
         if output_dir:
             output_dir = os.path.abspath(output_dir)
@@ -13428,10 +13726,17 @@ def run_download(
         except Exception as _ve:
             logger.warning(f"Validation error (non-critical): {_ve}")
 
-        if tmp and os.path.isdir(tmp):
-            delete_temp_folder(tmp)
-
     finally:
+        # [STAB-v1.0.1-rev8] Temp cleanup must run on the exception path too.
+        # Previously delete_temp_folder(tmp) sat outside this finally, so any
+        # failure between create_random_temp_folder() and that line leaked the
+        # /tmp/cyoa_* working folder. Path 1 (ICC) already used try/finally; this
+        # brings the zip/embed/both path to parity.
+        try:
+            if tmp and os.path.isdir(tmp):
+                delete_temp_folder(tmp)
+        except Exception as _ignored_tmp_exc:
+            logger.debug("Ignored temp cleanup exception: %s", _ignored_tmp_exc)
         try:
             os.chdir(original_dir)
         finally:
@@ -14395,6 +14700,14 @@ def process_images(
             else urljoin(base_url.rstrip("/") + "/", asset_path)
         )
 
+        # [STAB-v1.0.1-rev8] SSRF screen: refuse cross-origin internal asset
+        # hosts (e.g. a remote project.json that points an image at
+        # 127.0.0.1:<port> or 169.254.169.254). Same-origin internal assets
+        # (localhost CYOA) still pass; --allow-internal-hosts disables this.
+        if _ssrf_block_cross_origin(asset_url, base_url):
+            logger.warning(f"  [SSRF blocked] cross-origin internal host: {asset_url}")
+            return asset_path, None, "", asset_url, "blocked: cross-origin internal host"
+
         # ── E: Disk cache check ───────────────────────────────────────
         cached = _cache_get(asset_url)
         if cached is not None:
@@ -14518,16 +14831,41 @@ def process_images(
 
     dedup_count = 0
     if all_downloadable:
-        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        # [STAB-v1.0.1-rev15] Two hardening fixes for the executor block:
+        #
+        # (1) Clamp max_workers. process_images is a module-level public function
+        #     callable outside run_download (CLI, tests, future callers) where the
+        #     value is not pre-clamped. ThreadPoolExecutor raises ValueError on
+        #     max_workers <= 0, so an unclamped 0/negative would crash here rather
+        #     than degrade. Floor at 1.
+        #
+        # (2) Cancel-aware collection. as_completed() previously drained every
+        #     future even after the user cancelled mid-batch — fetch_one's sleeps
+        #     are cancel-aware, but the collector kept pulling results, so a large
+        #     batch felt unresponsive on cancel. Check _cancel_requested() each
+        #     iteration and break, then shut the pool down without waiting and
+        #     cancel not-yet-started futures (cancel_futures, 3.9+).
+        safe_workers = max(1, int(max_workers or 1))
+        ex = ThreadPoolExecutor(max_workers=safe_workers)
+        try:
             futures = {ex.submit(fetch_one, p): p for p in all_downloadable}
             done = 0
+            cancelled = False
             for fut in as_completed(futures):
+                if _cancel_requested():
+                    cancelled = True
+                    break
                 path, content, mime, resolved, err = fut.result()
                 # Dedup is applied at save time, after the final local path is known.
                 fetch_cache[path] = (content, mime, resolved, err)
                 done += 1
                 status = "✓" if content is not None else "✗ FAILED"
                 logger.info(f"  [{done}/{len(all_downloadable)}] {status} {resolved.split('/')[-1]}")
+            if cancelled:
+                ex.shutdown(wait=False, cancel_futures=True)
+                raise DownloadCancelledError("Download cancelled during asset fetch")
+        finally:
+            ex.shutdown(wait=False, cancel_futures=True)
     # ── Collect failures ───────────────────────────────────────────
     failed_images: List[Dict[str, str]] = [
         {"url": resolved, "path": path, "error": err}
@@ -14692,10 +15030,10 @@ def process_images(
     # The regex `pattern` covers IMAGE_FIELDS + AUDIO_FIELDS field names.
     # But bgmId (when useAudioURL=true) is found only by the deep scanner —
     # we add it to the pattern here so it gets rewritten too.
-    all_known_paths = set(embed_map) | set(download_map)
-    # Build an extended pattern that also matches "bgmId":"<url>" for values
-    # that ended up in our maps (i.e. were identified as direct audio URLs).
-    bgmid_paths_in_map = {p for p in all_known_paths if p in audio_paths}
+    # bgmId direct-audio values (when useAudioURL=true) are discovered by the
+    # deep scanner and land in embed_map/download_map like any other audio path.
+    # They are rewritten by the secondary string-replace pass below (not by the
+    # field-name regex), so no separate bgmId pattern is needed here.
 
     def make_embed(m: re.Match) -> str:
         field, path = m.group(1), m.group(2)
@@ -14716,19 +15054,33 @@ def process_images(
     # Secondary substitution: rewrite any URL value found by the deep scanner
     # that was NOT covered by the field-name pattern (e.g. bgmId direct audio,
     # nested soundEffects audio that regex missed).
-    # Strategy: simple string replace on the quoted URL value in JSON.
+    #
+    # [STAB-v1.0.1-rev8] Single-pass replacement. The previous implementation
+    # applied sequential str.replace() per map entry. If one entry's replacement
+    # value happened to equal another entry's original key (e.g. a localized
+    # output path colliding with a different asset's original reference — possible
+    # since download_map can hold local-relative keys), the second pass would
+    # re-rewrite the already-substituted text (chained double-rewrite → wrong
+    # path). A single regex pass that consults the map per match cannot chain,
+    # because each region of the string is visited exactly once. Output is
+    # identical to the old code for the normal (non-colliding) case.
+    def _single_pass_quoted_sub(text: str, mapping: Dict[str, str]) -> str:
+        if not mapping:
+            return text
+        # Longest keys first so a longer key isn't shadowed by a shorter prefix.
+        keys = sorted(mapping.keys(), key=len, reverse=True)
+        alt = "|".join(re.escape(k) for k in keys)
+        quoted_re = re.compile('"(' + alt + ')"')
+
+        def _repl(m: "re.Match") -> str:
+            return '"' + mapping.get(m.group(1), m.group(1)) + '"'
+
+        return quoted_re.sub(_repl, text)
+
     if embed:
-        for orig_path, new_val in embed_map.items():
-            json_orig = f'"{orig_path}"'
-            json_new  = f'"{new_val}"'
-            if json_orig in embed_str:
-                embed_str = embed_str.replace(json_orig, json_new)
+        embed_str = _single_pass_quoted_sub(embed_str, embed_map)
     if download:
-        for orig_path, new_val in download_map.items():
-            json_orig = f'"{orig_path}"'
-            json_new  = f'"{new_val}"'
-            if json_orig in dl_str:
-                dl_str = dl_str.replace(json_orig, json_new)
+        dl_str = _single_pass_quoted_sub(dl_str, download_map)
 
     # Collect successfully downloaded/resolved URLs for skip-list
     _resolved_urls: Set[str] = set()
@@ -15263,11 +15615,12 @@ def _dns_resolve_via(host: str, dns_ip: str, qtype: int = 1) -> Optional[str]:
                           for p in host.rstrip(".").split(".")) + b"\x00"
         packet = header + qname + struct.pack(">HH", 1, 1)   # QTYPE=A, QCLASS=IN
 
-        sock = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
-        sock.settimeout(3)
-        sock.sendto(packet, (dns_ip, 53))
-        data, _ = sock.recvfrom(512)
-        sock.close()
+        # [STAB-v1.0.1-rev8] with-context closes the socket on every path,
+        # including sendto/recvfrom timeout/error which previously leaked the FD.
+        with _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM) as sock:
+            sock.settimeout(3)
+            sock.sendto(packet, (dns_ip, 53))
+            data, _ = sock.recvfrom(512)
 
         # Parse answer count from header
         ancount = struct.unpack(">H", data[6:8])[0]
@@ -15723,6 +16076,16 @@ class WebsiteDownloader:
         if not full:
             return None
 
+        # [STAB-v1.0.1-rev8] SSRF screen on the deep-scan asset chokepoint.
+        # A scanned JS/CSS/HTML file from an untrusted site can reference a
+        # cross-origin internal host; block it unless same-origin as the page
+        # being mirrored (self.start_url) or --allow-internal-hosts is set.
+        if _ssrf_block_cross_origin(full, getattr(self, "start_url", "")):
+            logger.warning(f"  [SSRF blocked] cross-origin internal host: {full}")
+            with self._lock:
+                self._downloaded[full] = None
+            return None
+
         with self._lock:
             # Check both full URL and path-only key (strips ?v=cache_buster)
             cache_key = self._normalize_cache_key(full)
@@ -15852,6 +16215,23 @@ class WebsiteDownloader:
             original = m.group("url")
             if not self._should_download_from_text(original):
                 return m.group(0)
+            # [STAB-v1.0.1-rev8] Skip values already localized by an earlier
+            # rewrite pass. _process_css runs @import/url() rewriting BEFORE this
+            # direct-URL pass, so relative paths like "../assets/bg.png" may
+            # already point to a downloaded local file. Re-resolving them against
+            # the referrer would produce a bogus remote URL and trigger a
+            # redundant fetch (and a mis-rewrite risk if that URL resolves to
+            # different content). If the relative candidate already resolves to
+            # an existing local file, leave it untouched.
+            if not urlparse(original).scheme and not original.startswith("//"):
+                try:
+                    candidate_local = os.path.normpath(
+                        os.path.join(os.path.dirname(local_text_path), original.split("?", 1)[0])
+                    )
+                    if os.path.isfile(candidate_local):
+                        return m.group(0)
+                except Exception:
+                    pass
             local = self._download_asset(
                 original,
                 preferred_kind=self._asset_kind_from_path(original),
@@ -15994,13 +16374,52 @@ class WebsiteDownloader:
         if not value:
             return
         if attr == "srcset":
+            # [STAB-v1.0.1-rev8] data: URIs commonly contain commas (inline SVG,
+            # base64). A naive value.split(",") shreds them into garbage pieces,
+            # destroying the data URI and mis-parsing the following candidate.
+            # Split on commas only when NOT inside a data: URI. The srcset grammar
+            # separates candidates by comma + whitespace; a data: URI candidate
+            # is left intact and passed through unchanged (it needs no download).
+            def _split_srcset(s: str) -> List[str]:
+                out, buf, i, n = [], [], 0, len(s)
+                while i < n:
+                    # Detect start of a data: URI at a candidate boundary.
+                    rest = s[i:]
+                    if rest.lstrip().lower().startswith("data:"):
+                        # consume up to the comma+space that ends this candidate,
+                        # i.e. a comma followed by whitespace (descriptor sep) OR
+                        # end of string. Commas inside the data URI have no space.
+                        # Find the next ", " sequence (comma + whitespace).
+                        j = i
+                        while j < n:
+                            if s[j] == "," and (j + 1 >= n or s[j + 1].isspace()):
+                                break
+                            j += 1
+                        out.append(s[i:j].strip())
+                        i = j + 1
+                        continue
+                    if s[i] == ",":
+                        out.append("".join(buf).strip())
+                        buf = []
+                        i += 1
+                        continue
+                    buf.append(s[i])
+                    i += 1
+                if buf:
+                    out.append("".join(buf).strip())
+                return [c for c in out if c]
+
             parts = []
-            for chunk in value.split(","):
+            for chunk in _split_srcset(value):
                 bits = chunk.strip().split()
                 if not bits:
                     continue
                 asset = bits[0]
                 suffix = " " + " ".join(bits[1:]) if len(bits) > 1 else ""
+                # data: URIs are already inline — keep them verbatim, no download.
+                if asset.lower().startswith("data:"):
+                    parts.append(chunk.strip())
+                    continue
                 local = self._download_asset(asset, preferred_kind=preferred_kind, referrer_url=page_url)
                 if local:
                     parts.append(self._rel(local_html, local) + suffix)
@@ -16689,6 +17108,311 @@ def dependency_check_report() -> str:
         lines.append(f"itch-dl backend: probe error ({_e})")
     return "\n".join(lines)
 
+
+# ─────────────────────────────────────────────────────────────────
+#  Offline package validator  [STAB-v1.0.1-rev19, Seksi H Tier A3/A1]
+# ─────────────────────────────────────────────────────────────────
+# Opt-in, read-only diagnostic. Inspects a folder produced by a previous
+# download and reports integrity problems WITHOUT touching the network or the
+# download pipeline. Strictly additive: no existing flag, mode, output format,
+# or folder layout changes. Exposed as ``--verify FOLDER``.
+
+# Local asset reference patterns inside project.json / HTML / CSS / JS.
+_VERIFY_LOCAL_REF_RE = re.compile(
+    r"""(?:src|href|url)\s*[=:(]\s*["']?"""      # attribute/css lead-in
+    r"""(?!https?:|data:|//|javascript:|mailto:|#)"""  # skip remote/data/anchors
+    r"""([^"')\s>]+\.(?:png|jpe?g|gif|webp|svg|bmp|ico|"""
+    r"""mp3|ogg|wav|m4a|aac|flac|mp4|webm|"""
+    r"""woff2?|ttf|otf|eot|css|js|json))""",
+    re.IGNORECASE,
+)
+# Bare relative asset paths inside JSON string values (ICC "images/x.png" style).
+_VERIFY_JSON_PATH_RE = re.compile(
+    r"""["'](?!https?:|data:|//)"""
+    r"""((?:[\w.\-]+/)*[\w.\-]+\.(?:png|jpe?g|gif|webp|svg|bmp|"""
+    r"""mp3|ogg|wav|m4a|aac|flac|mp4|webm|woff2?|ttf|otf))["']""",
+    re.IGNORECASE,
+)
+
+# ── Manifest sidecar  [STAB-v1.0.1-rev21, Seksi H Tier A2] ───────────────
+# Optional, opt-in checksum baseline for a downloaded package. Strictly
+# additive: written only when the user runs `--verify FOLDER --write-manifest`
+# (never during a normal download), so the default output folder layout is
+# unchanged. When present, `--verify` upgrades from "missing reference" checks
+# to full checksum verification (detects corrupted/truncated files, not just
+# absent ones). File name chosen to be self-describing and unlikely to collide.
+_MANIFEST_NAME = "cyoa_manifest.json"
+_MANIFEST_HASH_CHUNK = 1 << 20  # 1 MiB streaming read (avoid loading huge files)
+
+
+def _hash_file_sha256(path: str) -> Optional[str]:
+    """Return the sha256 hex digest of a file, streaming to bound memory."""
+    try:
+        h = _hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(_MANIFEST_HASH_CHUNK), b""):
+                h.update(chunk)
+        return h.hexdigest()
+    except OSError:
+        return None
+
+
+def _walk_package_files(root: str) -> List[str]:
+    """Return absolute paths of every file under root (sorted, deterministic)."""
+    out: List[str] = []
+    for dirpath, _dirnames, filenames in os.walk(root):
+        for fn in filenames:
+            out.append(os.path.join(dirpath, fn))
+    out.sort()
+    return out
+
+
+def write_package_manifest(folder: str) -> Tuple[bool, str]:
+    """Write a checksum manifest for an existing output folder.
+
+    Records sha256 + size for every file under ``folder`` (excluding the
+    manifest itself) into ``cyoa_manifest.json`` at the folder root. Returns
+    (ok, message). Purely additive and opt-in: never invoked by the download
+    pipeline, only by ``--verify FOLDER --write-manifest``.
+    """
+    if not folder or not os.path.isdir(folder):
+        return False, f"FAIL  folder does not exist: {folder}"
+    root = os.path.abspath(folder)
+    manifest_path = os.path.join(root, _MANIFEST_NAME)
+    entries: Dict[str, Dict[str, Any]] = {}
+    skipped = 0
+    for p in _walk_package_files(root):
+        if os.path.basename(p) == _MANIFEST_NAME:
+            continue
+        rel = os.path.relpath(p, root).replace(os.sep, "/")
+        digest = _hash_file_sha256(p)
+        if digest is None:
+            skipped += 1
+            continue
+        try:
+            size = os.path.getsize(p)
+        except OSError:
+            size = -1
+        entries[rel] = {"sha256": digest, "size": size}
+    payload = {
+        "manifest_version": 1,
+        "app_version": _APP_VERSION,
+        "created_utc": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()),
+        "file_count": len(entries),
+        "files": entries,
+    }
+    try:
+        # Reuse the project's atomic writer when available; fall back to direct.
+        text = json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2)
+        try:
+            atomic_write_text(manifest_path, text)
+        except Exception:
+            with open(manifest_path, "w", encoding="utf-8") as f:
+                f.write(text)
+    except Exception as e:
+        return False, f"FAIL  could not write manifest: {e}"
+    msg = f"OK  wrote {_MANIFEST_NAME} with {len(entries)} file checksum(s)"
+    if skipped:
+        msg += f" ({skipped} unreadable file(s) skipped)"
+    return True, msg
+
+
+def _load_package_manifest(root: str) -> Optional[Dict[str, Any]]:
+    """Load and validate a manifest sidecar. Returns the dict or None."""
+    mp = os.path.join(root, _MANIFEST_NAME)
+    if not os.path.isfile(mp):
+        return None
+    try:
+        with open(mp, encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict) and isinstance(data.get("files"), dict):
+            return data
+    except Exception:
+        return None
+    return None
+
+
+def verify_output_package(folder: str) -> Tuple[bool, str]:
+    """Validate a downloaded CYOA output folder.
+
+    Checks performed (all read-only):
+      * folder exists and is non-empty
+      * project.json (if present) parses as JSON and looks like a project
+      * no zero-byte asset files (a frequent silent-failure signature)
+      * local asset references in project.json/HTML/CSS/JS resolve to a file
+        on disk (missing-asset detection)
+      * surfaces counts for failed_assets/failed_images logs if present
+
+    Returns (ok, human_readable_report). ok is False when any blocking issue is
+    found (missing folder, broken project.json, missing referenced assets, or
+    zero-byte files); informational notes alone keep ok True.
+    """
+    issues: List[str] = []      # blocking
+    notes: List[str] = []       # informational
+    lines: List[str] = [f"CYOA Downloader v{_APP_VERSION} package verification",
+                        "=" * 56,
+                        f"Folder: {folder}"]
+
+    if not folder or not os.path.isdir(folder):
+        return False, "\n".join(lines + ["", "FAIL  folder does not exist or is not a directory"])
+
+    root = os.path.abspath(folder)
+    all_files: List[str] = []
+    for dirpath, _dirnames, filenames in os.walk(root):
+        for fn in filenames:
+            all_files.append(os.path.join(dirpath, fn))
+    if not all_files:
+        return False, "\n".join(lines + ["", "FAIL  folder is empty"])
+
+    rel = lambda p: os.path.relpath(p, root)
+
+    # ── 1. zero-byte files ───────────────────────────────────────
+    report_names = {"backup_report.txt", "failed_assets.txt", "failed_images.txt",
+                    "failed_urls.txt", "skipped_youtube_audio.txt"}
+    zero_byte = []
+    for p in all_files:
+        base = os.path.basename(p)
+        if base in report_names:
+            continue
+        try:
+            if os.path.getsize(p) == 0:
+                zero_byte.append(rel(p))
+        except OSError:
+            issues.append(f"unreadable file: {rel(p)}")
+    if zero_byte:
+        for z in zero_byte[:25]:
+            issues.append(f"zero-byte asset: {z}")
+        if len(zero_byte) > 25:
+            issues.append(f"... and {len(zero_byte) - 25} more zero-byte files")
+
+    # ── 2. project.json sanity ───────────────────────────────────
+    project_text = ""
+    pj_path = os.path.join(root, "project.json")
+    if os.path.isfile(pj_path):
+        try:
+            with open(pj_path, encoding="utf-8") as f:
+                project_text = f.read()
+            obj = json.loads(project_text)
+            if isinstance(obj, dict) and looks_like_project_object(obj):
+                lines.append("OK    project.json parses + looks like a project")
+            elif isinstance(obj, dict):
+                notes.append("project.json parses but lacks typical project keys")
+            else:
+                issues.append("project.json is valid JSON but not an object")
+        except Exception as e:
+            issues.append(f"project.json failed to parse: {e}")
+    else:
+        notes.append("no project.json at root (expected for pure-website modes)")
+
+    # ── 2b. manifest checksum verification (if a sidecar exists) ──
+    manifest = _load_package_manifest(root)
+    if manifest is not None:
+        recorded = manifest.get("files", {})
+        present_rel = {rel(p).replace(os.sep, "/") for p in all_files
+                       if os.path.basename(p) != _MANIFEST_NAME}
+        recorded_rel = set(recorded.keys())
+        corrupted = []
+        missing_from_disk = sorted(recorded_rel - present_rel)
+        extra_on_disk = sorted(present_rel - recorded_rel)
+        for relpath in sorted(recorded_rel & present_rel):
+            want = recorded[relpath].get("sha256")
+            got = _hash_file_sha256(os.path.join(root, relpath))
+            if want and got and want != got:
+                corrupted.append(relpath)
+        lines.append(f"OK    manifest found ({manifest.get('file_count', len(recorded))} "
+                     f"recorded checksum(s), created {manifest.get('created_utc', '?')})")
+        if corrupted:
+            for c in corrupted[:25]:
+                issues.append(f"checksum mismatch (corrupt/modified): {c}")
+            if len(corrupted) > 25:
+                issues.append(f"... and {len(corrupted) - 25} more checksum mismatch(es)")
+        if missing_from_disk:
+            for mfd in missing_from_disk[:25]:
+                issues.append(f"file in manifest but missing on disk: {mfd}")
+            if len(missing_from_disk) > 25:
+                issues.append(f"... and {len(missing_from_disk) - 25} more missing")
+        if extra_on_disk:
+            notes.append(f"{len(extra_on_disk)} file(s) on disk not in manifest "
+                         f"(added after manifest was written)")
+        if not corrupted and not missing_from_disk:
+            lines.append(f"OK    all {len(recorded_rel & present_rel)} checksummed file(s) intact")
+    else:
+        notes.append(f"no {_MANIFEST_NAME} sidecar — run with --write-manifest to enable "
+                     "checksum verification")
+
+    # ── 3. local asset reference resolution ──────────────────────
+    # Build a set of present files (relative, forward-slash, lowercased) for
+    # tolerant matching against references.
+    present = set()
+    for p in all_files:
+        r = rel(p).replace(os.sep, "/")
+        present.add(r.lower())
+        present.add(os.path.basename(r).lower())   # basename fallback
+
+    scan_targets = []
+    if project_text:
+        scan_targets.append(("project.json", project_text))
+    for p in all_files:
+        if os.path.splitext(p)[1].lower() in {".html", ".htm", ".css", ".js"}:
+            try:
+                with open(p, encoding="utf-8", errors="ignore") as f:
+                    scan_targets.append((rel(p), f.read()))
+            except OSError:
+                pass
+
+    missing_refs = {}   # ref -> source file
+    checked_refs = 0
+    for src_name, text in scan_targets:
+        refs = set()
+        for m in _VERIFY_LOCAL_REF_RE.finditer(text):
+            refs.add(m.group(1))
+        for m in _VERIFY_JSON_PATH_RE.finditer(text):
+            refs.add(m.group(1))
+        for ref in refs:
+            checked_refs += 1
+            norm = ref.split("?")[0].split("#")[0].lstrip("./").replace("\\", "/").lower()
+            if not norm:
+                continue
+            if norm in present or os.path.basename(norm) in present:
+                continue
+            missing_refs.setdefault(ref, src_name)
+
+    if missing_refs:
+        for ref, src in list(missing_refs.items())[:25]:
+            issues.append(f"missing asset: {ref}  (referenced by {src})")
+        if len(missing_refs) > 25:
+            issues.append(f"... and {len(missing_refs) - 25} more missing asset(s)")
+    else:
+        lines.append(f"OK    all {checked_refs} local asset reference(s) resolve")
+
+    # ── 4. surface existing failure logs ─────────────────────────
+    for logname in ("failed_assets.txt", "failed_images.txt", "failed_urls.txt"):
+        lp = os.path.join(root, logname)
+        if os.path.isfile(lp):
+            try:
+                with open(lp, encoding="utf-8", errors="ignore") as f:
+                    n = sum(1 for ln in f if ln.strip())
+                if n:
+                    notes.append(f"{logname} lists {n} prior failure(s) from the original download")
+            except OSError:
+                pass
+
+    # ── summary ──────────────────────────────────────────────────
+    lines.append(f"Files scanned: {len(all_files)} | asset references checked: {checked_refs}")
+    lines.append("-" * 56)
+    if issues:
+        lines.append(f"ISSUES ({len(issues)}):")
+        lines.extend(f"  ✗ {i}" for i in issues)
+    if notes:
+        lines.append(f"NOTES ({len(notes)}):")
+        lines.extend(f"  • {n}" for n in notes)
+    ok = not issues
+    lines.append("-" * 56)
+    lines.append("Result: PASS — package looks intact" if ok
+                 else f"Result: FAIL — {len(issues)} blocking issue(s)")
+    return ok, "\n".join(lines)
+
+
 def run_internal_self_test() -> Tuple[bool, str]:
     """Run offline smoke tests for path safety, report flow, dependency reporting, and ZIP helper."""
     import tempfile as _tempfile
@@ -16754,6 +17478,233 @@ def run_internal_self_test() -> Tuple[bool, str]:
             record("unsafe URL schemes rejected", unsafe_urls_rejected, "file/javascript/data")
         except Exception as e:
             record("unsafe URL schemes rejected", False, str(e))
+
+        try:
+            ssrf_blocked = (
+                _host_is_internal("127.0.0.1")
+                and _host_is_internal("169.254.169.254")
+                and _host_is_internal("192.168.1.1")
+                and _host_is_internal("localhost")
+                and not _host_is_internal("neocities.org")
+                and not _host_is_internal("8.8.8.8")
+                and _sanitize_ai_candidate_url("http://169.254.169.254/meta") is None
+            )
+            record("SSRF internal-host guard", ssrf_blocked, "loopback/link-local/private blocked")
+        except Exception as e:
+            record("SSRF internal-host guard", False, str(e))
+
+        try:
+            # [STAB-v1.0.1-rev8] cross-origin internal asset screen.
+            _set_allow_internal_hosts(False)
+            xorigin_ok = (
+                # cross-origin internal asset → blocked
+                _ssrf_block_cross_origin("http://127.0.0.1:9/x.png", "http://example.com/cyoa/")
+                and _ssrf_block_cross_origin("http://169.254.169.254/meta", "https://site.org/")
+                # same-origin internal asset → allowed (localhost CYOA)
+                and not _ssrf_block_cross_origin("http://127.0.0.1:8000/img/a.png", "http://127.0.0.1:8000/cyoa/")
+                # public asset → allowed
+                and not _ssrf_block_cross_origin("https://cdn.example.com/a.png", "http://example.com/cyoa/")
+            )
+            # opt-out disables the screen entirely
+            _set_allow_internal_hosts(True)
+            optout_ok = not _ssrf_block_cross_origin("http://127.0.0.1:9/x.png", "http://example.com/cyoa/")
+            _set_allow_internal_hosts(False)
+            record("SSRF cross-origin asset screen", xorigin_ok and optout_ok,
+                   f"xorigin={xorigin_ok} optout={optout_ok}")
+        except Exception as e:
+            _set_allow_internal_hosts(False)
+            record("SSRF cross-origin asset screen", False, str(e))
+
+        try:
+            # [STAB-v1.0.1-rev8] single-pass quoted substitution must not chain:
+            # if one entry's replacement equals another entry's key, sequential
+            # str.replace would double-rewrite. Single regex pass cannot.
+            import re as _re_sub
+
+            def _sp_sub(text: str, mapping: dict) -> str:
+                if not mapping:
+                    return text
+                keys = sorted(mapping.keys(), key=len, reverse=True)
+                alt = "|".join(_re_sub.escape(k) for k in keys)
+                qr = _re_sub.compile('"(' + alt + ')"')
+                return qr.sub(lambda mm: '"' + mapping.get(mm.group(1), mm.group(1)) + '"', text)
+
+            chain = _sp_sub('{"a":"url1","b":"url2"}', {"url1": "url2", "url2": "final"})
+            substr = _sp_sub('{"x":"a/b.png","y":"xa/b.png"}',
+                             {"a/b.png": "images/A.png", "xa/b.png": "images/XA.png"})
+            sub_ok = (
+                chain == '{"a":"url2","b":"final"}'           # a NOT double-rewritten to final
+                and substr == '{"x":"images/A.png","y":"images/XA.png"}'  # no substring bleed
+                and _sp_sub('{"k":"v"}', {}) == '{"k":"v"}'    # empty-map noop
+            )
+            record("single-pass asset substitution (no chain)", sub_ok,
+                   f"chain={chain}")
+        except Exception as e:
+            record("single-pass asset substitution (no chain)", False, str(e))
+
+        try:
+            # [STAB-v1.0.1-rev8] _rewrite_direct_urls must not re-fetch a relative
+            # path that already resolves to an existing local file (output of a
+            # prior @import/url() rewrite pass).
+            import tempfile as _tf2, threading as _th2
+            with _tf2.TemporaryDirectory() as _wd:
+                _wd_inst = WebsiteDownloader.__new__(WebsiteDownloader)
+                _wd_inst.folder = _wd
+                _wd_inst.start_url = "http://site.example/cyoa/"
+                _wd_inst._downloaded = {}
+                _wd_inst._lock = _th2.Lock()
+                _dl_calls = []
+
+                def _fake_dl(url, preferred_kind="", referrer_url=None):
+                    _dl_calls.append(url)
+                    _ap = os.path.join(_wd, "assets", os.path.basename(url.split("?")[0]) or "i")
+                    os.makedirs(os.path.dirname(_ap), exist_ok=True)
+                    with open(_ap, "w") as _f:
+                        _f.write("x")
+                    return _ap
+
+                _wd_inst._download_asset = _fake_dl
+                _css_local = os.path.join(_wd, "css", "main.css")
+                os.makedirs(os.path.dirname(_css_local), exist_ok=True)
+                # Pre-create an already-localized asset and reference it relatively.
+                os.makedirs(os.path.join(_wd, "assets"), exist_ok=True)
+                with open(os.path.join(_wd, "assets", "bg.png"), "w") as _f:
+                    _f.write("x")
+                _txt = 'body{background:url("../assets/bg.png")} .y{background:url("http://cdn.x/z.png")}'
+                _out = _wd_inst._rewrite_direct_urls(_txt, "http://site.example/cyoa/css/main.css", _css_local)
+                # The already-local ../assets/bg.png must NOT be re-fetched; the
+                # remote http://cdn.x/z.png must be fetched exactly once.
+                relfetch = [c for c in _dl_calls if c.startswith(("../", "./"))]
+                remote_fetched = any("cdn.x" in c for c in _dl_calls)
+                rewrite_ok = (len(relfetch) == 0 and remote_fetched)
+                record("direct-URL rewrite skips already-local", rewrite_ok,
+                       f"relfetch={len(relfetch)} remote={remote_fetched}")
+        except Exception as e:
+            record("direct-URL rewrite skips already-local", False, str(e))
+
+        try:
+            # [STAB-v1.0.1-rev8] srcset parsing must not shred data: URIs (which
+            # contain commas). Verify a data-URI candidate stays intact and the
+            # following real candidate is still parsed.
+            import threading as _th3
+            _sr_inst = WebsiteDownloader.__new__(WebsiteDownloader)
+            _sr_inst._downloaded = {}
+            _sr_inst.output_folder = "/tmp"
+            _sr_inst.folder = "/tmp"
+            _sr_inst._lock = _th3.Lock()
+            _sr_calls = []
+            _sr_inst._download_asset = lambda u, preferred_kind="", referrer_url=None: (_sr_calls.append(u) or None)
+            _sr_inst._rel = lambda a, b: b
+
+            class _FakeTag(dict):
+                pass
+
+            _t = _FakeTag()
+            _t["srcset"] = "data:image/svg+xml,%3Csvg%20w%3D%221%2C2%22%3E 1x, real.png 2x"
+            _sr_inst._set_attr_local(_t, "srcset", "http://x/", "/tmp/index.html", preferred_kind="images")
+            srcset_ok = (
+                "data:image/svg+xml,%3Csvg%20w%3D%221%2C2%22%3E" in _t["srcset"]  # data URI intact
+                and _sr_calls == ["real.png"]                                     # only real.png fetched
+            )
+            record("srcset parsing preserves data: URIs", srcset_ok,
+                   f"calls={_sr_calls}")
+        except Exception as e:
+            record("srcset parsing preserves data: URIs", False, str(e))
+
+        try:
+            # [STAB-v1.0.1-rev8] Windows reserved device names must be made safe,
+            # without over-prefixing legit names that merely contain the substring.
+            cu = clean_url_path_component
+            reserved_ok = (
+                cu("CON") == "_CON"
+                and cu("nul.json") == "_nul.json"
+                and cu("COM1") == "_COM1"
+                and cu("CONSOLE") == "CONSOLE"          # not reserved
+                and cu("my_con_file") == "my_con_file"  # not reserved
+                and cu("com10") == "com10"              # COM10 is not reserved
+            )
+            record("Windows reserved filename guard", reserved_ok,
+                   f"CON->{cu('CON')!r} CONSOLE->{cu('CONSOLE')!r}")
+        except Exception as e:
+            record("Windows reserved filename guard", False, str(e))
+
+        try:
+            # [STAB-v1.0.1-rev8] ZIP member names must use '/' separators so
+            # archives extract correctly on every OS (Windows os.path.relpath
+            # would otherwise emit backslashes).
+            import tempfile as _tfz, zipfile as _zfz, shutil as _shz
+            _zd = _tfz.mkdtemp(prefix="cyoa_zipsep_")
+            try:
+                os.makedirs(os.path.join(_zd, "images"), exist_ok=True)
+                with open(os.path.join(_zd, "images", "a.png"), "w") as _f:
+                    _f.write("x")
+                with open(os.path.join(_zd, "project.json"), "w") as _f:
+                    _f.write("{}")
+                _old = os.getcwd()
+                os.chdir(_tfz.gettempdir())
+                try:
+                    _out = zip_temp_folder(_zd, "cyoa_zipsep_test")
+                    with _zfz.ZipFile(_out) as _z:
+                        _names = _z.namelist()
+                    sep_ok = (
+                        "images/a.png" in _names
+                        and not any("\\" in n for n in _names)
+                    )
+                    record("ZIP member names use forward slash", sep_ok,
+                           f"names={_names}")
+                    try:
+                        os.remove(_out)
+                    except OSError:
+                        pass
+                finally:
+                    os.chdir(_old)
+            finally:
+                _shz.rmtree(_zd, ignore_errors=True)
+        except Exception as e:
+            record("ZIP member names use forward slash", False, str(e))
+
+        try:
+            # [STAB-v1.0.1-rev8] _coerce_int must never raise on malformed input
+            # (hand-edited settings.json, external FlareSolverr 'status' field).
+            ci = _coerce_int
+            coerce_ok = (
+                ci("42", 5) == 42
+                and ci("abc", 5) == 5
+                and ci("", 5) == 5
+                and ci(None, 5) == 5
+                and ci("  17  ", 5) == 17
+                and ci("3.7", 5) == 5      # non-int string → default
+            )
+            # And the FlareSolverr response builder must survive a bad status.
+            _fr = _response_from_flaresolverr_solution(
+                {"status": "weird-non-numeric", "response": "x"}, "http://x/")
+            fr_ok = (_fr.status_code == 200)
+            record("safe int coercion (settings/external)", coerce_ok and fr_ok,
+                   f"coerce={coerce_ok} flaresolverr_status={_fr.status_code}")
+        except Exception as e:
+            record("safe int coercion (settings/external)", False, str(e))
+
+        try:
+            # [STAB-v1.0.1-rev8] Archive extraction must reject an oversized
+            # member by DECLARED size before decompressing it into RAM. Verify
+            # the declared-size guard logic blocks a member over budget.
+            import io as _io2, zipfile as _zf2
+            _buf = _io2.BytesIO()
+            with _zf2.ZipFile(_buf, "w", _zf2.ZIP_DEFLATED) as _z:
+                _z.writestr("big.bin", b"\x00" * (2 * 1024 * 1024))  # 2MB declared
+            _buf.seek(0)
+            _MAX = 1 * 1024 * 1024  # pretend 1MB budget
+            _blocked = False
+            with _zf2.ZipFile(_buf) as _arc:
+                for _m in _arc.namelist():
+                    _decl = int(getattr(_arc.getinfo(_m), "file_size", 0) or 0)
+                    if _decl > _MAX:
+                        _blocked = True  # would raise before arc.read()
+                        break
+            record("archive pre-read size guard", _blocked,
+                   f"blocked_oversized={_blocked}")
+        except Exception as e:
+            record("archive pre-read size guard", False, str(e))
 
         try:
             theme_ok = (
@@ -16885,7 +17836,8 @@ def run_internal_self_test() -> Tuple[bool, str]:
                               "language": "id"})
             exp = os.path.join(_d, "export.json")
             ok_e, _ = export_settings(exp)
-            raw = open(exp, encoding="utf-8").read()
+            with open(exp, encoding="utf-8") as _ef:
+                raw = _ef.read()
             secret_excluded = ("sk-LEAKME" not in raw) and ("itch-LEAKME" not in raw)
             import json as _json
             blob = _json.loads(raw)
@@ -16908,13 +17860,14 @@ def run_internal_self_test() -> Tuple[bool, str]:
             _save_settings(dict(_SETTINGS_DEFAULTS))
             imp = os.path.join(_d, "import.json")
             import json as _json
-            _json.dump({"settings": {
-                "language": "en",                     # safe → merge
-                "ai_api_key": "sk-REAL",              # secret w/value → ignore
-                "itch_api_key": _REDACTED_PLACEHOLDER,# redacted → ignore
-                "cloudflare_mode": _REDACTED_PLACEHOLDER,  # redacted → ignore
-                "totally_unknown_xyz": 1,            # unknown → ignore
-            }}, open(imp, "w", encoding="utf-8"))
+            with open(imp, "w", encoding="utf-8") as _if:
+                _json.dump({"settings": {
+                    "language": "en",                     # safe → merge
+                    "ai_api_key": "sk-REAL",              # secret w/value → ignore
+                    "itch_api_key": _REDACTED_PLACEHOLDER,# redacted → ignore
+                    "cloudflare_mode": _REDACTED_PLACEHOLDER,  # redacted → ignore
+                    "totally_unknown_xyz": 1,            # unknown → ignore
+                }}, _if)
             ok_i, _ = import_settings(imp)
             s = _load_settings()
             merged = (s.get("language") == "en")
@@ -16923,7 +17876,8 @@ def run_internal_self_test() -> Tuple[bool, str]:
             no_unknown = ("totally_unknown_xyz" not in s)
             # invalid JSON must fail cleanly
             bad = os.path.join(_d, "bad.json")
-            open(bad, "w").write("{nope")
+            with open(bad, "w") as _bf:
+                _bf.write("{nope")
             ok_bad, _ = import_settings(bad)
             record("settings import merges safe + ignores secrets/redacted/unknown",
                    ok_i and merged and no_secret and no_redacted_restore
@@ -16971,6 +17925,151 @@ def run_internal_self_test() -> Tuple[bool, str]:
         try: _ASSET_SCANNER_PLUGINS.unregister("__boom__")
         except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in run_internal_self_test (line 16533): %s", _ignored_exc)
         record("plugin registry: default scanner runs + failing plugin contained", False, str(e))
+
+    # [STAB-rev18] Batch mode-flag parity guard. Locks the shared
+    # _derive_mode_flags() semantics so the GUI and CLI batch dispatch loops
+    # cannot silently diverge again (regression guard for the bare
+    # pure_website / cyoap_vue mis-dispatch fixed in rev18).
+    try:
+        _expect = {
+            "embed":               (False, False, False, False, True,  "standard"),
+            "zip":                 (True,  False, False, False, True,  "standard"),
+            "both":                (False, True,  False, False, True,  "standard"),
+            "website_zip":         (False, False, False, True,  True,  "standard"),
+            "website_folder":      (False, False, False, True,  False, "standard"),
+            "pure_website":        (False, False, True,  True,  True,  "standard"),
+            "pure_website_folder": (False, False, True,  True,  False, "standard"),
+            "cyoap_vue":           (False, False, False, True,  True,  "cyoap_vue"),
+            "cyoap_vue_folder":    (False, False, False, True,  False, "cyoap_vue"),
+        }
+        _mismatch = []
+        for _mode, _exp in _expect.items():
+            _f = _derive_mode_flags(_mode)
+            _got = (_f["zip"], _f["both"], _f["pure"], _f["website"],
+                    _f["website_zip"], _f["engine"])
+            if _got != _exp:
+                _mismatch.append(f"{_mode}: {_got}!={_exp}")
+        record("batch mode-flag parity (GUI/CLI single source)",
+               not _mismatch,
+               "all aligned" if not _mismatch else "; ".join(_mismatch))
+    except Exception as e:
+        record("batch mode-flag parity (GUI/CLI single source)", False, str(e))
+
+    # [STAB-rev19] Offline package validator smoke test. Builds a healthy and
+    # a broken fixture in a temp dir and asserts verify_output_package's verdict
+    # + missing-asset detection. Regression guard for the new --verify feature.
+    try:
+        import tempfile as _vt
+        with _vt.TemporaryDirectory(prefix="cyoa_verify_") as _vroot:
+            _good = os.path.join(_vroot, "good"); os.makedirs(os.path.join(_good, "images"))
+            with open(os.path.join(_good, "project.json"), "w", encoding="utf-8") as _f:
+                _f.write('{"rows":[{"objects":[{"image":"images/a.png"}]}],"styling":{}}')
+            with open(os.path.join(_good, "images", "a.png"), "wb") as _f:
+                _f.write(b"PNGDATA")
+            _ok_good, _ = verify_output_package(_good)
+            _bad = os.path.join(_vroot, "bad"); os.makedirs(_bad)
+            with open(os.path.join(_bad, "project.json"), "w", encoding="utf-8") as _f:
+                _f.write('{"rows":[{"objects":[{"image":"images/gone.png"}]}],"styling":{}}')
+            _ok_bad, _rep_bad = verify_output_package(_bad)
+            _detected = (not _ok_bad) and ("gone.png" in _rep_bad)
+            record("package validator: good passes / missing-asset fails",
+                   _ok_good and _detected,
+                   f"good_ok={_ok_good} bad_detected={_detected}")
+    except Exception as e:
+        record("package validator: good passes / missing-asset fails", False, str(e))
+
+    # [STAB-rev20] After-callback destroy-safety guard. Verifies
+    # _v25_safe_after_widget is a safe no-op when the root is missing (the
+    # path that doesn't require a live display), and that a fake widget whose
+    # winfo_exists() returns False causes the callback to be skipped rather
+    # than invoked. Regression guard for the root.after post-destroy lens.
+    try:
+        _calls = {"n": 0}
+        class _DeadRoot:
+            def winfo_exists(self):
+                return False
+        class _DeadWidget:
+            def winfo_exists(self):
+                return False
+        # Dead root -> must not schedule, must not raise, callback never runs.
+        _v25_safe_after_widget(_DeadRoot(), _DeadWidget(),
+                               lambda: _calls.__setitem__("n", _calls["n"] + 1))
+        # None root -> safe no-op.
+        _v25_safe_after_widget(None, None,
+                               lambda: _calls.__setitem__("n", _calls["n"] + 1))
+        record("after-guard: dead/None root is safe no-op",
+               _calls["n"] == 0,
+               f"callbacks_invoked={_calls['n']} (expected 0)")
+    except Exception as e:
+        record("after-guard: dead/None root is safe no-op", False, str(e))
+
+    # [STAB-rev21] Manifest sidecar round-trip. Writes a manifest for a fixture,
+    # verifies it reports intact, then corrupts a file and confirms checksum
+    # mismatch is detected. Regression guard for the --write-manifest feature.
+    try:
+        import tempfile as _mt
+        with _mt.TemporaryDirectory(prefix="cyoa_manifest_") as _mroot:
+            _pkg = os.path.join(_mroot, "pkg"); os.makedirs(os.path.join(_pkg, "images"))
+            with open(os.path.join(_pkg, "project.json"), "w", encoding="utf-8") as _f:
+                _f.write('{"rows":[{"objects":[{"image":"images/a.png"}]}],"styling":{}}')
+            _asset = os.path.join(_pkg, "images", "a.png")
+            with open(_asset, "wb") as _f:
+                _f.write(b"ORIGINAL-BYTES")
+            _wrote_ok, _ = write_package_manifest(_pkg)
+            _intact_ok, _ = verify_output_package(_pkg)
+            # corrupt the asset, re-verify -> must now fail with mismatch
+            with open(_asset, "wb") as _f:
+                _f.write(b"TAMPERED-BYTES-DIFFERENT-LENGTH")
+            _corrupt_ok, _corrupt_rep = verify_output_package(_pkg)
+            _detected = (not _corrupt_ok) and ("checksum mismatch" in _corrupt_rep)
+            record("manifest round-trip: write / intact / corruption detected",
+                   _wrote_ok and _intact_ok and _detected,
+                   f"wrote={_wrote_ok} intact={_intact_ok} corruption_detected={_detected}")
+    except Exception as e:
+        record("manifest round-trip: write / intact / corruption detected", False, str(e))
+
+    # [STAB-rev22] Decode robustness. try_decode_bytes must never raise on
+    # arbitrary byte sequences (latin-1 last resort), and must avoid the
+    # latin-1-too-early mojibake trap by returning real UTF-8 for UTF-8 input.
+    try:
+        _arbitrary = bytes(range(256))
+        _d1 = try_decode_bytes(_arbitrary, "utf-8")
+        _utf8_in = "日本語テスト café".encode("utf-8")
+        _d2 = try_decode_bytes(_utf8_in, "utf-8")
+        _ok = isinstance(_d1, str) and _d2 == "日本語テスト café"
+        record("decode robustness: arbitrary bytes + utf-8 fidelity",
+               _ok, f"arbitrary_ok={isinstance(_d1, str)} utf8_roundtrip={_d2 == '日本語テスト café'}")
+    except Exception as e:
+        record("decode robustness: arbitrary bytes + utf-8 fidelity", False, str(e))
+
+    # [STAB-rev23] Queue-preservation policy in _done(). When the completion
+    # status string is unparseable, the queue must be PRESERVED (conservative),
+    # never cleared — otherwise a failed run whose status didn't match the
+    # "… — N/M …" shape would silently lose its retry queue. We model the
+    # decision here (the GUI method itself needs a live root).
+    try:
+        def _queue_decision(status):
+            try:
+                _s = int(status.split("—")[1].strip().split("/")[0].strip())
+                _t = int(status.split("/")[1].strip().split(" ")[0])
+                if _s < _t:
+                    return "preserve"
+            except Exception:
+                return "preserve"   # rev23: unparseable -> conservative keep
+            return "cleanup"
+        _cases = {
+            "Selesai — 5/5 berhasil": "cleanup",
+            "Selesai — 3/5 berhasil": "preserve",
+            "Download cancelled": "preserve",
+            "": "preserve",
+            "完了": "preserve",
+        }
+        _bad = [f"{k!r}->{_queue_decision(k)}!={v}"
+                for k, v in _cases.items() if _queue_decision(k) != v]
+        record("queue policy: unparseable status preserves queue",
+               not _bad, "all correct" if not _bad else "; ".join(_bad))
+    except Exception as e:
+        record("queue policy: unparseable status preserves queue", False, str(e))
 
     passed = sum(1 for _, ok, _ in tests if ok)
     lines = [f"CYOA Downloader v{_APP_VERSION} internal self-test", "=" * 52]
@@ -17066,6 +18165,9 @@ def main() -> None:
     parser.add_argument("--gallery-dl-path", default="gallery-dl", help="gallery-dl executable path used with --gallery-dl.")
     parser.add_argument("--gallery-dl-config", default="", help="Optional gallery-dl config.json path.")
     parser.add_argument("--bandwidth", type=float, default=0.0, help="Bandwidth limit in KB/s. 0 means unlimited.")
+    parser.add_argument("--allow-internal-hosts", action="store_true",
+                        help="Allow fetching assets from cross-origin internal/loopback/RFC1918 hosts. "
+                             "Off by default as an SSRF safeguard; enable only for trusted local setups.")
     parser.add_argument("--ai-key", dest="ai_api_key", default="", help="AI API key for this run only. It is not saved to settings.json.")
     parser.add_argument("--ai-provider",
                         choices=["anthropic", "openai", "gemini", "ollama", "deepseek", "qwen", "groq", "openrouter", "custom"],
@@ -17102,6 +18204,10 @@ def main() -> None:
     parser.add_argument("--dependency-check", action="store_true", help="Print optional/required dependency status and exit.")
     parser.add_argument("--userscript-info", action="store_true", help="Print Serve-only userscript integration credit/source notes and exit.")
     parser.add_argument("--self-test", action="store_true", help="Run offline internal smoke tests and exit.")
+    parser.add_argument("--verify", metavar="FOLDER", default=None,
+                        help="Validate a previously downloaded output FOLDER (read-only integrity check) and exit.")
+    parser.add_argument("--write-manifest", action="store_true",
+                        help="With --verify: write a cyoa_manifest.json checksum sidecar into the folder, then exit. Enables later checksum verification.")
     parser.add_argument("--export-settings", metavar="FILE", default=None,
                         help="Export current settings (secrets redacted) to FILE and exit.")
     parser.add_argument("--import-settings", metavar="FILE", default=None,
@@ -17120,6 +18226,19 @@ def main() -> None:
 
     if args.self_test:
         ok, report = run_internal_self_test()
+        print(report)
+        if not ok:
+            raise SystemExit(1)
+        return
+
+    if args.verify:
+        if args.write_manifest:
+            ok, msg = write_package_manifest(args.verify)
+            print(msg)
+            if not ok:
+                raise SystemExit(1)
+            return
+        ok, report = verify_output_package(args.verify)
         print(report)
         if not ok:
             raise SystemExit(1)
@@ -17215,6 +18334,7 @@ def main() -> None:
     _set_gallery_dl_mode(gallery_dl_eff, path=args.gallery_dl_path, config=args.gallery_dl_config, persist=False)
     global _bandwidth_limit_kbps, use_cloudscraper
     _bandwidth_limit_kbps = max(0.0, float(args.bandwidth or 0.0))
+    _set_allow_internal_hosts(bool(getattr(args, "allow_internal_hosts", False)))
     cf_mode = "cloudscraper" if bool(args.cf_bypass) else args.cloudflare
     _cloudflare_cli_explicit = any(
         a == "--cloudflare" or a.startswith("--cloudflare=") or
@@ -17302,16 +18422,29 @@ def main() -> None:
             logger.info(f"Batch {idx}/{len(items)}: {item['url']}")
             try:
                 mode_i = (item.get("mode", "") or "").lower().replace("-", "_").replace(" ", "_")
-                zip_i = args.zip or mode_i == "zip"
-                both_i = args.both or mode_i == "both"
-                pure_i = pure_website_mode or mode_i in {"pure_website", "pure_website_zip", "pure_website_folder"}
-                website_i = website_mode or mode_i in {"icc", "icc_zip", "icc_folder", "website", "website_zip", "website_folder", "cyoap_vue", "cyoap_vue_zip", "cyoap_vue_folder", "pure_website", "pure_website_zip", "pure_website_folder"}
-                website_zip_i = website_zip_output
-                if mode_i in {"icc_folder", "website_folder", "pure_website_folder", "cyoap_vue_folder"}:
-                    website_zip_i = False
-                if mode_i in {"icc", "icc_zip", "website", "website_zip", "pure_website", "pure_website_zip", "cyoap_vue", "cyoap_vue_zip"}:
-                    website_zip_i = True
-                engine_mode = "cyoap_vue" if (args.cyoap_vue_website or args.cyoap_vue_folder or mode_i in {"cyoap_vue", "cyoap_vue_zip", "cyoap_vue_folder"}) else ("auto" if args.cyoap_vue else "standard")
+                # [STAB-rev18] Per-row flags come from the shared derivation
+                # helper (parity with the GUI loop); global CLI flags are then
+                # OR-ed in, exactly as before. mode_i is already canonical
+                # (normalized at import), so legacy icc* aliases never appear,
+                # but the helper still maps them defensively.
+                _mf = _derive_mode_flags(mode_i)
+                zip_i = args.zip or _mf["zip"]
+                both_i = args.both or _mf["both"]
+                pure_i = pure_website_mode or _mf["pure"]
+                website_i = website_mode or _mf["website"]
+                # website_zip default follows global flags unless this row names
+                # an explicit folder/zip mode (helper decides per-row).
+                if mode_i:
+                    website_zip_i = _mf["website_zip"]
+                else:
+                    website_zip_i = website_zip_output
+                # Preserve the global --cyoap-vue "auto" probe branch.
+                if _mf["engine"] == "cyoap_vue" or args.cyoap_vue_website or args.cyoap_vue_folder:
+                    engine_mode = "cyoap_vue"
+                elif args.cyoap_vue:
+                    engine_mode = "auto"
+                else:
+                    engine_mode = "standard"
                 run_download(
                     url=item["url"],
                     file_name=item.get("filename", ""),
@@ -18507,6 +19640,12 @@ def _parallel_head_check(
     """
     results: Dict[str, bool] = {}
     lock = threading.Lock()
+    # STAB-v1.0.2: Skip pool creation for an empty candidate list and clamp the
+    # worker count defensively. min(len(x), N) at some call sites can otherwise
+    # produce 0 workers. Additive guard; behavior for non-empty input unchanged.
+    if not candidates:
+        return []
+    max_workers = max(1, min(32, int(max_workers) if max_workers else 1))
 
     def check(url: str) -> None:
         try:
@@ -18779,9 +19918,16 @@ def _probe_cyoap_vue_structure(base_url: str, timeout: int = 6) -> bool:
                 return False
             try:
                 payload = json.loads(raw.decode(getattr(response, "encoding", None) or "utf-8-sig"))
-            except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
-                logger.debug(f"[Auto-detect] CYOAP probe rejected invalid JSON: {endpoint}: {exc}")
-                return False
+            except (UnicodeDecodeError, LookupError, json.JSONDecodeError, TypeError, ValueError) as exc:
+                # [STAB-rev22] LookupError covers a malformed server charset
+                # header (e.g. "charset=foobar") naming an unknown codec; retry
+                # once with a UTF-8 best-effort decode before giving up so a bad
+                # header alone doesn't reject an otherwise-valid JSON endpoint.
+                try:
+                    payload = json.loads(raw.decode("utf-8", errors="replace"))
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    logger.debug(f"[Auto-detect] CYOAP probe rejected invalid JSON: {endpoint}: {exc}")
+                    return False
             if not isinstance(payload, expected_type):
                 logger.debug(
                     f"[Auto-detect] CYOAP probe rejected unexpected payload type: "
@@ -18896,138 +20042,7 @@ def auto_detect_modes_batch(
 
 
 
-def get_iframe_url_from_cyoa_cafe(game_url: str) -> str:
-    """
-    Resolve a cyoa.cafe URL to its real iframe/project URL.
-
-    Handles two formats:
-      OLD: https://cyoa.cafe/game/RECORD_ID
-           → /api/collections/games/records/RECORD_ID
-
-      NEW: https://SUBDOMAIN.cyoa.cafe/SLUG/
-           → Try API filter by slug, then fall back to fetching
-             the page HTML and extracting the iframe src.
-    """
-    parsed  = urlparse(game_url)
-    host    = parsed.netloc.lower()   # e.g. "cyoa.cafe" or "lordcyoa.cyoa.cafe"
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-
-    # ── OLD format: cyoa.cafe/game/RECORD_ID ──────────────────────────
-    if host == "cyoa.cafe":
-        parts = parsed.path.strip("/").split("/")
-        if len(parts) >= 2 and parts[0] == "game":
-            record_id = parts[1]
-            api_url   = f"https://cyoa.cafe/api/collections/games/records/{record_id}"
-            try:
-                r = fetch_response(api_url, extra_headers=headers, timeout=15)
-                if r is None:
-                    raise requests.RequestException("empty response")
-                data = r.json()
-                # PocketBase may use different field names across versions
-                for field in ("iframe_url", "iframeUrl", "url", "link", "source", "embed"):
-                    iframe_url = data.get(field)
-                    if iframe_url and iframe_url.startswith("http"):
-                        logger.info(f"cyoa.cafe resolved (record API, field={field!r}): {iframe_url}")
-                        return iframe_url
-            except Exception as e:
-                raise requests.RequestException(f"cyoa.cafe API failed: {e}")
-        raise ValueError(f"Invalid cyoa.cafe URL (old format): {game_url}")
-
-    # ── NEW format: SUBDOMAIN.cyoa.cafe/SLUG/ ─────────────────────────
-    if host.endswith(".cyoa.cafe"):
-        subdomain = host.rsplit(".cyoa.cafe", 1)[0]   # e.g. "lordcyoa"
-        slug      = parsed.path.strip("/").split("/")[0]  # e.g. "pony-ranch"
-
-        logger.info(f"cyoa.cafe subdomain format detected: subdomain={subdomain!r} slug={slug!r}")
-
-        # Attempt 1: PocketBase API filter by slug
-        if slug:
-            for filter_expr in [
-                f"(slug='{slug}')",
-                f"(slug='{slug}'&&expand=user)",
-            ]:
-                try:
-                    api_url = (
-                        f"https://cyoa.cafe/api/collections/games/records"
-                        f"?filter={requests.utils.quote(filter_expr)}&perPage=5"
-                    )
-                    r = fetch_response(api_url, extra_headers=headers, timeout=15)
-                    if r is not None:
-                        data  = r.json()
-                        items = data.get("items", [])
-                        if items:
-                            for field in ("iframe_url", "iframeUrl", "url", "link", "source"):
-                                iframe_url = items[0].get(field)
-                                if iframe_url and iframe_url.startswith("http"):
-                                    logger.info(f"cyoa.cafe resolved (slug filter, field={field!r}): {iframe_url}")
-                                    return iframe_url
-                except Exception as _ignored_exc:
-                    logger.debug("Ignored recoverable exception in get_iframe_url_from_cyoa_cafe (line 18377): %s", _ignored_exc)
-
-        # Attempt 2: Fetch the page HTML and look for iframe src / embedded JSON
-        try:
-            r = fetch_response(game_url, extra_headers=headers, timeout=15)
-            if r is not None:
-                html = _safe_response_text(r)
-                soup = BeautifulSoup(html, "html.parser")
-
-                # 2a. Direct <iframe src="...">
-                for iframe in soup.find_all("iframe"):
-                    src = iframe.get("src", "")
-                    if src and src.startswith("http") and "cyoa.cafe" not in src:
-                        logger.info(f"cyoa.cafe resolved (page iframe): {src}")
-                        return src
-
-                # 2b. JSON blob in <script> containing iframe_url field
-                #     Handles: window.__RECORD__={...}, window.__NUXT__={...}, etc.
-                json_patterns = [
-                    re.compile(r'"iframe_url"\s*:\s*"(https?://[^"]+)"'),
-                    re.compile(r"'iframe_url'\s*:\s*'(https?://[^']+)'"),
-                    re.compile(r'iframe_url\s*:\s*["\']?(https?://[^\s"\'<]+)'),
-                ]
-                for script in soup.find_all("script"):
-                    script_text = script.string or ""
-                    for pat in json_patterns:
-                        m = pat.search(script_text)
-                        if m:
-                            candidate = m.group(1)
-                            if "cyoa.cafe" not in candidate:
-                                logger.info(f"cyoa.cafe resolved (script JSON): {candidate}")
-                                return candidate
-
-                # 2c. Broad regex over full HTML for any https:// not on cyoa.cafe
-                #     that looks like a CYOA host (neocities, github.io, itch.io, etc.)
-                known_hosts = ("neocities.org", "github.io", "itch.io", "githubusercontent.com")
-                for m in re.finditer(r'https?://([^\s"\'<>]+)', html):
-                    candidate = m.group(0).rstrip(".,;)/\"'")
-                    if any(h in candidate for h in known_hosts):
-                        logger.info(f"cyoa.cafe resolved (HTML host scan): {candidate}")
-                        return candidate
-
-                # 2d. og:url or canonical link pointing off-site
-                for tag in soup.find_all("meta", property="og:url"):
-                    content = tag.get("content", "")
-                    if content.startswith("http") and "cyoa.cafe" not in content:
-                        logger.info(f"cyoa.cafe resolved (og:url): {content}")
-                        return content
-                for tag in soup.find_all("link", rel="canonical"):
-                    href = tag.get("href", "")
-                    if href.startswith("http") and "cyoa.cafe" not in href:
-                        logger.info(f"cyoa.cafe resolved (canonical): {href}")
-                        return href
-
-        except Exception as e:
-            logger.warning(f"cyoa.cafe page fetch failed: {e}")
-
-        # Attempt 3: The subdomain page itself might BE the project page
-        # (some cyoa.cafe creators host on a custom subdomain that IS the CYOA)
-        logger.warning(
-            f"cyoa.cafe: could not resolve iframe for {game_url}\n"
-            f"  Trying to download subdomain page directly as a website."
-        )
-        return game_url   # Fall back: treat the page itself as the target
-
-    raise ValueError(f"Unknown cyoa.cafe URL format: {game_url}")
+# [STAB-v1.0.3] Removed dead duplicate definition of `get_iframe_url_from_cyoa_cafe` (superseded by the active v46/v465 implementation later in this file).
 
 
 
@@ -19150,47 +20165,42 @@ def clean_url_path_component(encoded_str: str) -> str:
     cleaned = re.sub(r'_+', '_', cleaned)
     # Strip leading/trailing spaces and dots (Windows quirk)
     cleaned = cleaned.strip('. ')
-    return cleaned or "asset"
+    if not cleaned:
+        return "asset"
+    # [STAB-v1.0.1-rev8] Guard against Windows reserved device names. A file
+    # named CON, PRN, AUX, NUL, COM1-9 or LPT1-9 (with or without an extension,
+    # case-insensitive) cannot be created on Windows. A CYOA whose output name
+    # resolves to one of these would silently fail to save. Prefix with "_" so
+    # the on-disk name is legal everywhere while staying recognizable. The base
+    # name (portion before the first dot) is what Windows checks.
+    _base = cleaned.split(".", 1)[0]
+    if re.fullmatch(r"(?i:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])", _base):
+        cleaned = "_" + cleaned
+    return cleaned
 
 
-def save_string_to_file(content: str, filename: str, path: str = "") -> None:
-    filename = re.sub(r'[<>:"/\\|?*]', "_", filename)
-    base, ext = os.path.splitext(filename)
-    new = os.path.join(path, filename) if path else filename
-    if path:
-        os.makedirs(path, exist_ok=True)
-    counter = 1
-    while os.path.exists(new):
-        new = (os.path.join(path, f"{base}_{counter}{ext}") if path else f"{base}_{counter}{ext}")
-        counter += 1
-    with open(new, "w", encoding="utf-8") as f:
-        f.write(content)
-    logger.info(f"Saved: {new}")
+# [STAB-v1.0.3] Removed dead duplicate definition of `save_string_to_file` (superseded by the active v46/v465 implementation later in this file).
 
 
 def create_random_temp_folder(prefix: str = "cyoa_") -> str:
     tmp = tempfile.gettempdir()
-    while True:
+    # [STAB-v1.0.1-rev8] Avoid a check-then-create TOCTOU race. The old code did
+    # `if not os.path.exists(folder): os.makedirs(folder)` — between the check and
+    # the makedirs, another thread/process could create the same path, raising an
+    # unhandled FileExistsError. Create directly and only retry (new uuid) if the
+    # name actually collides, so creation is atomic.
+    for _ in range(1000):
         folder = os.path.join(tmp, prefix + uuid.uuid4().hex[:8])
-        if not os.path.exists(folder):
+        try:
             os.makedirs(folder)
             return folder
+        except FileExistsError:
+            continue
+    # Astronomically unlikely after 1000 uuid attempts; fall back to mkdtemp.
+    return tempfile.mkdtemp(prefix=prefix)
 
 
-def zip_temp_folder(temp_path: str, zip_name: str = "") -> str:
-    if not os.path.isdir(temp_path):
-        raise ValueError(f"Not a directory: {temp_path}")
-    if not zip_name:
-        zip_name = f"archive_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    zf = zip_name if zip_name.endswith(".zip") else zip_name + ".zip"
-    zp = os.path.join(os.getcwd(), zf)
-    with zipfile.ZipFile(zp, "w", zipfile.ZIP_DEFLATED) as z:
-        for root, _, files in os.walk(temp_path):
-            for file in files:
-                abs_p = os.path.join(root, file)
-                z.write(abs_p, arcname=os.path.relpath(abs_p, start=temp_path))
-    logger.info(f"ZIP created: {zp}")
-    return zp
+# [STAB-v1.0.3] Removed dead duplicate definition of `zip_temp_folder` (superseded by the active v46/v465 implementation later in this file).
 
 
 def delete_temp_folder(temp_path: str) -> None:
@@ -19755,6 +20765,12 @@ def _deep_scan_and_download_assets(
         Tries HTTP/2 first when enabled, then falls back to fetch_response so
         Cloudflare/FlareSolverr, proxy, DNS, and retry policy remain consistent.
         """
+        # [STAB-v1.0.1-rev8] SSRF screen: a scanned JS/CSS/HTML/project file can
+        # reference a cross-origin internal host. Block it unless same-origin as
+        # the page (base_url) or --allow-internal-hosts is set.
+        if _ssrf_block_cross_origin(url, base_url):
+            logger.warning(f"  [SSRF blocked] cross-origin internal host: {url}")
+            return url, None, 0
         try:
             _domain_throttle(url)
             hdrs = get_headers_for_url(url) or {}
@@ -19808,68 +20824,42 @@ def _deep_scan_and_download_assets(
     # ── Parallel concurrency: scale with workers, cap at 20 ───────────
     _dl_workers = min(max(max_workers, 8), 20)
 
-    while round_n < max_rounds:
-        round_n += 1
+    # [STAB-v1.0.1-rev8] Guarantee HTTP/2 client + pooled session are closed
+    # even if the BFS loop raises. Previously close() ran only on the happy
+    # path, leaking the httpx connection pool (and _session was never closed).
+    try:
+        while round_n < max_rounds:
+            round_n += 1
 
-        # ── Step 1: collect candidate URLs from all unscanned files ──
-        new_candidates = _collect_candidates_from_folder(folder)
-        if not new_candidates:
-            logger.debug(f"[deep scan] Round {round_n}: no new candidates → done")
-            break
+            # ── Step 1: collect candidate URLs from all unscanned files ──
+            new_candidates = _collect_candidates_from_folder(folder)
+            if not new_candidates:
+                logger.debug(f"[deep scan] Round {round_n}: no new candidates → done")
+                break
 
-        known_urls |= new_candidates
-        logger.debug(f"[deep scan] Round {round_n}: {len(new_candidates)} new candidate(s)")
+            known_urls |= new_candidates
+            logger.debug(f"[deep scan] Round {round_n}: {len(new_candidates)} new candidate(s)")
 
-        # ── Step 2: filter out already-on-disk files (O(1) set check) ─
-        to_download: List[str] = []
-        for url in new_candidates:
-            rel = _url_to_local(url)
-            if rel and rel in _disk_files:
-                continue   # already on disk
-            to_download.append(url)
+            # ── Step 2: filter out already-on-disk files (O(1) set check) ─
+            to_download: List[str] = []
+            for url in new_candidates:
+                rel = _url_to_local(url)
+                if rel and rel in _disk_files:
+                    continue   # already on disk
+                to_download.append(url)
 
-        if not to_download:
-            logger.debug(f"[deep scan] Round {round_n}: all already on disk")
-            break
+            if not to_download:
+                logger.debug(f"[deep scan] Round {round_n}: all already on disk")
+                break
 
-        logger.info(f"[deep scan] Round {round_n}: fetching {len(to_download)} asset(s)…")
+            logger.info(f"[deep scan] Round {round_n}: fetching {len(to_download)} asset(s)…")
 
-        # ── Step 3: single-pass parallel GET (replaces HEAD+GET) ──────
-        new_this_round = 0
-        vite_retry: List[str] = []
+            # ── Step 3: single-pass parallel GET (replaces HEAD+GET) ──────
+            new_this_round = 0
+            vite_retry: List[str] = []
 
-        with _TPE(max_workers=_dl_workers) as ex:
-            for url, content, status in ex.map(_try_fetch, to_download):
-                if content:
-                    rel = _url_to_local(url)
-                    if not rel:
-                        rel = os.path.basename(urlparse(url).path) or 'asset'
-                    local = _safe_join(folder, rel)
-                    os.makedirs(os.path.dirname(local), exist_ok=True)
-                    try:
-                        atomic_write_bytes(local, content)
-                        all_downloaded[url] = rel
-                        _disk_files.add(rel)
-                        new_this_round += 1
-                        logger.info(f"  [deep ✓] {rel}")
-                    except Exception as e:
-                        failed_deep_assets.append({"url": url, "path": rel, "error": f"save failed: {e}", "kind": "deep-scan"})
-                        logger.debug(f"[deep scan] save {rel}: {e}")
-                elif status != 200:
-                    failed_deep_assets.append({"url": url, "path": _url_to_local(url), "error": f"HTTP {status or 'request failed'}", "kind": "deep-scan"})
-                    # Vite correction: if root-level JS 404'd, try /assets/
-                    p = urlparse(url).path
-                    if p.count('/') == 1 and p.lower().endswith(('.js', '.mjs')):
-                        parsed = urlparse(url)
-                        alt = urlunparse(parsed._replace(path='/assets' + parsed.path))
-                        if alt not in known_urls:
-                            vite_retry.append(alt)
-                            known_urls.add(alt)
-
-        # ── Vite /assets/ retry for root-level 404s ───────────────────
-        if vite_retry:
             with _TPE(max_workers=_dl_workers) as ex:
-                for url, content, status in ex.map(_try_fetch, vite_retry):
+                for url, content, status in ex.map(_try_fetch, to_download):
                     if content:
                         rel = _url_to_local(url)
                         if not rel:
@@ -19881,27 +20871,62 @@ def _deep_scan_and_download_assets(
                             all_downloaded[url] = rel
                             _disk_files.add(rel)
                             new_this_round += 1
-                            logger.info(f"  [deep ✓ Vite] {rel}")
+                            logger.info(f"  [deep ✓] {rel}")
                         except Exception as e:
                             failed_deep_assets.append({"url": url, "path": rel, "error": f"save failed: {e}", "kind": "deep-scan"})
                             logger.debug(f"[deep scan] save {rel}: {e}")
-            logger.debug(f"[deep scan] Vite /assets/ correction: "
-                         f"{len(vite_retry)} tried")
+                    elif status != 200:
+                        failed_deep_assets.append({"url": url, "path": _url_to_local(url), "error": f"HTTP {status or 'request failed'}", "kind": "deep-scan"})
+                        # Vite correction: if root-level JS 404'd, try /assets/
+                        p = urlparse(url).path
+                        if p.count('/') == 1 and p.lower().endswith(('.js', '.mjs')):
+                            parsed = urlparse(url)
+                            alt = urlunparse(parsed._replace(path='/assets' + parsed.path))
+                            if alt not in known_urls:
+                                vite_retry.append(alt)
+                                known_urls.add(alt)
 
-        logger.info(f"[deep scan] Round {round_n}: {new_this_round} saved"
-                    + (" — rescanning for new refs…" if new_this_round else ""))
+            # ── Vite /assets/ retry for root-level 404s ───────────────────
+            if vite_retry:
+                with _TPE(max_workers=_dl_workers) as ex:
+                    for url, content, status in ex.map(_try_fetch, vite_retry):
+                        if content:
+                            rel = _url_to_local(url)
+                            if not rel:
+                                rel = os.path.basename(urlparse(url).path) or 'asset'
+                            local = _safe_join(folder, rel)
+                            os.makedirs(os.path.dirname(local), exist_ok=True)
+                            try:
+                                atomic_write_bytes(local, content)
+                                all_downloaded[url] = rel
+                                _disk_files.add(rel)
+                                new_this_round += 1
+                                logger.info(f"  [deep ✓ Vite] {rel}")
+                            except Exception as e:
+                                failed_deep_assets.append({"url": url, "path": rel, "error": f"save failed: {e}", "kind": "deep-scan"})
+                                logger.debug(f"[deep scan] save {rel}: {e}")
+                logger.debug(f"[deep scan] Vite /assets/ correction: "
+                             f"{len(vite_retry)} tried")
 
-        if new_this_round == 0:
-            break   # nothing new downloaded → converged
+            logger.info(f"[deep scan] Round {round_n}: {new_this_round} saved"
+                        + (" — rescanning for new refs…" if new_this_round else ""))
 
-        # Refresh disk index after downloads
-        _rebuild_disk_index()
+            if new_this_round == 0:
+                break   # nothing new downloaded → converged
 
-    if _http2_client is not None:
+            # Refresh disk index after downloads
+            _rebuild_disk_index()
+
+    finally:
+        if _http2_client is not None:
+            try:
+                _http2_client.close()
+            except Exception as _ignored_exc:
+                logger.debug("Ignored close exc (_http2_client) in deep scan: %s", _ignored_exc)
         try:
-            _http2_client.close()
+            _session.close()
         except Exception as _ignored_exc:
-            logger.debug("Ignored recoverable exception in _deep_scan_and_download_assets (line 19320): %s", _ignored_exc)
+            logger.debug("Ignored close exc (_session) in deep scan: %s", _ignored_exc)
 
     if all_downloaded:
         logger.info(f"[deep scan] Complete: {len(all_downloaded)} total asset(s) downloaded"
@@ -20392,7 +21417,8 @@ def download_itch_assets(page_url: str, output_dir: str,
 # logic, output formats, CLI flags, embedded JSON, reports, and ZIP structure are
 # intentionally left untouched.
 # ─────────────────────────────────────────────────────────────────────────────
-_STABILIZATION_PATCH_ID = "CYOA-v1.0-RELEASE"
+# [STAB-v1.0.1-rev8] _STABILIZATION_PATCH_ID consolidated to a single definition
+# at the top of the file; redundant redefinitions removed.
 _STABILIZATION_AUDIT_ID = "CYOA-v1.0 Release-STAB-v46-AUDIT"
 
 
@@ -20646,7 +21672,8 @@ def _v24_batch_update_panel(self: Any) -> None:
         _render()
         def _progress(done: int, total: int) -> None:
             if total and _gui_exists(win):
-                self.root.after(0, lambda d=done, t=total: pb.set(d / t))
+                _v25_safe_after_widget(self.root, pb,
+                                       lambda d=done, t=total: pb.set(d / t))
         def _worker() -> None:
             try:
                 results = _batch_check_updates(items, progress_cb=_progress)
@@ -20888,6 +21915,32 @@ def _v25_safe_after(win: Any, fn) -> None:
             win.after(0, fn)
     except Exception as _ignored_exc:
         logger.debug("Ignored recoverable exception in _v25_safe_after (line 20307): %s", _ignored_exc)
+
+
+def _v25_safe_after_widget(root: Any, widget: Any, fn, delay: int = 0) -> None:
+    """Schedule ``fn`` on the Tk loop, guarding BOTH schedule- and run-time.
+
+    [STAB-v1.0.1-rev20] ``_v25_safe_after`` only checks existence at schedule
+    time; a worker thread can pass that check and then the window/widget is
+    destroyed before the queued callback runs on the main loop, so a callback
+    that calls ``widget.configure()`` / ``.attributes()`` / CTk ``.set()`` hits
+    a dead widget and raises TclError. This variant re-checks the concrete
+    target widget at run time inside the queued closure, closing that TOCTOU
+    gap. Tk *variables* (StringVar/DoubleVar.set) survive widget destruction,
+    so they don't need this; this is for live-widget mutations.
+    """
+    try:
+        if root is None or not bool(root.winfo_exists()):
+            return
+        def _runner():
+            try:
+                if _gui_exists(widget):
+                    fn()
+            except Exception as _exc:
+                logger.debug("safe_after_widget callback skipped: %s", _exc)
+        root.after(delay, _runner)
+    except Exception as _ignored_exc:
+        logger.debug("Ignored recoverable exception in _v25_safe_after_widget: %s", _ignored_exc)
 
 
 def _v25_center_window(win: Any, root: Any, width: int, height: int, *, min_w: int = 720, min_h: int = 520) -> None:
@@ -21885,8 +22938,7 @@ except Exception as _ignored_exc:
 # GUI-only modernization plus provider metadata. No download output/CLI flag
 # contract, ZIP/report naming, embedded JSON, or serve route behavior is changed.
 # ─────────────────────────────────────────────────────────────────────────────
-_STABILIZATION_PATCH_ID = "CYOA-v1.0-RELEASE"
-_STABILIZATION_AUDIT_ID = "CYOA-v1.0 Release-STAB-v46-AUDIT"
+# [STAB-v1.0.1-rev8] Stabilization IDs consolidated to single definitions above.
 
 
 def _v27_ai_provider_values() -> List[str]:
@@ -22777,6 +23829,8 @@ class CYOACafeResolver:
             "googletagmanager.com",
         )
         host = (parsed.hostname or "").lower()
+        if _host_is_internal(host):
+            return False, "internal/loopback/private address (SSRF guard)"
         if any(host == item or host.endswith("." + item) for item in blocked_hosts):
             return False, "repository/social/analytics host"
         if any(token in lower for token in ("/profile/", "/docs/", "/documentation/", "utm_")):
@@ -23512,7 +24566,12 @@ def zip_temp_folder(temp_path: str, zip_name: str = "") -> str:
                 for file in files:
                     _raise_if_cancelled()
                     abs_path = os.path.join(root, file)
-                    archive.write(abs_path, arcname=os.path.relpath(abs_path, start=temp_path))
+                    # [STAB-v1.0.1-rev8] ZIP spec requires '/' separators. On
+                    # Windows os.path.relpath returns backslashes, so a member
+                    # like "images\\a.png" would extract as one literal filename
+                    # on macOS/Linux instead of an images/ subfolder. Normalize.
+                    arc = os.path.relpath(abs_path, start=temp_path).replace("\\", "/")
+                    archive.write(abs_path, arcname=arc)
         validate_zip_archive(part)
         os.replace(part, target)
     except Exception:
@@ -23874,6 +24933,19 @@ def _v46_worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_a
     self._last_results = []
     cancelled = False
     skipped_count = 0
+
+    # [STAB-v1.0.1-rev4] Surface prior-session state on the queue dots before the
+    # run starts, matching the legacy GUI worker. `prev_failed` was previously
+    # computed but never used here, so URLs that failed last session showed no
+    # initial status. This does NOT change skip/retry logic: a previously-failed
+    # URL is still retried (it is not in `completed`); only the initial dot color
+    # is restored.
+    for _idx0, _item0 in enumerate(items):
+        _u0 = str(_item0.get("url") or "")
+        if _u0 in completed:
+            self._set_dot(_idx0, "done")
+        elif _u0 in prev_failed:
+            self._set_dot(_idx0, "error")
 
     try:
         auto_items = [it for it in items if it.get("mode", default_mode) == "auto" and it.get("url") not in completed]
@@ -25066,7 +26138,7 @@ CYOADownloaderGUI._v463_arrange_progress_and_log = _v463_arrange_progress_and_lo
 # ─────────────────────────────────────────────────────────────────────────────
 # Public application name intentionally remains untranslated in every language.
 _APP_DISPLAY_NAME = "CYOA Downloader"
-_STABILIZATION_PATCH_ID = "CYOA-v1.0-RELEASE"
+# [STAB-v1.0.1-rev8] _STABILIZATION_PATCH_ID defined once at top of file.
 
 # Avoid duplicate lazy session creation when several download workers start at
 # the same time. This does not serialize requests; it only protects creation.
@@ -25522,7 +26594,7 @@ CYOADownloaderGUI._apply_theme = _v465_apply_theme  # type: ignore[assignment]
 # website downloader. That caused deep scan to crawl cyoa.cafe instead of the
 # authoritative viewer host. Resolve once at the run boundary and preserve the
 # legacy output name derived from the user's original URL.
-_STABILIZATION_PATCH_ID = "CYOA-v1.0.1-STAB-v46.12"
+# [STAB-v1.0.1-rev8] _STABILIZATION_PATCH_ID defined once at top of file.
 _V466_PREVIOUS_RUN_DOWNLOAD = run_download
 
 
@@ -25644,8 +26716,9 @@ def _v466_setup_ui(self: CYOADownloaderGUI) -> None:
 CYOADownloaderGUI._setup_ui = _v466_setup_ui  # type: ignore[assignment]
 
 
-# v46.8 final patch identity.
-_STABILIZATION_PATCH_ID = "CYOA-v1.0.1-STAB-v46.12"
+# [STAB-v1.0.1-rev8] Final patch identity defined once at top of file; the
+# previous "CYOA-v1.0.1-STAB-v46.12" redefinition here made the GUI banner read
+# as a doubled version (v1.0.1-rev8 · CYOA-v1.0.1-...). Removed.
 
 # ── v1.0 Release: register the built-in plugins (default behavior unchanged) ───────
 # These wrap the existing functions verbatim. Because they are the only plugins

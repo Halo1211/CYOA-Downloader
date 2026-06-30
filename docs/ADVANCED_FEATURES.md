@@ -347,3 +347,37 @@ Rules:
 | Dynamic assets missing | Keep deep scan enabled | Browser fallback. |
 | Project JSON missing | `--icc-folder` | `--pure-website-folder` then Manual Inject. |
 | AI calls too many | `--ai-max-calls 3` | Return to `diagnostics` mode. |
+
+---
+
+## 11. Integrity verification (`--verify` / `--write-manifest`)
+
+These are read-only validation tools for an already-downloaded output folder. They never touch the network or change how downloads work.
+
+### Basic check
+
+```bash
+python cyoa_downloader.py --verify "path/to/output_folder"
+```
+
+Reports: a broken or missing `project.json`, zero-byte asset files, locally-referenced assets (in `project.json`, HTML, CSS, JS) that are missing on disk, and counts from any existing `failed_assets.txt` / `failed_images.txt`. Exit code is `0` when intact and `1` when a blocking problem is found — useful in scripts and CI.
+
+### Checksum verification
+
+For catching files that became **corrupted, truncated, or modified** (not just missing), capture a checksum baseline once, then verify later:
+
+```bash
+# 1. Capture baseline (writes cyoa_manifest.json into the folder):
+python cyoa_downloader.py --verify "path/to/output_folder" --write-manifest
+# 2. Verify any time:
+python cyoa_downloader.py --verify "path/to/output_folder"
+```
+
+| Aspect | Behavior |
+| --- | --- |
+| Sidecar file | `cyoa_manifest.json` at the folder root (sha256 + size per file). |
+| Opt-in | Written only with `--write-manifest`; never during a normal download. |
+| Auto-upgrade | When the sidecar exists, `--verify` automatically does checksum comparison; when absent, it falls back to the reference-resolution checks above. |
+| Default path | Unchanged — output folders are identical to before unless you explicitly write a manifest. |
+
+Use this when archiving important backups long-term, or to confirm a copied/moved/cloud-synced backup did not silently corrupt.

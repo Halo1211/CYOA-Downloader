@@ -171,10 +171,20 @@ python -m py_compile cyoa_downloader.py
 python -c "import ast, pathlib; ast.parse(pathlib.Path('cyoa_downloader.py').read_text(encoding='utf-8')); print('ast.parse OK')"
 python cyoa_downloader.py --help
 python cyoa_downloader.py --dependency-check
-python cyoa_downloader.py --self-test
+python cyoa_downloader.py --self-test            # currently 37/37
 pytest -q
-ruff check cyoa_downloader.py --select F821
+ruff check cyoa_downloader.py --select F821,F811,F601
 ```
+
+Optional feature smoke test (after any change near the validator):
+
+```bash
+python cyoa_downloader.py --verify "some/finished/output_folder"
+```
+
+The self-test count is **37/37** as of the rev18–rev23 stabilization series (parity, cache
+locking, after-destroy safety, validator, manifest round-trip, decode robustness, queue
+policy). New behavior should add a self-test rather than relying on manual checks.
 
 If `ruff` is unavailable, install development requirements:
 
@@ -190,7 +200,7 @@ Manual GUI smoke test:
 
 1. Launch `python cyoa_downloader.py --gui`.
 2. Confirm the window opens.
-3. Confirm version text shows `1.0.1`.
+3. Confirm version text shows `1.0.2`.
 4. Confirm original logo assets load.
 5. Confirm action bar and feature tabs align.
 6. Confirm the dark divider is visible but not bright white.

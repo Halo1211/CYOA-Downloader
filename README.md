@@ -5,31 +5,209 @@
   </picture>
 </p>
 
-<h1 align="center">CYOA Downloader v1.0.1</h1>
+<h1 align="center">CYOA Downloader</h1>
 
 <p align="center">
-  A stable GUI and CLI utility for backing up Interactive CYOA / ICC projects, linked assets, media references, fonts, website resources, and offline viewer builds.
+  <em>Preserve interactive CYOA / ICC projects for offline reading and play — even after the original site goes offline.</em>
 </p>
 
 <p align="center">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg"></a>
   <img alt="Python 3.10+" src="https://img.shields.io/badge/Python-3.10%2B-blue.svg">
-  <img alt="Release v1.0.1" src="https://img.shields.io/badge/Release-v1.0.1-orange.svg">
-  <img alt="GUI and CLI" src="https://img.shields.io/badge/Interface-GUI%20%2B%20CLI-purple.svg">
+  <img alt="Release v1.0.2" src="https://img.shields.io/badge/Release-v1.0.2-orange.svg">
+  <img alt="Interface: GUI and CLI" src="https://img.shields.io/badge/Interface-GUI%20%2B%20CLI-purple.svg">
+  <img alt="Self-test 37/37" src="https://img.shields.io/badge/Self--test-37%2F37-brightgreen.svg">
+</p>
+
+<p align="center">
+  <a href="#getting-started">Getting started</a> ·
+  <a href="#how-to-save-your-first-cyoa">First backup</a> ·
+  <a href="#output-modes">Output modes</a> ·
+  <a href="docs/CLI.md">CLI reference</a> ·
+  <a href="docs/GETTING_STARTED.md">Full docs</a>
 </p>
 
 ---
 
-## What is this?
+## Overview
 
-**CYOA Downloader** creates local backups of Interactive CYOA / ICC projects. It can download the project data, scan project JSON and viewer files for linked assets, localize images/fonts/media where possible, and build ZIP or folder outputs that are easier to archive, inspect, preview, and recover.
+An **interactive CYOA** is a choose-your-own-adventure, image- and point-buy project played in a web browser. These projects are fragile: they vanish when a site shuts down or an image host breaks.
 
-The project is intentionally usable in two ways:
+**CYOA Downloader saves a complete, self-contained copy to your computer** — project data, images, fonts, audio, and the viewer itself — so you can open it offline at any time. Provide a link; the tool resolves, downloads, and packages everything into a folder or ZIP you can keep.
 
-- **GUI mode** for normal users who want buttons, progress logs, retry tools, local preview, settings, and offline viewer utilities.
-- **CLI mode** for advanced users, automation, batch jobs, scripted backups, and testing.
+There are two ways to use it:
 
-Version **1.0.1** keeps the 1.0 input/output model and compatibility expectations intact. The stabilization work focuses on safer dependency reporting, clearer FFMPEG guidance, dark-mode visual consistency, System theme default, documentation cleanup, and additional validation gates.
+| Interface | For whom | What it looks like |
+| --- | --- | --- |
+| **Desktop app (GUI)** | Most users | A window with buttons — paste a link, pick a mode, click download. |
+| **Command line (CLI)** | Power users | Scriptable commands for automation and large batches. |
+
+No coding knowledge is required to use the desktop app. New users should follow [Getting started](#getting-started) below.
+
+### Table of contents
+
+- [Getting started](#getting-started)
+  - [Option 1 — Windows app (no setup)](#option-1--windows-app-no-setup)
+  - [Option 2 — Run from Python](#option-2--run-from-python)
+  - [Troubleshooting first-run issues](#troubleshooting-first-run-issues)
+- [How to save your first CYOA](#how-to-save-your-first-cyoa)
+- [Output modes](#output-modes)
+- [Verifying a backup](#verifying-a-backup)
+- [Main capabilities](#main-capabilities)
+- [Documentation](#repository-layout)
+- [Installation options](#dependency-install-options)
+- [Command-line reference](#useful-cli-examples)
+- [Compatibility & license](#compatibility-rules)
+- [Support this project](#support-this-project)
+
+---
+
+## Getting started
+
+Choose the path that fits your system. Most Windows users want Option 1.
+
+### Option 1 — Windows app (no setup)
+
+The fastest way to use the tool on Windows, with nothing to install.
+
+1. Open the project's **[Releases page](../../releases)**.
+2. Download the asset ending in **`-Windows-x64.zip`**.
+3. **Right-click the ZIP → Extract All.** (Run it from the extracted folder, not from inside the zip preview.)
+4. Double-click **`CYOA Downloader.exe`**.
+
+The application opens immediately — continue to [How to save your first CYOA](#how-to-save-your-first-cyoa).
+
+> **SmartScreen notice.** If Windows shows *“Windows protected your PC,”* click **More info → Run anyway**. This appears because the executable is not code-signed; the project is open-source and the source is in this repository.
+
+### Option 2 — Run from Python
+
+Use this on macOS or Linux, or on Windows when no executable is available. It is a copy-paste process you complete once.
+
+**1. Install Python 3.10 or newer.**
+Download from [python.org/downloads](https://www.python.org/downloads/). On Windows, enable **“Add Python to PATH”** during installation.
+
+**2. Download the project.**
+Use the green **`< > Code → Download ZIP`** button on this page and extract it, or `git clone` the repository.
+
+**3. Open a terminal in the project folder.**
+- **Windows:** open the folder, click the address bar, type `powershell`, press Enter.
+- **macOS:** right-click the folder → *New Terminal at Folder*.
+- **Linux:** open a terminal and `cd` into the folder.
+
+**4. Run the setup block for your system.**
+
+<details open>
+<summary><b>Windows (PowerShell)</b></summary>
+
+```powershell
+py -3 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+python cyoa_downloader.py
+```
+</details>
+
+<details>
+<summary><b>macOS / Linux</b></summary>
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+python cyoa_downloader.py
+```
+</details>
+
+The final command launches the application.
+
+> **What this does.** The first line creates an isolated environment (`.venv`) so the project's dependencies stay separate from the rest of your system. The next lines install those dependencies. You perform this setup only once.
+
+**Subsequent launches** do not repeat the install — open a terminal in the project folder and run:
+
+| System | Commands |
+| --- | --- |
+| Windows | `.\.venv\Scripts\Activate.ps1` then `python cyoa_downloader.py` |
+| macOS / Linux | `source .venv/bin/activate` then `python cyoa_downloader.py` |
+
+> **Tip.** Save those two lines as `start.bat` (Windows) or `start.sh` (macOS/Linux) in the project folder for a one-click launcher.
+
+### Troubleshooting first-run issues
+
+| Symptom | Resolution |
+| --- | --- |
+| `python` / `py` not recognized | Python is not on PATH. Reinstall and enable **Add Python to PATH**, then reopen the terminal. |
+| PowerShell blocks `Activate.ps1` | Run once: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, confirm with `Y`, then retry. |
+| A dependency fails to install | Run `python cyoa_downloader.py --dependency-check`; anything marked optional is safe to skip. |
+| Window does not open / Tkinter error (Linux) | Install Tk: `sudo apt install python3-tk`, then retry. |
+| Anything else | See [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md). |
+
+Confirm a healthy setup at any time:
+
+```bash
+python cyoa_downloader.py --dependency-check
+python cyoa_downloader.py --self-test
+```
+
+---
+
+## How to save your first CYOA
+
+1. Launch the application (executable, or `python cyoa_downloader.py`).
+2. **Paste the CYOA's web link** into the URL field.
+3. Choose an output folder.
+4. **Select a mode.** If unsure, choose **ICC Folder** — it produces a folder you can open and play offline. Prefer a single shareable file? Choose **ICC ZIP**.
+5. Click **Download All** and follow the log.
+6. When it finishes, open the output folder.
+7. If some images failed, open `backup_report.txt`, then use **Retry Assets / Retry Images / Retry Audio** in the application.
+
+To play an offline copy through the bundled viewer, open **Offline Viewer Center** and click **Auto-match**. If automatic matching fails, use **Inject** and select the project file manually.
+
+> To confirm a backup is complete without re-downloading it, see [Verifying a backup](#verifying-a-backup).
+
+---
+
+## Output modes
+
+You control how each backup is packaged. Beginners can ignore the detail and use **ICC Folder**.
+
+| Mode | Result | Recommended when |
+| --- | --- | --- |
+| **ICC Folder** ⭐ | Folder with the viewer and all assets | You want to open and play offline immediately. **Best default.** |
+| **ICC ZIP** | The same, compressed into one file | You want a single file to store or share. |
+| Embedded JSON | One data file | Small projects, or importing into another viewer. |
+| ZIP | Project data + assets, compressed | Compact archive with files kept separate. |
+| Both | Embedded JSON **and** ZIP | Maximum compatibility. |
+| Pure Website (folder/zip) | A plain mirror of the site | Unusual or custom sites without standard project data. |
+| CYOAP Vue (folder/zip) | A dedicated CYOAP Vue backup | Projects built with CYOAP Vue. |
+
+CLI equivalents: `--icc-folder`, `--icc`, `--zip`, `--both`, `--pure-website-folder`, `--pure-website`, `--cyoap-vue-folder`, `--cyoap-vue-website`. See [Command-line reference](#useful-cli-examples).
+
+---
+
+## Verifying a backup
+
+After a download, confirm a backup is complete **without downloading it again**:
+
+```bash
+python cyoa_downloader.py --verify "path/to/output_folder"
+```
+
+This read-only check reports missing referenced assets, empty files, and a broken or missing project file. It exits with status `0` when intact and `1` when a problem is found, so it works in scripts.
+
+For the strongest check — detecting **corrupted or truncated** files, not only missing ones — record a checksum baseline once, then verify whenever you wish:
+
+```bash
+# 1. Record the baseline once (creates cyoa_manifest.json inside the folder):
+python cyoa_downloader.py --verify "path/to/output_folder" --write-manifest
+
+# 2. Verify at any later time:
+python cyoa_downloader.py --verify "path/to/output_folder"
+```
+
+The checksum baseline is **opt-in** and is never written during a normal download, so default output folders are unchanged.
+
 
 ---
 
@@ -74,7 +252,7 @@ The downloader handles the common CYOA/ICC asset patterns found across classic I
 - Thread cap for parallel downloads.
 - Clear dependency check output.
 - Non-fatal FFMPEG warning unless a feature truly requires FFMPEG.
-- `--self-test` for offline smoke validation.
+- `--self-test` for offline smoke validation, and `--verify` to integrity-check a finished backup.
 
 ---
 
@@ -84,59 +262,15 @@ The downloader handles the common CYOA/ICC asset patterns found across classic I
 | --- | --- |
 | [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md) | Installation, first run, first GUI backup, first CLI backup, FFMPEG and yt-dlp setup. |
 | [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) | GUI panels, CLI workflows, batch files, output modes, Offline Viewer Center, Manual Inject. |
+| [`docs/CLI.md`](docs/CLI.md) | Complete command-line reference: every flag grouped by category, with examples and exit codes. |
 | [`docs/ADVANCED_FEATURES.md`](docs/ADVANCED_FEATURES.md) | AI Assist, Cloudflare handling, proxies, DNS, HTTP/2, media recovery, theme/logo behavior, serve tools. |
 | [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) | Practical fixes for dependency errors, failed URLs, missing assets, GUI issues, FFMPEG/yt-dlp, and batch problems. |
+| [`docs/FAQ.md`](docs/FAQ.md) | Short answers to the most common questions about modes, problems, backups, and AI Assist. |
 | [`docs/MAINTAINER_GUIDE.md`](docs/MAINTAINER_GUIDE.md) | Project structure, tests, release gates, documentation rules, and compatibility requirements. |
 
----
-
-## Quick start
-
-### 1. Install Python
-
-Use **Python 3.10 or newer**. On Windows, install Python from python.org or the Microsoft Store and enable “Add Python to PATH” if the installer offers it.
-
-### 2. Create a virtual environment
-
-Windows PowerShell:
-
-```powershell
-py -3 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-Linux / macOS:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-### 3. Verify dependencies
-
-```bash
-python cyoa_downloader.py --dependency-check
-python cyoa_downloader.py --self-test
-python cyoa_downloader.py --help
-```
-
-A clean setup should show dependency status, pass the offline self-test, and print the CLI help.
-
-### 4. Start the GUI
-
-```bash
-python cyoa_downloader.py
-```
-
-Running the script without arguments opens the GUI. You can also force it with:
-
-```bash
-python cyoa_downloader.py --gui
-```
+Project meta files: [`CONTRIBUTING.md`](CONTRIBUTING.md), [`SECURITY.md`](SECURITY.md),
+[`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md), [`CHANGELOG.md`](CHANGELOG.md), and
+[`CREDITS.md`](CREDITS.md).
 
 ---
 
@@ -183,19 +317,6 @@ python -m playwright install chromium
 
 FFMPEG is installed through the operating system, not pip. See the FFMPEG section below.
 
-
-## First GUI backup
-
-1. Open the app with `python cyoa_downloader.py`.
-2. Paste the CYOA or viewer URL.
-3. Choose the output mode. For most beginners, start with **ICC Folder** or **ICC ZIP** if available in the GUI.
-4. Click **Download All**.
-5. Wait for the log to finish.
-6. Open the output folder.
-7. Read `backup_report.txt` or `failed_assets.txt` if some assets fail.
-8. Use **Retry Assets**, **Retry Images**, or **Retry Audio** if the GUI reports recoverable failures.
-
-For offline viewer use, open **Offline Viewer Center** and use **Auto-match** first. If auto-match cannot identify the correct viewer, use **Inject** and select a project source manually.
 
 ---
 
@@ -403,6 +524,52 @@ This repository treats the following behavior as compatibility-sensitive:
 - `--dependency-check`, `--self-test`, and `--help` gates.
 
 Changes should be additive unless there is a documented safety reason.
+
+---
+
+## Contributing and community
+
+Contributions are welcome. Because the tool handles untrusted remote content and writes files to
+disk, small, tested, backward-compatible changes are preferred over broad rewrites.
+
+- **Report a bug or request a feature** using the issue templates in the repository.
+- **Open a pull request** following [`CONTRIBUTING.md`](CONTRIBUTING.md) and the PR checklist.
+- **Security concerns** should be reported privately per [`SECURITY.md`](SECURITY.md).
+- All participation is governed by the [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
+
+Before submitting changes, run the gate suite:
+
+```bash
+python -m py_compile cyoa_downloader.py
+python cyoa_downloader.py --help
+python cyoa_downloader.py --dependency-check
+python cyoa_downloader.py --self-test        # expect 37/37
+ruff check cyoa_downloader.py --select F821,F811,F601
+pytest -q
+```
+
+---
+
+## Support this project
+
+CYOA Downloader is free and open-source, and it stays that way. It is built and maintained in
+spare time, and development has real costs — including the AI tooling used to write, debug, and
+document the codebase. If the tool has been useful to you, a small contribution helps cover those
+costs and keeps the project actively maintained. This is entirely optional and never unlocks
+features; everything is free for everyone.
+
+- **GitHub Sponsors / Ko-fi** — the recommended options once configured (see the **Sponsor**
+  button on the repository).
+- **Bitcoin (BTC):**
+
+  ```
+  1Kz5LChzNXxzQbGTjpWQx66mQ4zJj4yavB
+  ```
+
+  > Bitcoin transactions are irreversible. Please double-check the address before sending.
+
+Thank you for considering it — and just as valuable: starring the repo, reporting bugs, and
+sharing the project all genuinely help.
 
 ---
 
