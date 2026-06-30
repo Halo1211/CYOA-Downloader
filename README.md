@@ -558,15 +558,11 @@ document the codebase. If the tool has been useful to you, a small contribution 
 costs and keeps the project actively maintained. This is entirely optional and never unlocks
 features; everything is free for everyone.
 
-- **GitHub Sponsors / Ko-fi** — the recommended options once configured (see the **Sponsor**
-  button on the repository).
 - **Bitcoin (BTC):**
 
   ```
   1Kz5LChzNXxzQbGTjpWQx66mQ4zJj4yavB
   ```
-
-  > Bitcoin transactions are irreversible. Please double-check the address before sending.
 
 Thank you for considering it — and just as valuable: starring the repo, reporting bugs, and
 sharing the project all genuinely help.
