@@ -39,12 +39,12 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-_APP_VERSION = "1.0.2"
+_APP_VERSION = "1.0.3"
 # Single source of truth for the stabilization marker. Kept free of the version
 # number itself (carried by _APP_VERSION) so banners like
 # "CYOA Downloader v{_APP_VERSION} · {_STABILIZATION_PATCH_ID}" don't read as a
-# doubled version. [STAB-v1.0.1-rev8] consolidated from 6 scattered redefinitions.
-_STABILIZATION_PATCH_ID = "CYOA-v1.0.2"
+# doubled version. consolidated from 6 scattered redefinitions.
+_STABILIZATION_PATCH_ID = "CYOA-v1.0.3"
 _GITHUB_RELEASE_API = ""   # Set to "https://api.github.com/repos/YOUR/REPO/releases/latest" to enable auto-update checks
 
 # Serve-only userscript integration metadata.
@@ -412,7 +412,7 @@ _RUN_DOWNLOAD_LOCK = threading.RLock()
 _LAST_PREVIEW_FOLDER: Optional[str] = None
 
 
-# [STAB-v1.0.3] Removed dead duplicate definition of `GUILogHandler` (superseded by the active v46/v465 implementation later in this file).
+# [] Removed dead duplicate definition of `GUILogHandler` (superseded by the active v46/v465 implementation later in this file).
 
 
 
@@ -424,8 +424,8 @@ _BATCH_VALID_MODES = {
 }
 
 
-# [STAB-v1.0.1-rev18] Single source of truth for batch-row → run_download flags.
-#
+# Single source of truth for batch-row → run_download flags.
+
 # Two batch dispatch sites (GUI loop and CLI loop) independently derived the
 # zip/both/pure_website/website_output/website_zip_output/engine_mode booleans
 # from the canonical mode string. They diverged: the GUI set omitted the bare
@@ -438,7 +438,7 @@ _BATCH_VALID_MODES = {
 # The CLI handled both correctly. This helper encodes the CLI's correct
 # semantics once so both dispatch sites stay in parity; adding a future mode in
 # one place can no longer silently mis-dispatch in the other.
-#
+
 # Additive only: for every mode both sites already agreed on, the returned
 # flags are byte-identical to the previous inline logic. Inputs/outputs and the
 # download concept are unchanged.
@@ -486,7 +486,7 @@ def _derive_mode_flags(mode: str) -> Dict[str, object]:
 def _normalize_batch_mode(raw_mode: str, url: str = "") -> str:
     """Validate/normalize a batch-row mode string for both TXT and CSV/XLSX paths.
 
-    [STAB-v1.0.1-rev10] Previously the TXT import path passed parts[2] through
+    Previously the TXT import path passed parts[2] through
     raw, while the CSV/XLSX path validated against the mode set and mapped the
     icc/icc_folder aliases. A TXT row like ``url | name | icc_folder`` therefore
     reached the queue with an unknown mode key, which the downstream
@@ -558,7 +558,7 @@ def import_queue_items_from_file(file_path: str) -> List[Dict[str, str]]:
         if ext in {".xlsx", ".xls"}:
             df = pd.read_excel(file_path)
         elif ext == ".csv":
-            # [STAB-v1.0.1-rev6] Skip malformed rows instead of failing the whole
+            # Skip malformed rows instead of failing the whole
             # import. Previously a single row with the wrong column count made
             # pandas raise and the entire batch returned empty — even though the
             # plain-text path already tolerates bad lines. on_bad_lines='skip' is
@@ -793,7 +793,7 @@ def _is_windows_reserved_basename(name: str) -> bool:
     """True if *name*'s base (before first dot) is a Windows reserved device
     name (CON, PRN, AUX, NUL, COM1-9, LPT1-9), case-insensitive.
 
-    [STAB-v1.0.1-rev16] Extracted so both the output-filename guard (rev8-16)
+    Extracted so both the output-filename guard (rev8-16)
     and the asset-path guard below share one definition.
     """
     base = str(name or "").split(".", 1)[0]
@@ -813,7 +813,7 @@ def _safe_rel_path(value: str, fallback: str = "asset") -> str:
         part = re.sub(r'^[A-Za-z]:', "_", part)
         part = re.sub(r'[<>:"|?*\x00-\x1f\x7f]', "_", part)
         part = part.strip(". ")
-        # [STAB-v1.0.1-rev16] Neutralize Windows reserved device names per
+        # Neutralize Windows reserved device names per
         # segment. rev8-16 fixed this for the output *filename* builder, but
         # asset paths flow through here instead — a remote asset URL ending in
         # e.g. /nul.png or /CON/icon.svg would write to a Windows device handle
@@ -838,8 +838,13 @@ def _safe_join(root: str, rel_path: str, fallback: str = "asset") -> str:
 
 def _safe_archive_rel_path(member: str) -> str:
     """Validate archive member path strictly. Reject traversal instead of normalizing it."""
-    raw = unquote(str(member or "")).replace("\\", "/").replace("\x00", "")
-    if not raw or raw.startswith(("/", "//")) or re.match(r"^[A-Za-z]:", raw):
+    # This validator's contract is reject-not-normalize
+    # (unlike the sanitizing _safe_rel_path). A NUL byte in a zip member name
+    # is malformed/hostile; the old top-level `.replace("\x00","")` silently
+    # normalized e.g. "foo\x00bar" into the innocuous "foobar" and accepted it,
+    # making the per-segment NUL guard below dead code. Reject on NUL instead.
+    raw = unquote(str(member or "")).replace("\\", "/")
+    if not raw or "\x00" in raw or raw.startswith(("/", "//")) or re.match(r"^[A-Za-z]:", raw):
         raise ValueError(f"Unsafe archive path rejected: {member!r}")
     parts: List[str] = []
     for part in raw.split("/"):
@@ -900,14 +905,17 @@ def _set_http2_enabled(enabled: bool) -> None:
         logger.info("HTTP/2 disabled; using requests.")
 
 
-# [STAB-v1.0.3] Removed dead duplicate definition of `prepare_clean_output_folder` (superseded by the active v46/v465 implementation later in this file).
+# [] Removed dead duplicate definition of `prepare_clean_output_folder` (superseded by the active v46/v465 implementation later in this file).
 
 
 def _google_sheet_csv_export_url(url: str) -> str:
     m = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", url)
     if not m:
         return url
-    gid_match = re.search(r"[?&]gid=(\d+)", url)
+    # Share links commonly carry the sheet tab in the
+    # fragment ("/edit#gid=456"). The old [?&] pattern missed it, silently
+    # exporting gid=0 (first tab) instead of the tab the user selected.
+    gid_match = re.search(r"[?&#]gid=(\d+)", url)
     gid = gid_match.group(1) if gid_match else "0"
     return f"https://docs.google.com/spreadsheets/d/{m.group(1)}/export?format=csv&gid={gid}"
 
@@ -944,7 +952,7 @@ def import_queue_items_from_source(source: str) -> List[Dict[str, str]]:
             return
         if not is_probable_url(url_value):
             return
-        # [STAB-v1.0.1-rev14] Use the shared normalizer (introduced rev10) so the
+        # Use the shared normalizer (introduced rev10) so the
         # remote CSV / Google Sheets path validates and maps modes identically to
         # the local TXT/CSV path. Previously this carried its own literal
         # `valid_modes` set + inline alias logic — a third copy that would drift
@@ -1054,9 +1062,23 @@ def _cyoap_local_path(output_folder: str, remote_url: str) -> str:
 
 
 def _same_origin(url_a: str, url_b: str) -> bool:
-    a = urlparse(url_a)
-    b = urlparse(url_b)
-    return a.scheme == b.scheme and a.netloc == b.netloc
+    # RFC 3986: scheme and host are case-insensitive, and
+    # an explicit default port (:80 http / :443 https) is the same origin as
+    # no port. The old netloc string compare returned false negatives for
+    # "https://Example.com/..." or "https://host:443/...", silently skipping
+    # same-site assets in the cyoap_vue downloader.
+    def _key(u: str) -> Tuple[str, str, Optional[int]]:
+        p = urlparse(u)
+        scheme = (p.scheme or "").lower()
+        host = (p.hostname or "").lower()
+        try:
+            port = p.port
+        except ValueError:
+            port = None
+        if port is None:
+            port = {"http": 80, "https": 443}.get(scheme)
+        return scheme, host, port
+    return _key(url_a) == _key(url_b)
 
 
 def _candidate_urls_for_cyoap_asset(base_url: str, value: str, kind: str) -> List[str]:
@@ -1102,7 +1124,7 @@ def _candidate_urls_for_cyoap_asset(base_url: str, value: str, kind: str) -> Lis
 # third-party / network code is ever loaded. The registry exists so future
 # engines can be added at a clear extension point, and so one scanner failing
 # is contained (logged) instead of aborting the whole deep scan.
-#
+
 # Asset-scanner plugin contract:
 #     fn(text: str, file_url: str, base_url: str, file_ext: str) -> Set[str]
 # Engine-detector plugin contract:
@@ -2151,7 +2173,7 @@ def _coerce_int(raw: Any, default: int) -> int:
     hand-edited, or an external JSON field like a FlareSolverr 'status'). Never
     raises — falls back to `default` on any malformed input.
 
-    [STAB-v1.0.1-rev8] Several call sites did `int(x.get(k, d) or d)`, which
+    Several call sites did `int(x.get(k, d) or d)`, which
     still raises ValueError when the stored value is a non-numeric string
     (e.g. "abc"). This helper makes those parses crash-proof.
     """
@@ -2214,7 +2236,7 @@ def _sanitize_ai_candidate_url(value: str) -> Optional[str]:
         if host and _host_is_internal(host):
             return None
         return v if host else None
-    # [STAB-v1.0.1-rev7] Block AI-suggested URLs that point at internal/loopback
+    # Block AI-suggested URLs that point at internal/loopback
     # addresses (prompt-injection SSRF). Mirrors the cyoa.cafe resolver guard.
     if lower.startswith(("http://", "https://")):
         host = urlparse(v).hostname
@@ -2226,7 +2248,7 @@ def _sanitize_ai_candidate_url(value: str) -> Optional[str]:
 def _host_is_internal(hostname: str) -> bool:
     """Return True if a hostname targets a loopback/link-local/private address.
 
-    [STAB-v1.0.1-rev7] Defense-in-depth SSRF guard. The cyoa.cafe resolver and
+    Defense-in-depth SSRF guard. The cyoa.cafe resolver and
     similar paths fetch URLs that originate from untrusted remote responses; a
     malicious entry could point at 127.0.0.1, 169.254.169.254 (cloud metadata),
     or RFC1918 ranges. Literal-IP hosts are classified directly; obvious local
@@ -2255,8 +2277,8 @@ def _host_is_internal(hostname: str) -> bool:
         return False
 
 
-# [STAB-v1.0.1-rev8] SSRF guard for the asset-fetch path.
-#
+# SSRF guard for the asset-fetch path.
+
 # rev7 placed _host_is_internal() on the cyoa.cafe resolver and AI-output
 # sanitizer, but the main asset fetch path (fetch_response / process_images /
 # deep-scan) had no equivalent screen. A project.json or JS bundle from an
@@ -2264,7 +2286,7 @@ def _host_is_internal(hostname: str) -> bool:
 # (127.0.0.1:<port>, 169.254.169.254 cloud metadata, RFC1918) and the
 # downloader would dutifully fetch them — a genuine SSRF vector plus a wasted
 # connect-timeout per bad URL.
-#
+
 # We must NOT break the legitimate "download my own CYOA from localhost" flow,
 # so the rule is *cross-origin only*: an asset whose host is internal is blocked
 # ONLY when it differs from the page's own origin. Same-origin internal fetches
@@ -2476,7 +2498,7 @@ def _ai_key_status_text(storage: Optional[str] = None, session_key: str = "", pr
 # CYOA Manager (https://github.com/alexncode/CYOA-Manager) stores its library
 # in a SQLite database. We can insert downloaded projects directly into it so
 # they appear in CYOA Manager without manual import.
-#
+
 # DB schema (library_projects table):
 #   id TEXT PK, name, description, cover_image, source_url,
 #   file_path TEXT,   ← absolute path to project.json on disk
@@ -2567,7 +2589,7 @@ def add_to_cyoa_manager(
 
     try:
         con = _sql.connect(db_path)
-        # [STAB-v1.0.1-rev8] finally guarantees close on every path, including
+        # finally guarantees close on every path, including
         # the exception path which previously leaked the connection.
         try:
             cur = con.cursor()
@@ -2775,7 +2797,7 @@ def register_offline_viewer(
     try:
         if is_rar:
             import rarfile as _rf
-            # [STAB-v1.0.1-rev22] Use a context manager so the RAR handle is
+            # Use a context manager so the RAR handle is
             # closed even if namelist() raises. Previously close() ran only on
             # the success path, leaking the handle on any read error (the ZIP
             # branch below already did this correctly).
@@ -2863,7 +2885,7 @@ def _extract_iccplus_subviewers(iccplus_zip_path: str) -> None:
     package each as its own ZIP in _VIEWERS_DIR, and register them.
     LocalViewer is preferred for offline use (simpler, single JS file).
 
-    [STAB-v1.0.1-rev11] The subviewer folders were previously located by the
+    The subviewer folders were previously located by the
     hardcoded prefix ``ICCPlus-main/``. GitHub names the root folder after the
     download ref, so a tagged source ZIP (e.g. ``ICCPlus-2.9.23/``) extracted
     to nothing and failed silently. Matching is now root-agnostic: the single
@@ -3020,6 +3042,9 @@ def get_viewer_for_site(html_text: str, mode: str = "auto") -> Optional[Dict]:
 
 def _build_html_interceptor(data_js: str, size_bytes: int) -> str:
     """Build the HTML fetch/XHR interceptor script tag (fallback when JS embed fails)."""
+    # Same "</script>"-termination hardening as the main
+    # injection path, in case a future caller passes unescaped JSON.
+    data_js = data_js.replace("</", "<\\/")
     return (
         f'<script id="__cyoa_offline_patch__">'
         f'(function(){{'
@@ -3043,12 +3068,12 @@ def _build_html_interceptor(data_js: str, size_bytes: int) -> str:
 
 def _inject_into_head(html: str, script: str) -> str:
     """Insert script as first element inside <head>."""
-    for marker in ("<head>", "<HEAD>"):
-        idx = html.lower().find(marker.lower())
-        if idx != -1:
-            end = html.find(">", idx)
-            insert_at = (end + 1) if end != -1 else (idx + len(marker))
-            return html[:insert_at] + "\n" + script + html[insert_at:]
+    # Match <head ...attrs...> too (e.g. OpenGraph
+    # prefix=), not just the literal "<head>"; \b guard keeps <header> out.
+    m = re.search(r"<head\b[^>]*>", html, flags=re.IGNORECASE)
+    if m:
+        insert_at = m.end()
+        return html[:insert_at] + "\n" + script + html[insert_at:]
     return script + "\n" + html
 
 
@@ -3105,31 +3130,45 @@ def _apply_iccplus_viewer_config_to_html(
 
     if title:
         if re.search(r"<title[^>]*>.*?</title>", html, flags=re.I | re.S):
-            html = re.sub(r"<title[^>]*>.*?</title>", f"<title>{_html_escape(title)}</title>", html, count=1, flags=re.I | re.S)
+            html = re.sub(r"<title[^>]*>.*?</title>", lambda _m: f"<title>{_html_escape(title)}</title>", html, count=1, flags=re.I | re.S)  # literal replacement — raw \g/\1/trailing backslash in project text crashed re.sub
         else:
             html = _inject_into_head(html, f"<title>{_html_escape(title)}</title>\n")
 
     if favicon:
         fav_tag = f'<link rel="icon" href="{_html_escape(favicon)}">'
         if re.search(r"<link[^>]+rel=[\"\'](?:icon|shortcut icon)[\"\'][^>]*>", html, flags=re.I):
-            html = re.sub(r"<link[^>]+rel=[\"\'](?:icon|shortcut icon)[\"\'][^>]*>", fav_tag, html, count=1, flags=re.I)
+            html = re.sub(r"<link[^>]+rel=[\"\'](?:icon|shortcut icon)[\"\'][^>]*>", lambda _m: fav_tag, html, count=1, flags=re.I)  # literal replacement — raw \g/\1/trailing backslash in project text crashed re.sub
         else:
             html = _inject_into_head(html, fav_tag + "\n")
 
     html = re.sub(r"(<[^>]+id=[\"\']projectSize[\"\'][^>]*>)\s*[^<]*", rf'\g<1>{size_bytes}', html, flags=re.I)
     if loading_text:
-        html = re.sub(r"(<[^>]+id=[\"\']loadingText[\"\'][^>]*>)\s*[^<]*", rf'\g<1>{_html_escape(loading_text)}', html, flags=re.I)
+        html = re.sub(r"(<[^>]+id=[\"\']loadingText[\"\'][^>]*>)\s*[^<]*", lambda _m: _m.group(1) + _html_escape(loading_text), html, flags=re.I)  # literal replacement — raw \g/\1/trailing backslash in project text crashed re.sub
 
     if loading_bg or loading_text:
         css_dir = os.path.join(site_folder, "css")
         os.makedirs(css_dir, exist_ok=True)
         loading_css = os.path.join(css_dir, "loading.css")
         lines = ["/* Generated by CYOA Downloader: ICC Plus viewerConfig */"]
+        # loadingText/loadingBg are project-controlled
+        # text inserted into CSS string/url literals. Escaping only the quote
+        # meant a trailing "\" produced "\'" (escaped close-quote → unterminated
+        # string → rule dropped), and raw newlines are invalid inside CSS
+        # strings. Same bug class as rev18 (raw project text into a structured
+        # language). Backslash must be escaped FIRST, then quotes; newlines
+        # collapse to spaces. For url(): percent-encode the CSS-significant
+        # bytes instead (URLs may not contain literal \, ', or newlines anyway).
+        def _css_str(_s: str) -> str:
+            return (_s.replace("\\", "\\\\").replace("'", "\\'")
+                      .replace("\r", " ").replace("\n", " "))
+        def _css_url(_s: str) -> str:
+            return (_s.replace("\\", "%5C").replace("'", "%27")
+                      .replace("\r", "").replace("\n", "").replace(")", "%29"))
         if loading_bg:
-            lines.append(":root{--cyoa-loading-bg:url('%s');}" % loading_bg.replace("'", "%27"))
+            lines.append(":root{--cyoa-loading-bg:url('%s');}" % _css_url(loading_bg))
             lines.append("body:before{content:'';position:fixed;inset:0;background-image:var(--cyoa-loading-bg);background-size:cover;background-position:center;opacity:.18;pointer-events:none;z-index:0;}")
         if loading_text:
-            lines.append("#loadingText::after{content:' %s';}" % loading_text.replace("'", "\\'"))
+            lines.append("#loadingText::after{content:' %s';}" % _css_str(loading_text))
         try:
             pathlib.Path(loading_css).write_text("\n".join(lines) + "\n", encoding="utf-8")
             if "css/loading.css" not in html:
@@ -3150,15 +3189,24 @@ def _apply_offline_viewer(
     """
     Extract an offline viewer ZIP into output_dir and inject project data.
 
-    Supports two injection strategies auto-detected from index.html:
+    Supports three injection strategies auto-detected from index.html/JS
+    (tried in order; first match wins):
       A) Template markers (ICC_Remix): replaces {{ICC_PROJECT_DATA_SCRIPT}},
          {{ICC_PROJECT_SIZE}}, {{ICC_SITE_TITLE}}, {{ICC_FAVICON_TAG}}
-      B) Fetch interceptor (ICC_Plus, New_Viewer, Viewer_1.8):
-         - Writes project.json to root
-         - Injects window.fetch / XHR override as first <head> script so
-           CYOA works on file:// without a local server
+      B) ICC Plus marker injection (ICC_Plus v1.x/v2.x): splices project data
+         into the "{DEFAULT_STATE}" marker in app.js via balanced-brace match
+      C) fetch() patch (New_Viewer, Viewer_1.8, fallbacks): writes project.json
+         beside the entry point and rewrites fetch("project.json") calls. If no
+         literal fetch() pattern matches, a window.fetch (fetch-only) interceptor
+         is injected as the first <head> script so the CYOA works on file://
+         without a local server.
 
     Returns path to index.html on success, None on failure.
+
+    Docstring corrected: was "two strategies" and
+    described B as a "window.fetch / XHR" interceptor. There are three
+    strategies; B is marker injection, and the interceptor lives in C and
+    overrides fetch only (no XHR) — see deferred note in the handoff.
     """
     import zipfile as _zf, shutil
 
@@ -3210,7 +3258,7 @@ def _apply_offline_viewer(
                     continue
                 target_path = _safe_archive_join(site_folder, target_rel)
                 os.makedirs(os.path.dirname(target_path), exist_ok=True)
-                # [STAB-v1.0.1-rev8] Check the DECLARED uncompressed size before
+                # Check the DECLARED uncompressed size before
                 # arc.read() decompresses the member fully into RAM. Without this
                 # a single crafted member that inflates to many GB would exhaust
                 # memory *before* the post-read len(data) check could fire. The
@@ -3273,6 +3321,13 @@ def _apply_offline_viewer(
         json.loads(project_json_str) if project_json_str.strip().startswith("{") else {},
         ensure_ascii=False, separators=(",", ":")
     )
+    # data_js is embedded in inline <script> blocks below.
+    # The HTML parser ends a script element at the first "</script" — even
+    # inside a JS string — so any project whose text contains "</script>"
+    # (row descriptions with raw HTML are common) truncated the script and
+    # broke the offline viewer. "<\/" is a valid, semantically identical JSON
+    # escape, so this is lossless for JSON.parse and JS literals alike.
+    data_js = data_js.replace("</", "<\\/")
 
     # ── Strategy A: Template markers (ICC_Remix style) ─────────────────
     if "{{ICC_PROJECT_DATA_SCRIPT}}" in html:
@@ -3288,10 +3343,17 @@ def _apply_offline_viewer(
         )
         html = html.replace("{{ICC_PROJECT_DATA_SCRIPT}}", data_script)
         html = html.replace("{{ICC_PROJECT_SIZE}}", str(size_bytes))
-        html = html.replace("{{ICC_SITE_TITLE}}", proj_title)
+        # Titles are project-controlled text; raw
+        # insertion garbled the page when the title contained &, <, or >.
+        # The strategy-B path already escapes via _html_escape — align this
+        # template-marker path with it.
+        html = html.replace("{{ICC_SITE_TITLE}}", _html_escape(proj_title))
         html = html.replace("{{ICC_FAVICON_TAG}}", "")
+        # Colocate the fallback project.json with the
+        # RESOLVED index (which may sit one level deep in multi-root viewer
+        # ZIPs); writing to site_folder root broke relative fetch("project.json").
         # Also write physical project.json for fallback
-        with open(os.path.join(site_folder, "project.json"), "w",
+        with open(os.path.join(os.path.dirname(index_path), "project.json"), "w",
                   encoding="utf-8") as f:
             f.write(project_json_str)
 
@@ -3352,17 +3414,14 @@ def _apply_offline_viewer(
                 _after   = icc_marker_js[_m.end():]
                 _brace_i = _after.find('{')
                 if _brace_i != -1:
-                    _depth = 0; _i = _brace_i
-                    while _i < len(_after):
-                        if _after[_i] == '{':   _depth += 1
-                        elif _after[_i] == '}':
-                            _depth -= 1
-                            if _depth == 0:
-                                _state_end = _i + 1
-                                break
-                        _i += 1
-                    else:
-                        _state_end = -1
+                    # The previous inline counter ignored
+                    # string literals, so a "}" INSIDE a default-state string
+                    # (e.g. template text like "{choice}") closed the depth
+                    # early and the splice corrupted the viewer JS. Reuse the
+                    # string/escape-aware extract_balanced_brace_block helper
+                    # (identical result when no braces appear inside strings).
+                    _block = extract_balanced_brace_block(_after, _brace_i)
+                    _state_end = (_brace_i + len(_block)) if _block else -1
 
                     if _state_end != -1:
                         _abs_start = _m.end() + _brace_i
@@ -3388,7 +3447,7 @@ def _apply_offline_viewer(
         if not icc_marker_file:
             logger.info("Offline inject: Strategy C — fetch() patch in app.js")
 
-            with open(os.path.join(site_folder, "project.json"), "w",
+            with open(os.path.join(os.path.dirname(index_path), "project.json"), "w",
                       encoding="utf-8") as f:
                 f.write(project_json_str)
 
@@ -3396,7 +3455,12 @@ def _apply_offline_viewer(
                 re.compile(r'fetch\("project\.json"\)'),
                 re.compile(r"fetch\('project\.json'\)"),
                 re.compile(r'fetch\("\.\/project\.json"\)'),
+                # single-quote "./" variant was missing —
+                # the quote/prefix matrix was asymmetric, so viewers using
+                # fetch('./project.json') were silently never patched.
+                re.compile(r"fetch\('\.\/project\.json'\)"),
             ]
+            _patched_any = False
             for _root, _, _files in os.walk(site_folder):
                 for _fname in _files:
                     if not _fname.endswith((".js", ".mjs")):
@@ -3417,9 +3481,23 @@ def _apply_offline_viewer(
                         for _p in _fetch_patterns:
                             _pj = _p.sub(_inline, _pj)
                         pathlib.Path(_fp).write_text(_preamble + _pj, encoding="utf-8")
+                        _patched_any = True
                         logger.info(f"  fetch() patched: {os.path.relpath(_fp, site_folder)}")
                     except Exception as _e:
                         logger.warning(f"  Cannot patch {_fname}: {_e}")
+
+            # The docstring has always promised a
+            # window.fetch interceptor injected as the first <head> script so
+            # the CYOA works on file://, but _build_html_interceptor was never
+            # called — when no JS file matched the literal fetch patterns
+            # (template literals, XHR wrappers, unlisted quote/prefix
+            # variants), the offline viewer shipped with only a project.json
+            # it could never load from file://. Inject the interceptor ONLY on
+            # that previously-broken path (_patched_any False), so output for
+            # already-working cases is byte-identical.
+            if not _patched_any:
+                logger.info("  No fetch() literal matched — injecting <head> fetch interceptor fallback")
+                html = _inject_into_head(html, _build_html_interceptor(data_js, size_bytes))
 
     # ── Apply ICC Plus viewerConfig hints before final write ───────────
     html = _apply_iccplus_viewer_config_to_html(
@@ -3648,7 +3726,7 @@ def _save_history(history: Dict[str, Dict]) -> None:
     except Exception as e:
         logger.debug(f"History save failed: {e}")
 
-# [STAB-v1.0.3] Removed dead duplicate definition of `_record_history` (superseded by the active v46/v465 implementation later in this file).
+# [] Removed dead duplicate definition of `_record_history` (superseded by the active v46/v465 implementation later in this file).
 
 def _check_history(url: str) -> Optional[Dict]:
     """Return history entry if URL was previously downloaded, else None."""
@@ -3658,7 +3736,7 @@ _shared_session = None
 _shared_session_cf = None
 
 
-# [STAB-v1.0.3] Removed dead duplicate definition of `_get_shared_session` (superseded by the active v46/v465 implementation later in this file).
+# [] Removed dead duplicate definition of `_get_shared_session` (superseded by the active v46/v465 implementation later in this file).
 
 
 # ── Domain rate limiter ────────────────────────────────────────────────────
@@ -3675,7 +3753,7 @@ _BACKOFF_BASE   = 2.0    # seconds
 _BACKOFF_MAX    = 300.0  # 5 min cap
 _BACKOFF_JITTER = 0.25   # ±25% jitter
 
-# [STAB-v1.0.3] Removed dead duplicate definition of `_domain_throttle` (superseded by the active v46/v465 implementation later in this file).
+# [] Removed dead duplicate definition of `_domain_throttle` (superseded by the active v46/v465 implementation later in this file).
 
 def _domain_record_success(url: str) -> None:
     """Domain replied OK — halve the backoff."""
@@ -3689,7 +3767,7 @@ def _domain_record_success(url: str) -> None:
     except Exception as _ignored_exc:
         logger.debug("Ignored recoverable exception in _domain_record_success (line 3379): %s", _ignored_exc)
 
-# [STAB-v1.0.3] Removed dead duplicate definition of `_domain_record_failure` (superseded by the active v46/v465 implementation later in this file).
+# [] Removed dead duplicate definition of `_domain_record_failure` (superseded by the active v46/v465 implementation later in this file).
 
 # ── E: Persistent disk image cache ────────────────────────────────────────
 import json as _json_cache
@@ -3704,7 +3782,7 @@ _cache_loaded = False
 def _cache_load() -> None:
     global _cache_loaded
     if _cache_loaded: return
-    # [STAB-v1.0.1-rev19] Double-checked locking. Previously the load guard
+    # Double-checked locking. Previously the load guard
     # (_cache_loaded check/set) and the _cache_index.update() ran unsynchronized,
     # so N worker threads racing the first cache access could each re-read the
     # index file from disk and re-merge it, and the _cache_loaded flag write
@@ -3746,7 +3824,7 @@ def _cache_get(url: str) -> Optional[bytes]:
         _cache_index.pop(url, None)
     return None
 
-# [STAB-v1.0.3] Removed dead duplicate definition of `_cache_put` (superseded by the active v46/v465 implementation later in this file).
+# [] Removed dead duplicate definition of `_cache_put` (superseded by the active v46/v465 implementation later in this file).
 
 def _cache_stats() -> Dict[str, int]:
     _cache_load()
@@ -3813,7 +3891,18 @@ def _check_for_app_updates() -> Optional[Dict[str, str]]:
         if not remote_tag:
             return None
         def _ver(s):
-            return tuple(int(x) for x in s.split(".")[:3] if x.isdigit())
+            # Old parser dropped any component that wasn't
+            # pure digits, so "1.0.2-rev4" → (1, 0) and the identical remote
+            # "1.0.2" → (1, 0, 2) looked "newer" — a false update prompt on
+            # every rev-suffixed build. Take the leading digits of each
+            # component and pad to 3 so tuple lengths always match.
+            parts = []
+            for x in s.split(".")[:3]:
+                m = re.match(r"\d+", x.strip())
+                parts.append(int(m.group(0)) if m else 0)
+            while len(parts) < 3:
+                parts.append(0)
+            return tuple(parts)
         if _ver(remote_tag) > _ver(_APP_VERSION):
             return {
                 "version": remote_tag,
@@ -3843,16 +3932,46 @@ def _batch_check_updates(history: Dict[str, Dict],
     def _check(args):
         idx, (url, meta) = args
         try:
-            r = fetch_response(url, timeout=10, extra_headers={"User-Agent": "Mozilla/5.0"}, as_bytes=True)
-            if r is None or r.status_code != 200:
+            # The recorder (_record_history probe) stores
+            # the IDENTITY length taken from a "Range: bytes=0-0" +
+            # "Accept-Encoding: identity" probe (Content-Range total). This
+            # checker did a plain full GET where requests advertises gzip, so
+            # servers returned the COMPRESSED Content-Length — every gzipped,
+            # unchanged file was falsely reported "updated (size X→Y)".
+            # Reproduced with a local HTTP fixture. Fix: probe with the exact
+            # same semantics as the recorder (also stops downloading the full
+            # body of every history URL just to read headers).
+            r = fetch_response(
+                url,
+                timeout=10,
+                extra_headers={
+                    "User-Agent": "Mozilla/5.0",
+                    "Range": "bytes=0-0",
+                    "Accept-Encoding": "identity",
+                },
+                quiet=True,
+                return_error_response=True,
+                stream=True,
+            )
+            _status = int(getattr(r, "status_code", 0) or 0)
+            if r is None or _status == 0 or _status >= 400:
                 return {"url": url, "name": meta.get("filename", ""),
-                        "status": "unreachable", "reason": f"HTTP {getattr(r, 'status_code', 'request failed')}"}
+                        "status": "unreachable", "reason": f"HTTP {_status or 'request failed'}"}
             old_etag = meta.get("etag", "")
             old_lm   = meta.get("last_modified", "")
             old_cl   = meta.get("content_length", "")
             new_etag = r.headers.get("ETag", "")
             new_lm   = r.headers.get("Last-Modified", "")
-            new_cl   = r.headers.get("Content-Length", "")
+            # Identity total from Content-Range, same
+            # extraction as the recorder; Content-Length is the fallback for
+            # servers that ignore Range (then it is the identity full length,
+            # because we requested Accept-Encoding: identity).
+            _cr_match = re.search(r"/(\d+)$", r.headers.get("Content-Range", ""))
+            new_cl = _cr_match.group(1) if _cr_match else r.headers.get("Content-Length", "")
+            try:
+                r.close()
+            except Exception as _close_exc:
+                logger.debug("Update-check response close failed: %s", _close_exc)
             changed, reason = False, []
             if old_etag and new_etag and old_etag != new_etag:
                 changed = True; reason.append("ETag")
@@ -4331,7 +4450,7 @@ def _fetch_headless(url: str) -> Optional[bytes]:
         from playwright.sync_api import sync_playwright
         with sync_playwright() as pw:
             browser = pw.chromium.launch(headless=True, args=["--no-sandbox"])
-            # [STAB-v1.0.1-rev8] try/finally so the launched Chromium process is
+            # try/finally so the launched Chromium process is
             # always closed. Previously, if page.goto()/resp.body() raised (the
             # common case that triggers this headless fallback in the first
             # place), browser.close() was skipped and the browser process leaked.
@@ -4748,16 +4867,21 @@ def _flaresolverr_post(payload: Dict[str, Any], timeout: Optional[int] = None) -
     api_url = _normalize_flaresolverr_url(_FLARESOLVERR_URL)
     request_timeout = max((timeout or _FLARESOLVERR_TIMEOUT) + 10, 20)
     try:
+        # Per-call Session was never closed, leaking one
+        # connection pool per FlareSolverr API call. Close it on every path.
         session = requests.Session()
-        session.trust_env = (_proxy_mode == "inherit_env")
-        proxy = _get_active_proxy()
-        if proxy and _FLARESOLVERR_PROXY_MODE == "inherit":
-            # This proxy is for reaching FlareSolverr itself. For localhost, this is usually unnecessary;
-            # requests will typically bypass localhost via NO_PROXY if configured. Keep it explicit but safe.
-            parsed = urlparse(api_url)
-            if (parsed.hostname or "").lower() not in {"localhost", "127.0.0.1", "::1"}:
-                session.proxies.update({"http": proxy, "https": proxy})
-        r = session.post(api_url, json=payload, timeout=request_timeout)
+        try:
+            session.trust_env = (_proxy_mode == "inherit_env")
+            proxy = _get_active_proxy()
+            if proxy and _FLARESOLVERR_PROXY_MODE == "inherit":
+                # This proxy is for reaching FlareSolverr itself. For localhost, this is usually unnecessary;
+                # requests will typically bypass localhost via NO_PROXY if configured. Keep it explicit but safe.
+                parsed = urlparse(api_url)
+                if (parsed.hostname or "").lower() not in {"localhost", "127.0.0.1", "::1"}:
+                    session.proxies.update({"http": proxy, "https": proxy})
+            r = session.post(api_url, json=payload, timeout=request_timeout)
+        finally:
+            session.close()
         r.raise_for_status()
         data = r.json()
         if data.get("status") not in {"ok", "success"}:
@@ -5017,7 +5141,7 @@ def _load_window_icon_photo(root=None):
         for icon_path in candidates:
             if icon_path.exists():
                 return tk.PhotoImage(master=root, file=str(icon_path))
-        # [STAB-v1.0.1-rev8] No external asset files (the common single-file
+        # No external asset files (the common single-file
         # case): fall back to the embedded dark logo so the window/taskbar still
         # gets a real icon instead of the generic Tk feather.
         try:
@@ -5669,7 +5793,7 @@ class CYOADownloaderGUI:
         tb.grid_rowconfigure(0, minsize=84)
         tb.grid_columnconfigure(1, weight=1)
 
-        # [STAB-v1.0.1-rev13] Borderless logo: drop the surface fill + 1px
+        # Borderless logo: drop the surface fill + 1px
         # border so the temple emblem stands on its own against the toolbar,
         # per request. The 56x56 square footprint and centred placement from
         # rev12 are kept so spacing/alignment stay consistent — only the badge
@@ -7064,10 +7188,28 @@ class CYOADownloaderGUI:
         if text in pairs:
             return pairs[text].get(lang, text)
         # Translate known phrases inside longer labels such as window titles.
+        # The old code did a plain `src in text` substring
+        # match, so a short alphabetic source translated MID-WORD: e.g. the
+        # "Guide"→"Panduan" pair turned an unmapped label "Guidelines" into the
+        # garbled "Panduanlines", and "Update"/"Feature"/"Viewer" corrupted any
+        # longer word that merely contained them. GUI labels never need a
+        # mid-word replacement, so require a non-alphanumeric boundary on both
+        # edges when the source itself is alphanumeric-edged (short whole
+        # words). Sources whose edges are already non-alphanumeric — emoji/
+        # punctuation-prefixed buttons, "…", "—", ":" — keep the exact previous
+        # `in`/replace behavior, so window-title and icon-button translation is
+        # byte-identical to before.
         for canonical, vals in pairs.items():
             source_vals = set(vals.values()) | {canonical}
             for src in source_vals:
-                if src and src in text:
+                if not src:
+                    continue
+                if src[0].isalnum() and src[-1].isalnum():
+                    _pat = r"(?<![0-9A-Za-z])" + re.escape(src) + r"(?![0-9A-Za-z])"
+                    if re.search(_pat, text):
+                        _repl = vals.get(lang, src)
+                        return re.sub(_pat, lambda _m, _r=_repl: _r, text)
+                elif src in text:
                     return text.replace(src, vals.get(lang, src))
         # Preserve icons/prefixes in tool-strip buttons.
         for canonical, vals in pairs.items():
@@ -8180,7 +8322,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             row_widgets.append(row)
 
         def _probe_worker():
-            # [STAB-v1.0.1-rev5] Route every cross-thread Tk update through
+            # Route every cross-thread Tk update through
             # _v25_safe_after so closing the probe window mid-run can no longer
             # raise TclError ("invalid command name") from a daemon thread that
             # still holds references to destroyed widgets. This matches the
@@ -9053,7 +9195,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
 
             for json_path in json_files:
                 try:
-                    # STAB-v1.0.2: Use a context manager so the file handle is
+                    # Use a context manager so the file handle is
                     # released deterministically even on non-CPython runtimes.
                     with open(json_path, encoding="utf-8",
                               errors="replace") as _jf:
@@ -9168,7 +9310,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 self._active_run_urls = set()
                 return
         except Exception as _ignored_exc:
-            # [STAB-v1.0.1-rev23] Conservative on unparseable status. Previously
+            # Conservative on unparseable status. Previously
             # a status string that didn't match the "… — N/M …" shape (localized
             # text, error status, format drift) let the IndexError/ValueError be
             # swallowed and execution FELL THROUGH to the row-removal/clear path
@@ -13247,7 +13389,7 @@ def run_download(
     """
     global wait_time, _LAST_PREVIEW_FOLDER
     _LAST_PREVIEW_FOLDER = None
-    # STAB-v1.0.2: Clamp worker count at the single CLI/programmatic entry point.
+    # Clamp worker count at the single CLI/programmatic entry point.
     # The GUI already clamps via max(1, ...), but the CLI passed args.threads
     # straight through, so --threads 0 (or negative) reached
     # ThreadPoolExecutor(max_workers=0) and raised
@@ -13301,7 +13443,7 @@ def run_download(
 
     _RUN_DOWNLOAD_LOCK.acquire()
     original_dir = os.getcwd()
-    tmp = None  # [STAB-v1.0.1-rev8] pre-bind so finally cleanup is NameError-safe
+    tmp = None  # pre-bind so finally cleanup is NameError-safe
     try:
         if output_dir:
             output_dir = os.path.abspath(output_dir)
@@ -13727,7 +13869,7 @@ def run_download(
             logger.warning(f"Validation error (non-critical): {_ve}")
 
     finally:
-        # [STAB-v1.0.1-rev8] Temp cleanup must run on the exception path too.
+        # Temp cleanup must run on the exception path too.
         # Previously delete_temp_folder(tmp) sat outside this finally, so any
         # failure between create_random_temp_folder() and that line leaked the
         # /tmp/cyoa_* working folder. Path 1 (ICC) already used try/finally; this
@@ -14618,6 +14760,14 @@ def process_images(
     for m in re.finditer(pattern, input_str, flags=re.IGNORECASE):
         field = m.group(1)
         path  = m.group(2)
+        # Canonicalize JSON-escaped slashes. The escaped
+        # form ("img\/x.png") was collected as a SEPARATE asset next to the
+        # unescaped twin from the deep JSON walk: its fetch always fails on
+        # real hosts, burning 4 retries + the headless fallback per asset and
+        # polluting failed_images. make_embed/make_download below use the same
+        # canonical key, so the rewrite still hits the escaped occurrence.
+        if "\\/" in path:
+            path = path.replace("\\/", "/")
         if data_uri_re.match(path):
             continue
         if _YOUTUBE_URL_RE.search(path):
@@ -14700,7 +14850,7 @@ def process_images(
             else urljoin(base_url.rstrip("/") + "/", asset_path)
         )
 
-        # [STAB-v1.0.1-rev8] SSRF screen: refuse cross-origin internal asset
+        # SSRF screen: refuse cross-origin internal asset
         # hosts (e.g. a remote project.json that points an image at
         # 127.0.0.1:<port> or 169.254.169.254). Same-origin internal assets
         # (localhost CYOA) still pass; --allow-internal-hosts disables this.
@@ -14831,14 +14981,14 @@ def process_images(
 
     dedup_count = 0
     if all_downloadable:
-        # [STAB-v1.0.1-rev15] Two hardening fixes for the executor block:
-        #
+        # Two hardening fixes for the executor block:
+
         # (1) Clamp max_workers. process_images is a module-level public function
         #     callable outside run_download (CLI, tests, future callers) where the
         #     value is not pre-clamped. ThreadPoolExecutor raises ValueError on
         #     max_workers <= 0, so an unclamped 0/negative would crash here rather
         #     than degrade. Floor at 1.
-        #
+
         # (2) Cancel-aware collection. as_completed() previously drained every
         #     future even after the user cancelled mid-batch — fetch_one's sleeps
         #     are cancel-aware, but the collector kept pulling results, so a large
@@ -14956,8 +15106,13 @@ def process_images(
             # directory structure and will find the file already on disk.
             url_path = urlparse(resolved).path.lstrip('/')
             base_url_path = urlparse(base_url).path.rstrip('/')
-            if base_url_path and url_path.startswith(base_url_path.lstrip('/')):
-                url_path = url_path[len(base_url_path.lstrip('/')):]
+            # Only strip the base path on a whole-segment
+            # match. Plain startswith() also matched partial segments, e.g.
+            # base "/tale" + asset "/tale-assets/x.png" → "-assets/x.png",
+            # corrupting the local layout and breaking offline references.
+            _bp = base_url_path.lstrip('/')
+            if _bp and (url_path == _bp or url_path.startswith(_bp + '/')):
+                url_path = url_path[len(_bp):]
             url_path = url_path.lstrip('./ ')
 
             if '/' in url_path:
@@ -15039,13 +15194,17 @@ def process_images(
         field, path = m.group(1), m.group(2)
         if data_uri_re.match(path):
             return m.group(0)
-        return f'"{field}":"{embed_map.get(path, path)}"'
+        # Map keys are canonical (unescaped); normalize the
+        # text-form path so escaped occurrences rewrite too.
+        key = path.replace("\\/", "/") if "\\/" in path else path
+        return f'"{field}":"{embed_map.get(key, path)}"'
 
     def make_download(m: re.Match) -> str:
         field, path = m.group(1), m.group(2)
         if data_uri_re.match(path):
             return m.group(0)
-        return f'"{field}":"{download_map.get(path, path)}"'
+        key = path.replace("\\/", "/") if "\\/" in path else path
+        return f'"{field}":"{download_map.get(key, path)}"'
 
     # Primary substitution using field-name regex
     embed_str = re.sub(pattern, make_embed,    input_str, flags=re.IGNORECASE) if embed    else input_str
@@ -15054,8 +15213,8 @@ def process_images(
     # Secondary substitution: rewrite any URL value found by the deep scanner
     # that was NOT covered by the field-name pattern (e.g. bgmId direct audio,
     # nested soundEffects audio that regex missed).
-    #
-    # [STAB-v1.0.1-rev8] Single-pass replacement. The previous implementation
+
+    # Single-pass replacement. The previous implementation
     # applied sequential str.replace() per map entry. If one entry's replacement
     # value happened to equal another entry's original key (e.g. a localized
     # output path colliding with a different asset's original reference — possible
@@ -15113,6 +15272,13 @@ def _find_font_urls(
     Google Fonts CSS is resolved in parallel for speed.
     Duplicate font URLs are deduplicated automatically.
     """
+    # Scan a slash-unescaped copy so JSON-escaped font URLs
+    # ("https:\/\/cdn\/f.woff2") are discovered too (bug class rev6-rev8).
+    # Scan-side only: the rewrite in _download_fonts_into_folder handles both
+    # escaped and unescaped occurrences.
+    if "\\/" in project_str:
+        project_str = project_str.replace("\\/", "/")
+
     results: Dict[str, str] = {}
     gf_css_urls: Set[str] = set()   # Google Fonts CSS URLs to resolve
     raw_font_urls: List[Tuple[str, str]] = []  # (url, description)
@@ -15351,6 +15517,13 @@ def _download_fonts_into_folder(
     # Rewrite project_str
     for orig, local in url_to_local.items():
         project_str = project_str.replace(orig, local)
+        # Also rewrite the JSON-escaped occurrence
+        # ("https:\/\/cdn\/f.woff2") that _find_font_urls now discovers via its
+        # unescaped form; plain replace() alone would miss it. Forward slashes
+        # need no escaping in JSON, so the plain local path stays valid.
+        esc = orig.replace("/", "\\/")
+        if esc != orig and esc in project_str:
+            project_str = project_str.replace(esc, local)
 
     return project_str
 
@@ -15550,6 +15723,10 @@ def _doh_resolve_via(host: str, doh_url: str, qtype: int = 1) -> Optional[str]:
             "User-Agent": "Mozilla/5.0",
         }
         setattr(_dns_bypass_local, "enabled", True)
+        # This Session is created once per DoH lookup and
+        # was never closed — with --dns/--bebasdns active, every hostname
+        # resolution leaked a connection pool. Close it on every path.
+        session = None
         try:
             session = requests.Session()
             session.trust_env = (_proxy_mode == "inherit_env")
@@ -15558,6 +15735,11 @@ def _doh_resolve_via(host: str, doh_url: str, qtype: int = 1) -> Optional[str]:
                 session.proxies.update({"http": proxy, "https": proxy})
             r = session.post(doh_url, data=payload, headers=headers, timeout=6)
         finally:
+            if session is not None:
+                try:
+                    session.close()
+                except Exception as _close_exc:
+                    logger.debug("DoH session close failed: %s", _close_exc)
             setattr(_dns_bypass_local, "enabled", False)
         if r.status_code != 200:
             logger.debug(f"DoH {doh_url} returned HTTP {r.status_code} for {host}")
@@ -15615,12 +15797,19 @@ def _dns_resolve_via(host: str, dns_ip: str, qtype: int = 1) -> Optional[str]:
                           for p in host.rstrip(".").split(".")) + b"\x00"
         packet = header + qname + struct.pack(">HH", 1, 1)   # QTYPE=A, QCLASS=IN
 
-        # [STAB-v1.0.1-rev8] with-context closes the socket on every path,
+        # with-context closes the socket on every path,
         # including sendto/recvfrom timeout/error which previously leaked the FD.
         with _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM) as sock:
             sock.settimeout(3)
             sock.sendto(packet, (dns_ip, 53))
             data, _ = sock.recvfrom(512)
+
+        # Verify the transaction ID before trusting the
+        # datagram. Without this, any stray/spoofed UDP packet arriving on the
+        # ephemeral port was parsed as the answer. (The DoH path already
+        # verifies tx_id via _parse_dns_address_response.)
+        if len(data) < 12 or struct.unpack(">H", data[:2])[0] != tx_id:
+            return None
 
         # Parse answer count from header
         ancount = struct.unpack(">H", data[6:8])[0]
@@ -15828,6 +16017,14 @@ class WebsiteDownloader:
                         abs_ref = os.path.normpath(os.path.join(root, ref))
                         if os.path.exists(abs_ref):
                             ok_refs.append(ref)
+                        # Assets are saved with DECODED
+                        # names (clean_url_path_component unquotes), while the
+                        # HTML reference may stay percent-encoded ("a%20b.png").
+                        # Browsers decode refs at load time so the offline site
+                        # works — reporting these as MISSING was a false alarm
+                        # that polluted the integrity report.
+                        elif os.path.exists(os.path.normpath(os.path.join(root, unquote(ref)))):
+                            ok_refs.append(ref)
                         else:
                             missing.append(f"{os.path.relpath(local_path, self.output_folder)} → {ref}")
                 except Exception as _ignored_exc:
@@ -15966,6 +16163,19 @@ class WebsiteDownloader:
             root = fallback
         if not ext:
             ext = ".bin"
+        # Filesystem name limits: Linux NAME_MAX is 255
+        # bytes and Windows paths cap near 260 chars. Very long CDN/bundler
+        # basenames previously produced OSError 36 ("File name too long") at
+        # save time, so the asset silently failed. Truncate the stem and add a
+        # short content-stable hash of the ORIGINAL name so distinct long
+        # names can't collide after truncation. Names within the limit are
+        # returned unchanged.
+        _MAX_NAME = 140
+        if len(root) + len(ext) > _MAX_NAME:
+            import hashlib as _hl
+            digest = _hl.sha1(name.encode("utf-8", "replace")).hexdigest()[:10]
+            keep = max(1, _MAX_NAME - len(ext) - 11)  # 11 = "_" + digest
+            root = f"{root[:keep]}_{digest}"
         return f"{root}{ext}"
 
     def _kind_from(self, url: str, content_type: str = "", preferred_kind: str = "") -> str:
@@ -16076,7 +16286,7 @@ class WebsiteDownloader:
         if not full:
             return None
 
-        # [STAB-v1.0.1-rev8] SSRF screen on the deep-scan asset chokepoint.
+        # SSRF screen on the deep-scan asset chokepoint.
         # A scanned JS/CSS/HTML file from an untrusted site can reference a
         # cross-origin internal host; block it unless same-origin as the page
         # being mirrored (self.start_url) or --allow-internal-hosts is set.
@@ -16213,9 +16423,16 @@ class WebsiteDownloader:
     def _rewrite_direct_urls(self, text: str, referrer_url: str, local_text_path: str) -> str:
         def repl(m: re.Match) -> str:
             original = m.group("url")
+            # JSON-escaped slashes ("img\/x.png") reached
+            # _download_asset verbatim, producing an unfetchable URL, so those
+            # assets were silently skipped during website localization (same
+            # bug class as rev6/rev7). The rewrite replaces the whole quoted
+            # token with a local relative path, so unescaping here is lossless.
+            if "\\/" in original:
+                original = original.replace("\\/", "/")
             if not self._should_download_from_text(original):
                 return m.group(0)
-            # [STAB-v1.0.1-rev8] Skip values already localized by an earlier
+            # Skip values already localized by an earlier
             # rewrite pass. _process_css runs @import/url() rewriting BEFORE this
             # direct-URL pass, so relative paths like "../assets/bg.png" may
             # already point to a downloaded local file. Re-resolving them against
@@ -16274,7 +16491,7 @@ class WebsiteDownloader:
     # These files must NOT have their internal paths rewritten —
     # the bundle's own module references (project.json, chunk paths, etc.)
     # are resolved at runtime by webpack, not by URL.
-    #
+
     # webpack hashes: lowercase hex, 8-20 chars  e.g. app.c533aa25.js
     # Vite hashes (dot):        base62, 6-12 chars  e.g. app.B6d7tc9y.js
     # Vite hashes (underscore): Neocities variant   e.g. app_BuGW6RFa.js
@@ -16374,7 +16591,7 @@ class WebsiteDownloader:
         if not value:
             return
         if attr == "srcset":
-            # [STAB-v1.0.1-rev8] data: URIs commonly contain commas (inline SVG,
+            # data: URIs commonly contain commas (inline SVG,
             # base64). A naive value.split(",") shreds them into garbage pieces,
             # destroying the data URI and mis-parsing the following candidate.
             # Split on commas only when NOT inside a data: URI. The srcset grammar
@@ -17110,7 +17327,7 @@ def dependency_check_report() -> str:
 
 
 # ─────────────────────────────────────────────────────────────────
-#  Offline package validator  [STAB-v1.0.1-rev19, Seksi H Tier A3/A1]
+#  Offline package validator  [, Seksi H Tier A3/A1]
 # ─────────────────────────────────────────────────────────────────
 # Opt-in, read-only diagnostic. Inspects a folder produced by a previous
 # download and reports integrity problems WITHOUT touching the network or the
@@ -17134,7 +17351,7 @@ _VERIFY_JSON_PATH_RE = re.compile(
     re.IGNORECASE,
 )
 
-# ── Manifest sidecar  [STAB-v1.0.1-rev21, Seksi H Tier A2] ───────────────
+# ── Manifest sidecar  [, Seksi H Tier A2] ───────────────
 # Optional, opt-in checksum baseline for a downloaded package. Strictly
 # additive: written only when the user runs `--verify FOLDER --write-manifest`
 # (never during a normal download), so the default output folder layout is
@@ -17494,7 +17711,7 @@ def run_internal_self_test() -> Tuple[bool, str]:
             record("SSRF internal-host guard", False, str(e))
 
         try:
-            # [STAB-v1.0.1-rev8] cross-origin internal asset screen.
+            # cross-origin internal asset screen.
             _set_allow_internal_hosts(False)
             xorigin_ok = (
                 # cross-origin internal asset → blocked
@@ -17516,7 +17733,7 @@ def run_internal_self_test() -> Tuple[bool, str]:
             record("SSRF cross-origin asset screen", False, str(e))
 
         try:
-            # [STAB-v1.0.1-rev8] single-pass quoted substitution must not chain:
+            # single-pass quoted substitution must not chain:
             # if one entry's replacement equals another entry's key, sequential
             # str.replace would double-rewrite. Single regex pass cannot.
             import re as _re_sub
@@ -17543,7 +17760,7 @@ def run_internal_self_test() -> Tuple[bool, str]:
             record("single-pass asset substitution (no chain)", False, str(e))
 
         try:
-            # [STAB-v1.0.1-rev8] _rewrite_direct_urls must not re-fetch a relative
+            # _rewrite_direct_urls must not re-fetch a relative
             # path that already resolves to an existing local file (output of a
             # prior @import/url() rewrite pass).
             import tempfile as _tf2, threading as _th2
@@ -17583,7 +17800,7 @@ def run_internal_self_test() -> Tuple[bool, str]:
             record("direct-URL rewrite skips already-local", False, str(e))
 
         try:
-            # [STAB-v1.0.1-rev8] srcset parsing must not shred data: URIs (which
+            # srcset parsing must not shred data: URIs (which
             # contain commas). Verify a data-URI candidate stays intact and the
             # following real candidate is still parsed.
             import threading as _th3
@@ -17612,7 +17829,7 @@ def run_internal_self_test() -> Tuple[bool, str]:
             record("srcset parsing preserves data: URIs", False, str(e))
 
         try:
-            # [STAB-v1.0.1-rev8] Windows reserved device names must be made safe,
+            # Windows reserved device names must be made safe,
             # without over-prefixing legit names that merely contain the substring.
             cu = clean_url_path_component
             reserved_ok = (
@@ -17629,7 +17846,7 @@ def run_internal_self_test() -> Tuple[bool, str]:
             record("Windows reserved filename guard", False, str(e))
 
         try:
-            # [STAB-v1.0.1-rev8] ZIP member names must use '/' separators so
+            # ZIP member names must use '/' separators so
             # archives extract correctly on every OS (Windows os.path.relpath
             # would otherwise emit backslashes).
             import tempfile as _tfz, zipfile as _zfz, shutil as _shz
@@ -17664,7 +17881,7 @@ def run_internal_self_test() -> Tuple[bool, str]:
             record("ZIP member names use forward slash", False, str(e))
 
         try:
-            # [STAB-v1.0.1-rev8] _coerce_int must never raise on malformed input
+            # _coerce_int must never raise on malformed input
             # (hand-edited settings.json, external FlareSolverr 'status' field).
             ci = _coerce_int
             coerce_ok = (
@@ -17685,7 +17902,7 @@ def run_internal_self_test() -> Tuple[bool, str]:
             record("safe int coercion (settings/external)", False, str(e))
 
         try:
-            # [STAB-v1.0.1-rev8] Archive extraction must reject an oversized
+            # Archive extraction must reject an oversized
             # member by DECLARED size before decompressing it into RAM. Verify
             # the declared-size guard logic blocks a member over budget.
             import io as _io2, zipfile as _zf2
@@ -19360,6 +19577,11 @@ def find_candidate_urls_in_text(text: str, base_url: str) -> List[str]:
     seen: Set[str] = set()
 
     def add(candidate: str) -> None:
+        # Minified JS/JSON commonly escapes slashes as \/
+        # (JSON.stringify default). Without unescaping, "https:\/\/cdn..." and
+        # "assets\/project.json" became literal-backslash URLs that could never
+        # fetch, so project detection silently failed on those bundles.
+        candidate = candidate.replace("\\/", "/")
         candidate = candidate.strip().strip('"\'')
         if not candidate or candidate.startswith(("data:", "javascript:", "#")):
             return
@@ -19431,13 +19653,16 @@ def _extract_website_from_archive_zip_name(zip_filename: str) -> Optional[str]:
     """
     from urllib.parse import unquote
     fname = unquote(zip_filename)
-    m = re.search(r'\.(https~~~[^.]+(?:\.[^.]+)*?)\.zip$', fname, re.IGNORECASE)
+    # Accept http~~~ too: "~~~" is the archive's encoding
+    # of "://" (documented below), which is scheme-agnostic by construction —
+    # http-only sites previously returned None and lost URL recovery.
+    m = re.search(r'\.(https?~~~[^.]+(?:\.[^.]+)*?)\.zip$', fname, re.IGNORECASE)
     if not m:
         return None
     url_part = m.group(1)
     # https~~~site.com~path → https://site.com/path
     url = url_part.replace("~~~", "://").replace("~", "/")
-    if not url.startswith("http"):
+    if not url.lower().startswith("http"):  # regex is IGNORECASE; case-sensitive check double-prefixed HTTPS~~~ names
         url = "https://" + url
     return url.rstrip("/") + "/"
 
@@ -19553,6 +19778,8 @@ def find_script_sources(html_source: str, base_url: Optional[str] = None) -> Lis
         if "document.createElement" in str(script):
             src = extract_app_js_path(str(script))
             if src:
+                if "\\/" in src:
+                    src = src.replace("\\/", "/")
                 if base_url and not src.startswith(("http://", "https://")):
                     src = urljoin(base_url, src)
                 script_source = get_source(src)
@@ -19560,6 +19787,10 @@ def find_script_sources(html_source: str, base_url: Optional[str] = None) -> Lis
                     results.append((src, script_source))
         elif script.get("src"):
             src = script["src"]
+            # Same unescape for escaped src attributes that
+            # slipped into HTML from JS-rendered templates.
+            if "\\/" in src:
+                src = src.replace("\\/", "/")
             if base_url and not src.startswith(("http://", "https://")):
                 src = urljoin(base_url, src)
             script_source = get_source(src)
@@ -19585,7 +19816,9 @@ def _scan_html_for_project_hints(html: str, page_url: str, base_url: str) -> Lis
     seen: Set[str] = set()
 
     def add(raw: str) -> None:
-        raw = (raw or "").strip().strip("\"'")
+        # Unescape JSON-escaped slashes from inline JS
+        # ("data\/project.json") so the hint URL is fetchable (class rev6-10).
+        raw = (raw or "").replace("\\/", "/").strip().strip("\"'")
         if not raw or raw.startswith(("data:", "javascript:", "#")):
             return
         full = raw if raw.startswith(("http://", "https://")) else urljoin(base_url, raw)
@@ -19640,7 +19873,7 @@ def _parallel_head_check(
     """
     results: Dict[str, bool] = {}
     lock = threading.Lock()
-    # STAB-v1.0.2: Skip pool creation for an empty candidate list and clamp the
+    # Skip pool creation for an empty candidate list and clamp the
     # worker count defensively. min(len(x), N) at some call sites can otherwise
     # produce 0 workers. Additive guard; behavior for non-empty input unchanged.
     if not candidates:
@@ -20042,7 +20275,7 @@ def auto_detect_modes_batch(
 
 
 
-# [STAB-v1.0.3] Removed dead duplicate definition of `get_iframe_url_from_cyoa_cafe` (superseded by the active v46/v465 implementation later in this file).
+# [] Removed dead duplicate definition of `get_iframe_url_from_cyoa_cafe` (superseded by the active v46/v465 implementation later in this file).
 
 
 
@@ -20167,7 +20400,7 @@ def clean_url_path_component(encoded_str: str) -> str:
     cleaned = cleaned.strip('. ')
     if not cleaned:
         return "asset"
-    # [STAB-v1.0.1-rev8] Guard against Windows reserved device names. A file
+    # Guard against Windows reserved device names. A file
     # named CON, PRN, AUX, NUL, COM1-9 or LPT1-9 (with or without an extension,
     # case-insensitive) cannot be created on Windows. A CYOA whose output name
     # resolves to one of these would silently fail to save. Prefix with "_" so
@@ -20176,15 +20409,29 @@ def clean_url_path_component(encoded_str: str) -> str:
     _base = cleaned.split(".", 1)[0]
     if re.fullmatch(r"(?i:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])", _base):
         cleaned = "_" + cleaned
+    # Filesystem name limits (Linux NAME_MAX 255 bytes,
+    # Windows ~260-char paths). Over-long names caused OSError 36 at save time
+    # so the asset silently failed. Truncate the stem, keep the extension, and
+    # append a short hash of the ORIGINAL name so distinct long names cannot
+    # collide after truncation. Names within the limit are returned unchanged.
+    if len(cleaned.encode("utf-8", "replace")) > 140:
+        import hashlib as _hl
+        _root, _ext = os.path.splitext(cleaned)
+        if len(_ext) > 16:  # absurd "extension" — treat whole thing as stem
+            _root, _ext = cleaned, ""
+        _digest = _hl.sha1(cleaned.encode("utf-8", "replace")).hexdigest()[:10]
+        _rb = _root.encode("utf-8", "replace")[: max(1, 140 - len(_ext) - 11)]
+        _root = _rb.decode("utf-8", "ignore")
+        cleaned = f"{_root}_{_digest}{_ext}"
     return cleaned
 
 
-# [STAB-v1.0.3] Removed dead duplicate definition of `save_string_to_file` (superseded by the active v46/v465 implementation later in this file).
+# [] Removed dead duplicate definition of `save_string_to_file` (superseded by the active v46/v465 implementation later in this file).
 
 
 def create_random_temp_folder(prefix: str = "cyoa_") -> str:
     tmp = tempfile.gettempdir()
-    # [STAB-v1.0.1-rev8] Avoid a check-then-create TOCTOU race. The old code did
+    # Avoid a check-then-create TOCTOU race. The old code did
     # `if not os.path.exists(folder): os.makedirs(folder)` — between the check and
     # the makedirs, another thread/process could create the same path, raising an
     # unhandled FileExistsError. Create directly and only retry (new uuid) if the
@@ -20200,7 +20447,7 @@ def create_random_temp_folder(prefix: str = "cyoa_") -> str:
     return tempfile.mkdtemp(prefix=prefix)
 
 
-# [STAB-v1.0.3] Removed dead duplicate definition of `zip_temp_folder` (superseded by the active v46/v465 implementation later in this file).
+# [] Removed dead duplicate definition of `zip_temp_folder` (superseded by the active v46/v465 implementation later in this file).
 
 
 def delete_temp_folder(temp_path: str) -> None:
@@ -20402,6 +20649,14 @@ def _scan_file_for_assets(
     """
     import re as _re
 
+    # Minified bundles store URLs JSON-escaped ("img\/x.webp").
+    # The scan regexes never matched those, so the deep scan silently skipped
+    # such assets (same bug class as rev6 in find_candidate_urls_in_text).
+    # Scan-side only: this function returns URLs, it never rewrites the file,
+    # and the browser unescapes \/ at runtime, so local paths still line up.
+    if "\\/" in text:
+        text = text.replace("\\/", "/")
+
     ASSET_EXTS = (
         r'\.(?:webp|avif|png|jpg|jpeg|gif|svg|ico|bmp|tiff'
         r'|mp3|ogg|opus|wav|m4a|aac|flac'
@@ -20433,7 +20688,9 @@ def _scan_file_for_assets(
             # ── Fix: Vite encodes asset paths relative to site root, not JS file ──
             # If JS file is inside /assets/ and path starts with ./assets/,
             # urljoin creates /assets/assets/... (double). Correct it.
-            double = urlparse(base_url).path.rstrip('/') + urlparse(base_url).path.rstrip('/')
+            # Removed a dead `double = <base path>*2`
+            # assignment here — it was computed but never read; the real
+            # double-prefix fix uses `double_pat` (built from `seg`) below.
             parsed_r = urlparse(resolved)
             path_r   = parsed_r.path
             # Detect /X/X/ double-prefix pattern (e.g. /assets/assets/)
@@ -20717,8 +20974,11 @@ def _deep_scan_and_download_assets(
         parsed   = urlparse(url)
         rel_path = parsed.path.lstrip('/')
         base_path = urlparse(base_url).path.rstrip('/')
-        if base_path and rel_path.startswith(base_path.lstrip('/')):
-            rel_path = rel_path[len(base_path.lstrip('/')):]
+        # Whole-segment match only; plain startswith()
+        # mangled sibling paths like "/game" vs "/gamedata/app.js".
+        _bp = base_path.lstrip('/')
+        if _bp and (rel_path == _bp or rel_path.startswith(_bp + '/')):
+            rel_path = rel_path[len(_bp):]
         return rel_path.lstrip('/')
 
     # ── Reusable session with connection pooling ──────────────────────
@@ -20765,7 +21025,7 @@ def _deep_scan_and_download_assets(
         Tries HTTP/2 first when enabled, then falls back to fetch_response so
         Cloudflare/FlareSolverr, proxy, DNS, and retry policy remain consistent.
         """
-        # [STAB-v1.0.1-rev8] SSRF screen: a scanned JS/CSS/HTML/project file can
+        # SSRF screen: a scanned JS/CSS/HTML/project file can
         # reference a cross-origin internal host. Block it unless same-origin as
         # the page (base_url) or --allow-internal-hosts is set.
         if _ssrf_block_cross_origin(url, base_url):
@@ -20808,7 +21068,11 @@ def _deep_scan_and_download_assets(
     for mp in _manifest_paths:
         mp_url = f"{parsed_base.scheme}://{parsed_base.netloc}/{mp}"
         mp_rel = mp.replace('/', os.sep)
-        if mp.replace('/', '/') in _disk_files:
+        # _disk_files keys are forward-slash normalized
+        # (see _rebuild_disk_index) and `mp` already uses forward slashes, so
+        # the direct membership test is correct. Removed a no-op
+        # `.replace('/', '/')` that looked like an unfinished slash fixup.
+        if mp in _disk_files:
             continue
         try:
             _, content, status = _try_fetch(mp_url)
@@ -20824,7 +21088,7 @@ def _deep_scan_and_download_assets(
     # ── Parallel concurrency: scale with workers, cap at 20 ───────────
     _dl_workers = min(max(max_workers, 8), 20)
 
-    # [STAB-v1.0.1-rev8] Guarantee HTTP/2 client + pooled session are closed
+    # Guarantee HTTP/2 client + pooled session are closed
     # even if the BFS loop raises. Previously close() ran only on the happy
     # path, leaking the httpx connection pool (and _session was never closed).
     try:
@@ -21299,6 +21563,8 @@ def itch_test_connection(explicit_key: str = "") -> "Tuple[bool, str]":
     backend_line = (f"backend: {label}" if cmd
                     else "backend: NOT FOUND (install uv/pipx or `pip install itch-dl`)")
     key, source = _resolve_itch_api_key(explicit_key)
+    # _itch_session() builds a fresh retry session per call;
+    # it was never closed. One-shot diagnostic → close on every return path.
     sess = _itch_session()
     try:
         if key:
@@ -21319,6 +21585,11 @@ def itch_test_connection(explicit_key: str = "") -> "Tuple[bool, str]":
     except Exception as e:
         # Backend presence is still useful info even if the network probe fails.
         return (cmd is not None), f"itch.io probe error: {e}; {backend_line}."
+    finally:
+        try:
+            sess.close()
+        except Exception as _close_exc:
+            logger.debug("itch diagnostic session close failed: %s", _close_exc)
 
 
 def download_itch_assets(page_url: str, output_dir: str,
@@ -21417,7 +21688,7 @@ def download_itch_assets(page_url: str, output_dir: str,
 # logic, output formats, CLI flags, embedded JSON, reports, and ZIP structure are
 # intentionally left untouched.
 # ─────────────────────────────────────────────────────────────────────────────
-# [STAB-v1.0.1-rev8] _STABILIZATION_PATCH_ID consolidated to a single definition
+# _STABILIZATION_PATCH_ID consolidated to a single definition
 # at the top of the file; redundant redefinitions removed.
 _STABILIZATION_AUDIT_ID = "CYOA-v1.0 Release-STAB-v46-AUDIT"
 
@@ -21920,7 +22191,7 @@ def _v25_safe_after(win: Any, fn) -> None:
 def _v25_safe_after_widget(root: Any, widget: Any, fn, delay: int = 0) -> None:
     """Schedule ``fn`` on the Tk loop, guarding BOTH schedule- and run-time.
 
-    [STAB-v1.0.1-rev20] ``_v25_safe_after`` only checks existence at schedule
+    ``_v25_safe_after`` only checks existence at schedule
     time; a worker thread can pass that check and then the window/widget is
     destroyed before the queued callback runs on the main loop, so a callback
     that calls ``widget.configure()`` / ``.attributes()`` / CTk ``.set()`` hits
@@ -22938,7 +23209,7 @@ except Exception as _ignored_exc:
 # GUI-only modernization plus provider metadata. No download output/CLI flag
 # contract, ZIP/report naming, embedded JSON, or serve route behavior is changed.
 # ─────────────────────────────────────────────────────────────────────────────
-# [STAB-v1.0.1-rev8] Stabilization IDs consolidated to single definitions above.
+# Stabilization IDs consolidated to single definitions above.
 
 
 def _v27_ai_provider_values() -> List[str]:
@@ -24566,7 +24837,7 @@ def zip_temp_folder(temp_path: str, zip_name: str = "") -> str:
                 for file in files:
                     _raise_if_cancelled()
                     abs_path = os.path.join(root, file)
-                    # [STAB-v1.0.1-rev8] ZIP spec requires '/' separators. On
+                    # ZIP spec requires '/' separators. On
                     # Windows os.path.relpath returns backslashes, so a member
                     # like "images\\a.png" would extract as one literal filename
                     # on macOS/Linux instead of an images/ subfolder. Normalize.
@@ -24934,7 +25205,7 @@ def _v46_worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_a
     cancelled = False
     skipped_count = 0
 
-    # [STAB-v1.0.1-rev4] Surface prior-session state on the queue dots before the
+    # Surface prior-session state on the queue dots before the
     # run starts, matching the legacy GUI worker. `prev_failed` was previously
     # computed but never used here, so URLs that failed last session showed no
     # initial status. This does NOT change skip/retry logic: a previously-failed
@@ -26138,7 +26409,7 @@ CYOADownloaderGUI._v463_arrange_progress_and_log = _v463_arrange_progress_and_lo
 # ─────────────────────────────────────────────────────────────────────────────
 # Public application name intentionally remains untranslated in every language.
 _APP_DISPLAY_NAME = "CYOA Downloader"
-# [STAB-v1.0.1-rev8] _STABILIZATION_PATCH_ID defined once at top of file.
+# _STABILIZATION_PATCH_ID defined once at top of file.
 
 # Avoid duplicate lazy session creation when several download workers start at
 # the same time. This does not serialize requests; it only protects creation.
@@ -26594,7 +26865,7 @@ CYOADownloaderGUI._apply_theme = _v465_apply_theme  # type: ignore[assignment]
 # website downloader. That caused deep scan to crawl cyoa.cafe instead of the
 # authoritative viewer host. Resolve once at the run boundary and preserve the
 # legacy output name derived from the user's original URL.
-# [STAB-v1.0.1-rev8] _STABILIZATION_PATCH_ID defined once at top of file.
+# _STABILIZATION_PATCH_ID defined once at top of file.
 _V466_PREVIOUS_RUN_DOWNLOAD = run_download
 
 
@@ -26716,7 +26987,7 @@ def _v466_setup_ui(self: CYOADownloaderGUI) -> None:
 CYOADownloaderGUI._setup_ui = _v466_setup_ui  # type: ignore[assignment]
 
 
-# [STAB-v1.0.1-rev8] Final patch identity defined once at top of file; the
+# Final patch identity defined once at top of file; the
 # previous "CYOA-v1.0.1-STAB-v46.12" redefinition here made the GUI banner read
 # as a doubled version (v1.0.1-rev8 · CYOA-v1.0.1-...). Removed.
 
