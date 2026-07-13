@@ -14,7 +14,7 @@
 <p align="center">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg"></a>
   <img alt="Python 3.10+" src="https://img.shields.io/badge/Python-3.10%2B-blue.svg">
-  <img alt="Release v1.0.4" src="https://img.shields.io/badge/Release-v1.0.2-orange.svg">
+  <img alt="Release v1.0.4" src="https://img.shields.io/badge/Release-v1.0.4-orange.svg">
   <img alt="Interface: GUI and CLI" src="https://img.shields.io/badge/Interface-GUI%20%2B%20CLI-purple.svg">
   <img alt="Self-test 37/37" src="https://img.shields.io/badge/Self--test-37%2F37-brightgreen.svg">
 </p>
