@@ -199,9 +199,28 @@ def process_images(
             (audio_paths, "audio/mpeg"),
         ):
             for asset_path in list(asset_paths):
+                clean = ""
                 if asset_path.startswith(("http://", "https://")):
+                    # Absolute same-origin references can already exist in the
+                    # website folder under their authored route (for example
+                    # loading/point.png). Reuse them instead of creating a
+                    # redundant images/loading/ copy.
+                    parsed_asset = urlparse(asset_path)
+                    parsed_base = urlparse(base_url)
+                    base_path = parsed_base.path.rstrip('/')
+                    if (
+                        parsed_asset.scheme.lower() == parsed_base.scheme.lower()
+                        and parsed_asset.netloc.lower() == parsed_base.netloc.lower()
+                        and base_path
+                        and parsed_asset.path.startswith(base_path + '/')
+                    ):
+                        clean = _safe_rel_path(
+                            parsed_asset.path[len(base_path):].lstrip('/')
+                        )
+                else:
+                    clean = _safe_rel_path(asset_path.lstrip('./').lstrip('/'))
+                if not clean:
                     continue
-                clean = _safe_rel_path(asset_path.lstrip('./').lstrip('/'))
                 disk  = _safe_join(site_folder, clean)
                 if os.path.exists(disk):
                     logger.debug(f"  [site exists, kept] {clean}")
@@ -631,14 +650,6 @@ def process_images(
         key = path.replace("\\/", "/") if "\\/" in path else path
         return f'"{field}":"{download_map.get(key, path)}"'
 
-    # Primary substitution using field-name regex
-    embed_str = re.sub(pattern, make_embed,    input_str, flags=re.IGNORECASE) if embed    else input_str
-    dl_str    = re.sub(pattern, make_download, input_str, flags=re.IGNORECASE) if download else input_str
-
-    # Secondary substitution: rewrite any URL value found by the deep scanner
-    # that was NOT covered by the field-name pattern (e.g. bgmId direct audio,
-    # nested soundEffects audio that regex missed).
-
     # Single-pass replacement. The previous implementation
     # applied sequential str.replace() per map entry. If one entry's replacement
     # value happened to equal another entry's original key (e.g. a localized
@@ -648,23 +659,31 @@ def process_images(
     # path). A single regex pass that consults the map per match cannot chain,
     # because each region of the string is visited exactly once. Output is
     # identical to the old code for the normal (non-colliding) case.
-    def _single_pass_quoted_sub(text: str, mapping: Dict[str, str]) -> str:
+    def _single_pass_asset_sub(text: str, mapping: Dict[str, str]) -> str:
         if not mapping:
             return text
-        # Longest keys first so a longer key isn't shadowed by a shorter prefix.
+        # Replace the remote token wherever it appears, including inside
+        # escaped JSON strings such as `<img src=\"https://...\">`. Longest
+        # keys first prevent a shorter URL from shadowing a longer one.
         keys = sorted(mapping.keys(), key=len, reverse=True)
         alt = "|".join(re.escape(k) for k in keys)
-        quoted_re = re.compile('"(' + alt + ')"')
+        asset_re = re.compile(alt)
 
         def _repl(m: "re.Match") -> str:
-            return '"' + mapping.get(m.group(1), m.group(1)) + '"'
+            return mapping.get(m.group(0), m.group(0))
 
-        return quoted_re.sub(_repl, text)
+        return asset_re.sub(_repl, text)
 
-    if embed:
-        embed_str = _single_pass_quoted_sub(embed_str, embed_map)
-    if download:
-        dl_str = _single_pass_quoted_sub(dl_str, download_map)
+    # Apply deep-scan mappings to the original text first, then run the field
+    # mapper. Doing this in the opposite order would let a source key such as
+    # ``same.png`` match inside its newly-created replacement
+    # ``images/same.png`` and produce ``images/images/same.png``.
+    embed_source = _single_pass_asset_sub(input_str, embed_map) if embed else input_str
+    download_source = _single_pass_asset_sub(input_str, download_map) if download else input_str
+
+    # Primary substitution using field-name regex
+    embed_str = re.sub(pattern, make_embed, embed_source, flags=re.IGNORECASE) if embed else input_str
+    dl_str    = re.sub(pattern, make_download, download_source, flags=re.IGNORECASE) if download else input_str
 
     # Collect successfully downloaded/resolved URLs for skip-list
     _resolved_urls: Set[str] = set()

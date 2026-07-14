@@ -148,6 +148,35 @@ def _scan_file_for_assets(
     found: Set[str] = set()
     file_base = file_url.rsplit('/', 1)[0] + '/'   # directory of this file
 
+    # Some viewer bootstraps resolve resources from a path derived from the
+    # script URL, then concatenate that path with literals, e.g.
+    # ``basePath = new URL('../', currentScript.src)`` followed by
+    # ``basePath + 'css/app.css'``. Those literals are not relative to the JS
+    # file directory. Follow this explicit browser expression without guessing
+    # any author-chosen folder names.
+    js_base_prefixes: Dict[str, str] = {}
+    base_prefixed_literals: Set[str] = set()
+    if file_ext in ('.js', '.mjs', '.cjs'):
+        for base_match in _re.finditer(
+            r'\b([A-Za-z_$][\w$]*)\s*=\s*new\s+URL\(\s*["\']([^"\']+)["\']\s*,\s*'
+            r'(?:currentScript|document\.currentScript)\.src\s*\)',
+            text,
+            _re.IGNORECASE,
+        ):
+            js_base_prefixes[base_match.group(1)] = urljoin(
+                file_url, base_match.group(2)
+            )
+
+    for base_name, explicit_base in js_base_prefixes.items():
+        prefixed_re = _re.compile(
+            rf'\b{_re.escape(base_name)}\s*\+\s*["\']([^"\']+{ASSET_EXTS})["\']',
+            _re.IGNORECASE,
+        )
+        for prefixed_match in prefixed_re.finditer(text):
+            raw = prefixed_match.group(1)
+            base_prefixed_literals.add(raw)
+            found.add(urljoin(explicit_base, raw))
+
     inferred_dynamic_assets = _infer_dynamic_asset_paths(text)
 
     def _resolve(raw: str) -> Optional[str]:
@@ -188,6 +217,19 @@ def _scan_file_for_assets(
             return f"{parsed_base.scheme}://{parsed_base.netloc}{raw}"
         return urljoin(file_base, raw)
 
+    def _resolve_js_literal(raw: str) -> Optional[str]:
+        """Resolve non-explicit JS asset literals from the viewer base.
+
+        A browser fetch such as ``fetch('project.json')`` resolves against the
+        document/viewer URL, not the directory containing the JS bundle. Keep
+        explicit ``./`` and ``../`` references relative to that bundle.
+        """
+        if file_ext in ('.js', '.mjs', '.cjs') and not raw.startswith(
+            ('./', '../', '/', 'http://', 'https://', '//')
+        ):
+            return urljoin(base_url.rstrip('/') + '/', raw)
+        return _resolve(raw)
+
     # JavaScript galleries often keep a shared base path separately from a
     # large filename array: ``const imageSrc='image/'; imagesToLoad=['card/x.webp']``.
     # The browser concatenates both pieces, so scanning the array item alone
@@ -224,9 +266,13 @@ def _scan_file_for_assets(
         raw = m.group(1)
         if raw.strip() in ('.json', '.mp3', '.webp', '.png', '.js', '.css'):
             continue
+        if raw in base_prefixed_literals:
+            # Already resolved against the explicit JS base above. Resolving
+            # it again against file_base would create paths such as /js/css/.
+            continue
         if raw in inferred_dynamic_assets:
             continue
-        r = _resolve(raw)
+        r = _resolve_js_literal(raw)
         if r: found.add(r)
 
     # ── Static ES module imports: import{...}from"./foo.js" / import"./foo.js" ──
@@ -336,11 +382,47 @@ def _scan_file_for_assets(
         try:
             manifest = json.loads(text)
             if isinstance(manifest, dict):
+                def _add_manifest_asset(raw_value: str) -> None:
+                    """Add only a real asset token, never an HTML/text wrapper."""
+                    value = str(raw_value or '').strip()
+                    if not value or value.startswith(('data:', '#', 'javascript:')):
+                        return
+
+                    # JSON payloads can contain rich HTML descriptions. Extract
+                    # their explicit resource attributes, but do not treat the
+                    # entire description as a filename merely because it
+                    # contains a substring ending in .png/.css/etc.
+                    if '<' in value or '>' in value:
+                        embedded = _re.findall(
+                            r'(?:src|href)\s*=\s*["\']([^"\']+)["\']',
+                            value,
+                            _re.IGNORECASE,
+                        )
+                        embedded += _re.findall(
+                            r'url\(\s*["\']?([^"\')\s]+)["\']?\s*\)',
+                            value,
+                            _re.IGNORECASE,
+                        )
+                        for candidate in embedded:
+                            _add_manifest_asset(candidate)
+                        return
+
+                    asset_path = urlparse(value).path
+                    if not _re.search(
+                        r'\.(?:webp|avif|png|jpg|jpeg|gif|svg|ico|bmp|tiff|'
+                        r'mp3|ogg|opus|wav|m4a|aac|flac|mp4|webm|mov|ogv|m4v|'
+                        r'woff2?|ttf|otf|eot|js|mjs|css|json|wasm)$',
+                        asset_path,
+                        _re.IGNORECASE,
+                    ):
+                        return
+                    resolved = _resolve(value)
+                    if resolved:
+                        found.add(resolved)
+
                 def _walk_manifest(obj):
                     if isinstance(obj, str):
-                        if _re.search(ASSET_EXTS, obj, _re.IGNORECASE):
-                            r = _resolve(obj)
-                            if r: found.add(r)
+                        _add_manifest_asset(obj)
                     elif isinstance(obj, dict):
                         for v in obj.values():
                             _walk_manifest(v)
