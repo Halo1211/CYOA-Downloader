@@ -310,7 +310,13 @@ def _base_run_download(
             file_name = "downloaded_cyoa"
         file_name = clean_url_path_component(file_name)
 
-        base_url = strip_document_from_url(project_url)
+        # Asset paths in ICC project data are authored relative to the viewer
+        # route, not necessarily relative to the candidate project endpoint.
+        # Using project_url here can turn images/R1.jpeg into
+        # images/images/R1.jpeg when discovery selected a project candidate
+        # below an asset folder. Keep the candidate URL for reporting, but use
+        # the opened viewer route as the asset base.
+        project_base_url = strip_document_from_url(project_url)
 
         # v46.7: when the user supplied a CYOA.CAFE metadata route, project_url
         # belongs to the authoritative viewer host. Use that viewer root for all
@@ -324,7 +330,7 @@ def _base_run_download(
                 _entry_parsed.netloc.lower() == "cyoa.cafe"
                 and bool(re.fullmatch(r"/game/[^/]+/?", _entry_path, flags=re.IGNORECASE))
             )
-            _project_root = canonicalize_url(base_url)
+            _project_root = canonicalize_url(project_base_url)
             if _is_metadata_entry and _project_root:
                 _project_host = urlparse(_project_root).netloc.lower()
                 if _project_host and _project_host != "cyoa.cafe":
@@ -335,6 +341,14 @@ def _base_run_download(
                     )
         except Exception as _viewer_url_exc:
             logger.debug(f"Could not derive authoritative viewer URL: {_viewer_url_exc}")
+
+        base_url = strip_document_from_url(website_entry_url)
+        if project_base_url.rstrip('/') != base_url.rstrip('/'):
+            logger.info(
+                "Project asset base: %s (viewer route; candidate was %s)",
+                base_url,
+                project_base_url,
+            )
 
         # Fetch viewer HTML once — reused for font scanning
         viewer_html: str = get_source(website_entry_url) or ""
@@ -445,6 +459,7 @@ def _base_run_download(
                     ai_mode=ai_mode,
                     ai_budget=ai_budget,
                     skip_urls=_pi_urls,
+                    exclude_relative_paths={"project.json"},
                   )
             finally:
                 delete_temp_folder(tmp)

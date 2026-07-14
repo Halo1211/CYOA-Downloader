@@ -252,6 +252,7 @@ def process_images(
         headers = get_headers_for_url(asset_url) or {}
 
         last_err = ""
+        permanent_http_failure = False
         _cookie_session_tried = False
 
         for attempt in range(4):  # 4 attempts: 3 normal + 1 cookie
@@ -310,6 +311,14 @@ def process_images(
                     _cancel_aware_sleep(backoff)
                     continue
 
+                if r.status_code in (404, 410):
+                    last_err = f"HTTP {r.status_code}: asset not found"
+                    permanent_http_failure = True
+                    logger.warning(
+                        f"Permanent HTTP {r.status_code}; skipping retries and browser fallback: {asset_url}"
+                    )
+                    break
+
                 r.raise_for_status()
                 mime = r.headers.get("Content-Type", "").split(";")[0].strip()
                 if not mime:
@@ -356,9 +365,9 @@ def process_images(
         if asset_path in image_paths:
             # Selenium/headless gated independently so gallery-dl (below) still runs
             headless_data = None
-            if _SELENIUM_ENABLED:
+            if _SELENIUM_ENABLED and not permanent_http_failure:
                 logger.info(f"  [Headless] Trying browser fetch: {asset_url}")
-                headless_data = _fetch_headless(asset_url)
+                headless_data = _fetch_headless(asset_url, reject_error_documents=True)
             if headless_data:
                 mime = mimetypes.guess_type(asset_url)[0] or "image/jpeg"
                 _cache_put(asset_url, headless_data)
@@ -680,6 +689,7 @@ def _deep_scan_and_download_assets(
     ai_mode: str = "aggressive_recovery",
     ai_budget: Optional[AIUsageBudget] = None,
     skip_urls: Optional[Set[str]] = None,
+    exclude_relative_paths: Optional[Set[str]] = None,
 ) -> Dict[str, str]:
     """
     Iteratively scan ALL JS, CSS, and HTML files in `folder` for asset
@@ -695,6 +705,10 @@ def _deep_scan_and_download_assets(
     failed_deep_assets: List[Dict[str, str]] = []
     scanned_files: Set[str]        = set()   # abs file paths already scanned
     known_urls:    Set[str]        = set()   # canonical candidate URLs already seen
+    excluded_paths = {
+        str(path).replace('\\', '/').lstrip('./').lower()
+        for path in (exclude_relative_paths or set())
+    }
 
     def _canonical_scan_url(url: str) -> str:
         """Canonicalize scan candidates without collapsing real variants."""
@@ -750,6 +764,8 @@ def _deep_scan_and_download_assets(
                     continue
                 scanned_files.add(fpath)
                 rel    = os.path.relpath(fpath, folder).replace('\\', '/')
+                if rel.lower() in excluded_paths:
+                    continue
                 f_url  = urljoin(base_url.rstrip('/') + '/', rel)
                 try:
                     with open(fpath, encoding='utf-8', errors='replace') as _fh:
@@ -883,36 +899,8 @@ def _deep_scan_and_download_assets(
     round_n = 0
     max_rounds = 6   # safety cap
 
-    # ── Manifest probing: check for Vite/Webpack/CRA manifest files ────
-    _manifest_paths = [
-        '.vite/manifest.json',
-        'asset-manifest.json',
-        'manifest.json',
-        'build/asset-manifest.json',
-    ]
-    parsed_base = urlparse(base_url)
-    for mp in _manifest_paths:
-        mp_url = f"{parsed_base.scheme}://{parsed_base.netloc}/{mp}"
-        mp_rel = mp.replace('/', os.sep)
-        # _disk_files keys are forward-slash normalized
-        # (see _rebuild_disk_index) and `mp` already uses forward slashes, so
-        # the direct membership test is correct. Removed a no-op
-        # `.replace('/', '/')` that looked like an unfinished slash fixup.
-        if mp in _disk_files:
-            continue
-        try:
-            _, content, status = _try_fetch(mp_url)
-            if content and content.strip()[:1] in (b'{', b'['):
-                mp_local = _safe_join(folder, mp_rel)
-                os.makedirs(os.path.dirname(mp_local), exist_ok=True)
-                atomic_write_bytes(mp_local, content)
-                _disk_files.add(mp)
-                logger.info(f"[deep scan] Found manifest: {mp}")
-        except DownloadCancelledError:
-            raise
-        except Exception as _ignored_exc:
-            logger.debug("Ignored recoverable exception in _deep_scan_and_download_assets (line 19220): %s", _ignored_exc)
-
+    # Manifests are downloaded only when a local text asset explicitly
+    # references them; speculative root probes caused slow 404/retry loops.
     # ── Parallel concurrency: scale with workers, cap at 20 ───────────
     # Respect the GUI's worker setting. The old minimum of eight spawned a
     # surprisingly large pool even when the user selected one worker, which

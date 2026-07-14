@@ -272,7 +272,9 @@ def _scan_file_for_assets(
         r = _resolve(m.group(1))
         if r: found.add(r)
 
-    # ── Bare filenames (no path separator) → try root + common subdirs ─
+    # ── Bare filenames (no path separator) → resolve only as written ────
+    # Do not guess common folders such as images/, img/, or assets/. The
+    # author may use any directory name; speculative guesses create 404s.
     # Howler.js loads audio relative to HTML root — bare MP3 names are
     # loaded from root or common music directories.
     _bare_re = _re.compile(
@@ -285,17 +287,6 @@ def _scan_file_for_assets(
             continue
         if '/' not in raw:
             found.add(urljoin(base_url.rstrip('/') + '/', raw))
-            ext_low = raw.rsplit('.', 1)[-1].lower()
-            if ext_low in ('mp3', 'ogg', 'opus', 'wav', 'm4a', 'aac', 'flac'):
-                # Audio: try all common music/audio subdirectories
-                for sub in ('music/', 'audio/', 'bgm/', 'sfx/', 'sounds/',
-                            'assets/music/', 'assets/audio/', 'assets/bgm/',
-                            'assets/sfx/', 'assets/sounds/',
-                            'static/music/', 'public/music/'):
-                    found.add(urljoin(base_url.rstrip('/') + '/', sub + raw))
-            else:
-                for sub in ('assets/images/', 'images/', 'assets/', 'img/'):
-                    found.add(urljoin(base_url.rstrip('/') + '/', sub + raw))
 
     # ── srcset (scan in ALL file types — JS template strings can carry it) ──
     for m in _re.finditer(r'srcset\s*=\s*["\']([^"\']+)["\']', text, _re.IGNORECASE):

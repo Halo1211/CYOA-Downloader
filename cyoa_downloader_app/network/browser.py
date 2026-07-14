@@ -70,7 +70,16 @@ def _make_cookie_session(browser: str = "chrome") -> Optional["requests.Session"
             logger.debug(f"Chrome SQLite cookie fallback failed: {e}")
     return None
 
-def _fetch_headless(url: str) -> Optional[bytes]:
+def _looks_like_error_document(content: bytes, content_type: str = "") -> bool:
+    """Identify HTML/JSON error pages returned by an asset URL."""
+    mime = (content_type or "").split(";", 1)[0].strip().lower()
+    if mime in {"text/html", "application/xhtml+xml", "application/json"}:
+        return True
+    prefix = bytes(content or b"")[:512].lstrip().lower()
+    return prefix.startswith((b"<!doctype html", b"<html", b"<head", b"<body", b"{\"error"))
+
+
+def _fetch_headless(url: str, reject_error_documents: bool = False) -> Optional[bytes]:
     """
     Fetch URL using Playwright (preferred) or Selenium as fallback.
     Used when normal HTTP fetch fails or returns <1KB content for images.
@@ -97,6 +106,11 @@ def _fetch_headless(url: str) -> Optional[bytes]:
                 if resp and resp.ok:
                     # For images, get raw bytes from response body
                     content = resp.body()
+                    if reject_error_documents and _looks_like_error_document(
+                        content, resp.headers.get("content-type", "")
+                    ):
+                        logger.warning(f"  [Headless/Playwright] rejected error document: {url}")
+                        return None
                     logger.info(f"  [Headless/Playwright] {url} → {len(content)} bytes")
                     return content
             finally:
@@ -131,7 +145,7 @@ def _fetch_headless(url: str) -> Optional[bytes]:
             drv.set_page_load_timeout(30)
             drv.get(url)  # establish origin/cookies; may also solve simple JS checks
             drv.set_script_timeout(30)
-            resp_b64 = drv.execute_async_script(
+            resp_info = drv.execute_async_script(
                 """
                 const cb = arguments[arguments.length - 1];
                 (async () => {
@@ -140,7 +154,9 @@ def _fetch_headless(url: str) -> Optional[bytes]:
                   const bytes = new Uint8Array(buf);
                   let binary = '';
                   for (let b of bytes) binary += String.fromCharCode(b);
-                  return btoa(binary);
+                  return {ok: r.ok, status: r.status,
+                          contentType: r.headers.get('content-type') || '',
+                          data: btoa(binary)};
                 })().then(cb).catch(() => cb(null));
                 """,
                 url,
@@ -150,8 +166,16 @@ def _fetch_headless(url: str) -> Optional[bytes]:
                 drv.quit()
             except Exception as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _fetch_headless (line 4116): %s", _ignored_exc)
-        if resp_b64:
-            data = _b64.b64decode(resp_b64)
+        if resp_info and resp_info.get("ok") and resp_info.get("data"):
+            data = _b64.b64decode(resp_info["data"])
+            if reject_error_documents and _looks_like_error_document(
+                data, resp_info.get("contentType", "")
+            ):
+                logger.warning(
+                    f"  [Headless/Selenium] rejected HTTP {resp_info.get('status') or '?'} "
+                    f"error document: {url}"
+                )
+                return None
             logger.info(f"  [Headless/Selenium] {url} → {len(data)} bytes")
             return data
     except ImportError as _ignored_exc:
