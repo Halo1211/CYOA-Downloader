@@ -194,7 +194,9 @@ def _v465_poll_log(self: Any) -> None:
         return
     batch: List[Any] = []
     try:
-        for _ in range(500):
+        # Keep log rendering incremental so a burst of network messages cannot
+        # monopolize Tk's event loop on slower laptops.
+        for _ in range(150):
             batch.append(self._log_queue.get_nowait())
     except log_queue_module.Empty as empty_exc:
         _ = empty_exc  # expected non-blocking queue control flow
@@ -217,7 +219,7 @@ def _v465_poll_log(self: Any) -> None:
             self._log_txt.configure(state="disabled")
     try:
         if self.root.winfo_exists():
-            self._v465_log_poll_after_id = self.root.after(100, self._poll_log)
+            self._v465_log_poll_after_id = self.root.after(175, self._poll_log)
     except Exception as exc:
         logger.debug(f"GUI log polling could not be rescheduled: {exc}")
 

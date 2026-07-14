@@ -346,7 +346,7 @@ from ..integrations.itch import _set_itch_enabled
 
 # â”€â”€ Cloudflare / bandwidth runtime state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 from ..runtime.state import (
-    _CLOUDFLARE_MODE, _FLARESOLVERR_URL, _FLARESOLVERR_SESSION_POLICY,
+    _CLOUDFLARE_MODE, _CLOUDFLARE_PRIORITY, _FLARESOLVERR_URL, _FLARESOLVERR_SESSION_POLICY,
     _FLARESOLVERR_TIMEOUT, _FLARESOLVERR_WAIT_AFTER, _FLARESOLVERR_PROXY_MODE,
     _FLARESOLVERR_SESSIONS, _FLARESOLVERR_LOCK, _time, _threading,
     _bandwidth_limit_kbps, _bw_lock, _bw_last_time, _bw_bytes_this_window, _gui_speed_cb,
@@ -968,6 +968,7 @@ from ..network.throttle import (
 )
 from ..network.cloudflare import (
     is_cloudflare_challenge, _normalize_cloudflare_mode, _display_cloudflare_mode,
+    _normalize_cloudflare_priority, _display_cloudflare_priority,
     _normalize_flaresolverr_url, _load_cloudflare_settings, _set_cloudflare_config,
     _flaresolverr_payload_proxy, _flaresolverr_post, _flaresolverr_session_key,
     _flaresolverr_get_session, flaresolverr_destroy_sessions,

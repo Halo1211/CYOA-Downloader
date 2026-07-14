@@ -140,7 +140,10 @@ def main() -> None:
                         help="Use BebasDNS DoH resolver variant for this process.")
     parser.add_argument("--cloudflare", choices=["off", "auto", "cloudscraper", "flaresolverr"],
                         default=_load_settings().get("cloudflare_mode", "auto"),
-                        help="Cloudflare handling mode. Auto tries normal request, cloudscraper, then FlareSolverr when needed.")
+                        help="Cloudflare handling mode. Auto escalates only after a challenge is detected.")
+    parser.add_argument("--cloudflare-priority", choices=["flaresolverr-first", "cloudscraper-first"],
+                        default=str(_load_settings().get("cloudflare_priority", "flaresolverr_first")).replace("_", "-"),
+                        help="Auto fallback order after a challenge: FlareSolverr first or cloudscraper first.")
     parser.add_argument("--cf-bypass", "--cloudscraper", dest="cf_bypass", action="store_true",
                         help="Legacy alias: force Cloudflare mode to cloudscraper when installed.")
     parser.add_argument("--flaresolverr-url", default=_load_settings().get("flaresolverr_url", "http://localhost:8191/v1"),
@@ -345,11 +348,13 @@ def main() -> None:
         a == "--flaresolverr-session" or a.startswith("--flaresolverr-session=") or
         a == "--flaresolverr-timeout" or a.startswith("--flaresolverr-timeout=") or
         a == "--flaresolverr-wait" or a.startswith("--flaresolverr-wait=") or
-        a == "--flaresolverr-proxy" or a.startswith("--flaresolverr-proxy=")
+        a == "--flaresolverr-proxy" or a.startswith("--flaresolverr-proxy=") or
+        a == "--cloudflare-priority" or a.startswith("--cloudflare-priority=")
         for a in sys.argv[1:]
     )
     _set_cloudflare_config(
         cf_mode,
+        priority=args.cloudflare_priority,
         flaresolverr_url=args.flaresolverr_url,
         session_policy=args.flaresolverr_session,
         timeout=args.flaresolverr_timeout,

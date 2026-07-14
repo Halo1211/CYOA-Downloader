@@ -187,6 +187,7 @@ def try_download_cyoap_vue_site(
             parsed = urlparse(referrer)
             headers.setdefault("Referer", referrer)
             headers.setdefault("Origin", f"{parsed.scheme}://{parsed.netloc}")
+        r = None
         try:
             r = fetch_response(remote_url, timeout=30, extra_headers=headers, as_bytes=True)
             if r is None:
@@ -199,6 +200,12 @@ def try_download_cyoap_vue_site(
         except Exception as e:
             record_failed(remote_url, kind, str(e))
             return None
+        finally:
+            if r is not None:
+                try:
+                    r.close()
+                except Exception:
+                    pass
 
     platform_text = fetch_remote(platform_url, kind="json", binary=False, referrer=base_url)
     if platform_text is None:

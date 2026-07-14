@@ -1,5 +1,6 @@
 """Final GUI behavior bodies consolidated from historical versioned modules."""
 from __future__ import annotations
+from collections import Counter
 from typing import Any, Dict, Optional, Tuple
 from ..app_info import DEFAULT_MAX_WORKERS
 
@@ -905,6 +906,7 @@ def _v25_manage_offline_viewers(self: Any) -> None:
     def _check_icc_update():
         status_var.set("Checking GitHub for latest ICCPlus release…" if is_en else "Mengecek rilis ICCPlus terbaru di GitHub…")
         def _do_check():
+            r = None
             try:
                 api = "https://api.github.com/repos/wahawa303/ICCPlus/releases/latest"
                 r = fetch_response(api, timeout=8, extra_headers={"User-Agent": "CYOA-Downloader"})
@@ -933,6 +935,12 @@ def _v25_manage_offline_viewers(self: Any) -> None:
                 _v25_safe_after(win, _offer)
             except Exception as exc:
                 _v25_safe_after(win, lambda e=str(exc): status_var.set(("Update check failed: " if is_en else "Cek update gagal: ") + e))
+            finally:
+                if r is not None:
+                    try:
+                        r.close()
+                    except Exception:
+                        pass
         def _do_download(tag: str, asset_name: str, asset_url: str):
             status_var.set((f"Downloading {asset_name}…" if is_en else f"Mengunduh {asset_name}…"))
             def _dl():
@@ -1365,6 +1373,7 @@ def _v25_cloudflare_panel(self: Any) -> None:
     footer.grid_columnconfigure(0, weight=1)
 
     mode_var = ctk.StringVar(value=_display_cloudflare_mode(st.get("cloudflare_mode", _CLOUDFLARE_MODE)))
+    priority_var = ctk.StringVar(value=_display_cloudflare_priority(st.get("cloudflare_priority", "flaresolverr_first")))
     url_var = ctk.StringVar(value=st.get("flaresolverr_url", _FLARESOLVERR_URL))
     sess_var = ctk.StringVar(value=st.get("flaresolverr_session_policy", _FLARESOLVERR_SESSION_POLICY))
     timeout_var = ctk.StringVar(value=str(st.get("flaresolverr_timeout", _FLARESOLVERR_TIMEOUT)))
@@ -1385,6 +1394,13 @@ def _v25_cloudflare_panel(self: Any) -> None:
     ctk.CTkOptionMenu(mode_card, variable=mode_var, values=["Off", "Auto", "cloudscraper", "FlareSolverr"],
                       fg_color=p["surface2"], button_color=p["surface"], button_hover_color=p["surface2"], text_color=p["fg"],
                       dropdown_fg_color=p["surface"], dropdown_text_color=p["fg"]).grid(row=2, column=1, sticky="ew", padx=(0, 12), pady=(0, 14))
+    ctk.CTkLabel(mode_card, text=("Auto fallback priority" if is_en else "Prioritas fallback Auto"),
+                 text_color=p["muted"], anchor="w").grid(row=3, column=1, sticky="w", padx=(0, 12), pady=(0, 2))
+    ctk.CTkOptionMenu(mode_card, variable=priority_var,
+                      values=["FlareSolverr first", "cloudscraper first"],
+                      fg_color=p["surface2"], button_color=p["surface"], button_hover_color=p["surface2"],
+                      text_color=p["fg"], dropdown_fg_color=p["surface"], dropdown_text_color=p["fg"]).grid(
+        row=4, column=1, sticky="ew", padx=(0, 12), pady=(0, 14))
 
     session_card = card(0, 1, "Session", ("Reuse-domain avoids recreating solver sessions too often." if is_en else "Reuse-domain mengurangi pembuatan sesi solver berulang."), "🧭")
     ctk.CTkOptionMenu(session_card, variable=sess_var, values=["temporary", "reuse-domain", "manual"],
@@ -1411,7 +1427,7 @@ def _v25_cloudflare_panel(self: Any) -> None:
                     "Auto · reuse-domain · timeout 60s · proxy inherit" if is_en else "Auto · reuse-domain · timeout 60 detik · proxy inherit", "✅")
     ctk.CTkButton(rec_card, text=("Apply recommended" if is_en else "Pakai rekomendasi"),
                   fg_color="#065f46", hover_color="#047857", text_color="#d1fae5",
-                  command=lambda: (mode_var.set("Auto"), sess_var.set("reuse-domain"), timeout_var.set("60"), wait_var.set("3"), proxy_var.set("inherit"), status_var.set("Recommended values applied." if is_en else "Nilai rekomendasi diterapkan."))).grid(row=2, column=1, sticky="w", padx=(0, 12), pady=(0, 14))
+                  command=lambda: (mode_var.set("Auto"), priority_var.set("FlareSolverr first"), sess_var.set("reuse-domain"), timeout_var.set("60"), wait_var.set("3"), proxy_var.set("inherit"), status_var.set("Recommended values applied." if is_en else "Nilai rekomendasi diterapkan."))).grid(row=2, column=1, sticky="w", padx=(0, 12), pady=(0, 14))
 
     status_card = card(2, 1, "Status", "Connection test and session cleanup results appear here." if is_en else "Hasil tes koneksi dan pembersihan sesi tampil di sini.", "📡")
     ctk.CTkLabel(status_card, textvariable=status_var, text_color=p["accent"], anchor="w", justify="left", wraplength=340).grid(row=2, column=1, sticky="ew", padx=(0, 12), pady=(0, 14))
@@ -1421,7 +1437,7 @@ def _v25_cloudflare_panel(self: Any) -> None:
         except Exception: timeout_s = 60
         try: wait_s = int(wait_var.get() or 3)
         except Exception: wait_s = 3
-        _set_cloudflare_config(mode_var.get(), flaresolverr_url=url_var.get(), session_policy=sess_var.get(), timeout=timeout_s, wait_after=wait_s, proxy_mode=proxy_var.get(), persist=persist)
+        _set_cloudflare_config(mode_var.get(), priority=_normalize_cloudflare_priority(priority_var.get()), flaresolverr_url=url_var.get(), session_policy=sess_var.get(), timeout=timeout_s, wait_after=wait_s, proxy_mode=proxy_var.get(), persist=persist)
         try: self._cf_mode_var.set(_display_cloudflare_mode(_CLOUDFLARE_MODE))
         except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in apply_settings (line 20952): %s", _ignored_exc)
 
@@ -2130,7 +2146,21 @@ def _v46_start(self) -> None:
         outdir = os.getcwd()
 
     run_items = [dict(item) for item in self._queue_data]
+    # Snapshot the output identity together with the URL. Queue rows remain
+    # editable/reorderable while a run is active; the worker must never derive
+    # a later folder name from mutable UI state.
+    for item in run_items:
+        requested_name = str(item.get("filename") or "").strip()
+        item["_run_file_name"] = requested_name or _build_output_name(str(item.get("url") or ""))
+    self._active_run_queue_ids = {
+        str(it.get("_queue_id") or "")
+        for it in run_items
+        if it.get("_queue_id")
+    }
+    # Compatibility field for older completion paths. The active v46 done
+    # handler removes by row identity, not URL, so duplicate URLs are safe.
     self._active_run_urls = {str(it.get("url", "")) for it in run_items if it.get("url")}
+    self._active_run_success_ids = set()
     self._cancel_event.clear()
     self._paused.set()
     self._run_started_wall = time.time()
@@ -2199,6 +2229,13 @@ def _v46_worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_a
     self._last_results = []
     cancelled = False
     skipped_count = 0
+    # Resume state historically keyed only by URL. That is fine for a single
+    # queue row, but it incorrectly skipped the second occurrence when a user
+    # intentionally queued the same CYOA twice. Duplicate rows are therefore
+    # treated as explicit jobs for this run; each still gets its unique output
+    # name/folder from the queue snapshot.
+    url_counts = Counter(str(item.get("url") or "") for item in items if item.get("url"))
+    duplicate_urls = {url for url, count in url_counts.items() if count > 1}
 
     # Surface prior-session state on the queue dots before the
     # run starts, matching the legacy GUI worker. `prev_failed` was previously
@@ -2208,13 +2245,17 @@ def _v46_worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_a
     # is restored.
     for _idx0, _item0 in enumerate(items):
         _u0 = str(_item0.get("url") or "")
-        if _u0 in completed:
+        if _u0 in completed and _u0 not in duplicate_urls:
             self._set_dot(_idx0, "done")
         elif _u0 in prev_failed:
             self._set_dot(_idx0, "error")
 
     try:
-        auto_items = [it for it in items if it.get("mode", default_mode) == "auto" and it.get("url") not in completed]
+        auto_items = [
+            it for it in items
+            if it.get("mode", default_mode) == "auto"
+            and (it.get("url") not in completed or it.get("url") in duplicate_urls)
+        ]
         if auto_items:
             self._set_status(f"Auto-detecting mode for {len(auto_items)} URL(s)…")
             self._v46_enqueue_progress({"type": "stage_changed", "state": DownloadState.RESOLVING.value, "time": time.monotonic()})
@@ -2227,10 +2268,12 @@ def _v46_worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_a
             _raise_if_cancelled()
             url = str(item.get("url") or "")
             mode = str(item.get("mode") or default_mode or "auto")
-            if url in completed:
+            if url in completed and url not in duplicate_urls:
                 skipped_count += 1
                 self._last_results.append({"url": url, "mode": mode, "status": "SKIP", "filename": item.get("filename", ""), "error": "Already completed"})
                 self._set_dot(idx - 1, "skip")
+                if item.get("_queue_id"):
+                    self._active_run_success_ids.add(str(item["_queue_id"]))
                 self._v46_enqueue_progress({"type": "job_started", "job_index": idx, "total_jobs": len(items), "mode": mode, "source_url": url, "time": time.monotonic()})
                 self._v46_enqueue_progress({"type": "job_completed", "failed_assets": 0, "time": time.monotonic()})
                 continue
@@ -2249,7 +2292,7 @@ def _v46_worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_a
                 is_cyoap = mode in {"cyoap_vue_zip", "cyoap_vue_folder"}
                 run_download(
                     url=url,
-                    file_name=item.get("filename", ""),
+                    file_name=item.get("_run_file_name", item.get("filename", "")),
                     zip_output=(mode == "zip"),
                     both_output=(mode == "both"),
                     website_output=(mode in {"website", "website_zip", "website_folder", "cyoap_vue_zip", "cyoap_vue_folder"}),
@@ -2267,6 +2310,8 @@ def _v46_worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_a
                 )
                 _raise_if_cancelled()
                 completed_urls.append(url)
+                if item.get("_queue_id"):
+                    self._active_run_success_ids.add(str(item["_queue_id"]))
                 self._last_results.append({"url": url, "mode": mode, "status": "OK", "filename": item.get("filename", ""), "error": ""})
                 self._set_dot(idx - 1, "done")
                 _record_history(url, item.get("filename", ""), mode, success=True)
@@ -2334,10 +2379,13 @@ def _v46_done(self) -> None:
     else:
         self._v46_enqueue_progress({"type": "stage_changed", "state": DownloadState.COMPLETED.value, "time": time.monotonic()})
     _send_desktop_notification("CYOA Downloader", status)
-    successful_urls = {r.get("url") for r in self._last_results if r.get("status") in {"OK", "SKIP"}}
-    if successful_urls and not failed and not cancelled:
-        self._remove_urls_from_queue(set(successful_urls))
+    successful_ids = set(getattr(self, "_active_run_success_ids", set()))
+    if successful_ids:
+        removed = self._remove_queue_ids_from_queue(successful_ids)
+        logger.info("[Queue] Removed %s completed row(s) by queue identity.", removed)
     self._active_run_urls = set()
+    self._active_run_queue_ids = set()
+    self._active_run_success_ids = set()
     if sys.modules.get(__name__) is not None:
         sys.modules[__name__]._gui_speed_cb = None
         sys.modules[__name__]._ytdlp_gui_progress_cb = None
@@ -2416,7 +2464,10 @@ def _v46_poll_progress(self) -> None:
     except Exception:
         return
     drained = 0
-    while drained < 300:
+    # Limit work per Tk tick. A large asset batch can emit thousands of
+    # progress events; draining/rendering all of them in one callback freezes
+    # the window on low-spec machines and delays the Cancel button.
+    while drained < 100:
         try:
             event = self._v46_progress_queue.get_nowait()
         except log_queue_module.Empty:
@@ -2439,7 +2490,8 @@ def _v46_poll_progress(self) -> None:
         self._v46_render_progress(snapshot)
     except Exception as exc:
         logger.debug(f"Progress render failed: {exc}")
-    self._v46_progress_after_id = self.root.after(125, self._v46_poll_progress)
+    next_delay = 75 if drained >= 100 else 150
+    self._v46_progress_after_id = self.root.after(next_delay, self._v46_poll_progress)
 
 def _v46_render_progress(self, s: Dict[str, Any]) -> None:
     # v46.9: localize displayed text only. state_disp is for the UI; every

@@ -50,15 +50,16 @@ def _is_probable_raw_cdn_asset(url: str) -> bool:
 _image_hash_map = {}   # sha256 → first local path (dedup)
 _hash_lock = _threading.Lock()
 
-def _check_image_dedup(content: bytes, local_path: str) -> Optional[str]:
-    """Check if identical content already downloaded this session."""
+def _check_image_dedup(content: bytes, local_path: str, scope: str = "") -> Optional[str]:
+    """Check for identical content within one output scope."""
     if not content:
         return None
     h = _hashlib.sha256(content).hexdigest()
+    key = (scope or "", h)
     with _hash_lock:
-        if h in _image_hash_map:
-            return _image_hash_map[h]
-        _image_hash_map[h] = local_path
+        if key in _image_hash_map:
+            return _image_hash_map[key]
+        _image_hash_map[key] = local_path
     return None
 
 

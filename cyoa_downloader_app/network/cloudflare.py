@@ -46,6 +46,27 @@ def _display_cloudflare_mode(mode: str) -> str:
     return {"off": "Off", "auto": "Auto", "cloudscraper": "cloudscraper", "flaresolverr": "FlareSolverr"}.get(m, "Auto")
 
 
+def _normalize_cloudflare_priority(priority: str) -> str:
+    """Normalize the Auto-mode fallback preference."""
+    value = (priority or "flaresolverr_first").strip().lower().replace(" ", "_").replace("-", "_")
+    aliases = {
+        "flaresolverr": "flaresolverr_first",
+        "flare_solverr": "flaresolverr_first",
+        "flaresolverr_first": "flaresolverr_first",
+        "cloudscraper": "cloudscraper_first",
+        "cloud_scraper": "cloudscraper_first",
+        "cloudscraper_first": "cloudscraper_first",
+    }
+    return aliases.get(value, "flaresolverr_first")
+
+
+def _display_cloudflare_priority(priority: str) -> str:
+    return {
+        "flaresolverr_first": "FlareSolverr first",
+        "cloudscraper_first": "cloudscraper first",
+    }[_normalize_cloudflare_priority(priority)]
+
+
 def _normalize_flaresolverr_url(url: str) -> str:
     u = (url or "http://localhost:8191/v1").strip().rstrip("/")
     if not u:
@@ -67,6 +88,7 @@ def _load_cloudflare_settings() -> None:
     st = l._load_settings()
     _set_cloudflare_config(
         mode=st.get("cloudflare_mode", "auto"),
+        priority=st.get("cloudflare_priority", "flaresolverr_first"),
         flaresolverr_url=st.get("flaresolverr_url", "http://localhost:8191/v1"),
         session_policy=st.get("flaresolverr_session_policy", "reuse-domain"),
         timeout=l._coerce_int(st.get("flaresolverr_timeout", 60), 60),
@@ -79,6 +101,7 @@ def _load_cloudflare_settings() -> None:
 def _set_cloudflare_config(
     mode: str = "auto",
     *,
+    priority: str = "",
     flaresolverr_url: str = "",
     session_policy: str = "",
     timeout: int = 60,
@@ -90,6 +113,9 @@ def _set_cloudflare_config(
     l = legacy()
     old_mode = getattr(l, "_CLOUDFLARE_MODE", "auto")
     l._CLOUDFLARE_MODE = _normalize_cloudflare_mode(mode)
+    l._CLOUDFLARE_PRIORITY = _normalize_cloudflare_priority(
+        priority or getattr(l, "_CLOUDFLARE_PRIORITY", "flaresolverr_first")
+    )
     l.use_cloudscraper = (l._CLOUDFLARE_MODE == "cloudscraper")
     if flaresolverr_url:
         l._FLARESOLVERR_URL = _normalize_flaresolverr_url(flaresolverr_url)
@@ -114,6 +140,7 @@ def _set_cloudflare_config(
         try:
             l._update_settings({
                 "cloudflare_mode": l._CLOUDFLARE_MODE,
+                "cloudflare_priority": l._CLOUDFLARE_PRIORITY,
                 "flaresolverr_url": l._FLARESOLVERR_URL,
                 "flaresolverr_session_policy": l._FLARESOLVERR_SESSION_POLICY,
                 "flaresolverr_timeout": l._FLARESOLVERR_TIMEOUT,

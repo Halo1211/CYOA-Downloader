@@ -33,6 +33,7 @@ def _check_for_app_updates() -> Optional[Dict[str, str]]:
     """
     if not _GITHUB_RELEASE_API:
         return None
+    r = None
     try:
         r = fetch_response(_GITHUB_RELEASE_API, timeout=8,
                            extra_headers={"Accept": "application/vnd.github+json",
@@ -65,6 +66,12 @@ def _check_for_app_updates() -> Optional[Dict[str, str]]:
             }
     except Exception as _ignored_exc:
         logger.debug("Ignored recoverable exception in _check_for_app_updates: %s", _ignored_exc)
+    finally:
+        if r is not None:
+            try:
+                r.close()
+            except Exception as _close_exc:
+                logger.debug("Update response close failed: %s", _close_exc)
     return None
 
 

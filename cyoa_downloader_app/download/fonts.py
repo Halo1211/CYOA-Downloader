@@ -8,7 +8,7 @@ import os
 import re
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional, Set, Tuple
-from urllib.parse import quote, urljoin, urlparse
+from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlparse, urlunparse
 
 try:
     from bs4 import BeautifulSoup  # type: ignore
@@ -201,6 +201,26 @@ def _find_font_urls(
     return results
 
 
+def _font_url_identity(url: str) -> str:
+    """Canonical identity for a static font URL, ignoring cache-busters."""
+    try:
+        parsed = urlparse(str(url).strip())
+        cache_busters = {
+            "v", "ver", "version", "cb", "cache", "cachebust",
+            "cache_bust", "cachebuster", "t", "ts", "timestamp", "_", "dpl",
+        }
+        query = [
+            (key, value) for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+            if key.lower() not in cache_busters
+        ]
+        return urlunparse((
+            parsed.scheme.lower(), parsed.netloc.lower(), parsed.path or "/",
+            "", urlencode(query), "",
+        ))
+    except Exception:
+        return str(url).split("#", 1)[0]
+
+
 def analyse_fonts(project_str: str, base_url: str, html_source: str = "") -> None:
     fonts = _find_font_urls(project_str, base_url, html_source=html_source)
     if not fonts:
@@ -234,12 +254,20 @@ def _download_fonts_into_folder(
     os.makedirs(fonts_dir, exist_ok=True)
     logger.info(f"Downloading {len(fonts)} font(s)…")
 
+    # Group cache-busted aliases so one static font is fetched once while all
+    # original URL spellings can still be rewritten to the same local path.
+    font_groups: Dict[str, List[Tuple[str, str]]] = {}
+    for font_url, description in fonts.items():
+        font_groups.setdefault(_font_url_identity(font_url), []).append((font_url, description))
+    representatives = [items[0] for items in font_groups.values()]
+
     # Track saved filenames to avoid collisions
     saved_names: Dict[str, str] = {}   # basename → full path
     url_to_local: Dict[str, str] = {}
 
     def _download_one_font(item: Tuple[str, str]) -> Tuple[str, Optional[bytes]]:
         font_url, source = item
+        r = None
         try:
             r = fetch_response(
                 font_url, timeout=20,
@@ -257,10 +285,16 @@ def _download_fonts_into_folder(
         except Exception as e:
             logger.error(f"  Font failed: {font_url} — {e}")
             return font_url, None
+        finally:
+            if r is not None:
+                try:
+                    r.close()
+                except Exception:
+                    pass
 
     # Download in parallel
-    with ThreadPoolExecutor(max_workers=min(len(fonts), 6)) as ex:
-        for font_url, content in ex.map(_download_one_font, fonts.items()):
+    with ThreadPoolExecutor(max_workers=min(len(representatives), 6)) as ex:
+        for font_url, content in ex.map(_download_one_font, representatives):
             if content is None:
                 continue
             raw_fn = os.path.basename(urlparse(font_url).path) or hashlib.md5(font_url.encode()).hexdigest()[:8] + ".woff2"
@@ -268,19 +302,35 @@ def _download_fonts_into_folder(
             base_fn, ext_fn = os.path.splitext(raw_fn)
             fn = raw_fn
             counter = 1
-            while fn in saved_names and saved_names[fn] != os.path.join(fonts_dir, fn):
-                fn = f"{base_fn}_{counter}{ext_fn}"
-                counter += 1
             save_path = os.path.join(fonts_dir, fn)
-            # Fix: skip if WebsiteDownloader already saved this font
+            # A same-name file may have come from WebsiteDownloader. Reuse it
+            # only when the bytes match; otherwise allocate a sibling so a
+            # different font is never silently replaced.
+            existing_different = False
             if os.path.exists(save_path):
-                logger.debug(f"  Font already exists (skipping re-download): {fn}")
-                saved_names[fn] = save_path
-                url_to_local[font_url] = f"fonts/{fn}"
-                continue
+                try:
+                    with open(save_path, "rb") as existing_file:
+                        same_bytes = existing_file.read() == content
+                except OSError:
+                    same_bytes = False
+                if same_bytes:
+                    logger.debug(f"  Font already exists (same bytes): {fn}")
+                    saved_names[fn] = save_path
+                    local_name = f"fonts/{fn}"
+                    for alias, _ in font_groups[_font_url_identity(font_url)]:
+                        url_to_local[alias] = local_name
+                    continue
+                existing_different = True
+            if existing_different or fn in saved_names:
+                while os.path.exists(save_path) or fn in saved_names:
+                    fn = f"{base_fn}_{counter}{ext_fn}"
+                    counter += 1
+                    save_path = os.path.join(fonts_dir, fn)
             atomic_write_bytes(save_path, content)
             saved_names[fn] = save_path
-            url_to_local[font_url] = f"fonts/{fn}"
+            local_name = f"fonts/{fn}"
+            for alias, _ in font_groups[_font_url_identity(font_url)]:
+                url_to_local[alias] = local_name
             logger.info(f"  Saved font: {fn}  ({fonts[font_url]})")
 
     # Rewrite project_str

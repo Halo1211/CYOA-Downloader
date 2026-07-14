@@ -199,6 +199,7 @@ def import_queue_items_from_source(source: str) -> List[Dict[str, str]]:
     if not is_probable_url(source):
         return []
     url = _google_sheet_csv_export_url(source) if "docs.google.com/spreadsheets" in source else source
+    r = None
     try:
         r = fetch_response(url, timeout=30, extra_headers={"User-Agent": "Mozilla/5.0"}, as_bytes=True)
         if r is None:
@@ -207,6 +208,12 @@ def import_queue_items_from_source(source: str) -> List[Dict[str, str]]:
     except Exception as e:
         logger.error(f"Failed to import remote list: {e}")
         return []
+    finally:
+        if r is not None:
+            try:
+                r.close()
+            except Exception:
+                pass
 
     rows = list(csv.reader(io.StringIO(text)))
     if not rows:

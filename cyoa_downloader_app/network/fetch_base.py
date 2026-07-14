@@ -117,6 +117,9 @@ def base_fetch_response(
             else:
                 raise requests.TooManyRedirects(f"Too many redirects: {url}")
             if is_cloudflare_challenge(r):
+                # Challenge responses are probes for the next backend; close
+                # them before escalating so retries do not exhaust the pool.
+                r.close()
                 return "CF_CHALLENGE"
             if return_error_response and r.status_code in {429, 500, 502, 503, 504}:
                 return r
@@ -184,6 +187,21 @@ def base_fetch_response(
 
     # Auto fallback chain: only escalate when a Cloudflare challenge is actually detected.
     if cf_mode == "auto" and challenge_seen:
+        priority = getattr(l, "_CLOUDFLARE_PRIORITY", "flaresolverr_first")
+        if str(priority).strip().lower() != "cloudscraper_first":
+            for label in ("flaresolverr", "cloudscraper"):
+                l.logger.info("[Cloudflare] Auto mode: trying %s fallbackâ€¦", label)
+                if label == "flaresolverr":
+                    result = fetch_via_flaresolverr(url, extra_headers=headers, timeout=timeout)
+                else:
+                    result = _do_request(use_cf_session=True, verify_ssl=True)
+                if result in {"SSL_ERROR", "CF_CHALLENGE"}:
+                    continue
+                if result is not None:
+                    l.logger.info("Downloaded: %s via %s", url, label)
+                    return result
+            l.logger.warning("Cloudflare challenge unresolved: %s", url)
+            return None
         l.logger.info("[Cloudflare] Auto mode: trying cloudscraper fallback…")
         result = _do_request(use_cf_session=True, verify_ssl=True)
         if result and result not in {"SSL_ERROR", "CF_CHALLENGE"}:
@@ -191,7 +209,7 @@ def base_fetch_response(
             return result
         l.logger.info("[Cloudflare] Auto mode: trying FlareSolverr fallback…")
         result = fetch_via_flaresolverr(url, extra_headers=headers, timeout=timeout)
-        if result is not None:
+        if result is not None and result not in {"SSL_ERROR", "CF_CHALLENGE"}:
             return result
 
     if challenge_seen:

@@ -223,6 +223,7 @@ def _base_run_download(
             # ── AI viewer analysis (diagnostic) ────────────────────────
             ai_hint = ""
             if ai_available and _ai_mode_allows("diagnostics", ai_mode):
+                _diag_resp = None
                 try:
                     _diag_resp = fetch_response(url, timeout=15, extra_headers={"User-Agent": "Mozilla/5.0"})
                     _diag_html = _safe_response_text(_diag_resp) if _diag_resp is not None else ""
@@ -243,6 +244,12 @@ def _base_run_download(
                         )
                 except Exception as _ignored_exc:
                     logger.debug("Ignored recoverable exception in run_download (line 12721): %s", _ignored_exc)
+                finally:
+                    if _diag_resp is not None:
+                        try:
+                            _diag_resp.close()
+                        except Exception:
+                            pass
 
             raise RuntimeError(
                 "Could not resolve project data (project.json / project.txt / embedded JS / zip payload).\n"
@@ -252,7 +259,11 @@ def _base_run_download(
                 + ai_hint
             )
 
-        cleaned = normalize_project_payload_text(project_source) or extract_json_like_block(project_source) or project_source
+        cleaned = normalize_project_payload_text(project_source)
+        if not cleaned:
+            raise RuntimeError(
+                "Project source was found but is not valid JSON/JSON5 project data."
+            )
         logger.info("Phase 2/4: project source resolved.")
 
         # ── Feature 4: Extract metadata ────────────────────────────────────
@@ -364,6 +375,12 @@ def _base_run_download(
                     embed=False, download=True,
                     temp_folder=tmp, wait_time=wait_time, max_workers=max_workers,
                     output_dir=output_dir, source_url=website_entry_url,
+                    # WebsiteDownloader/deep-scan may already have saved the
+                    # same project images into the ICC folder. Let the JSON
+                    # pipeline resolve relative paths against that folder so
+                    # it reuses those files instead of fetching every image a
+                    # second time.
+                    site_folder=site_folder,
                 )
                 img_src = os.path.join(tmp, "images")
                 img_dst = os.path.join(site_folder, "images")
@@ -554,12 +571,19 @@ def _base_run_download(
             _viewer_meta = _viewer_meta_normal
             if not _viewer_meta:
                 _page_html = ""
+                _rp = None
                 try:
                     _rp = fetch_response(url, timeout=8, extra_headers={"User-Agent": "Mozilla/5.0"})
                     if _rp is not None:
                         _page_html = _safe_response_text(_rp)
                 except Exception as e:
                     logger.debug(f"Offline viewer page fetch skipped: {e}")
+                finally:
+                    if _rp is not None:
+                        try:
+                            _rp.close()
+                        except Exception:
+                            pass
                 _viewer_meta = get_viewer_for_site(_page_html, mode=output_mode_str)
             if _viewer_meta:
                 # Pass temp image/audio folders directly into the injected viewer.

@@ -9,6 +9,9 @@ final GUI patch stack is composed.
 
 from __future__ import annotations
 
+import uuid
+from collections import Counter
+
 
 def _sync_legacy_globals(namespace: dict) -> type:
     """Expose legacy module globals to mechanically moved GUI methods.
@@ -838,14 +841,8 @@ class CYOADownloaderGUI:
                 "🌐", self._manage_offline_viewers)
         r += 1
 
-        r = _section(r, "Maintenance" if is_en else "Pemeliharaan")
-        _action(r, 0, "Image Cache" if is_en else "Cache Gambar",
-                "Inspect or clear the disk image cache." if is_en else "Periksa atau bersihkan cache gambar di disk.",
-                "💾", self._cache_manager_panel)
-        # Update Center intentionally not exposed in the GUI anymore.
-        # It requires a repository-specific _GITHUB_RELEASE_API and caused
-        # confusing dead-end UX for normal users. Keep the internal helper
-        # for backward compatibility, but do not render a Settings card.
+        # Batch Check and Image Cache remain available as internal compatibility
+        # methods, but are intentionally not exposed in the normal GUI.
 
         footer = ctk.CTkFrame(root, fg_color=p["panel"], corner_radius=0, height=48)
         footer.grid(row=2, column=0, sticky="ew")
@@ -1357,7 +1354,15 @@ class CYOADownloaderGUI:
         self._fonts_var   = ctk.BooleanVar(value=True)
         self._analyse_var = ctk.BooleanVar(value=True)
         self._cf_mode_var = ctk.StringVar(value=_display_cloudflare_mode(_load_settings().get("cloudflare_mode", "auto")))
-        self._http2_var = ctk.BooleanVar(value=bool(_load_settings().get("http2_enabled", False)))
+        _http2_saved = bool(_load_settings().get("http2_enabled", False))
+        if _http2_saved:
+            try:
+                from ..network.throttle import http2_runtime_info
+                _http2_saved = bool(http2_runtime_info()["available"])
+            except Exception as _http2_probe_exc:
+                _http2_saved = False
+                logger.debug("HTTP/2 startup capability probe failed: %s", _http2_probe_exc)
+        self._http2_var = ctk.BooleanVar(value=_http2_saved)
         self._ytdlp_var   = ctk.BooleanVar(value=True)
 
         _chk(row2, "Fonts", self._fonts_var, cmd=self._on_fonts_toggle).pack(side="left", padx=(0, px := 12))
@@ -1672,8 +1677,6 @@ class CYOADownloaderGUI:
         _pill(
             rowB1, "Retry Audio", self._retry_youtube_audio, icon="🎵", width=90,
             bg="retry_audio_bg", fg="retry_audio_fg", hv="retry_audio_hv").pack(
-            side="left", padx=(0, 1), pady=3)
-        _pill(rowB1, "Batch Check", self._batch_update_panel, icon="📥", width=92).pack(
             side="left", padx=(0, 1), pady=3)
         _sep(rowB1)
 
@@ -2025,18 +2028,34 @@ class CYOADownloaderGUI:
 
     def _on_http2_toggle(self) -> None:
         enabled = bool(self._http2_var.get())
-        _set_http2_enabled(enabled)
-        if enabled and not _HTTP2_ENABLED:
+        # _HTTP2_ENABLED is copied into this module during compatibility
+        # bootstrap, so reading it here can return the old value even though
+        # throttle.py successfully enabled HTTP/2 in runtime.state.
+        final_enabled = bool(_set_http2_enabled(enabled))
+        if enabled and not final_enabled:
             self._http2_var.set(False)
             from tkinter import messagebox
+            import sys as _sys
+            from ..network.throttle import http2_runtime_info
+            _http2_info = http2_runtime_info()
+            _install_cmd = f'"{_sys.executable}" -m pip install "httpx[http2]"'
+            _reason = _http2_info.get("detail") or "httpx[http2] belum lengkap"
             if getattr(self, "_language", "id") == "en":
-                title = "httpx not installed"
-                body = "Install it first:\n\n  pip install httpx[http2]\n\nthen restart the program and re-enable HTTP/2."
+                title = "HTTP/2 dependency unavailable"
+                body = (
+                    f"The active Python cannot use HTTP/2:\n\n{_reason}\n\n"
+                    f"Install into this exact Python:\n  {_install_cmd}\n\n"
+                    "Then restart the program and re-enable HTTP/2."
+                )
             else:
-                title = "httpx belum terpasang"
-                body = "Instal terlebih dahulu:\n\n  pip install httpx[http2]\n\nlalu mulai ulang program dan aktifkan kembali HTTP/2."
+                title = "Dependensi HTTP/2 belum tersedia"
+                body = (
+                    f"Python yang sedang menjalankan program belum bisa memakai HTTP/2:\n\n{_reason}\n\n"
+                    f"Instal ke Python yang sama:\n  {_install_cmd}\n\n"
+                    "Lalu mulai ulang program dan aktifkan kembali HTTP/2."
+                )
             messagebox.showwarning(title, body)
-        final_enabled = bool(self._http2_var.get())
+        final_enabled = bool(self._http2_var.get()) and final_enabled
         _update_setting("http2_enabled", final_enabled)
         logger.info(f"[Feature] HTTP/2: {'enabled' if final_enabled else 'disabled'}")
 
@@ -2605,6 +2624,10 @@ class CYOADownloaderGUI:
         import customtkinter as ctk
         import tkinter as tk
         idx = len(self._queue_rows)
+        # Keep the editor bound to its item, not to its original list index.
+        # Removing/reordering another row changes list indices and used to make
+        # a filename edit land on a different CYOA during a batch run.
+        item_ref = self._queue_data[idx] if idx < len(self._queue_data) else None
         p   = self._p()
 
         row = ctk.CTkFrame(self._qlist, corner_radius=6,
@@ -2643,8 +2666,8 @@ class CYOADownloaderGUI:
         fn_entry.grid(row=1, column=2, sticky="ew", padx=4, pady=(0, 6))
 
         def _on_fn_change(*_):
-            if idx < len(self._queue_data):
-                self._queue_data[idx]["filename"] = fn_var.get().strip()
+            if item_ref is not None and any(candidate is item_ref for candidate in self._queue_data):
+                item_ref["filename"] = fn_var.get().strip()
         fn_var.trace_add("write", _on_fn_change)
 
         # Badge
@@ -2757,11 +2780,9 @@ class CYOADownloaderGUI:
         url = self._url_var.get().strip()
         if not url:
             return
-        # Dedup: skip if exact URL already in queue
-        if any(it["url"] == url for it in self._queue_data):
-            logger.warning(f"URL sudah ada di queue: {url[:60]}")
-            self._url_var.set("")
-            return
+        # Duplicate URLs are valid separate jobs.  The worker uses each row's
+        # _queue_id for resume/removal bookkeeping, so users can intentionally
+        # download the same CYOA twice with different output identities.
         # History: auto-suffix filename if previously downloaded
         prev = _check_history(url)
         if prev:
@@ -2788,7 +2809,12 @@ class CYOADownloaderGUI:
                     suffix += 1
                     fn = f"{base_fn}_{suffix}"
         mode = self._mode_var
-        self._queue_data.append({"url": url, "filename": fn, "mode": mode})
+        self._queue_data.append({
+            "url": url,
+            "filename": fn,
+            "mode": mode,
+            "_queue_id": uuid.uuid4().hex,
+        })
         self._make_queue_row(url, mode, fn)
         self._url_var.set("")
         self._fn_var.set("")
@@ -3015,7 +3041,8 @@ class CYOADownloaderGUI:
             item["mode"] = mode
             self._queue_data.append({"url": item["url"],
                                      "filename": item.get("filename", ""),
-                                     "mode": mode})
+                                     "mode": mode,
+                                     "_queue_id": uuid.uuid4().hex})
             self._make_queue_row(item["url"], mode, item.get("filename", ""))
         logger.info(f"Imported {len(items)} item(s) from {path}")
 
@@ -3371,6 +3398,13 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
         # allows users to add more URLs while a run is active; those new rows
         # must remain queued after the current snapshot finishes.
         run_items = list(self._queue_data)
+        self._active_run_queue_ids = {
+            str(it.get("_queue_id") or "")
+            for it in run_items
+            if it.get("_queue_id")
+        }
+        # Keep the URL set for older fallback code; active v46 completion uses
+        # the row identities above so same-URL rows cannot remove each other.
         self._active_run_urls = {str(it.get("url", "")) for it in run_items if it.get("url")}
 
         self._is_running = True
@@ -3502,7 +3536,15 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                         # Try page fetch through the shared HTTP pipeline so proxy, DNS,
                         # Cloudflare mode, and FlareSolverr settings are respected.
                         try:
-                            rp = fetch_response(url, timeout=6, extra_headers={"User-Agent": "Mozilla/5.0"})
+                            rp = None
+                            try:
+                                rp = fetch_response(url, timeout=6, extra_headers={"User-Agent": "Mozilla/5.0"})
+                            finally:
+                                if rp is not None:
+                                    try:
+                                        rp.close()
+                                    except Exception:
+                                        pass
                             if rp is not None and rp.status_code < 400:
                                 detail = "Page OK — might need JS scan"
                                 color  = "#f59e0b"
@@ -3599,14 +3641,19 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
         state       = load_resume_state(outdir)
         completed   = set(state["completed"])
         prev_failed = set(f["url"] if isinstance(f, dict) else f for f in state["failed"])
+        url_counts = Counter(str(item.get("url") or "") for item in items if item.get("url"))
+        duplicate_urls = {url for url, count in url_counts.items() if count > 1}
 
-        skipped_count = sum(1 for it in items if it["url"] in completed)
+        skipped_count = sum(
+            1 for it in items
+            if it["url"] in completed and it["url"] not in duplicate_urls
+        )
         if skipped_count:
             logger.info(f"[Resume] Melanjutkan dari sesi sebelumnya — {skipped_count} URL sudah selesai, di-skip")
 
         # Mark already-completed items in the queue dots
         for idx, item in enumerate(items):
-            if item["url"] in completed:
+            if item["url"] in completed and item["url"] not in duplicate_urls:
                 self._set_dot(idx, "done")
             elif item["url"] in prev_failed:
                 self._set_dot(idx, "error")
@@ -3614,12 +3661,13 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
         ok = 0
         failed_items: List[Dict[str, str]] = []
         completed_urls: List[str] = list(completed)
+        self._active_run_success_ids = set()
         self._last_results: List[Dict] = []   # populated for Results popup
 
         # ── Auto-detect phase ──────────────────────────────────────
         auto_items = [it for it in items
                       if it.get("mode", default_mode) == "auto"
-                      and it["url"] not in completed]
+                      and (it["url"] not in completed or it["url"] in duplicate_urls)]
         if auto_items:
             self._set_status(f"Auto-detecting mode for {len(auto_items)} URL(s)…")
             logger.info(f"[Auto-detect] Starting probe for {len(auto_items)} URL(s)…")
@@ -3639,7 +3687,8 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                             text=m.replace("_", " ") + " *", fg_color=bg, text_color=fg))
 
         # ── Download phase ─────────────────────────────────────────
-        pending = [it for it in items if it["url"] not in completed]
+            pending = [it for it in items
+                       if it["url"] not in completed or it["url"] in duplicate_urls]
         total   = len(items)
 
         for i, item in enumerate(pending):
@@ -3656,8 +3705,10 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 break
 
             # Skip already completed
-            if url in completed:
+            if url in completed and url not in duplicate_urls:
                 ok += 1
+                if item.get("_queue_id"):
+                    self._active_run_success_ids.add(str(item["_queue_id"]))
                 self._set_dot(real_idx, "done")
                 continue
 
@@ -3693,6 +3744,8 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 )
                 ok += 1
                 completed_urls.append(url)
+                if item.get("_queue_id"):
+                    self._active_run_success_ids.add(str(item["_queue_id"]))
                 self._last_results.append({
                     "url": url, "mode": mode, "status": "OK",
                     "filename": item.get("filename", ""), "error": ""
@@ -4418,8 +4471,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
     def _retry_youtube_audio(self) -> None:
         """Re-download YouTube audio from skipped_youtube_audio.txt."""
         import glob as _glob
-        p = self._p()
-        out = self._outdir_var.get()
+        out = os.path.abspath(self._outdir_var.get() or os.getcwd())
         skip_files = _glob.glob(os.path.join(out, "**", "skipped_youtube_audio.txt"),
                                 recursive=True)
         if not skip_files:
@@ -4441,8 +4493,6 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             self._set_status("No YouTube URLs to retry.")
             return
 
-        audio_dir = os.path.join(out, "audio")
-        os.makedirs(audio_dir, exist_ok=True)
         self._set_status(f"Retry {len(urls)} YouTube audio…")
 
         import threading as _thr
@@ -4451,10 +4501,71 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             _mod = sys.modules.get(__name__)
             if _mod is not None:
                 _mod._ytdlp_gui_progress_cb = self._on_ytdlp_progress
-            result = _download_youtube_audio(urls, audio_dir, log_dir=out)
-            if _mod is not None:
-                _mod._ytdlp_gui_progress_cb = None
-            ok = len(result)
+            ok = 0
+            try:
+                # Use each project's folder as the download root. The old code
+                # passed ``out/audio`` here, which created ``audio/audio`` and
+                # never changed the project JSON after a successful retry.
+                json_files: List[str] = []
+                for root, _dirs, files in os.walk(out):
+                    for name in files:
+                        if not name.endswith(".json") or name.endswith("_metadata.json"):
+                            continue
+                        if name in {"download_state.json", "download_history.json"}:
+                            continue
+                        json_files.append(os.path.join(root, name))
+
+                groups: Dict[str, Dict[str, Any]] = {}
+                unmatched = set(urls)
+                for json_path in json_files:
+                    try:
+                        with open(json_path, encoding="utf-8", errors="replace") as fh:
+                            project_text = fh.read()
+                    except OSError as exc:
+                        logger.warning("Cannot read %s during audio retry: %s", json_path, exc)
+                        continue
+                    matching = {url for url in urls if url in project_text}
+                    if not matching:
+                        continue
+                    folder = os.path.dirname(json_path)
+                    group = groups.setdefault(folder, {"urls": set(), "projects": []})
+                    group["urls"].update(matching)
+                    group["projects"].append((json_path, project_text))
+                    unmatched.difference_update(matching)
+
+                if unmatched:
+                    groups.setdefault(out, {"urls": set(), "projects": []})["urls"].update(unmatched)
+                if not groups:
+                    groups[out] = {"urls": set(urls), "projects": []}
+
+                downloaded_total = 0
+                patched_total = 0
+                for folder, group in groups.items():
+                    result = _download_youtube_audio(
+                        sorted(group["urls"]), folder, log_dir=folder,
+                    )
+                    downloaded_total += len(result)
+                    for json_path, project_text in group["projects"]:
+                        patched = _patch_youtube_refs_in_json(project_text, result)
+                        if patched == project_text:
+                            continue
+                        try:
+                            with open(json_path, "w", encoding="utf-8") as fh:
+                                fh.write(patched)
+                            patched_total += 1
+                            logger.info("Updated audio paths: %s", json_path)
+                        except OSError as exc:
+                            logger.error("Audio project update failed for %s: %s", json_path, exc)
+                logger.info(
+                    "[Retry Audio] %s track(s) downloaded, %s project file(s) patched.",
+                    downloaded_total, patched_total,
+                )
+                ok = downloaded_total
+            except Exception as exc:
+                logger.exception("[Retry Audio] failed: %s", exc)
+            finally:
+                if _mod is not None:
+                    _mod._ytdlp_gui_progress_cb = None
             self.root.after(0, lambda: self._set_status(
                 f"Retry YT audio selesai: {ok}/{len(urls)} berhasil"))
 
@@ -4481,37 +4592,47 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
         """
         import customtkinter as ctk
         from tkinter import filedialog, messagebox
+        import glob
 
-        outdir = self._outdir_var.get() or os.getcwd()
-        fail_log = os.path.join(outdir, "failed_images.txt")
+        outdir = os.path.abspath(self._outdir_var.get() or os.getcwd())
+        fail_logs = glob.glob(os.path.join(outdir, "**", "failed_images.txt"), recursive=True)
 
-        if not os.path.exists(fail_log):
+        if not fail_logs:
             messagebox.showinfo("Retry Failed Images",
                                 f"failed_images.txt tidak ditemukan di:\n{outdir}")
             return
 
-        # Parse failed_images.txt — lines without # are: URL\terror
+        # Parse every per-project failed_images.txt. Batch/folder downloads
+        # write one report inside each CYOA directory, not only at outdir.
         failed_urls: List[str] = []
-        with open(fail_log, encoding="utf-8", errors="replace") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#"):
-                    url = line.split("\t")[0].strip()
-                    if url.startswith("http"):
-                        failed_urls.append(url)
+        for fail_log in fail_logs:
+            try:
+                with open(fail_log, encoding="utf-8", errors="replace") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#"):
+                            url = line.split("\t")[0].strip()
+                            if url.startswith("http") and url not in failed_urls:
+                                failed_urls.append(url)
+            except OSError as exc:
+                logger.warning("Cannot read %s during image retry: %s", fail_log, exc)
 
         if not failed_urls:
             messagebox.showinfo("Retry Failed Images",
                                 "No failed image URLs found in failed_images.txt")
             return
 
-        # Find all JSON files in output folder to patch
-        json_files = [
-            os.path.join(outdir, f)
-            for f in os.listdir(outdir)
-            if f.endswith(".json") and not f.endswith("_metadata.json")
-               and f != "download_state.json" and f != "download_history.json"
-        ]
+        # Find project JSON files recursively. ICC-folder downloads keep their
+        # project.json below a per-CYOA directory, so checking only outdir
+        # silently made Retry Images a no-op for those downloads.
+        json_files: List[str] = []
+        for root, _dirs, files in os.walk(outdir):
+            for name in files:
+                if not name.endswith(".json") or name.endswith("_metadata.json"):
+                    continue
+                if name in {"download_state.json", "download_history.json"}:
+                    continue
+                json_files.append(os.path.join(root, name))
 
         if not json_files:
             messagebox.showinfo("Retry Failed Images",
@@ -4530,6 +4651,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             import base64, mimetypes
             headers = {"User-Agent": "Mozilla/5.0"}
             patched_total = 0
+            embedded_by_url: Dict[str, str] = {}
 
             for json_path in json_files:
                 try:
@@ -4546,24 +4668,46 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 for url in failed_urls:
                     if url not in project_str:
                         continue
+                    cached_data_uri = embedded_by_url.get(url)
+                    if cached_data_uri:
+                        project_str = project_str.replace(url, cached_data_uri)
+                        project_str = project_str.replace(url.replace("/", "\\/"), cached_data_uri)
+                        changed = True
+                        patched_total += 1
+                        logger.info("  Reused retry image: %s", os.path.basename(url))
+                        continue
                     # Try to download
+                    r = None
                     try:
                         r = fetch_response(url, extra_headers=headers, timeout=30)
                         if r is None:
                             raise RuntimeError("download failed")
                         r.raise_for_status()
-                        mime  = r.headers.get("Content-Type", "").split(";")[0].strip() \
-                                or "image/webp"
-                        b64   = base64.b64encode(r.content).decode()
+                        mime  = r.headers.get("Content-Type", "").split(";")[0].strip()
+                        if not mime:
+                            mime = mimetypes.guess_type(url)[0] or "image/webp"
+                        if not mime.startswith("image/"):
+                            raise RuntimeError(f"response is not an image ({mime})")
+                        content = r.content
+                        b64   = base64.b64encode(content).decode()
                         new_  = f"data:{mime};base64,{b64}"
-                        project_str = project_str.replace(
-                            f'"{url}"', f'"{new_}"'
-                        )
+                        embedded_by_url[url] = new_
+                        # Handle both normal JSON URLs and JSON-escaped
+                        # slashes emitted by some minified viewers.
+                        project_str = project_str.replace(url, new_)
+                        project_str = project_str.replace(url.replace("/", "\\/"), new_)
                         logger.info(f"  ✓ Re-embedded: {os.path.basename(url)}")
                         changed = True
                         patched_total += 1
                     except Exception as e:
                         logger.warning(f"  ✗ Still failing: {url[:60]} — {e}")
+
+                    finally:
+                        if r is not None:
+                            try:
+                                r.close()
+                            except Exception:
+                                pass
 
                 if changed:
                     try:
@@ -4627,6 +4771,20 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 logger.debug(f"[Queue] Could not remove completed row {idx}: {e}")
         return removed
 
+    def _remove_queue_ids_from_queue(self, queue_ids: Set[str]) -> int:
+        """Remove only the exact queue rows from a completed run snapshot."""
+        if not queue_ids:
+            return 0
+        removed = 0
+        for idx in range(len(self._queue_data) - 1, -1, -1):
+            try:
+                if str(self._queue_data[idx].get("_queue_id", "")) in queue_ids:
+                    self._remove_row(idx)
+                    removed += 1
+            except Exception as e:
+                logger.debug(f"[Queue] Could not remove queue row {idx}: {e}")
+        return removed
+
     def _done_base(self) -> None:
         self._is_running = False
         self._paused.set()   # ensure unpaused for next run
@@ -4645,7 +4803,12 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             total     = int(status.split("/")[1].strip().split(" ")[0])
             if succeeded < total:
                 logger.info(f"[Queue] {total - succeeded} item gagal — queue tidak di-clear")
+                self._remove_queue_ids_from_queue(
+                    set(getattr(self, "_active_run_success_ids", set()))
+                )
                 self._active_run_urls = set()
+                self._active_run_queue_ids = set()
+                self._active_run_success_ids = set()
                 return
         except Exception as _ignored_exc:
             # Conservative on unparseable status. Previously
@@ -4658,11 +4821,13 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             # and return, matching the partial-failure branch above.
             logger.debug("Ignored recoverable exception in _done (line 8725): %s", _ignored_exc)
             self._active_run_urls = set()
+            self._active_run_queue_ids = set()
+            self._active_run_success_ids = set()
             return
 
-        active_urls = set(getattr(self, "_active_run_urls", set()))
-        if active_urls:
-            removed = self._remove_urls_from_queue(active_urls)
+        active_ids = set(getattr(self, "_active_run_success_ids", set()))
+        if active_ids:
+            removed = self._remove_queue_ids_from_queue(active_ids)
             if self._queue_data:
                 logger.info(
                     f"[Queue] Run selesai — {removed} item selesai dihapus; "
@@ -4672,6 +4837,8 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
         else:
             self._clear_queue()
         self._active_run_urls = set()
+        self._active_run_queue_ids = set()
+        self._active_run_success_ids = set()
 
     def _done(self) -> None:
         return self._dispatch_gui_patch("_v46_done", fallback=self._done_base)
@@ -6633,8 +6800,8 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 ]),
                 ("🧭  Toolbar Layout", "muted", [
                     ("Top row", "Download All, Preview, Pause/Continue, Start/Stop Serve, Open Folder, and status/progress are pinned into one compact row."),
-                    ("Settings", "AI Assist, gallery-dl config, Cloudflare/FlareSolverr, Offline Viewers, Image Cache, and settings import/export live here."),
-                    ("Recovery", "Retry Assets, Retry Images, Retry Audio, and Batch Check are direct compact toolbar buttons."),
+                    ("Settings", "AI Assist, gallery-dl config, Cloudflare/FlareSolverr, Offline Viewers, and settings import/export live here."),
+                    ("Recovery", "Retry Assets, Retry Images, and Retry Audio are direct compact toolbar buttons."),
                 ]),
             ],
             "audio": [
@@ -6663,7 +6830,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             ],
             "queue": [
                 ("📋  Queue Management", "accent", [
-                    ("Add URL", "Paste a URL and press Enter or click Add. Duplicate URLs are skipped."),
+                    ("Add URL", "Paste a URL and press Enter or click Add. Duplicate URLs are kept as separate jobs."),
                     ("Edit name", "Edit the filename field below each queued URL before downloading."),
                     ("Reorder", "Drag the handle at the left of a row to change download priority."),
                     ("Remove", "Use the row close button, Remove, or Clear All to manage the queue."),
@@ -6851,7 +7018,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             ],
             "queue": [
                 ("📋  Manajemen Antrean", "accent", [
-                    ("Tambah URL", "Tempel URL dan tekan Enter atau klik Tambah. URL duplikat dilewati."),
+                    ("Tambah URL", "Tempel URL dan tekan Enter atau klik Tambah. URL duplikat tetap menjadi job terpisah."),
                     ("Edit nama", "Edit field nama file di bawah setiap URL antrean sebelum mengunduh."),
                     ("Ubah urutan", "Seret handle di kiri baris untuk mengubah prioritas unduhan."),
                     ("Hapus", "Gunakan tombol tutup baris, Hapus, atau Bersihkan untuk mengatur antrean."),
@@ -6998,7 +7165,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             ("🧭  Current Toolbar", "muted", [
                 ("Top bar", "Download All, Preview, Pause/Continue, Start/Stop Serve, Folder, and pinned status/progress."),
                 ("Header tools", "Diagnostics sits next to Help / Guide so checks are one click away."),
-                ("Recovery bar", "Download toggles, Retry Assets, Retry Images, Retry Audio, modern Batch Check, Settings, Reports Center, and CYOA Manager."),
+                ("Recovery bar", "Download toggles, Retry Assets, Retry Images, Retry Audio, Settings, Reports Center, and CYOA Manager."),
                 ("Settings", "Default Auto Output stays at the top. Settings stays open when you open/edit files, config, cache, viewers, or update tools."),
                 ("Reports", "Opens the modern Reports Center for last-run results, filterable success/failure cards, CSV export, and failed-URL copy. Diagnostics remains one click away next to Help / Guide."),
             ]),
@@ -7620,6 +7787,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             status_var.set("Checking GitHub for latest ICCPlus release…")
 
             def _do_check():
+                r = None
                 try:
                     api = "https://api.github.com/repos/wahawa303/ICCPlus/releases/latest"
                     r   = fetch_response(api, timeout=8, extra_headers={"User-Agent": "CYOA-Downloader"})
@@ -7672,6 +7840,12 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                     # v7.5.5 fix: capture message now — `e` is deleted when the
                     # except block exits, so the deferred lambda raised NameError.
                     win.after(0, lambda msg=str(e): status_var.set(f"Update check failed: {msg}"))
+                finally:
+                    if r is not None:
+                        try:
+                            r.close()
+                        except Exception:
+                            pass
 
             def _do_download(tag, asset_name, asset_url):
                 status_var.set(f"Downloading {asset_name}…")

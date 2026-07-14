@@ -7,6 +7,7 @@ legacy facade is mirrored only when compatibility-visible globals change.
 from __future__ import annotations
 
 import random
+import sys
 import time
 from urllib.parse import urlparse
 
@@ -17,19 +18,79 @@ from ..runtime import state
 from ..runtime.compat import mirror_to_legacy
 
 
-def _set_http2_enabled(enabled: bool) -> None:
+def http2_runtime_info() -> dict:
+    """Return whether the active Python can actually construct an HTTP/2 client.
+
+    ``httpx`` alone is not sufficient: ``httpx[http2]`` also installs the
+    ``h2`` package.  Checking both modules avoids reporting HTTP/2 as missing
+    (or enabled) based only on a partial/wrong-environment installation.
+    """
+    info = {
+        "available": False,
+        "python": sys.executable,
+        "httpx_version": "",
+        "httpx_path": "",
+        "h2_version": "",
+        "h2_path": "",
+        "detail": "",
+    }
+    try:
+        import httpx  # type: ignore
+        info["httpx_version"] = str(getattr(httpx, "__version__", "unknown"))
+        info["httpx_path"] = str(getattr(httpx, "__file__", "") or "")
+    except Exception as exc:
+        info["detail"] = f"httpx import failed: {exc}"
+        return info
+    try:
+        import h2  # type: ignore
+        info["h2_version"] = str(getattr(h2, "__version__", "unknown"))
+        info["h2_path"] = str(getattr(h2, "__file__", "") or "")
+    except Exception as exc:
+        info["detail"] = (
+            f"h2 import failed: {exc}; install with "
+            f'"{sys.executable}" -m pip install "httpx[http2]"'
+        )
+        return info
+    try:
+        client = httpx.Client(http2=True)
+        client.close()
+    except Exception as exc:
+        info["detail"] = f"HTTP/2 client creation failed: {exc}"
+        return info
+    info["available"] = True
+    info["detail"] = (
+        f"httpx {info['httpx_version']} + h2 {info['h2_version']} "
+        f"({info['httpx_path']})"
+    )
+    return info
+
+
+def _set_http2_enabled(enabled: bool) -> bool:
     """Enable/disable optional HTTP/2 fetches. Falls back to requests if httpx is missing."""
     state._HTTP2_ENABLED = bool(enabled)
     if state._HTTP2_ENABLED:
-        try:
-            import httpx  # type: ignore  # noqa: F401
-            logger.info("HTTP/2 enabled for deep-scan fetches via httpx.")
-        except Exception as e:
+        info = http2_runtime_info()
+        if info["available"]:
+            logger.info("HTTP/2 enabled for deep-scan fetches: %s", info["detail"])
+        else:
             state._HTTP2_ENABLED = False
-            logger.warning(f"HTTP/2 requested but httpx is unavailable: {e}. Install: pip install httpx[http2]")
+            logger.warning(
+                "HTTP/2 requested but unavailable in active Python %s: %s. "
+                'Install with "%s" -m pip install "httpx[http2]"',
+                sys.executable,
+                info["detail"] or "httpx[http2] is incomplete",
+                sys.executable,
+            )
     else:
         logger.info("HTTP/2 disabled; using requests.")
     mirror_to_legacy("_HTTP2_ENABLED", state._HTTP2_ENABLED)
+    return bool(state._HTTP2_ENABLED)
+
+
+__all__ = [
+    "http2_runtime_info", "_set_http2_enabled", "_throttle_bandwidth",
+    "_domain_record_success", "_domain_throttle", "_domain_record_failure",
+]
 
 
 def _throttle_bandwidth(bytes_downloaded: int, *, record_gui: bool = True) -> None:

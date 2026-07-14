@@ -8,6 +8,9 @@ output names, report formats, and download behavior are unchanged.
 
 from __future__ import annotations
 
+import hashlib
+from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
+
 # The legacy module still owns several mutable GUI/network flags during the
 # transition. Import it once and copy its already-initialized public surface so
 # the moved legacy function bodies can resolve historical global names.
@@ -31,6 +34,8 @@ from .audio_reports import (
 )
 from .audio_download import _make_ytdlp_hook, _download_youtube_audio
 from .headers import get_headers_for_url
+from ..core.cancellation import _cancel_requested, _raise_if_cancelled
+from ..core.progress import DownloadCancelledError
 
 
 def _asset_is_error_document(mime: str, content: bytes) -> bool:
@@ -72,6 +77,7 @@ def process_images(
     Failed images → original URL kept in JSON (viewer shows broken image or blank).
     Returns (embed_str, download_str).
     """
+    _raise_if_cancelled()
     data_uri_re = re.compile(r"^data:(?:image|audio|application)/[a-zA-Z0-9.+-]+;base64,")
 
     if download and not temp_folder:
@@ -160,20 +166,53 @@ def process_images(
     fetch_cache: Dict[str, Tuple[Optional[bytes], str, str, str]] = {}
     download_map: Dict[str, str] = {}
 
+    def _fetch_identity(asset_path: str) -> str:
+        """Coalesce equivalent references before submitting network work."""
+        resolved = (
+            asset_path
+            if asset_path.startswith(("http://", "https://"))
+            else urljoin(base_url.rstrip("/") + "/", asset_path)
+        )
+        try:
+            parsed = urlparse(resolved)
+            cache_busters = {
+                "v", "ver", "version", "cb", "cache", "cachebust",
+                "cache_bust", "cachebuster", "t", "ts", "timestamp", "_", "dpl",
+            }
+            query = [
+                (key, value) for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+                if key.lower() not in cache_busters
+            ]
+            return urlunparse((
+                parsed.scheme.lower(), parsed.netloc.lower(), parsed.path or "/",
+                "", urlencode(query), "",
+            ))
+        except Exception:
+            return resolved.split("#", 1)[0]
+
     # ── Website mode: images already downloaded at original paths ─────
     # WebsiteDownloader preserves directory structure. Skip re-downloading
     # relative paths that already exist on disk (prevents rename collisions).
     if site_folder and os.path.isdir(site_folder):
-        for asset_path in list(image_paths):
-            if asset_path.startswith(("http://", "https://")):
-                continue
-            clean = _safe_rel_path(asset_path.lstrip('./').lstrip('/'))
-            disk  = _safe_join(site_folder, clean)
-            if os.path.exists(disk):
-                logger.debug(f"  [site exists, kept] {clean}")
-                image_paths.discard(asset_path)
-                fetch_cache[asset_path] = (b"__site_existing__", "image", asset_path, "")
-                download_map[asset_path] = clean   # keep original relative path
+        for asset_paths, sentinel_mime in (
+            (image_paths, "image"),
+            (audio_paths, "audio/mpeg"),
+        ):
+            for asset_path in list(asset_paths):
+                if asset_path.startswith(("http://", "https://")):
+                    continue
+                clean = _safe_rel_path(asset_path.lstrip('./').lstrip('/'))
+                disk  = _safe_join(site_folder, clean)
+                if os.path.exists(disk):
+                    logger.debug(f"  [site exists, kept] {clean}")
+                    asset_paths.discard(asset_path)
+                    fetch_cache[asset_path] = (b"__site_existing__", sentinel_mime, asset_path, "")
+                    download_map[asset_path] = clean   # keep original relative path
+
+    # Recompute after removing relative images already present in the ICC
+    # folder. The earlier value was calculated before this check, so those
+    # paths still entered the executor and were fetched a second time.
+    all_downloadable = image_paths | audio_paths
 
     # Pre-populate with yt-dlp downloads — already on disk, no network fetch needed
     for _yt_rel in _yt_local.values():
@@ -216,6 +255,7 @@ def process_images(
         _cookie_session_tried = False
 
         for attempt in range(4):  # 4 attempts: 3 normal + 1 cookie
+            r = None
             try:
                 # ── B: Cookie session on 3rd attempt for auth-protected content
                 if attempt == 2 and not _cookie_session_tried:
@@ -223,6 +263,7 @@ def process_images(
                     for _browser in ("chrome", "edge", "firefox"):
                         cs = _make_cookie_session(_browser)
                         if cs:
+                            rc = None
                             try:
                                 rc = cs.get(
                                     asset_url, headers=headers, timeout=30,
@@ -240,6 +281,12 @@ def process_images(
                                     return asset_path, rc.content, mime, asset_url, ""
                             except Exception as _ignored_exc:
                                 logger.debug("Ignored recoverable exception in fetch_one (line 14057): %s", _ignored_exc)
+                            finally:
+                                if rc is not None:
+                                    try:
+                                        rc.close()
+                                    except Exception:
+                                        pass
 
                 r = fetch_response(asset_url, extra_headers=headers, timeout=30, as_bytes=True, return_error_response=True)
                 if r is None:
@@ -295,6 +342,15 @@ def process_images(
                 logger.warning(f"Attempt {attempt + 1} failed for {asset_url}: {e}")
                 _domain_record_failure(asset_url)
                 if attempt < 3: _cancel_aware_sleep(min(10 * (attempt + 1), 30))
+            finally:
+                # fetch_response returns a live requests response. Always
+                # release it after reading the bytes, including retry/HTTP
+                # error branches, so large ICC batches do not exhaust pools.
+                if r is not None:
+                    try:
+                        r.close()
+                    except Exception:
+                        pass
 
         # ── A: Headless fallback (images only) ───────────────────────
         if asset_path in image_paths:
@@ -341,7 +397,13 @@ def process_images(
         safe_workers = max(1, int(max_workers or 1))
         ex = ThreadPoolExecutor(max_workers=safe_workers)
         try:
-            futures = {ex.submit(fetch_one, p): p for p in all_downloadable}
+            fetch_groups: Dict[str, List[str]] = {}
+            for asset_path in all_downloadable:
+                fetch_groups.setdefault(_fetch_identity(asset_path), []).append(asset_path)
+            futures = {
+                ex.submit(fetch_one, paths[0]): paths
+                for paths in fetch_groups.values()
+            }
             done = 0
             cancelled = False
             for fut in as_completed(futures):
@@ -350,10 +412,13 @@ def process_images(
                     break
                 path, content, mime, resolved, err = fut.result()
                 # Dedup is applied at save time, after the final local path is known.
-                fetch_cache[path] = (content, mime, resolved, err)
+                for alias in futures[fut]:
+                    fetch_cache[alias] = (content, mime, resolved, err)
                 done += 1
                 status = "✓" if content is not None else "✗ FAILED"
-                logger.info(f"  [{done}/{len(all_downloadable)}] {status} {resolved.split('/')[-1]}")
+                alias_count = len(futures[fut])
+                alias_note = f" (+{alias_count - 1} alias)" if alias_count > 1 else ""
+                logger.info(f"  [{done}/{len(fetch_groups)}] {status}{alias_note} {resolved.split('/')[-1]}")
             if cancelled:
                 ex.shutdown(wait=False, cancel_futures=True)
                 raise DownloadCancelledError("Download cancelled during asset fetch")
@@ -406,6 +471,7 @@ def process_images(
     # download_map already initialized above (with yt_local pre-populated)
 
     for path, (content, mime, resolved, err) in fetch_cache.items():
+        _raise_if_cancelled()
         is_image = path in image_paths
 
         if content is None:
@@ -504,7 +570,14 @@ def process_images(
                 dest_path = f"{base_fn_full}_{counter}{ext_fn}"
                 counter += 1
 
-            duplicate_of = _check_image_dedup(content, dest_path) if is_image else None
+            duplicate_of = (
+                _check_image_dedup(
+                    content,
+                    dest_path,
+                    scope=os.path.abspath(images_folder),
+                )
+                if is_image else None
+            )
             if duplicate_of and os.path.exists(duplicate_of):
                 try:
                     rel_saved = os.path.relpath(duplicate_of, os.path.dirname(images_folder)).replace('\\', '/')
@@ -615,18 +688,39 @@ def _deep_scan_and_download_assets(
 
     Handles both project.json-based CYOAs and pure custom React/Vite viewers.
     """
-    from concurrent.futures import ThreadPoolExecutor as _TPE
+    from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed
 
     TEXT_EXTS   = {'.js', '.css', '.html', '.htm', '.mjs', '.cjs', '.json', '.svg'}
     all_downloaded: Dict[str, str] = {}   # url → rel_path
     failed_deep_assets: List[Dict[str, str]] = []
     scanned_files: Set[str]        = set()   # abs file paths already scanned
-    known_urls:    Set[str]        = set()   # candidate URLs already seen
+    known_urls:    Set[str]        = set()   # canonical candidate URLs already seen
+
+    def _canonical_scan_url(url: str) -> str:
+        """Canonicalize scan candidates without collapsing real variants."""
+        try:
+            parsed = urlparse(str(url).strip())
+            if parsed.scheme.lower() not in {"http", "https"}:
+                return str(url)
+            cache_busters = {
+                "v", "ver", "version", "cb", "cache", "cachebust",
+                "cache_bust", "cachebuster", "t", "ts", "timestamp", "_", "dpl",
+            }
+            query = [
+                (key, value) for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+                if key.lower() not in cache_busters
+            ]
+            return urlunparse((
+                parsed.scheme.lower(), parsed.netloc.lower(), parsed.path or "/",
+                "", urlencode(query), "",
+            ))
+        except Exception:
+            return str(url).split("#", 1)[0]
 
     # Pre-populate with URLs already downloaded by process_images
     # (prevents double-downloading the same assets)
     if skip_urls:
-        known_urls |= skip_urls
+        known_urls |= {_canonical_scan_url(url) for url in skip_urls}
         logger.debug(f"[deep scan] Skipping {len(skip_urls)} URL(s) already downloaded by process_images")
 
     # ── Pre-build disk file index for O(1) existence checks ───────────
@@ -661,7 +755,8 @@ def _deep_scan_and_download_assets(
                     with open(fpath, encoding='utf-8', errors='replace') as _fh:
                         text = _fh.read()
                     urls = run_asset_scanner_plugins(text, f_url, base_url, ext)
-                    new_candidates |= (urls - known_urls)
+                    canonical_urls = {_canonical_scan_url(url) for url in urls}
+                    new_candidates |= (canonical_urls - known_urls)
                 except Exception as e:
                     logger.debug(f"[deep scan] {fn}: {e}")
         return new_candidates
@@ -676,7 +771,12 @@ def _deep_scan_and_download_assets(
         _bp = base_path.lstrip('/')
         if _bp and (rel_path == _bp or rel_path.startswith(_bp + '/')):
             rel_path = rel_path[len(_bp):]
-        return rel_path.lstrip('/')
+        rel_path = rel_path.lstrip('/')
+        if parsed.query:
+            root, ext = os.path.splitext(rel_path)
+            digest = hashlib.sha1(parsed.query.encode("utf-8", "replace")).hexdigest()[:10]
+            rel_path = f"{root}_{digest}{ext}"
+        return rel_path
 
     # ── Reusable session with connection pooling ──────────────────────
     # Keeps TCP connections alive across requests to the same host,
@@ -722,12 +822,15 @@ def _deep_scan_and_download_assets(
         Tries HTTP/2 first when enabled, then falls back to fetch_response so
         Cloudflare/FlareSolverr, proxy, DNS, and retry policy remain consistent.
         """
+        _raise_if_cancelled()
         # SSRF screen: a scanned JS/CSS/HTML/project file can
         # reference a cross-origin internal host. Block it unless same-origin as
         # the page (base_url) or --allow-internal-hosts is set.
         if _ssrf_block_cross_origin(url, base_url):
             logger.warning(f"  [SSRF blocked] cross-origin internal host: {url}")
             return url, None, 0
+        r2 = None
+        r = None
         try:
             _domain_throttle(url)
             hdrs = get_headers_for_url(url) or {}
@@ -751,8 +854,31 @@ def _deep_scan_and_download_assets(
                 _throttle_bandwidth(len(content))
                 return url, content, 200
             return url, None, int(getattr(r, "status_code", 0) or 0)
+        except DownloadCancelledError:
+            raise
         except Exception:
             return url, None, 0
+        finally:
+            for response in (r2, r):
+                if response is not None:
+                    try:
+                        response.close()
+                    except Exception:
+                        pass
+
+    def _fetch_many(urls: List[str]):
+        """Fetch a batch without waiting for cancelled futures to drain."""
+        ex = _TPE(max_workers=_dl_workers)
+        futures = [ex.submit(_try_fetch, url) for url in urls]
+        try:
+            for future in as_completed(futures):
+                _raise_if_cancelled()
+                yield future.result()
+        except BaseException:
+            ex.shutdown(wait=False, cancel_futures=True)
+            raise
+        else:
+            ex.shutdown(wait=False, cancel_futures=True)
 
     round_n = 0
     max_rounds = 6   # safety cap
@@ -782,11 +908,16 @@ def _deep_scan_and_download_assets(
                 atomic_write_bytes(mp_local, content)
                 _disk_files.add(mp)
                 logger.info(f"[deep scan] Found manifest: {mp}")
+        except DownloadCancelledError:
+            raise
         except Exception as _ignored_exc:
             logger.debug("Ignored recoverable exception in _deep_scan_and_download_assets (line 19220): %s", _ignored_exc)
 
     # ── Parallel concurrency: scale with workers, cap at 20 ───────────
-    _dl_workers = min(max(max_workers, 8), 20)
+    # Respect the GUI's worker setting. The old minimum of eight spawned a
+    # surprisingly large pool even when the user selected one worker, which
+    # made low-spec laptops contend with the GUI and disk scanner.
+    _dl_workers = max(1, min(int(max_workers or 1), 8))
 
     # Guarantee HTTP/2 client + pooled session are closed
     # even if the BFS loop raises. Previously close() ran only on the happy
@@ -822,8 +953,8 @@ def _deep_scan_and_download_assets(
             new_this_round = 0
             vite_retry: List[str] = []
 
-            with _TPE(max_workers=_dl_workers) as ex:
-                for url, content, status in ex.map(_try_fetch, to_download):
+            for url, content, status in _fetch_many(to_download):
+                    _raise_if_cancelled()
                     if content:
                         rel = _url_to_local(url)
                         if not rel:
@@ -846,14 +977,15 @@ def _deep_scan_and_download_assets(
                         if p.count('/') == 1 and p.lower().endswith(('.js', '.mjs')):
                             parsed = urlparse(url)
                             alt = urlunparse(parsed._replace(path='/assets' + parsed.path))
+                            alt = _canonical_scan_url(alt)
                             if alt not in known_urls:
                                 vite_retry.append(alt)
                                 known_urls.add(alt)
 
             # ── Vite /assets/ retry for root-level 404s ───────────────────
             if vite_retry:
-                with _TPE(max_workers=_dl_workers) as ex:
-                    for url, content, status in ex.map(_try_fetch, vite_retry):
+                for url, content, status in _fetch_many(vite_retry):
+                        _raise_if_cancelled()
                         if content:
                             rel = _url_to_local(url)
                             if not rel:
@@ -916,8 +1048,11 @@ def _deep_scan_and_download_assets(
             if js_files_ai:
                 ai_candidates = _ai_analyze_js_for_assets(js_files_ai, base_url, api_key=ai_api_key,
                     provider=ai_provider, ai_mode=ai_mode, budget_obj=ai_budget)
-                ai_new = [u for u in ai_candidates
-                          if u not in known_urls and u not in all_downloaded]
+                ai_new = []
+                for candidate in ai_candidates:
+                    canonical = _canonical_scan_url(candidate)
+                    if canonical not in known_urls and canonical not in all_downloaded:
+                        ai_new.append(canonical)
                 if ai_new:
                     logger.info(f"[AI scan] {len(ai_new)} new candidate(s) from AI analysis")
                     known_urls.update(ai_new)
@@ -926,8 +1061,8 @@ def _deep_scan_and_download_assets(
                     def _try_fetch_ai(url: str) -> Tuple[str, Optional[bytes], int]:
                         return _try_fetch(url)
 
-                    with _TPE(max_workers=_dl_workers) as ex:
-                        for url_ai, content_ai, _ in ex.map(_try_fetch_ai, ai_new):
+                    for url_ai, content_ai, _ in _fetch_many(ai_new):
+                            _raise_if_cancelled()
                             if not content_ai:
                                 continue
                             rel_ai = _url_to_local(url_ai)
@@ -943,6 +1078,8 @@ def _deep_scan_and_download_assets(
                             except Exception as _ignored_exc:
                                 logger.debug("Ignored recoverable exception in _deep_scan_and_download_assets (line 19372): %s", _ignored_exc)
                     logger.info(f"[AI scan] Done — {ai_new_count} new asset(s)")
+        except DownloadCancelledError:
+            raise
         except Exception as e:
             logger.debug(f"[AI scan] error: {e}")
 

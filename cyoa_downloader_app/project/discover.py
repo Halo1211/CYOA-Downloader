@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 import re
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import urljoin, urlparse, urlunparse
 
@@ -19,6 +19,7 @@ from ..config.settings import _load_settings
 from ..core.url_utils import canonicalize_url, _directory_base_url
 from ..core.atomic_io import validate_response_content_length
 from ..core.cancellation import _emit_progress_event, _raise_if_cancelled
+from ..core.progress import DownloadCancelledError
 from ..logging_setup import logger
 from ..network.fetch import fetch_response
 from ..network.throttle import _throttle_bandwidth
@@ -190,6 +191,38 @@ def find_script_sources(html_source: str, base_url: Optional[str] = None) -> Lis
             inline = script.string or script.get_text() or ""
             if inline.strip():
                 results.append((f"inline_script_{index}", inline))
+
+    # Some viewers ship only a tiny bootstrap script in HTML and inject the
+    # real Vite/Webpack app bundle at runtime. Scan already-loaded scripts for
+    # the same app.*.js reference and include that bundle in the source list.
+    # This is intentionally bounded and deduplicated: it handles bootstrap ->
+    # app chains without turning project discovery into an unrestricted crawl.
+    seen_script_urls = {
+        label for label, _content in results
+        if label.startswith(("http://", "https://"))
+    }
+    pending = list(results)
+    while pending and len(results) < 64:
+        owner_label, owner_source = pending.pop(0)
+        dynamic_path = extract_app_js_path(owner_source)
+        if not dynamic_path:
+            continue
+        dynamic_url = dynamic_path.replace("\\/", "/")
+        if base_url and not dynamic_url.startswith(("http://", "https://")):
+            # CYOA Plus core loaders construct paths from the viewer root, not
+            # from the directory containing core.js (which would duplicate /js).
+            dynamic_url = urljoin(base_url, dynamic_url)
+        if base_url and _ssrf_block_cross_origin(dynamic_url, base_url):
+            logger.warning(f"Blocked dynamic script on internal host: {dynamic_url}")
+            continue
+        if dynamic_url in seen_script_urls:
+            continue
+        dynamic_source = _get_source(dynamic_url)
+        if dynamic_source:
+            seen_script_urls.add(dynamic_url)
+            result = (dynamic_url, dynamic_source)
+            results.append(result)
+            pending.append(result)
 
     results.sort(key=lambda item: _script_priority(item[0]))
     return results
@@ -588,6 +621,7 @@ def get_project_source(url: str, depth: int = 0, ai_api_key: str = "",
     # Some cyoa.cafe subdomains serve a React SPA shell at /slug/ while
     # the actual ICC Plus viewer is at /slug/game/.
     # Detect by: loads "game/assets/*.js" + has <div id="root"> (React).
+    _shell_r = None
     try:
         _shell_r = fetch_response(url, extra_headers={"User-Agent": "Mozilla/5.0"}, timeout=8)
         _shell_html = _safe_response_text(_shell_r) if _shell_r is not None else ""
@@ -601,6 +635,12 @@ def get_project_source(url: str, depth: int = 0, ai_api_key: str = "",
             url = _game_url
     except Exception as _se:
         logger.debug(f"cyoa.cafe shell check failed: {_se}")
+    finally:
+        if _shell_r is not None:
+            try:
+                _shell_r.close()
+            except Exception:
+                pass
 
     logger.info(f"Project search start: {url}")
     base_url = strip_document_from_url(url)
@@ -620,6 +660,21 @@ def get_project_source(url: str, depth: int = 0, ai_api_key: str = "",
                     return proj, proj_url
 
     # ── Phase 0c: try the canonical default locations first ───────────────
+    # A number of static hosts expose only a bootstrap script in HTML. The
+    # actual viewer bundle then contains the project object, so checking the
+    # large list of conventional project paths first just adds avoidable
+    # latency (and can make the download look stuck on hosts that time out).
+    # Probe runtime-looking script loaders early and keep the result for the
+    # full script phase below.
+    script_sources: List[Tuple[str, str]] = []
+    if source and re.search(
+        r"core\.js|document\.createElement|<script\b[^>]*\btype\s*=\s*[\"']module",
+        source,
+        re.IGNORECASE,
+    ):
+        logger.info("Phase 0d: checking runtime-loaded script bundles...")
+        script_sources = find_script_sources(source, base_url)
+
     # This makes the control flow match user expectations and avoids waiting
     # for a large brute-force sweep when /project.json exists.
     default_candidates = build_default_project_candidates(url)
@@ -638,6 +693,15 @@ def get_project_source(url: str, depth: int = 0, ai_api_key: str = "",
                 return proj, proj_url
 
     # ── Phase 1: parallel-check remaining default candidates ───────────────
+    # A runtime bundle may contain a viewer's default editor state before the
+    # actual project is loaded. Prefer an explicit project file above; only
+    # fall back to embedded JS after canonical project endpoints failed.
+    for script_label, js_script in script_sources:
+        embedded = extract_embedded_project_from_js(js_script)
+        if embedded:
+            logger.info(f"  Embedded project found in runtime script: {script_label}")
+            return embedded, url
+
     default_candidates = [c for c in default_candidates if c not in set(canonical_defaults)]
     logger.info(
         f"Phase 1: checking {len(default_candidates)} remaining default candidates in parallel…"
@@ -666,7 +730,8 @@ def get_project_source(url: str, depth: int = 0, ai_api_key: str = "",
 
     # ── Phase 3: scan JS bundles and inline scripts ───────────────────────
     logger.info("Phase 3: scanning script bundles and inline JS…")
-    script_sources = find_script_sources(source, base_url)
+    if not script_sources:
+        script_sources = find_script_sources(source, base_url)
     logger.info(f"  Found {len(script_sources)} script block(s)/bundle(s) to scan.")
 
     for idx, (script_label, js_script) in enumerate(script_sources, start=1):
@@ -709,6 +774,7 @@ def get_project_source(url: str, depth: int = 0, ai_api_key: str = "",
         logger.info("Phase 5: AI-assisted project detection…")
         ai_candidate = _ai_detect_project_json(url, source, api_key=ai_api_key, provider=ai_provider, ai_mode=ai_mode, budget=ai_budget)
         if ai_candidate:
+            r = None
             try:
                 r = fetch_response(ai_candidate, timeout=15, extra_headers={"User-Agent": "Mozilla/5.0"})
                 txt = _safe_response_text(r) if r is not None else ""
@@ -717,6 +783,12 @@ def get_project_source(url: str, depth: int = 0, ai_api_key: str = "",
                     return txt, ai_candidate
             except Exception as e:
                 logger.debug(f"  AI candidate failed: {e}")
+            finally:
+                if r is not None:
+                    try:
+                        r.close()
+                    except Exception:
+                        pass
 
     logger.warning("Project search finished without result.")
     return None, ""
@@ -732,7 +804,13 @@ def get_source(url: str, extra_headers: Optional[Dict] = None) -> Optional[str]:
     response = fetch_response(url, extra_headers=extra_headers, timeout=20)
     if not response:
         return None
-    return try_decode_bytes(response.content)
+    try:
+        return try_decode_bytes(response.content)
+    finally:
+        try:
+            response.close()
+        except Exception:
+            pass
 
 
 def url_file_exists(url: str, timeout: int = 5) -> bool:
@@ -780,6 +858,8 @@ def _parallel_head_check(
                 },
             )
             ok = bool(r is not None and r.status_code in {200, 206})
+        except DownloadCancelledError:
+            raise
         except Exception:
             ok = False
         finally:
@@ -793,8 +873,17 @@ def _parallel_head_check(
         with lock:
             results[url] = ok
 
-    with ThreadPoolExecutor(max_workers=max_workers) as ex:
-        list(ex.map(check, candidates))
+    ex = ThreadPoolExecutor(max_workers=max_workers)
+    futures = [ex.submit(check, url) for url in candidates]
+    try:
+        for future in as_completed(futures):
+            _raise_if_cancelled()
+            future.result()
+    except BaseException:
+        ex.shutdown(wait=False, cancel_futures=True)
+        raise
+    else:
+        ex.shutdown(wait=False, cancel_futures=True)
 
     return [u for u in candidates if results.get(u)]
 
@@ -879,6 +968,8 @@ def auto_detect_mode(url: str, timeout: int = 6) -> str:
                 f" → {detected_mode}"
             )
             return detected_mode
+    except DownloadCancelledError:
+        raise
     except Exception as exc:
         logger.warning(f"[Auto-detect] Standard project probe failed: {exc}")
 
@@ -901,6 +992,8 @@ def auto_detect_modes_batch(
     def probe_one(item: Dict) -> None:
         try:
             detected = auto_detect_mode(item["url"])
+        except DownloadCancelledError:
+            raise
         except Exception as e:
             logger.warning(f"[Auto-detect] Error for {item['url']}: {e}")
             detected = "embed"
@@ -913,8 +1006,17 @@ def auto_detect_modes_batch(
 
     if to_probe:
         logger.info(f"[Auto-detect] Probing {total} URL(s) in parallel (workers={max_workers})…")
-        with ThreadPoolExecutor(max_workers=max_workers) as ex:
-            list(ex.map(probe_one, to_probe))
+        ex = ThreadPoolExecutor(max_workers=max(1, int(max_workers or 1)))
+        futures = [ex.submit(probe_one, item) for item in to_probe]
+        try:
+            for future in as_completed(futures):
+                _raise_if_cancelled()
+                future.result()
+        except BaseException:
+            ex.shutdown(wait=False, cancel_futures=True)
+            raise
+        else:
+            ex.shutdown(wait=False, cancel_futures=True)
         logger.info("[Auto-detect] Done.")
 
     return items

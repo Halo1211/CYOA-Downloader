@@ -32,6 +32,7 @@ _ITCH_ENABLED: bool = False
 
 # Cloudflare / FlareSolverr runtime config.
 _CLOUDFLARE_MODE: str = "auto"
+_CLOUDFLARE_PRIORITY: str = "flaresolverr_first"
 _FLARESOLVERR_URL: str = "http://localhost:8191/v1"
 _FLARESOLVERR_SESSION_POLICY: str = "reuse-domain"
 _FLARESOLVERR_TIMEOUT: int = 60

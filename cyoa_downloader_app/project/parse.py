@@ -139,6 +139,13 @@ def looks_like_project_payload(text: str) -> bool:
         return False
 
     parsed = parse_jsonish_text(text)
+    standalone = text.strip()
+    # Do not classify a standalone JavaScript object with expressions such as
+    # ``!0``, function calls, or spread references as a project payload. Such
+    # fragments are often viewer/editor state, not serializable project data;
+    # accepting them later would write an invalid project.json.
+    if standalone.startswith("{") and standalone.endswith("}") and parsed is None:
+        return False
     if isinstance(parsed, dict):
         return looks_like_project_object(parsed)
 
@@ -147,14 +154,22 @@ def looks_like_project_payload(text: str) -> bool:
 
     score = 0
     for key in IMAGE_FIELDS:
-        if re.search(rf'["\\\']?{re.escape(key)}["\\\']?\s*:', sample, flags=re.IGNORECASE):
+        if re.search(
+            rf'(?<![A-Za-z0-9_$])["\\\']?{re.escape(key)}["\\\']?\s*:',
+            sample,
+            flags=re.IGNORECASE,
+        ):
             score += 3
     for key in [
         "rows", "backpack", "cards", "sections", "scenes", "pages", "tabs", "choices",
         "name", "title", "author", "theme", "meta", "character", "points",
         "imageSets", "templates", "objects", "groups", "words", "variables",
     ]:
-        if re.search(rf'["\\\']?{re.escape(key)}["\\\']?\s*:', sample, flags=re.IGNORECASE):
+        if re.search(
+            rf'(?<![A-Za-z0-9_$])["\\\']?{re.escape(key)}["\\\']?\s*:',
+            sample,
+            flags=re.IGNORECASE,
+        ):
             score += 1
 
     if score >= 4:
@@ -249,6 +264,23 @@ def extract_embedded_project_from_js(js_text: str) -> Optional[str]:
                 logger.info(f"Found embedded project payload via marker: {marker[:40]}")
                 return block
             start = idx + len(marker)
+
+    # Modern CYOA Plus/Vite builds can keep the complete project in a
+    # reactive wrapper rather than exposing a plain ``app:{...}`` property.
+    # For example, the Valentine's build contains ``app=i({...})`` where
+    # ``i`` is the minified reactive-state factory.  The object itself is
+    # valid JSON, so extract it before the broad fallback patterns below.
+    # Restrict this pass to variables named app/project: generic ``x=i({...})``
+    # assignments are common in bundles and can produce false positives.
+    reactive_assignment = re.compile(
+        r'\b(?:app|project)\s*=\s*[A-Za-z_$][\w$]*\s*\(\s*(\{)',
+        re.IGNORECASE,
+    )
+    for match in reactive_assignment.finditer(js_text):
+        block = extract_balanced_brace_block(js_text, match.start(1))
+        if block and looks_like_project_payload(block):
+            logger.info("Found embedded project payload via reactive app/project wrapper")
+            return block
 
     fallback_patterns = [
         r'(?:app|project)\s*:\s*\{',
@@ -413,9 +445,9 @@ def normalize_project_payload_text(text: str) -> Optional[str]:
         if isinstance(obj, dict) and looks_like_project_object(obj):
             return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
 
-    stripped = text.strip()
-    if looks_like_project_payload(stripped):
-        return stripped
+    # Returning an unparseable JavaScript fragment here creates a project.json
+    # that the viewer and package verifier cannot read. JSON/JSON5 payloads are
+    # normalized by the branches above; everything else must be rejected.
     return None
 
 def extract_project_text_from_payload(text: str) -> Optional[str]:

@@ -11,6 +11,8 @@ from typing import Any, Dict, Iterable, List, Tuple
 from .package import atomic_stream_response_to_file, clean_url_path_component
 from ..constants.assets import IMAGE_EXTENSIONS
 from ..core.atomic_io import atomic_write_text
+from ..core.cancellation import _raise_if_cancelled
+from ..core.progress import DownloadCancelledError
 from ..logging_setup import logger
 from ..network.fetch import fetch_response
 from ..project.cyoa_cafe import build_cyoa_cafe_file_url, classify_cyoa_cafe_record
@@ -50,6 +52,7 @@ def _record_files(record: Dict[str, Any]) -> List[Tuple[str, str, str]]:
 
 
 def _download_one(record: Dict[str, Any], folder: str, entry: Tuple[str, str, str]) -> Dict[str, Any]:
+    _raise_if_cancelled()
     kind, remote_name, relative = entry
     url = build_cyoa_cafe_file_url(record, remote_name)
     target = os.path.abspath(os.path.join(folder, relative))
@@ -122,20 +125,31 @@ def download_cyoa_cafe_static_record(
         raise ValueError("cyoa.cafe record does not contain static pages")
     os.makedirs(folder, exist_ok=True)
     entries = _record_files(record)
+    _raise_if_cancelled()
     if not any(kind == "page" for kind, _name, _local in entries):
         raise ValueError("cyoa.cafe record contains no supported image pages")
     downloaded: List[Dict[str, Any]] = []
     failures: List[Dict[str, str]] = []
     workers = max(1, min(16, int(max_workers or 4)))
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        future_map = {executor.submit(_download_one, record, folder, entry): entry for entry in entries}
+    executor = ThreadPoolExecutor(max_workers=workers)
+    future_map = {executor.submit(_download_one, record, folder, entry): entry for entry in entries}
+    try:
         for future in as_completed(future_map):
+            _raise_if_cancelled()
             kind, remote_name, _local = future_map[future]
             try:
                 downloaded.append(future.result())
+            except DownloadCancelledError:
+                raise
             except Exception as exc:
                 failures.append({"kind": kind, "source_name": remote_name, "error": str(exc)})
                 logger.warning("cyoa.cafe static file failed (%s): %s", remote_name, exc)
+    except BaseException:
+        executor.shutdown(wait=False, cancel_futures=True)
+        raise
+    else:
+        executor.shutdown(wait=False, cancel_futures=True)
+    _raise_if_cancelled()
     downloaded.sort(key=lambda item: (item["kind"] != "page", item["local"]))
     pages = [item for item in downloaded if item["kind"] == "page"]
     if not pages:

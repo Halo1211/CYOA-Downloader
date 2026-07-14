@@ -19,6 +19,7 @@ from ..config.settings import _SETTINGS_DEFAULTS, _SETTINGS_FILE, _load_settings
 from ..storage.cache import _CACHE_DIR, _cache_stats
 from ..storage.history import _HISTORY_FILE
 from ..network.proxy import _get_active_proxy
+from ..network.throttle import http2_runtime_info
 from ..integrations.itch import detect_itch_backend
 
 
@@ -80,12 +81,14 @@ def build_diagnostic_report(output_dir: str = "", check_network: bool = True,
 
     # Python dependencies
     deps = [
-        ("requests", True), ("bs4", True), ("customtkinter", True),
+        ("requests", True), ("urllib3", True), ("bs4", True), ("customtkinter", True),
+        ("httpx", False), ("h2", False), ("dns", False),
         ("tldextract", False), ("PIL", False), ("pandas", False),
         ("openpyxl", False), ("xlrd", False),
-        ("keyring", False), ("cloudscraper", False), ("httpx", False),
+        ("keyring", False), ("cloudscraper", False),
         ("json5", False), ("yt_dlp", False), ("gallery_dl", False),
         ("selenium", False),
+        ("playwright", False), ("plyer", False), ("rarfile", False),
     ]
     for mod, required in deps:
         present = importlib.util.find_spec(mod) is not None
@@ -95,6 +98,18 @@ def build_diagnostic_report(output_dir: str = "", check_network: bool = True,
             _add("FAIL", f"dependency: {mod}", f"required — pip install {mod}")
         else:
             _add("WARN", f"dependency: {mod}", f"optional — pip install {mod} to enable")
+
+    http2 = http2_runtime_info()
+    if http2["available"]:
+        _add("PASS", "dependency: httpx[http2]", http2["detail"])
+    else:
+        _add(
+            "WARN",
+            "dependency: httpx[http2]",
+            f"HTTP/2 unavailable in {http2['python']}: "
+            f"{http2['detail'] or 'httpx[http2] is incomplete'}; "
+            f'install with "{http2["python"]}" -m pip install "httpx[http2]"',
+        )
 
     # Selenium driver (only meaningful if selenium present)
     if importlib.util.find_spec("selenium") is not None:

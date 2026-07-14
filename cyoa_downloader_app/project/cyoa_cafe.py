@@ -45,6 +45,20 @@ _CYOA_CAFE_CACHE_LOCK = threading.RLock()
 _CYOA_CAFE_RECORD_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 
 
+def _looks_like_custom_viewer_html(text: str) -> bool:
+    """Recognize hand-written CYOA viewers without an ICC project file."""
+    lower = str(text or "").lower()
+    signatures = (
+        ('id="cyoa-container"', "game_data"),
+        ("id='cyoa-container'", "game_data"),
+        ('id="bg-music"', "point-bar"),
+        ("id='bg-music'", "point-bar"),
+    )
+    # These paired markers are specific enough to avoid treating an arbitrary
+    # JavaScript page as a downloadable CYOA viewer.
+    return any(all(marker in lower for marker in pair) for pair in signatures)
+
+
 def _cyoa_cafe_record_id(url: str) -> str:
     """Return a validated PocketBase record id for a /game/<id> URL."""
     try:
@@ -79,6 +93,7 @@ def fetch_cyoa_cafe_record(url: str, *, timeout: int = 15, fetcher: Optional[Any
             _CYOA_CAFE_RECORD_CACHE.pop(cache_key, None)
     api_url = f"https://cyoa.cafe/api/collections/games/records/{quote(record_id, safe='')}"
     fetch = fetcher or CYOACafeResolver._default_fetch
+    response = None
     try:
         try:
             response = fetch(api_url, timeout=max(3, int(timeout)))
@@ -90,6 +105,12 @@ def fetch_cyoa_cafe_record(url: str, *, timeout: int = 15, fetcher: Optional[Any
     except Exception as exc:
         logger.debug("cyoa.cafe record fetch failed for %s: %s", record_id, exc)
         return None
+    finally:
+        if response is not None:
+            try:
+                response.close()
+            except Exception:
+                pass
     if not isinstance(data, dict) or str(data.get("id") or "") != record_id:
         return None
     with _CYOA_CAFE_CACHE_LOCK:
@@ -453,10 +474,11 @@ class CYOACafeResolver:
             "project.json", "project.txt", "dist/platform.json", "dist/nodes/list.json",
             "window.app", "cyoa-viewer", "loading omnitrix",
         )
-        if any(marker in lower for marker in viewer_markers):
+        if any(marker in lower for marker in viewer_markers) or _looks_like_custom_viewer_html(text):
             # Exclude the metadata/catalog shell unless a viewer marker is strong.
             if urlparse(canonical).netloc.lower() == "cyoa.cafe" and "/game/" in path:
-                if not any(marker in lower for marker in ("iframe", "project.json", "interactive cyoa creator")):
+                if not any(marker in lower for marker in ("iframe", "project.json", "interactive cyoa creator")) \
+                        and not _looks_like_custom_viewer_html(text):
                     self._reject(canonical, "metadata page, not viewer")
                     return False
             return True
@@ -482,7 +504,24 @@ class CYOACafeResolver:
         self._reject(canonical, "no valid project/viewer signature")
         return False
 
+    def _close_responses(self) -> None:
+        """Close response objects retained for one resolution only."""
+        responses = list(self._responses.values())
+        self._responses.clear()
+        for response in responses:
+            try:
+                response.close()
+            except Exception:
+                pass
+
     def resolve(self, url: str) -> str:
+        """Resolve a CYOA.CAFE URL and release all probe responses."""
+        try:
+            return self._resolve(url)
+        finally:
+            self._close_responses()
+
+    def _resolve(self, url: str) -> str:
         normalized = self.normalize_input(url)
         parsed = urlparse(normalized)
         host = parsed.netloc.lower()
@@ -577,7 +616,7 @@ def _v466_is_cafe_metadata_game_url(*args, **kwargs):
 
 __all__ = [
     "CYOACafeResolutionError", "CYOACafeResolver", "get_iframe_url_from_cyoa_cafe",
-    "fetch_cyoa_cafe_record", "classify_cyoa_cafe_record",
+    "fetch_cyoa_cafe_record", "classify_cyoa_cafe_record", "_looks_like_custom_viewer_html",
     "build_cyoa_cafe_file_url",
     "_CYOA_CAFE_FIELDS", "_CYOA_CAFE_CACHE_TTL", "_CYOA_CAFE_CACHE_MAX",
     "_CYOA_CAFE_CACHE", "_CYOA_CAFE_CACHE_LOCK", "_CYOA_CAFE_RECORD_CACHE",

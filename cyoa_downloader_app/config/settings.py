@@ -54,6 +54,7 @@ _SETTINGS_DEFAULTS: Dict[str, Any] = {
     "gallery_dl_mode": "off",
     "auto_detect_output": "folder",
     "cloudflare_mode": "auto",
+    "cloudflare_priority": "flaresolverr_first",
     "flaresolverr_url": "http://localhost:8191/v1",
     "flaresolverr_session_policy": "reuse-domain",
     "flaresolverr_timeout": 60,
@@ -95,6 +96,7 @@ _SETTINGS_GROUPS = (
     )),
     ("Network and Cloudflare", (
         "http2_enabled", "dns", "bebasdns_variant", "cloudflare_mode",
+        "cloudflare_priority",
         "flaresolverr_url", "flaresolverr_session_policy",
         "flaresolverr_timeout", "flaresolverr_wait_after", "flaresolverr_proxy_mode",
     )),
@@ -123,6 +125,7 @@ _SETTINGS_ENUMS = {
     "archive_interaction_policy": {"off", "safe"},
     "gallery_dl_mode": {"off", "smart", "force"},
     "cloudflare_mode": {"off", "auto", "cloudscraper", "flaresolverr"},
+    "cloudflare_priority": {"flaresolverr_first", "cloudscraper_first"},
     "flaresolverr_session_policy": {"temporary", "reuse-domain", "manual"},
     "flaresolverr_proxy_mode": {"inherit", "none"},
     "ai_key_storage": {"session", "env", "keyring", "plain"},
