@@ -120,6 +120,46 @@ def import_queue_items_from_file(file_path: str) -> List[Dict[str, str]]:
                     items.append({"url": url, "filename": filename, "mode": mode})
         return items
 
+    # CSV is deliberately supported with the Python standard library.  This
+    # keeps the common queue export/import path available in a minimal install;
+    # pandas remains optional for XLSX/XLS spreadsheets.
+    if ext == ".csv":
+        try:
+            with open(file_path, "r", encoding="utf-8-sig", newline="") as handle:
+                reader = csv.DictReader(handle)
+                headers = [str(name or "").strip().lower() for name in (reader.fieldnames or [])]
+                url_key = next(
+                    (name for name in (reader.fieldnames or [])
+                     if str(name or "").strip().lower() in {"url", "link", "urls", "links"}),
+                    None,
+                )
+                filename_key = next(
+                    (name for name in (reader.fieldnames or [])
+                     if str(name or "").strip().lower() in {"filename", "name", "output", "title", "file"}),
+                    None,
+                )
+                mode_key = next(
+                    (name for name in (reader.fieldnames or [])
+                     if str(name or "").strip().lower() in {"mode", "output_mode", "type"}),
+                    None,
+                )
+                if url_key is None:
+                    logger.warning("Batch import: no URL/Link column found.")
+                    return items
+                for row in reader:
+                    url = str(row.get(url_key) or "").strip()
+                    if not url or not is_probable_url(url):
+                        continue
+                    filename = str(row.get(filename_key) or "").strip() if filename_key else ""
+                    mode = _normalize_batch_mode(
+                        str(row.get(mode_key) or "").strip() if mode_key else "",
+                        url,
+                    )
+                    items.append({"url": url, "filename": filename, "mode": mode})
+        except Exception as exc:
+            logger.error(f"Failed reading CSV batch file {file_path}: {exc}")
+        return items
+
     try:
         import pandas as pd  # type: ignore
     except Exception as e:

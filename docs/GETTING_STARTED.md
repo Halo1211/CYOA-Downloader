@@ -1,76 +1,39 @@
 # Getting Started
 
-This guide is the first document new users should read. It explains how to install **CYOA Downloader**, verify the setup, start the GUI, run the first CLI backup, understand the most common command-line options, and prepare optional tools such as FFMPEG and `yt-dlp`.
+This is the installation guide for CYOA Downloader v1.0.5. If you only want
+to download one CYOA, use [Start here](../START_HERE.md) and return to this
+page only when you need setup details.
 
-CYOA Downloader is designed to preserve interactive CYOA projects by downloading project data, images, fonts, audio/video references where supported, and viewer files when an offline viewer mode is selected.
+## The beginner path
 
-> **The beginner route:** install the normal dependencies, run the GUI, choose
-> **ICC Folder**, and download one URL. You do not need FFMPEG, AI, Cloudflare
-> tools, browser automation, or spreadsheet support for this first test.
+1. Install Python 3.10+ or download the Windows executable.
+2. Install the normal requirements.
+3. Run the dependency check.
+4. Open the GUI.
+5. Download one URL using **ICC Folder**.
 
----
+Do not install optional AI, Cloudflare, browser, media, or spreadsheet tools
+until you need them.
 
-## Quick paths
+## Option A: Windows executable
 
-Two supported ways to run the application:
+This is the easiest Windows option:
 
-- **Windows executable (no setup).** Download the `-Windows-x64.zip` asset from the [Releases page](../../releases), right-click → **Extract All**, then run `CYOA Downloader.exe`. If Windows SmartScreen appears, choose **More info → Run anyway** (the executable is open-source and unsigned). If you use the executable, continue with the [User Guide](./USER_GUIDE.md) to save your first backup.
-- **From Python source.** Install Python, create a virtual environment, install dependencies, and launch — three copy-paste steps, detailed in sections 2–4 below.
+1. Open the [Releases page](../../releases).
+2. Download the asset ending in `-Windows-x64.zip`.
+3. Right-click it and choose **Extract All**.
+4. Open the extracted folder and run `CYOA Downloader.exe`.
 
-The remainder of this guide covers the Python workflow, first GUI and CLI backups, dependency checks, and optional tools.
+The executable may trigger Windows SmartScreen because it is not code-signed.
+Confirm that it came from the project release page before choosing **More info
+→ Run anyway**.
 
----
+## Option B: Python on Windows
 
-## Documentation map
+Install Python 3.10 or newer from [python.org](https://www.python.org/downloads/).
+During installation, enable **Add Python to PATH**.
 
-All links below assume this file is inside the `docs/` directory.
-
-| Document | Read this when you need |
-| --- | --- |
-| [Getting Started](./GETTING_STARTED.md) | Installation, first run, first GUI backup, first CLI backup, dependency checks, and beginner CLI tables. |
-| [User Guide](./USER_GUIDE.md) | Daily GUI/CLI workflows, output modes, reports, retry tools, batch import, Offline Viewer Center, and Manual Inject. |
-| [GUI Queue Guide](./GUI_QUEUE_GUIDE.md) | Queue mode changes, filename editing, import, and CSV/TXT export. |
-| [CLI reference](./CLI.md) | Copy-paste CLI commands and the complete flag reference. |
-| [Advanced Features](./ADVANCED_FEATURES.md) | AI Assist, Cloudflare handling, proxy/DNS/HTTP2, media fallback, theme/logo behavior, userscript helper, and advanced recovery options. |
-| [Troubleshooting](./TROUBLESHOOTING.md) | Setup failures, missing project data, failed assets, batch errors, GUI visual issues, Cloudflare problems, and bug-report preparation. |
-| [Maintainer Guide](./MAINTAINER_GUIDE.md) | Repository structure, compatibility rules, test gates, documentation rules, release checklist, and packaging policy. |
-
-Recommended reading order:
-
-1. **Getting Started** for installation and first backup.
-2. **User Guide** when you want to understand the GUI and output modes.
-3. **Troubleshooting** when something fails.
-4. **Advanced Features** only when a difficult site or media source needs extra handling.
-5. **Maintainer Guide** if you are editing the repository or preparing a release.
-
----
-
-## 1. Requirements
-
-| Requirement | Required? | Purpose |
-| --- | --- | --- |
-| Python 3.10+ | Required | Runs the downloader. |
-| Internet access | Required | Downloads projects, viewer files, images, fonts, and optional media. |
-| Disk space | Required | Large projects can contain many assets. |
-| Tkinter | Required for GUI | Used by the GUI. Usually bundled with Python on Windows/macOS; may be separate on Linux. |
-| `requests`, `urllib3`, `beautifulsoup4` | Required | HTTP requests and HTML/project parsing. |
-| `tldextract`, `json5` | Required/recommended | Domain handling and tolerant project parsing. |
-| `pandas`, `openpyxl` | Optional | Needed only for XLSX/XLS batch imports. |
-| `customtkinter` | Included in normal install | Main GUI appearance. |
-| `pillow` | Included in normal install | Logo/image handling in the GUI. |
-| `httpx[http2]` | Optional | HTTP/2 deep-scan fetching when enabled. |
-| `yt-dlp` | Optional | Supported media extraction workflows. |
-| FFMPEG | Optional | Media merge/conversion workflows, especially with `yt-dlp`. |
-
-Normal image and viewer backups do **not** require FFMPEG. Missing optional tools should produce warnings, not crash the normal downloader.
-
----
-
-## 2. Install on Windows
-
-> **What these commands do.** The first line creates an isolated environment (`.venv`) so the project's dependencies stay separate from the rest of your system. The next two lines install those dependencies. This setup is performed only once; subsequent launches require just two commands (shown at the end of this section).
-
-Open PowerShell in the project folder:
+Open PowerShell in the repository folder and run:
 
 ```powershell
 py -3 -m venv .venv
@@ -79,14 +42,7 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-If PowerShell blocks activation:
-
-```powershell
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-.\.venv\Scripts\Activate.ps1
-```
-
-If `py` is not available:
+If `py` is not recognized, use `python` instead:
 
 ```powershell
 python -m venv .venv
@@ -95,68 +51,16 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-Check Python version:
+If PowerShell blocks activation, run this once:
 
 ```powershell
-python --version
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 ```
 
----
+## Option C: Python on macOS/Linux
 
-## 2.1 Recommended pip install commands
-
-CYOA Downloader keeps the beginner install small. Optional features are listed
-in `requirements-optional.txt`; install that file only when you need one of
-those features.
-
-### Normal user install
-
-Use this for normal GUI/CLI backups:
-
-```bash
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-### Advanced optional feature install
-
-Use this only if you want the heavier optional features such as Cloudflare fallback, gallery fallback, safer key storage, browser-cookie helpers, DNS helpers, browser fallback, and additional encoding fallbacks:
-
-```bash
-pip install -r requirements-optional.txt
-```
-
-Playwright installs only the Python package by default. If you use Playwright-based browser fallback, install Chromium separately:
-
-```bash
-python -m playwright install chromium
-```
-
-### Developer / CI install
-
-Use this if you run tests, lint checks, or GitHub Actions-style validation:
-
-```bash
-pip install -r requirements-dev.txt
-```
-
-### Complete local setup
-
-Use this when you want normal runtime dependencies, optional advanced tools, and developer tools:
-
-```bash
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-pip install -r requirements-optional.txt
-pip install -r requirements-dev.txt
-python -m playwright install chromium
-```
-
-FFMPEG is not a pip package. Install it through your operating system, then verify it with `ffmpeg -version`.
-
----
-
-## 3. Install on macOS
+Install Python 3.10 or newer, open a terminal in the repository folder, and
+run:
 
 ```bash
 python3 -m venv .venv
@@ -165,31 +69,17 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-If Python is too old, install a newer Python build first, then repeat the virtual environment steps.
-
----
-
-## 4. Install on Linux
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-On minimal Linux installations, install Tkinter separately:
+On Debian/Ubuntu, install Tkinter if the GUI cannot start:
 
 ```bash
 sudo apt update
 sudo apt install python3-tk
 ```
 
----
+## Check the installation
 
-## 5. Verify installation
-
-Run these commands from the repository root:
+Run these commands from the repository root while the virtual environment is
+active:
 
 ```bash
 python cyoa_downloader.py --dependency-check
@@ -197,432 +87,113 @@ python cyoa_downloader.py --self-test
 python cyoa_downloader.py --help
 ```
 
-| Command | Expected result |
+What they mean:
+
+| Command | Meaning |
 | --- | --- |
-| `--dependency-check` | Lists required and optional dependency status, including FFMPEG and optional media tools. |
-| `--self-test` | Runs offline sanity checks. It should not need a live website. |
-| `--help` | Prints all CLI flags and exits. |
+| `--dependency-check` | Shows which normal and optional tools are available. |
+| `--self-test` | Runs offline sanity checks; it does not download a website. |
+| `--help` | Prints the complete CLI flag list. |
 
-If `--dependency-check` reports an optional dependency as missing, install it only if you need that feature.
+An optional dependency warning is safe to ignore unless you need that feature.
 
----
-
-## 6. Start the GUI
+## Start the GUI
 
 ```bash
 python cyoa_downloader.py
 ```
 
-Running without arguments opens the GUI. To force GUI mode:
+Running without arguments opens the GUI. `python cyoa_downloader.py --gui`
+does the same explicitly.
 
-```bash
-python cyoa_downloader.py --gui
-```
+For the first download:
 
-First GUI backup:
-
-1. Paste the CYOA URL.
-2. Choose an output mode.
-3. Click **Download All**.
-4. Wait until the log finishes.
-5. Open the output folder.
-6. Read the generated report.
-7. Retry failed assets if needed.
+1. Paste a URL.
+2. Keep the default output folder or choose another one.
+3. Select **ICC Folder**.
+4. Click **Add URL**, then **Download All**.
+5. Click **Open Folder** when it finishes.
 
 Recommended beginner settings:
 
-| Setting | Recommended value | Why |
+| Setting | First value | Reason |
 | --- | --- | --- |
-| Theme | System | Follows the OS and avoids forcing dark/light mode. |
-| Workers | 4 | Stable default for most sites. |
-| Wait time | 60 seconds | Good default after rate limits. |
-| Deep scan | Enabled | Finds assets referenced inside JavaScript/CSS. |
-| yt-dlp | Enabled only when needed | Not necessary for normal image-only backups. |
-| AI Assist | Off or Diagnostics | Avoids unnecessary API calls and cost. |
+| Mode | ICC Folder | Easy to inspect and retry. |
+| Workers/threads | 4 | Stable default. |
+| Wait/retry delay | 60 seconds | Safer after rate limits. |
+| Deep scan | On | Finds common JavaScript/CSS assets. |
+| AI Assist | Off | No key or cost is needed for normal downloads. |
 
-For detailed GUI workflows, read [User Guide](./USER_GUIDE.md).
+See [User Guide](./USER_GUIDE.md) for queue editing, output modes, reports,
+retry buttons, Offline Viewer Center, and Manual Inject.
 
-> **Subsequent launches (Python install).** The install is not repeated. Open a terminal in the project folder and run these two commands:
-> - Windows: `.\.venv\Scripts\Activate.ps1` then `python cyoa_downloader.py`
-> - macOS/Linux: `source .venv/bin/activate` then `python cyoa_downloader.py`
->
-> **Tip:** save those two commands as `start.bat` (Windows) or `start.sh` (macOS/Linux) in the project folder for a one-click launcher.
+## Start the CLI
 
----
-
-## 7. CLI learning path
-
-Do not start with every advanced flag. Use this progression:
-
-1. Run `python cyoa_downloader.py --help`.
-2. Run `python cyoa_downloader.py --dependency-check`.
-3. Try one URL with the default command.
-4. Try `--icc-folder` for an inspectable offline viewer.
-5. Try batch mode after one single URL works.
-6. Add proxy, Cloudflare, media, or AI options only when the basic workflow fails.
-
----
-
-## 8. Quick command table
-
-| Goal | Command | Explanation |
-| --- | --- | --- |
-| Open GUI | `python cyoa_downloader.py` | Starts the graphical interface. |
-| Force GUI | `python cyoa_downloader.py --gui` | Opens GUI explicitly. |
-| Show help | `python cyoa_downloader.py --help` | Shows every available CLI flag. |
-| Check dependencies | `python cyoa_downloader.py --dependency-check` | Reports required/optional dependencies. |
-| Run self-test | `python cyoa_downloader.py --self-test` | Runs offline sanity checks. |
-| Check a finished backup | `python cyoa_downloader.py --verify "output_folder"` | Read-only integrity check of a folder you already downloaded. |
-| Write checksum baseline | `python cyoa_downloader.py --verify "output_folder" --write-manifest` | Records file checksums so a later `--verify` can detect corruption. |
-| Download one project | `python cyoa_downloader.py "https://example.com/project"` | Runs a normal single-project backup. |
-| Choose output folder | `python cyoa_downloader.py "https://example.com/project" --output downloads` | Writes output to `downloads/`. |
-| ICC ZIP | `python cyoa_downloader.py "https://example.com/project" --icc` | Creates an ICC-style ZIP when supported. |
-| ICC folder | `python cyoa_downloader.py "https://example.com/project" --icc-folder` | Creates an inspectable ICC-style folder. |
-| Batch download | `python cyoa_downloader.py --list examples/batch_urls.csv --output downloads` | Reads multiple URLs from a batch file. |
-| Serve preview | `python cyoa_downloader.py "https://example.com/project" --icc-folder --serve` | Serves output locally after download. |
-
-Always quote URLs. Shells can misread `?`, `&`, and `#` when URLs are not quoted.
-
----
-
-## 9. Output mode guide
-
-| Output mode | Flag | Best for | Output style | Notes |
-| --- | --- | --- | --- | --- |
-| Default backup | no mode flag | First test | Auto/default | Good initial command. |
-| External image ZIP | `--zip` | Legacy external-image backup | ZIP | Keeps older workflow compatibility. |
-| Both | `--both` | Maximum compatibility | Multiple outputs | Useful when unsure. |
-| ICC ZIP | `--icc` | Shareable offline viewer | ZIP | Good final package format. |
-| ICC folder | `--icc-folder` | Inspectable offline viewer | Folder | Best troubleshooting mode. |
-| Pure website ZIP | `--pure-website` | Custom site fallback | ZIP | Skips normal project detection. |
-| Pure website folder | `--pure-website-folder` | Custom viewer debugging | Folder | Easier to inspect than ZIP. |
-| CYOAP Vue auto | `--cyoap-vue` | CYOAP Vue sites | Auto | Dedicated CYOAP handling first. |
-| CYOAP Vue ZIP | `--cyoap-vue-website` | CYOAP Vue packaged backup | ZIP | Dedicated website output. |
-| CYOAP Vue folder | `--cyoap-vue-folder` | CYOAP Vue debugging | Folder | Best for path checking. |
-
----
-
-## 10. CLI reference table
-
-The complete live reference is always:
+The CLI is useful for scripts and repeatable downloads. Start with one of these
+commands:
 
 ```bash
-python cyoa_downloader.py --help
+# Inspectable offline folder
+python cyoa_downloader.py "https://example.com/cyoa/" --icc-folder --output downloads
+
+# One shareable ZIP
+python cyoa_downloader.py "https://example.com/cyoa/" --icc --output downloads
+
+# Batch list
+python cyoa_downloader.py --list examples/batch_urls.csv --icc-folder --output downloads
 ```
 
-### 10.1 Basic input and output
+Read the [CLI reference](./CLI.md) for flag details and batch formats.
 
-| Option | Example | Purpose |
-| --- | --- | --- |
-| `url` | `python cyoa_downloader.py "https://example.com/project"` | Positional CYOA URL. |
-| `filename` | `python cyoa_downloader.py "https://example.com/project" my_backup` | Optional output filename. |
-| `-u`, `--url` | `python cyoa_downloader.py --url "https://example.com/project"` | URL option form. |
-| `-o`, `--output` | `python cyoa_downloader.py "URL" --output downloads` | Output directory. |
-| `-L`, `--list` | `python cyoa_downloader.py --list batch.csv --output downloads` | Batch import file or remote CSV source. |
+## Optional requirements
 
-### 10.2 Backup modes
-
-| Option | Example | Purpose |
-| --- | --- | --- |
-| `-z`, `--zip` | `python cyoa_downloader.py "URL" --zip` | ZIP with external images. |
-| `-b`, `--both` | `python cyoa_downloader.py "URL" --both` | Embedded JSON plus ZIP. |
-| `--icc` | `python cyoa_downloader.py "URL" --icc` | Full ICC viewer ZIP. |
-| `--icc-folder` | `python cyoa_downloader.py "URL" --icc-folder` | Full ICC viewer folder. |
-| `--pure-website` | `python cyoa_downloader.py "URL" --pure-website` | Pure website ZIP. |
-| `--pure-website-folder` | `python cyoa_downloader.py "URL" --pure-website-folder` | Pure website folder. |
-| `--cyoap-vue` | `python cyoa_downloader.py "URL" --cyoap-vue` | Dedicated CYOAP Vue handling. |
-| `--cyoap-vue-website` | `python cyoa_downloader.py "URL" --cyoap-vue-website` | CYOAP Vue ZIP. |
-| `--cyoap-vue-folder` | `python cyoa_downloader.py "URL" --cyoap-vue-folder` | CYOAP Vue folder. |
-
-### 10.3 Performance and scanning
-
-| Option | Example | Purpose |
-| --- | --- | --- |
-| `-f`, `--fonts` | `python cyoa_downloader.py "URL" --icc-folder --fonts` | Download/localize fonts. |
-| `-a`, `--analyse-fonts` | `python cyoa_downloader.py "URL" --analyse-fonts` | Font analysis only. |
-| `-t`, `--threads`, `--workers` | `python cyoa_downloader.py "URL" --workers 8` | Worker count. |
-| `-w`, `--wait-time`, `--wait` | `python cyoa_downloader.py "URL" --wait 120` | Wait after rate limits. |
-| `--bandwidth` | `python cyoa_downloader.py "URL" --bandwidth 512` | KB/s bandwidth limit. |
-| `--no-deep-scan` | `python cyoa_downloader.py "URL" --no-deep-scan` | Disable JS/CSS asset scan. |
-| `--http2` | `python cyoa_downloader.py "URL" --http2` | Enable HTTP/2 deep-scan fetches. |
-| `--no-http2` | `python cyoa_downloader.py "URL" --no-http2` | Disable HTTP/2 behavior. |
-
-### 10.4 Network and Cloudflare
-
-| Option | Example | Purpose |
-| --- | --- | --- |
-| `--proxy` | `python cyoa_downloader.py "URL" --proxy http://127.0.0.1:7890` | Manual proxy URL. |
-| `--proxy-mode` | `python cyoa_downloader.py "URL" --proxy-mode disabled` | Proxy behavior: `inherit_env`, `manual`, `disabled`. |
-| `--dns` | `python cyoa_downloader.py "URL" --dns 1.1.1.1` | DNS override. |
-| `--bebasdns` | `python cyoa_downloader.py "URL" --bebasdns unfiltered` | BebasDNS DoH preset. |
-| `--cloudflare` | `python cyoa_downloader.py "URL" --cloudflare auto` | Cloudflare handling mode. |
-| `--cf-bypass`, `--cloudscraper` | `python cyoa_downloader.py "URL" --cf-bypass` | Legacy cloudscraper alias. |
-| `--flaresolverr-url` | `python cyoa_downloader.py "URL" --cloudflare flaresolverr --flaresolverr-url http://localhost:8191/v1` | FlareSolverr API endpoint. |
-| `--flaresolverr-test` | `python cyoa_downloader.py --flaresolverr-test` | Test FlareSolverr configuration. |
-
-Advanced network options are explained in [Advanced Features](./ADVANCED_FEATURES.md).
-
-### 10.5 Media and optional extractors
-
-| Option | Example | Purpose |
-| --- | --- | --- |
-| `--no-ytdlp` | `python cyoa_downloader.py "URL" --no-ytdlp` | Disable yt-dlp media recovery. |
-| `--gallery-dl` | `python cyoa_downloader.py "URL" --gallery-dl smart` | Optional gallery-dl fallback. |
-| `--gallery-dl-path` | `python cyoa_downloader.py "URL" --gallery-dl-path gallery-dl` | Set gallery-dl path. |
-| `--gallery-dl-config` | `python cyoa_downloader.py "URL" --gallery-dl-config config.json` | Set gallery-dl config. |
-| `--no-selenium` | `python cyoa_downloader.py "URL" --no-selenium` | Disable Selenium fallback. |
-| `--itch` | `python cyoa_downloader.py "URL" --itch` | Enable itch.io downloader. |
-| `--itch-test` | `python cyoa_downloader.py --itch-test` | Test itch.io backend. |
-
-### 10.6 AI Assist
-
-| Option | Example | Purpose |
-| --- | --- | --- |
-| `--ai-mode` | `python cyoa_downloader.py "URL" --ai-mode diagnostics` | AI mode: `off`, `diagnostics`, `auto_fallback`, `aggressive_recovery`. |
-| `--ai-provider` | `python cyoa_downloader.py "URL" --ai-provider openai` | Select AI provider preset. |
-| `--ai-key` | `python cyoa_downloader.py "URL" --ai-key YOUR_KEY` | API key for this run. |
-| `--ai-key-storage` | `python cyoa_downloader.py "URL" --ai-key-storage keyring` | Key storage mode. |
-| `--ai-model` | `python cyoa_downloader.py "URL" --ai-model gpt-4.1-mini` | Provider model. |
-| `--ollama-url` | `python cyoa_downloader.py "URL" --ai-provider ollama --ollama-url http://localhost:11434` | Ollama base URL. |
-| `--ai-max-calls` | `python cyoa_downloader.py "URL" --ai-max-calls 3` | Max AI calls per run. |
-| `--ai-clear-key` | `python cyoa_downloader.py --ai-clear-key` | Clear saved AI key. |
-
-Read [Advanced Features](./ADVANCED_FEATURES.md) before enabling AI recovery. Normal backups do not require AI.
-
-### 10.7 Diagnostics and settings
-
-| Option | Example | Purpose |
-| --- | --- | --- |
-| `--cyoa-manager` | `python cyoa_downloader.py "URL" --cyoa-manager` | Optional CYOA Manager integration. |
-| `--serve` | `python cyoa_downloader.py "URL" --icc-folder --serve` | Serve output locally. |
-| `--serve-port` | `python cyoa_downloader.py "URL" --serve --serve-port 8080` | Select local serve port. |
-| `--language` | `python cyoa_downloader.py --gui --language en` | Set language preference. |
-| `--dependency-check` | `python cyoa_downloader.py --dependency-check` | Dependency report. |
-| `--userscript-info` | `python cyoa_downloader.py --userscript-info` | Userscript helper credit/details. |
-| `--self-test` | `python cyoa_downloader.py --self-test` | Offline sanity checks. |
-| `--verify` | `python cyoa_downloader.py --verify "output_folder"` | Read-only integrity check of a finished backup folder (missing/empty/broken files). Exit code 0 = intact, 1 = problem. |
-| `--write-manifest` | `python cyoa_downloader.py --verify "output_folder" --write-manifest` | With `--verify`: write a `cyoa_manifest.json` checksum baseline so later `--verify` runs catch corrupted/truncated files. Opt-in; never created during a normal download. |
-| `--export-settings` | `python cyoa_downloader.py --export-settings settings.json` | Export settings with secrets redacted. |
-| `--import-settings` | `python cyoa_downloader.py --import-settings settings.json` | Import non-secret settings. |
-| `--gui` | `python cyoa_downloader.py --gui` | Force GUI. |
-
----
-
-## 11. First CLI backup examples
-
-Default:
+The normal install includes the GUI and standard downloader. Install optional
+Python packages only when needed:
 
 ```bash
-python cyoa_downloader.py "https://example.com/project"
+pip install -r requirements-optional.txt
 ```
 
-ICC folder:
+This adds support for:
 
-```bash
-python cyoa_downloader.py "https://example.com/project" --icc-folder
-```
+- XLSX/XLS batch import (`pandas`, `openpyxl`);
+- YouTube/SoundCloud recovery (`yt-dlp`);
+- HTTP/2 deep scanning (`httpx[http2]`);
+- Cloudflare, gallery, browser, DNS, cookie, and AI-key helpers.
 
-ICC ZIP:
-
-```bash
-python cyoa_downloader.py "https://example.com/project" --icc
-```
-
-Custom output folder:
-
-```bash
-python cyoa_downloader.py "https://example.com/project" --icc-folder --output downloads
-```
-
-Serve result:
-
-```bash
-python cyoa_downloader.py "https://example.com/project" --icc-folder --serve
-```
-
----
-
-## 12. Batch download quick start
-
-### TXT format
-
-```text
-https://example.com/cyoa-1
-https://example.com/cyoa-2 | second_backup | website_folder
-```
-
-### CSV format
-
-```csv
-url,filename,mode
-https://example.com/cyoa-1,first_backup,website_folder
-https://example.com/cyoa-2,second_backup,website_zip
-```
-
-Run:
-
-```bash
-python cyoa_downloader.py --list examples/batch_urls.csv --output downloads
-```
-
-Supported URL columns: `url`, `link`, `urls`, `links`.
-
-Supported filename columns: `filename`, `name`, `output`, `title`, `file`.
-
-Supported mode columns: `mode`, `output_mode`, `type`.
-
-For batch troubleshooting, see [Troubleshooting](./TROUBLESHOOTING.md).
-
----
-
-## 13. FFMPEG setup
-
-FFMPEG is not required for normal JSON/image/font backups. It is only needed for some media extraction, conversion, or merge workflows, especially when optional media tools such as `yt-dlp` need to combine audio/video streams.
-
-Check whether FFMPEG is already available:
+FFMPEG is a separate operating-system program. It is needed for some media
+conversion workflows, not for normal JSON/image/viewer backups:
 
 ```bash
 ffmpeg -version
 ```
 
-### Windows with winget
-
-If Windows Package Manager is available, this is the simplest install path:
-
-```powershell
-winget install Gyan.FFmpeg
-```
-
-After installation, close and reopen PowerShell or Command Prompt, then verify:
-
-```powershell
-ffmpeg -version
-```
-
-If `winget` cannot find the package, update winget sources and search the available FFMPEG packages:
-
-```powershell
-winget source update
-winget search ffmpeg
-```
-
-Then install the available trusted package. The recommended package name for this guide is:
-
-```powershell
-winget install Gyan.FFmpeg
-```
-
-### Windows manual install
-
-1. Download a trusted static FFMPEG build.
-2. Extract it.
-3. Add the extracted `bin` folder to PATH.
-4. Open a new terminal.
-5. Run:
-
-```powershell
-ffmpeg -version
-```
-
-Make sure PATH points to the folder that contains `ffmpeg.exe`, not only the parent folder.
-
-### macOS
+Playwright also needs its browser after the Python package is installed:
 
 ```bash
-brew install ffmpeg
-ffmpeg -version
+python -m playwright install chromium
 ```
 
-### Debian/Ubuntu
+## What to do when a download is incomplete
 
-```bash
-sudo apt update
-sudo apt install ffmpeg
-ffmpeg -version
-```
+1. Open `backup_report.txt` in the output folder.
+2. Run `--verify` if the output is a folder.
+3. Use **Retry Assets**, **Retry Images**, or **Retry Audio** in the GUI.
+4. Lower workers to `2` and increase wait time to `120` seconds.
+5. Read [Troubleshooting](./TROUBLESHOOTING.md).
 
-### Fedora
+If a viewer is blank when opened by double-clicking `index.html`, use the GUI
+**Serve** button or the CLI `--serve` option. Modern viewers often need
+`http://localhost` instead of `file://`.
 
-```bash
-sudo dnf install ffmpeg
-ffmpeg -version
-```
+## Documentation map
 
-If your Fedora install does not provide FFMPEG by default, enable the appropriate multimedia repository for your system first.
-
----
-
-
-## 14. yt-dlp setup
-
-Install or update:
-
-```bash
-pip install -U yt-dlp
-```
-
-Then run:
-
-```bash
-python cyoa_downloader.py --dependency-check
-```
-
----
-
-## 15. Updating dependencies
-
-Runtime dependencies:
-
-```bash
-python -m pip install --upgrade pip
-pip install -U -r requirements.txt
-```
-
-Development tools:
-
-```bash
-pip install -U -r requirements-dev.txt
-```
-
-Validate after update:
-
-```bash
-python cyoa_downloader.py --dependency-check
-python cyoa_downloader.py --self-test
-python -m py_compile cyoa_downloader.py
-```
-
----
-
-## 16. Common beginner mistakes
-
-| Problem | Likely cause | Fix |
-| --- | --- | --- |
-| `python` opens Microsoft Store | Python or PATH problem | Install Python from python.org or use `py -3`. |
-| `.venv` cannot activate on Windows | PowerShell execution policy | Use `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`. |
-| GUI does not open on Linux | Tkinter missing | Install `python3-tk`. |
-| FFMPEG warning | FFMPEG not in PATH | Install FFMPEG and reopen the terminal. |
-| Batch reads zero URLs | Missing URL column | Use `url` or `link`. |
-| Viewer opens but assets are missing | Dynamic JS/CSS paths or blocked assets | Use `--icc-folder`, keep deep scan enabled, read reports, retry failed assets. |
-| Rate-limit errors | Too many parallel requests | Use `--workers 2 --wait 120`. |
-
-For detailed error handling, read [Troubleshooting](./TROUBLESHOOTING.md).
-
----
-
-## 17. Good first bug report data
-
-Before opening an issue, collect:
-
-1. Operating system.
-2. Python version.
-3. Exact command.
-4. Output of `--dependency-check`.
-5. Output of `--self-test`.
-6. GUI or CLI workflow.
-7. Output mode.
-8. Log/report files.
-9. Minimal URL example if safe to share.
-10. Whether `--workers 2 --wait 120` changes the result.
-
-Do not share API keys, cookies, tokens, or private URLs.
+| Need | Document |
+| --- | --- |
+| Shortest first run | [Start here](../START_HERE.md) |
+| Normal GUI workflow | [User Guide](./USER_GUIDE.md) |
+| Queue mode/edit/export | [GUI Queue Guide](./GUI_QUEUE_GUIDE.md) |
+| CLI commands and flags | [CLI reference](./CLI.md) |
+| Optional recovery tools | [Advanced Features](./ADVANCED_FEATURES.md) |
+| Errors and failed assets | [Troubleshooting](./TROUBLESHOOTING.md) |
+| Code, tests, and releases | [Maintainer Guide](./MAINTAINER_GUIDE.md) |
