@@ -6,7 +6,7 @@ Thank you for improving CYOA Downloader. This project is intentionally conservat
 
 1. Create an issue or describe the problem clearly in the PR.
 2. Confirm whether the change affects CLI flags, output layout, batch files, settings, Offline Viewer Center, Manual Inject, userscript helpers, or dependency behavior.
-3. Keep version `1.0.2` unless the maintainer explicitly decides to cut a new release.
+3. Keep the version unchanged unless the maintainer explicitly decides to cut a new release.
 4. Avoid changing the main download behavior unless the bug is clearly understood.
 5. Update documentation when user-facing behavior changes.
 
@@ -69,6 +69,7 @@ The documentation is intentionally compact:
 - Root `README.md` is the main entry point.
 - `CHANGELOG.md` is the only changelog.
 - `docs/` contains a small number of substantial guides.
+- `docs/GUI_QUEUE_GUIDE.md` is the focused beginner reference for queue editing and list export.
 - Do not add many tiny Markdown files for one-paragraph topics.
 - If a new topic is short, merge it into an existing guide.
 - Keep GitHub documentation in English.

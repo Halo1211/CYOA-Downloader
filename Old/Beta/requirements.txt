@@ -1,4 +1,6 @@
-# CYOA Downloader v7.3.9 requirements
+# Historical CYOA Downloader v7.3.9 requirements — archived only.
+# Do not use this file for the current release. Use the repository-root
+# requirements.txt or requirements-optional.txt instead.
 # Install with: pip install -r requirements.txt
 
 # Core downloader and parsing

@@ -9,7 +9,7 @@ output names, report formats, and download behavior are unchanged.
 from __future__ import annotations
 
 import hashlib
-from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
+from urllib.parse import parse_qsl, unquote, urlencode, urljoin, urlparse, urlunparse
 
 # The legacy module still owns several mutable GUI/network flags during the
 # transition. Import it once and copy its already-initialized public surface so
@@ -541,8 +541,10 @@ def process_images(
             #   → images/CYOAs/Images/BranchingHeart/0/3.avif
             # This prevents double-downloads: deep scan checks the same
             # directory structure and will find the file already on disk.
-            url_path = urlparse(resolved).path.lstrip('/')
-            base_url_path = urlparse(base_url).path.rstrip('/')
+            resolved_parsed = urlparse(resolved)
+            base_parsed = urlparse(base_url)
+            url_path = resolved_parsed.path.lstrip('/')
+            base_url_path = base_parsed.path.rstrip('/')
             # Only strip the base path on a whole-segment
             # match. Plain startswith() also matched partial segments, e.g.
             # base "/tale" + asset "/tale-assets/x.png" → "-assets/x.png",
@@ -552,7 +554,26 @@ def process_images(
                 url_path = url_path[len(_bp):]
             url_path = url_path.lstrip('./ ')
 
-            if '/' in url_path:
+            # Cross-origin CDNs commonly expose very deep storage paths such
+            # as ``original/05/8b/...``.  Keeping that provider-specific path
+            # makes an ICC package unnecessarily huge and can make two
+            # providers look like unrelated local assets.  Use one stable,
+            # flat filename for external images; the URL hash prevents a
+            # basename collision while the host keeps the result readable.
+            is_external_image = (
+                is_image
+                and (
+                    resolved_parsed.scheme.lower() != base_parsed.scheme.lower()
+                    or resolved_parsed.netloc.lower() != base_parsed.netloc.lower()
+                )
+            )
+            if is_external_image:
+                host = re.sub(r"[^a-z0-9]+", "_", (resolved_parsed.hostname or "external").lower()).strip("_")
+                raw_name = os.path.basename(unquote(resolved_parsed.path)) or "image"
+                stem, source_ext = os.path.splitext(raw_name)
+                digest = hashlib.sha1(resolved.encode("utf-8", "replace")).hexdigest()[:12]
+                fn = f"{host or 'external'}_{stem or 'image'}_{digest}{source_ext}"
+            elif '/' in url_path:
                 # Multi-segment path: preserve directory structure
                 fn = url_path
                 # Strip leading directory that duplicates dest_folder name

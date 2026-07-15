@@ -1,7 +1,7 @@
 """Batch/download mode constants."""
 
 _BATCH_VALID_MODES = {
-    "embed", "zip", "both",
+    "auto", "embed", "zip", "both",
     "icc", "icc_zip", "icc_folder", "website", "website_zip", "website_folder",
     "pure_website", "pure_website_zip", "pure_website_folder",
     "cyoap_vue", "cyoap_vue_zip", "cyoap_vue_folder",

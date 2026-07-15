@@ -67,6 +67,7 @@ Recommended public package structure:
 ├── LICENSE
 ├── VERSION
 ├── requirements.txt
+├── requirements-optional.txt
 ├── requirements-dev.txt
 ├── assets/
 │   ├── logo-light.png
@@ -77,6 +78,7 @@ Recommended public package structure:
 │   ├── USER_GUIDE.md
 │   ├── ADVANCED_FEATURES.md
 │   ├── TROUBLESHOOTING.md
+│   ├── GUI_QUEUE_GUIDE.md
 │   └── MAINTAINER_GUIDE.md
 ├── examples/
 ├── tests/
@@ -171,7 +173,7 @@ python -m py_compile cyoa_downloader.py
 python -c "import ast, pathlib; ast.parse(pathlib.Path('cyoa_downloader.py').read_text(encoding='utf-8')); print('ast.parse OK')"
 python cyoa_downloader.py --help
 python cyoa_downloader.py --dependency-check
-python cyoa_downloader.py --self-test            # currently 37/37
+python cyoa_downloader.py --self-test            # offline built-in checks
 pytest -q
 ruff check cyoa_downloader.py --select F821,F811,F601
 ```
@@ -200,7 +202,7 @@ Manual GUI smoke test:
 
 1. Launch `python cyoa_downloader.py --gui`.
 2. Confirm the window opens.
-3. Confirm version text shows `1.0.2`.
+3. Confirm version text shows the current value from `VERSION` (currently `1.0.5`).
 4. Confirm original logo assets load.
 5. Confirm action bar and feature tabs align.
 6. Confirm the dark divider is visible but not bright white.

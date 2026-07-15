@@ -1,29 +1,40 @@
 # Start here
 
-New to CYOA Downloader? This page takes you from zero to a saved CYOA in a few minutes. It is all you need to read first.
+New to CYOA Downloader? Follow this page from top to bottom. You only need to
+learn one workflow before reading the advanced documentation.
 
-## What this tool does
+## The short version
 
-It **saves an interactive CYOA to your computer** so you can read and play it offline, even if the original website disappears. You provide a link; it downloads everything and gives you a folder you can keep.
+1. Install or launch the application.
+2. Paste one CYOA URL into the GUI.
+3. Choose **ICC Folder**.
+4. Click **Download All**.
+5. Open the output folder and read `backup_report.txt` if anything looks missing.
+
+**ICC Folder** is the best first choice because it creates a normal folder that
+you can inspect, serve locally, and retry. Use **ICC ZIP** later when you want
+one file to store or share.
 
 ## Choose how to run it
 
-### Windows, no setup
+### Windows executable
 
-1. Open the **[Releases page](../../releases)**.
-2. Download the **`-Windows-x64.zip`** asset.
-3. **Right-click → Extract All.**
-4. Double-click **`CYOA Downloader.exe`**.
+1. Open the [Releases page](../../releases).
+2. Download the asset ending in `-Windows-x64.zip`.
+3. Right-click the ZIP and choose **Extract All**.
+4. Open the extracted folder and double-click `CYOA Downloader.exe`.
 
-> If Windows shows *“Windows protected your PC,”* choose **More info → Run anyway**. The project is open-source and the executable is simply not code-signed.
+Windows may show a SmartScreen warning because the executable is not
+code-signed. Verify that the file came from the project's release page, then
+choose **More info → Run anyway** if you trust the download.
 
-### macOS, Linux, or Windows from source
+### Run from Python
 
-1. Install **Python 3.10+** from [python.org/downloads](https://www.python.org/downloads/). On Windows, enable **“Add Python to PATH.”**
-2. Download this project (green **`< > Code → Download ZIP`**) and extract it.
-3. Open a terminal in the folder and run:
+Install Python 3.10 or newer from [python.org](https://www.python.org/downloads/),
+download this repository, and open a terminal in the extracted folder.
 
-**Windows (PowerShell)**
+Windows PowerShell:
+
 ```powershell
 py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
@@ -32,7 +43,8 @@ pip install -r requirements.txt
 python cyoa_downloader.py
 ```
 
-**macOS / Linux**
+macOS/Linux:
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
@@ -41,29 +53,49 @@ pip install -r requirements.txt
 python cyoa_downloader.py
 ```
 
-You install once. Next time, activate `.venv` and run `python cyoa_downloader.py` again.
+The setup is normally done once. Later, activate `.venv` and run
+`python cyoa_downloader.py` again.
 
-## Save your first CYOA
+## Your first GUI backup
 
-1. **Paste the CYOA link** into the URL field.
-2. Choose where to save it.
-3. Select **ICC Folder** — a folder you can open and play offline (the best starting choice).
-4. Click **Download All**.
-5. When it finishes, open the folder.
+1. Paste the page URL into the URL field.
+2. Choose an output folder, or keep the default.
+3. Select **ICC Folder**.
+4. Click **Add URL**, then **Download All**.
+5. Wait for the final status message.
+6. Use **Open Folder** to inspect the result.
 
-If a few images failed, open `backup_report.txt` and use **Retry Images** in the application.
+Do not start with AI, Cloudflare, browser fallback, or high thread counts.
+Those are recovery tools for a specific problem, not prerequisites for a normal
+download.
 
-## If you get stuck
+## Editing the queue
+
+You can edit a queued filename directly. To change the output mode, click the
+mode badge on that row (for example, `auto`) and choose a new mode. The URL
+stays in the queue; you do not need to remove and add it again.
+
+Use **Export List…** to save the current queue as CSV or TXT. The export keeps
+the URL, filename, and mode, so it can be imported again on another machine.
+See [GUI Queue Guide](docs/GUI_QUEUE_GUIDE.md) for examples.
+
+## If something fails
+
+Run the checks from the repository folder:
 
 ```bash
 python cyoa_downloader.py --dependency-check
+python cyoa_downloader.py --self-test
 ```
 
-- **`python` not recognized** — reinstall Python with **Add to PATH** enabled.
-- **PowerShell blocks the environment** — run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once.
-- **No window / Tkinter error on Linux** — install Tk: `sudo apt install python3-tk`.
-- Further help: [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
+Then read [Troubleshooting](docs/TROUBLESHOOTING.md). Common first fixes are:
 
----
+- `python` is not recognized: reinstall Python and enable **Add Python to PATH**.
+- PowerShell blocks activation: run
+  `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once.
+- Linux has no GUI: install `python3-tk`.
+- A few assets failed: use the GUI retry buttons and inspect `backup_report.txt`.
+- The viewer is blank when opened directly: use the GUI **Serve** button.
 
-For batch downloads, command-line usage, Cloudflare handling, and advanced options, see the **[README](README.md)** and the [full documentation](docs/GETTING_STARTED.md).
+For normal GUI workflows, continue to [User Guide](docs/USER_GUIDE.md). For
+installation details, read [Getting Started](docs/GETTING_STARTED.md).

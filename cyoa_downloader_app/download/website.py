@@ -612,7 +612,12 @@ class WebsiteDownloader:
         parsed       = urlparse(url)
         start_parsed = urlparse(self.start_url)
         if parsed.netloc == start_parsed.netloc:
-            start_dir  = start_parsed.path.rstrip("/") + "/"
+            # ``parsed.path`` may retain percent-encoding while asset paths
+            # below are decoded with ``unquote``.  Compare like with like;
+            # otherwise routes containing spaces, apostrophes, or other
+            # encoded characters miss this branch and are incorrectly saved
+            # from the domain root (for example CYOA's/Fate NSFWCYOA/v1.5/...).
+            start_dir  = unquote(start_parsed.path.rstrip("/") + "/")
             asset_path = unquote(parsed.path)
             if asset_path.startswith(start_dir):
                 rel_parts = asset_path[len(start_dir):]   # e.g. "js/shared/components/Foo.js"
@@ -892,6 +897,7 @@ class WebsiteDownloader:
             return False
 
     def _rewrite_direct_urls(self, text: str, referrer_url: str, local_text_path: str) -> str:
+        self._download_runtime_template_assets(text, referrer_url)
         dynamic_asset_tokens = _infer_dynamic_asset_paths(text)
 
         def repl(m: re.Match) -> str:
@@ -908,6 +914,13 @@ class WebsiteDownloader:
             # downloads their inferred combined paths; rewriting the token
             # itself would produce ``image/image/...`` in the browser.
             if original in dynamic_asset_tokens:
+                return m.group(0)
+            # A custom viewer may construct a real asset URL from a template
+            # string, e.g. ``"${i.id}.jpg"``.  The placeholder is not a
+            # fetchable filename; downloading it produces a noisy 404 for
+            # ``$%7Bi.id%7D.jpg`` and can make a valid custom viewer look
+            # broken.  Leave the runtime expression for the browser.
+            if "${" in original:
                 return m.group(0)
             if not self._should_download_from_text(original):
                 return m.group(0)
@@ -938,6 +951,41 @@ class WebsiteDownloader:
             rel = self._rel(local_text_path, local)
             return f'{m.group("quote")}{rel}{m.group("quote")}'
         return self._quoted_asset_re.sub(repl, text)
+
+    def _download_runtime_template_assets(self, text: str, referrer_url: str) -> None:
+        """Download safe concrete assets hidden behind simple JS templates.
+
+        Custom viewers often render image URLs such as ``${i.id}.jpg`` from
+        an inline data array.  The template itself must remain in the local
+        HTML/JS, but its concrete values can be mirrored ahead of time.
+        Currently this targets the common ``DATA.incarnations`` shape used by
+        lightweight CYOA viewers; unresolved templates are left untouched.
+        """
+        if not text or "${i.id}" not in text:
+            return
+        template_exts = set(re.findall(r"\$\{i\.id\}\.([a-z0-9]+)", text, re.IGNORECASE))
+        if not template_exts:
+            return
+        for block_match in re.finditer(
+            r"\bincarnations\s*:\s*\[(?P<body>.*?)\]",
+            text,
+            re.IGNORECASE | re.DOTALL,
+        ):
+            ids = re.findall(
+                r"\bid\s*:\s*['\"]([^'\"]+)['\"]",
+                block_match.group("body"),
+                re.IGNORECASE,
+            )
+            for asset_id in dict.fromkeys(ids):
+                for ext in template_exts:
+                    asset_url = urljoin(referrer_url, f"{asset_id}.{ext}")
+                    self._download_asset(
+                        asset_url,
+                        preferred_kind="images",
+                        referrer_url=referrer_url,
+                    )
+            if ids:
+                return
 
     def _process_css(self, css: str, css_url: str, css_local: str) -> str:
         def repl_import(m: re.Match) -> str:

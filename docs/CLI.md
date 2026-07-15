@@ -10,6 +10,43 @@ python cyoa_downloader.py [options] [url] [filename]
 > On Windows you may use `py -3 cyoa_downloader.py ...`. If you packaged the EXE, replace
 > `python cyoa_downloader.py` with the executable name.
 
+> **New to the CLI?** You can ignore most flags. Start with one of these:
+> `--icc-folder` for a playable folder, `--icc` for one ZIP, or no mode flag
+> for a simple project snapshot. Use the GUI first if you prefer buttons.
+
+## First CLI run
+
+Run these commands from the folder that contains `cyoa_downloader.py`:
+
+```bash
+python cyoa_downloader.py --dependency-check
+python cyoa_downloader.py "https://example.com/cyoa/" --icc-folder --output downloads
+```
+
+The first command checks your installation. The second command downloads one
+CYOA into a new `downloads/` folder. Replace the example URL with the real page
+you want to archive.
+
+On Windows, `py -3` can replace `python` if that is the command your Python
+installation provides:
+
+```powershell
+py -3 cyoa_downloader.py "https://example.com/cyoa/" --icc-folder --output downloads
+```
+
+### Which command should I use?
+
+| What you want | Command |
+| --- | --- |
+| Simplest project snapshot | `python cyoa_downloader.py "URL"` |
+| Folder you can inspect and play | `python cyoa_downloader.py "URL" --icc-folder` |
+| One ZIP file to store/share | `python cyoa_downloader.py "URL" --icc` |
+| Custom viewer when normal detection fails | `python cyoa_downloader.py "URL" --pure-website-folder` |
+| Several URLs from a list | `python cyoa_downloader.py --list urls.txt --icc-folder` |
+
+Start with one URL. Once that works, move to batch lists and optional network
+or media features.
+
 ## Contents
 
 - [Quick examples](#quick-examples)

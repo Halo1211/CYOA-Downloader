@@ -28,9 +28,23 @@ def _make_cookie_session(browser: str = "chrome") -> Optional["requests.Session"
         loader = loaders.get(browser.lower())
         if loader is None: return None
         jar = loader()
+        # Chromium's newer App-Bound Encryption can make browser_cookie3
+        # return a jar whose entries have empty values after a decryption
+        # failure.  Treat that as a failed extraction; sending empty cookies
+        # makes callers believe authentication succeeded and is never useful.
+        valid = [cookie for cookie in jar if str(cookie.value or "")]
+        if not valid:
+            logger.debug("Cookie session: %s yielded no decryptable cookie values", browser)
+            return None
         s = create_retry_session()
-        s.cookies.update(jar)
-        logger.debug(f"Cookie session: loaded from {browser} ({len(jar)} cookies)")
+        for cookie in valid:
+            s.cookies.set(
+                cookie.name,
+                cookie.value,
+                domain=cookie.domain,
+                path=cookie.path or "/",
+            )
+        logger.debug(f"Cookie session: loaded from {browser} ({len(valid)} cookies)")
         return s
     except ImportError as _ignored_exc:
         logger.debug("Ignored recoverable exception in _make_cookie_session (line 4016): %s", _ignored_exc)
@@ -61,11 +75,17 @@ def _make_cookie_session(browser: str = "chrome") -> Optional["requests.Session"
                         os.unlink(tmp)
                     except OSError as cleanup_exc:
                         logger.debug(f"Chrome cookie temp cleanup failed: {cleanup_exc}")
-                s = create_retry_session()
-                for host, name, value in rows:
-                    s.cookies.set(name, value, domain=host.lstrip("."))
-                logger.debug(f"Cookie session: Chrome SQLite ({len(rows)} cookies)")
-                return s
+                # The legacy plaintext `value` column is empty for modern
+                # Chromium profiles.  Do not return a misleading session;
+                # encrypted_value must be decrypted by the browser/yt-dlp.
+                valid_rows = [row for row in rows if str(row[2] or "")]
+                if valid_rows:
+                    s = create_retry_session()
+                    for host, name, value in valid_rows:
+                        s.cookies.set(name, value, domain=host.lstrip("."))
+                    logger.debug(f"Cookie session: Chrome SQLite ({len(valid_rows)} cookies)")
+                    return s
+                logger.debug("Cookie session: Chrome SQLite contains no plaintext cookie values")
         except Exception as e:
             logger.debug(f"Chrome SQLite cookie fallback failed: {e}")
     return None

@@ -1,22 +1,27 @@
-# Regression tests
+# Tests
 
-Small, self-contained tests that lock the bug fixes and features from the rev18–rev23
-stabilization series. Run them from the repository root or from this folder.
+The test suite is for contributors and maintainers. Normal users do not need
+to run it to download a CYOA.
+
+Run all tests from the repository root:
 
 ```bash
-python tests/test_rev18.py   # batch mode-flag parity (GUI/CLI single source of truth)
-python tests/test_rev19.py   # image-cache index load locking
-python tests/test_rev22.py   # RAR handle leak fix + decode robustness
-python tests/test_rev23.py   # queue preserved on unparseable status
-python tests/test_rev20.py   # widget-after-destroy guard (needs Tk + a display)
+python -m pytest -q
 ```
 
-Notes:
+The suite is offline and deterministic where possible. A small number of GUI
+tests are skipped unless a display is explicitly enabled. The current suite
+also covers queue mode editing and CSV/TXT export/import.
 
-- `test_rev20.py` opens a real Tk window, so it needs a display. In headless CI use Xvfb:
-  ```bash
-  xvfb-run -a python tests/test_rev20.py
-  ```
-- The other four are pure-Python and need no display.
-- These complement the built-in offline suite: `python cyoa_downloader.py --self-test`
-  (currently 37/37).
+Useful checks before opening a pull request:
+
+```bash
+python -m py_compile cyoa_downloader.py
+python cyoa_downloader.py --help
+python cyoa_downloader.py --dependency-check
+python cyoa_downloader.py --self-test
+python -m pytest -q
+```
+
+See [CONTRIBUTING.md](../CONTRIBUTING.md) and the
+[Maintainer Guide](../docs/MAINTAINER_GUIDE.md) for the full release checklist.

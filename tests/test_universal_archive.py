@@ -117,6 +117,18 @@ def test_meaningful_query_gets_stable_distinct_local_name(tmp_path):
     assert second.endswith(".jpg")
 
 
+def test_encoded_start_route_is_saved_relative_to_cyoa_root(tmp_path):
+    downloader = _bare_downloader(tmp_path)
+    downloader.start_url = "https://example.test/CYOA%27s/Fate%20NSFWCYOA/v1.5/"
+
+    local = downloader._allocate_local_path(
+        "https://example.test/CYOA%27s/Fate%20NSFWCYOA/v1.5/js/core.js",
+        content_type="application/javascript",
+    )
+
+    assert pathlib.Path(local).relative_to(tmp_path).as_posix() == "js/core.js"
+
+
 class _FakeDownloader:
     def __init__(self, tmp_path: pathlib.Path) -> None:
         self.start_url = "https://example.test/game/story"
@@ -388,6 +400,47 @@ def test_dynamic_image_base_is_combined_without_emitting_wrong_bare_path():
     assert inferred["card/A.webp"] == {"image/card/A.webp"}
     assert "https://example.test/story/image/card/A.webp" in found
     assert "https://example.test/story/card/A.webp" not in found
+
+
+def test_template_asset_placeholders_are_not_downloaded_as_literal_urls(tmp_path, monkeypatch):
+    downloader = _bare_downloader(tmp_path)
+    calls = []
+    monkeypatch.setattr(
+        downloader,
+        "_download_asset",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+
+    source = 'const image = "${i.id}.jpg";'
+    rewritten = downloader._rewrite_direct_urls(
+        source,
+        "https://example.test/story/index.html",
+        str(tmp_path / "index.html"),
+    )
+
+    assert rewritten == source
+    assert calls == []
+
+
+def test_runtime_incarnation_template_downloads_concrete_ids(tmp_path, monkeypatch):
+    downloader = _bare_downloader(tmp_path)
+    calls = []
+    monkeypatch.setattr(
+        downloader,
+        "_download_asset",
+        lambda url, **kwargs: calls.append((url, kwargs)) or str(tmp_path / "asset.jpg"),
+    )
+    source = "const DATA={incarnations:[{id:'aang'},{id:'korra'}]}; const x=\"${i.id}.jpg\";"
+
+    downloader._download_runtime_template_assets(
+        source,
+        "https://example.test/atla/",
+    )
+
+    assert [url for url, _ in calls] == [
+        "https://example.test/atla/aang.jpg",
+        "https://example.test/atla/korra.jpg",
+    ]
 
 
 def test_integrity_validator_ignores_javascript_expressions_and_orphan_css(tmp_path):

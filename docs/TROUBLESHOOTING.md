@@ -12,6 +12,20 @@ python cyoa_downloader.py --help
 
 If you are new to the project, read [Getting Started](./GETTING_STARTED.md) first. For normal workflows, read [User Guide](./USER_GUIDE.md). For Cloudflare, proxy, AI, and media recovery, read [Advanced Features](./ADVANCED_FEATURES.md).
 
+## The 60-second troubleshooting order
+
+When you are not sure what to try, follow this order:
+
+1. Confirm the URL opens in a normal browser.
+2. Run one download with **ICC Folder** and the default settings.
+3. Read `backup_report.txt` in the output folder.
+4. Use **Verify** or the matching retry button for missing files.
+5. Reduce workers to `2` and increase the wait time to `120` seconds if the
+   site is rate-limiting requests.
+6. Only then try Cloudflare, proxy, DNS, browser fallback, or AI options.
+
+Changing many options at once makes the cause harder to find.
+
 ---
 
 ## 1. Diagnostic command checklist
@@ -37,7 +51,7 @@ Use these before reporting a bug.
 | `pip` installs globally by accident | Virtual environment is not active. | Activate `.venv` before installing. |
 | PowerShell cannot activate `.venv` | Execution policy blocks scripts. | Run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`. |
 | GUI does not open | Missing Tkinter or CustomTkinter. | Install requirements; on Linux install `python3-tk`. |
-| Excel batch import fails | Missing `pandas` or `openpyxl`. | `pip install pandas openpyxl`. |
+| Excel batch import fails | Missing `pandas` or `openpyxl`. | `pip install -r requirements-optional.txt`. |
 | HTTP/2 warning | Missing optional HTTP/2 extras. | `pip install "httpx[http2]"` or disable HTTP/2. |
 | FFMPEG warning | `ffmpeg` not in PATH. | Install FFMPEG and confirm `ffmpeg -version`. |
 | yt-dlp warning | Optional media extractor missing. | `pip install -U yt-dlp`. |
@@ -190,7 +204,7 @@ Common batch issues:
 | Problem | Cause | Fix |
 | --- | --- | --- |
 | No URLs imported | Wrong column name. | Use `url` or `link`. |
-| XLSX fails | Missing `pandas`/`openpyxl`. | Install both packages. |
+| XLSX fails | Missing `pandas`/`openpyxl`. | Install `requirements-optional.txt`. |
 | Some rows fail | Site-specific download issue. | Check `failed_urls.txt`. |
 | Mode ignored | Unknown mode value. | Use supported mode aliases from [Getting Started](./GETTING_STARTED.md). |
 | Filenames look wrong | Unsafe characters were sanitized. | Use simple filenames. |

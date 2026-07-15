@@ -25,6 +25,13 @@ def _yt_dlp_enabled() -> bool:
 
 
 def _yt_dlp_progress_cb():
+    # Runtime state is the mutable source of truth after the refactor; keep
+    # the surface fallback for compatibility with older callers/tests.
+    import sys as _sys
+    state = _sys.modules.get("cyoa_downloader_app.runtime.state")
+    callback = getattr(state, "_ytdlp_gui_progress_cb", None)
+    if callback:
+        return callback
     mod = _legacy_module()
     return getattr(mod, "_ytdlp_gui_progress_cb", None)
 
@@ -98,6 +105,21 @@ def _download_youtube_audio(
             vid_id = vid_m.group(1) if vid_m else "unknown"
         except Exception:
             vid_id = "unknown"
+
+        if vid_id == "unknown":
+            # yt-dlp also accepts SoundCloud and other media URLs.  A shared
+            # ``unknown.mp3`` name caused different retry items to overwrite
+            # one another and made project references ambiguous. Keep the
+            # readable URL slug, plus a short URL hash for uniqueness.
+            try:
+                import hashlib as _hashlib
+                from urllib.parse import urlparse as _urlparse
+                _slug = _urlparse(url_clean).path.rstrip("/").rsplit("/", 1)[-1]
+                _slug = _re.sub(r"[^A-Za-z0-9._-]+", "-", _slug).strip(".-_")[:64]
+                _digest = _hashlib.sha1(url_clean.encode("utf-8")).hexdigest()[:8]
+                vid_id = f"{_slug or 'audio'}-{_digest}"
+            except Exception:
+                vid_id = "audio"
 
         out_template = os.path.join(audio_dir, f"{vid_id}.%(ext)s")
         expected_mp3 = os.path.join(audio_dir, f"{vid_id}.mp3")
@@ -213,6 +235,25 @@ def _download_youtube_audio(
                 if src_db:
                     logger.debug(f"yt-dlp browser cookie source detected: {src_db}")
 
+            # browser_cookie3 can decrypt older profiles and Firefox even
+            # when yt-dlp's native Chromium reader cannot. Prefer those
+            # cookies as an HTTP header, then let yt-dlp try its native reader
+            # as the fallback for browsers that support it.
+            try:
+                from ..network.browser import _make_cookie_session
+                session = _make_cookie_session(browser)
+                if session is not None:
+                    pairs = [
+                        f"{cookie.name}={cookie.value}"
+                        for cookie in session.cookies
+                        if cookie.name and cookie.value
+                    ]
+                    if pairs:
+                        headers = dict(opts.get("http_headers") or {})
+                        headers["Cookie"] = "; ".join(pairs)
+                        return _try_ytdlp({**opts, "http_headers": headers})
+            except Exception as exc:
+                logger.debug("Browser cookie session unavailable for %s: %s", browser, exc)
             return _try_ytdlp({**opts, "cookiesfrombrowser": (browser,)})
 
         try:
@@ -234,8 +275,7 @@ def _download_youtube_audio(
                     f" retrying with browser cookies…"
                 )
                 for browser in browsers:
-                    opts_c = {**opts, "cookiesfrombrowser": (browser,)}
-                    ok_c, err_c = _try_ytdlp(opts_c)
+                    ok_c, err_c = _try_with_cookie_file(browser, opts)
                     found_file = _any_audio_exists()
                     if found_file:
                         logger.info(f"  yt-dlp: cookie source → {browser}")

@@ -14,7 +14,7 @@
 <p align="center">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg"></a>
   <img alt="Python 3.10+" src="https://img.shields.io/badge/Python-3.10%2B-blue.svg">
-  <img alt="Release v1.0.4" src="https://img.shields.io/badge/Release-v1.0.4-orange.svg">
+  <img alt="Release v1.0.5" src="https://img.shields.io/badge/Release-v1.0.5-orange.svg">
   <img alt="Interface: GUI and CLI" src="https://img.shields.io/badge/Interface-GUI%20%2B%20CLI-purple.svg">
   <img alt="Self-test 37/37" src="https://img.shields.io/badge/Self--test-37%2F37-brightgreen.svg">
 </p>
@@ -44,6 +44,10 @@ There are two ways to use it:
 
 No coding knowledge is required to use the desktop app. New users should follow [Getting started](#getting-started) below.
 
+> **New here?** Open [Start here](START_HERE.md). It gives you one safe,
+> copy-paste workflow: choose **ICC Folder**, download one URL, inspect the
+> result, and only then explore advanced options.
+
 ### Table of contents
 
 - [Getting started](#getting-started)
@@ -51,6 +55,7 @@ No coding knowledge is required to use the desktop app. New users should follow 
   - [Option 2 — Run from Python](#option-2--run-from-python)
   - [Troubleshooting first-run issues](#troubleshooting-first-run-issues)
 - [How to save your first CYOA](#how-to-save-your-first-cyoa)
+- [GUI queue editing and list export](#gui-queue-editing-and-list-export)
 - [Output modes](#output-modes)
 - [Verifying a backup](#verifying-a-backup)
 - [Main capabilities](#main-capabilities)
@@ -168,6 +173,18 @@ To play an offline copy through the bundled viewer, open **Offline Viewer Center
 
 ---
 
+## GUI queue editing and list export
+
+In the GUI, click a row's mode badge, such as `auto`, and choose another mode
+from the menu. The URL, filename, and queue position remain unchanged, so the
+job does not need to be removed and re-added.
+
+Use **Export List…** to save the current queue as CSV or TXT. The exported
+fields are `url`, `filename`, and `mode`, and the file can be loaded again with
+**Import List…**. Mode `auto` is preserved during export/import.
+
+See the detailed [GUI Queue Guide](docs/GUI_QUEUE_GUIDE.md).
+
 ## Output modes
 
 You control how each backup is packaged. Beginners can ignore the detail and use **ICC Folder**.
@@ -262,6 +279,7 @@ The downloader handles the common CYOA/ICC asset patterns found across classic I
 | --- | --- |
 | [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md) | Installation, first run, first GUI backup, first CLI backup, FFMPEG and yt-dlp setup. |
 | [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) | GUI panels, CLI workflows, batch files, output modes, Offline Viewer Center, Manual Inject. |
+| [`docs/GUI_QUEUE_GUIDE.md`](docs/GUI_QUEUE_GUIDE.md) | Beginner steps for editing queue modes, filenames, importing, and CSV/TXT export. |
 | [`docs/CLI.md`](docs/CLI.md) | Complete command-line reference: every flag grouped by category, with examples and exit codes. |
 | [`docs/ADVANCED_FEATURES.md`](docs/ADVANCED_FEATURES.md) | AI Assist, Cloudflare handling, proxies, DNS, HTTP/2, media recovery, theme/logo behavior, serve tools. |
 | [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) | Practical fixes for dependency errors, failed URLs, missing assets, GUI issues, FFMPEG/yt-dlp, and batch problems. |
@@ -276,7 +294,9 @@ Project meta files: [`CONTRIBUTING.md`](CONTRIBUTING.md), [`SECURITY.md`](SECURI
 
 ## Dependency install options
 
-Most users only need the normal runtime dependencies. This repository keeps the dependency files simple: `requirements.txt` for normal users and `requirements-dev.txt` for maintainers/CI. Optional advanced tools are installed with a direct pip command instead of a separate optional requirements file.
+Most users only need the normal runtime dependencies. `requirements.txt` is
+the beginner install, `requirements-optional.txt` contains heavier features,
+and `requirements-dev.txt` adds test/lint tools for maintainers.
 
 ### Normal user install
 
@@ -287,10 +307,10 @@ pip install -r requirements.txt
 
 ### Advanced optional feature install
 
-Use this only for heavier recovery features such as Cloudflare fallback, gallery fallback, safer key storage, browser-cookie helpers, DNS helpers, browser fallback, and additional encoding fallbacks:
+Use this only for heavier recovery features such as Cloudflare fallback, gallery fallback, safer key storage, browser-cookie helpers, DNS helpers, browser fallback, spreadsheet import, media recovery, and HTTP/2:
 
 ```bash
-pip install cloudscraper plyer rarfile gallery-dl keyring browser-cookie3 dnspython chardet charset-normalizer selenium playwright
+pip install -r requirements-optional.txt
 ```
 
 If you use Playwright-based browser fallback, install Chromium separately:
@@ -310,7 +330,7 @@ pip install -r requirements-dev.txt
 ```bash
 python -m pip install --upgrade pip
 pip install -r requirements.txt
-pip install cloudscraper plyer rarfile gallery-dl keyring browser-cookie3 dnspython chardet charset-normalizer selenium playwright
+pip install -r requirements-optional.txt
 pip install -r requirements-dev.txt
 python -m playwright install chromium
 ```

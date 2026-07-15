@@ -4,6 +4,10 @@ This guide is the first document new users should read. It explains how to insta
 
 CYOA Downloader is designed to preserve interactive CYOA projects by downloading project data, images, fonts, audio/video references where supported, and viewer files when an offline viewer mode is selected.
 
+> **The beginner route:** install the normal dependencies, run the GUI, choose
+> **ICC Folder**, and download one URL. You do not need FFMPEG, AI, Cloudflare
+> tools, browser automation, or spreadsheet support for this first test.
+
 ---
 
 ## Quick paths
@@ -25,6 +29,8 @@ All links below assume this file is inside the `docs/` directory.
 | --- | --- |
 | [Getting Started](./GETTING_STARTED.md) | Installation, first run, first GUI backup, first CLI backup, dependency checks, and beginner CLI tables. |
 | [User Guide](./USER_GUIDE.md) | Daily GUI/CLI workflows, output modes, reports, retry tools, batch import, Offline Viewer Center, and Manual Inject. |
+| [GUI Queue Guide](./GUI_QUEUE_GUIDE.md) | Queue mode changes, filename editing, import, and CSV/TXT export. |
+| [CLI reference](./CLI.md) | Copy-paste CLI commands and the complete flag reference. |
 | [Advanced Features](./ADVANCED_FEATURES.md) | AI Assist, Cloudflare handling, proxy/DNS/HTTP2, media fallback, theme/logo behavior, userscript helper, and advanced recovery options. |
 | [Troubleshooting](./TROUBLESHOOTING.md) | Setup failures, missing project data, failed assets, batch errors, GUI visual issues, Cloudflare problems, and bug-report preparation. |
 | [Maintainer Guide](./MAINTAINER_GUIDE.md) | Repository structure, compatibility rules, test gates, documentation rules, release checklist, and packaging policy. |
@@ -49,9 +55,9 @@ Recommended reading order:
 | Tkinter | Required for GUI | Used by the GUI. Usually bundled with Python on Windows/macOS; may be separate on Linux. |
 | `requests`, `urllib3`, `beautifulsoup4` | Required | HTTP requests and HTML/project parsing. |
 | `tldextract`, `json5` | Required/recommended | Domain handling and tolerant project parsing. |
-| `pandas`, `openpyxl` | Optional for batch spreadsheets | Needed for XLSX/XLS batch imports. |
-| `customtkinter` | Optional but recommended | Modern GUI appearance. |
-| `pillow` | Optional but recommended | Logo/image handling in the GUI. |
+| `pandas`, `openpyxl` | Optional | Needed only for XLSX/XLS batch imports. |
+| `customtkinter` | Included in normal install | Main GUI appearance. |
+| `pillow` | Included in normal install | Logo/image handling in the GUI. |
 | `httpx[http2]` | Optional | HTTP/2 deep-scan fetching when enabled. |
 | `yt-dlp` | Optional | Supported media extraction workflows. |
 | FFMPEG | Optional | Media merge/conversion workflows, especially with `yt-dlp`. |
@@ -99,7 +105,9 @@ python --version
 
 ## 2.1 Recommended pip install commands
 
-CYOA Downloader keeps the beginner install simple. The repository does **not** need a separate `advanced optional pip command` file.
+CYOA Downloader keeps the beginner install small. Optional features are listed
+in `requirements-optional.txt`; install that file only when you need one of
+those features.
 
 ### Normal user install
 
@@ -115,7 +123,7 @@ pip install -r requirements.txt
 Use this only if you want the heavier optional features such as Cloudflare fallback, gallery fallback, safer key storage, browser-cookie helpers, DNS helpers, browser fallback, and additional encoding fallbacks:
 
 ```bash
-pip install cloudscraper plyer rarfile gallery-dl keyring browser-cookie3 dnspython chardet charset-normalizer selenium playwright
+pip install -r requirements-optional.txt
 ```
 
 Playwright installs only the Python package by default. If you use Playwright-based browser fallback, install Chromium separately:
@@ -139,7 +147,7 @@ Use this when you want normal runtime dependencies, optional advanced tools, and
 ```bash
 python -m pip install --upgrade pip
 pip install -r requirements.txt
-pip install cloudscraper plyer rarfile gallery-dl keyring browser-cookie3 dnspython chardet charset-normalizer selenium playwright
+pip install -r requirements-optional.txt
 pip install -r requirements-dev.txt
 python -m playwright install chromium
 ```

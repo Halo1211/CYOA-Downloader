@@ -251,6 +251,49 @@ def _base_run_download(
                         except Exception:
                             pass
 
+            # Many creator-hosted CYOAs are complete custom viewers with no
+            # ICC project payload.  If the target is an HTML page, preserve
+            # the normal project resolver diagnostics but automatically use
+            # the website archive path instead of reporting a false download
+            # failure.  Explicit pure_website mode still follows the earlier
+            # branch above and is unchanged.
+            _fallback_html = ""
+            try:
+                _fallback_html = get_source(url) or ""
+            except Exception as _ignored_exc:
+                logger.debug("Custom viewer fallback probe failed: %s", _ignored_exc)
+            if not analysis_only and "<html" in _fallback_html.lower():
+                site_folder = _unique_folder(file_name)
+                logger.warning(
+                    "No standard project payload; automatically falling back "
+                    "to custom viewer archive → %s/",
+                    site_folder,
+                )
+                prepare_clean_output_folder(site_folder)
+                viewer = WebsiteDownloader(
+                    url,
+                    site_folder,
+                    max_workers=max_workers,
+                    ai_api_key=ai_api_key,
+                    ai_provider=ai_provider,
+                    ai_mode=ai_mode,
+                    ai_budget=ai_budget,
+                    archive_strategy=archive_policy.strategy,
+                )
+                viewer.download()
+                run_archive_extensions(viewer, archive_policy)
+                viewer.localize_existing_text_assets()
+                if download_fonts:
+                    _download_fonts_into_folder(
+                        "", url, site_folder, html_source=_fallback_html
+                    )
+                _set_last_preview_folder(
+                    os.path.abspath(site_folder) if not website_zip_output else None
+                )
+                _finalize_site_folder(site_folder, file_name, website_zip_output)
+                logger.info("Custom viewer archive fallback complete.")
+                return
+
             raise RuntimeError(
                 "Could not resolve project data (project.json / project.txt / embedded JS / zip payload).\n"
                 "If this site uses a custom viewer without a standard project file,\n"

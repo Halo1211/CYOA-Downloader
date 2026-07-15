@@ -2,6 +2,18 @@
 
 This project uses a single changelog file. Older split release notes and patch reports have been consolidated here so users do not have to search through multiple Markdown files.
 
+## v1.0.5 — GUI queue editing and export
+
+### New features
+
+- Queue row mode badges are now clickable, allowing a URL to switch between
+  output modes without removing and re-adding the job.
+- Added **Export List…** for CSV/TXT queue backups containing `url`,
+  `filename`, and `mode`. Exported `auto` modes round-trip through the existing
+  importer.
+- Added [`docs/GUI_QUEUE_GUIDE.md`](docs/GUI_QUEUE_GUIDE.md) and updated the
+  GUI/README documentation.
+
 ## v1.0.2 — stabilization + integrity verification (internal patch series rev18 → rev23)
 
 A focused, additive release on top of `1.0.1`. The program version is now

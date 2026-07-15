@@ -4,6 +4,9 @@ This guide explains the normal workflows for CYOA Downloader after installation 
 
 If you have not installed the project yet, start with [Getting Started](./GETTING_STARTED.md). If something fails, use [Troubleshooting](./TROUBLESHOOTING.md).
 
+> **First time?** Do one download with **ICC Folder** before changing advanced
+> settings. It creates the easiest output to inspect and retry.
+
 ---
 
 ## 1. Workflow overview
@@ -63,6 +66,17 @@ python cyoa_downloader.py
 For most users, **ICC Folder** is the best first mode because it produces inspectable files.
 
 ---
+
+### Change a queued mode or export the queue
+
+You do not need to remove a URL just because you changed your mind about its
+output mode. Click the row's mode badge, choose a new mode, and keep working.
+You can also edit the filename directly in the row.
+
+Use **Export List…** to save the queue as CSV or TXT. The saved columns are
+`url`, `filename`, and `mode`, and the file can be loaded again with
+**Import List…**. See the [GUI Queue Guide](./GUI_QUEUE_GUIDE.md) for a
+beginner example.
 
 ## 4. Choosing an output mode
 

@@ -75,6 +75,14 @@ class CYOADownloaderGUI:
         ("cyoap_vue_folder",   "⚡","cyoap_vue Folder",   "cyoap_vue engine backup",       ""),
     ]
 
+    # These are the modes exposed by the main GUI.  Queue rows use the same
+    # canonical values as the batch importer/dispatcher.
+    QUEUE_MODE_OPTIONS = (
+        "auto", "embed", "zip", "both", "website_zip", "website_folder",
+        "pure_website_zip", "pure_website_folder",
+        "cyoap_vue_zip", "cyoap_vue_folder",
+    )
+
     BADGE_COLORS = {
         "auto":                ("#1e3a8a", "#93c5fd"),
         "embed":               ("#1e3a5f", "#60a5fa"),
@@ -1326,8 +1334,17 @@ class CYOADownloaderGUI:
         if _saved_dns:
             _set_active_dns(_saved_dns)
 
-        # Right side: Import. Help lives in the Input header so it stays
+        # Right side: Import/export. Help lives in the Input header so it stays
         # visible even when the options row is crowded.
+        self._export_button = T(ctk.CTkButton(row1, text="Export List…", height=26,
+                         font=ctk.CTkFont("Segoe UI", 10),
+                         fg_color=p["surface2"], hover_color=p["surface"],
+                         text_color=p["muted"], border_width=1,
+                         border_color=p["surface2"],
+                         command=self._export_list),
+           fg_color="surface2", hover_color="surface", text_color="muted",
+           border_color="surface2")
+        self._export_button.pack(side="right", padx=(4, 0))
         self._import_button = T(ctk.CTkButton(row1, text="Import List…", height=26,
                         font=ctk.CTkFont("Segoe UI", 10),
                         fg_color=p["surface2"], hover_color=p["surface"],
@@ -2123,6 +2140,7 @@ class CYOADownloaderGUI:
             "browse": {"id": "Browse…", "en": "Browse…"},
             "output_folder": {"id": "Folder output:", "en": "Output folder:"},
             "import_list": {"id": "Import List…", "en": "Import List…"},
+            "export_list": {"id": "Ekspor List…", "en": "Export List…"},
             "queue_empty_title": {"id": "Queue kosong", "en": "Queue Empty"},
             "queue_empty_body": {"id": "Tambahkan minimal satu URL.", "en": "Add at least one URL."},
             "downloading": {"id": "Mengunduh…", "en": "Downloading…"},
@@ -2149,6 +2167,7 @@ class CYOADownloaderGUI:
             "Proxy:": {"id": "Proxy:", "en": "Proxy:"},
             "DNS:": {"id": "DNS:", "en": "DNS:"},
             "Import List…": {"id": "Import List…", "en": "Import List…"},
+            "Export List…": {"id": "Ekspor List…", "en": "Export List…"},
             "Clear All": {"id": "Bersihkan", "en": "Clear All"},
             "Remove": {"id": "Hapus", "en": "Remove"},
             "▶  Download All": {"id": "▶  Download Semua", "en": "▶  Download All"},
@@ -2430,6 +2449,8 @@ class CYOADownloaderGUI:
                 self._output_label.configure(text=self._tr("output_folder"))
             if hasattr(self, "_import_button"):
                 self._import_button.configure(text=self._tr("import_list"))
+            if hasattr(self, "_export_button"):
+                self._export_button.configure(text=self._tr("export_list"))
             if hasattr(self, "_add_btn"):
                 self._add_btn.configure(text=self._tr("add_url"))
             # Re-apply sidebar mode names/descriptions from canonical definitions.
@@ -2620,6 +2641,42 @@ class CYOADownloaderGUI:
     def _badge_colors(self, mode: str) -> tuple:
         return self.BADGE_COLORS.get(mode, ("#1e3a5f", "#60a5fa"))
 
+    def _set_queue_item_mode(self, item_ref: dict, mode: str, badge) -> None:
+        """Change one queued row's mode without rebuilding or removing the row."""
+        if item_ref is None or not any(candidate is item_ref for candidate in self._queue_data):
+            return
+        mode = (mode or "auto").strip().lower().replace("-", "_").replace(" ", "_")
+        if mode not in self.QUEUE_MODE_OPTIONS:
+            return
+        item_ref["mode"] = mode
+        # A manual choice should no longer look like a result from auto-detect.
+        item_ref.pop("auto_detected", None)
+        item_ref.pop("auto_detected_mode", None)
+        try:
+            bg, fg = self._badge_colors(mode)
+            badge.configure(text=mode.replace("_", " "), fg_color=bg, text_color=fg)
+        except Exception as exc:
+            logger.debug("Queue mode badge update skipped: %s", exc)
+
+    def _show_queue_mode_menu(self, item_ref: dict, badge) -> None:
+        """Show the canonical mode choices for a queue row's mode badge."""
+        import tkinter as tk
+
+        if item_ref is None or not any(candidate is item_ref for candidate in self._queue_data):
+            return
+        menu = tk.Menu(self.root, tearoff=False)
+        for mode in self.QUEUE_MODE_OPTIONS:
+            menu.add_command(
+                label=mode.replace("_", " "),
+                command=lambda selected=mode: self._set_queue_item_mode(
+                    item_ref, selected, badge))
+        try:
+            menu.tk_popup(
+                badge.winfo_rootx(),
+                badge.winfo_rooty() + badge.winfo_height())
+        finally:
+            menu.grab_release()
+
     def _make_queue_row(self, url: str, mode: str, filename: str) -> None:
         import customtkinter as ctk
         import tkinter as tk
@@ -2670,13 +2727,17 @@ class CYOADownloaderGUI:
                 item_ref["filename"] = fn_var.get().strip()
         fn_var.trace_add("write", _on_fn_change)
 
-        # Badge
+        # Mode badge.  It stays compact like a label, but clicking it opens a
+        # menu so the URL can switch mode in place without remove/re-add.
         bg, fg = self._badge_colors(mode)
-        badge = ctk.CTkLabel(row,
-                             text=mode.replace("_", " "),
-                             font=ctk.CTkFont("Segoe UI", 9, "bold"),
-                             fg_color=bg, text_color=fg,
-                             corner_radius=10, padx=8, pady=2)
+        badge = ctk.CTkButton(row,
+                              text=mode.replace("_", " "),
+                              font=ctk.CTkFont("Segoe UI", 9, "bold"),
+                              fg_color=bg, hover_color=bg,
+                              text_color=fg, corner_radius=10,
+                              width=112, height=24,
+                              command=lambda ref=item_ref: self._show_queue_mode_menu(
+                                  ref, badge))
         badge.grid(row=0, column=3, padx=6, rowspan=2)
 
         # × button
@@ -3045,6 +3106,38 @@ class CYOADownloaderGUI:
                                      "_queue_id": uuid.uuid4().hex})
             self._make_queue_row(item["url"], mode, item.get("filename", ""))
         logger.info(f"Imported {len(items)} item(s) from {path}")
+
+    def _export_list(self) -> None:
+        """Export the current queue, including each row's filename and mode."""
+        from tkinter import filedialog, messagebox
+        from ..importers.batch import export_queue_items_to_file
+
+        if not self._queue_data:
+            messagebox.showwarning(
+                "Export List",
+                "Queue is empty. Add at least one URL before exporting.",
+            )
+            return
+
+        path = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            initialfile="cyoa_queue.csv",
+            filetypes=[
+                ("CSV list", "*.csv"),
+                ("Text list", "*.txt"),
+                ("All files", "*.*"),
+            ],
+        )
+        if not path:
+            return
+        try:
+            count = export_queue_items_to_file(self._queue_data, path)
+        except Exception as exc:
+            logger.exception("Queue export failed")
+            messagebox.showerror("Export Failed", str(exc))
+            return
+        logger.info("Exported %s queue item(s) to %s", count, path)
+        messagebox.showinfo("Export Complete", f"Exported {count} item(s).")
 
     def _show_format_guide(self) -> None:
         """Show the small '?' help window beside Import List.
@@ -3678,8 +3771,21 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             auto_detect_modes_batch(auto_items, max_workers=min(4, threads),
                                     progress_cb=_progress)
             for i, it in enumerate(items):
-                if it.get("auto_detected") and i < len(self._queue_rows):
-                    _, _, _, badge_lbl, _ = self._queue_rows[i]
+                if not it.get("auto_detected"):
+                    continue
+                # ``items`` can contain manual rows before an Auto row.  Find
+                # the widget by queue-item identity instead of assuming that
+                # the item's position equals the auto-item position.
+                row_idx = next(
+                    (queue_idx for queue_idx, queued in enumerate(self._queue_data)
+                     if queued is it or (
+                         it.get("_queue_id") and
+                         queued.get("_queue_id") == it.get("_queue_id")
+                     )),
+                    i,
+                )
+                if row_idx < len(self._queue_rows):
+                    _, _, _, badge_lbl, _ = self._queue_rows[row_idx]
                     bg, fg = self._badge_colors(it["mode"])
                     _v25_safe_after_widget(
                         self.root, badge_lbl,
@@ -4478,21 +4584,24 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             self._set_status("No skipped_youtube_audio.txt found.")
             return
 
-        urls: List[str] = []
+        entries: List[Tuple[str, str]] = []
         for f in skip_files:
             try:
                 with open(f, encoding="utf-8") as fh:
                     for line in fh:
                         line = line.strip()
-                        if line and line.startswith("http") and line not in urls:
-                            urls.append(line)
+                        if line and line.startswith("http"):
+                            item = (line, os.path.dirname(os.path.abspath(f)))
+                            if item not in entries:
+                                entries.append(item)
             except Exception as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _retry_youtube_audio (line 8523): %s", _ignored_exc)
 
-        if not urls:
+        if not entries:
             self._set_status("No YouTube URLs to retry.")
             return
 
+        urls = sorted({url for url, _folder in entries})
         self._set_status(f"Retry {len(urls)} YouTube audio…")
 
         import threading as _thr
@@ -4501,6 +4610,9 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             _mod = sys.modules.get(__name__)
             if _mod is not None:
                 _mod._ytdlp_gui_progress_cb = self._on_ytdlp_progress
+            _state = sys.modules.get("cyoa_downloader_app.runtime.state")
+            if _state is not None:
+                _state._ytdlp_gui_progress_cb = self._on_ytdlp_progress
             ok = 0
             try:
                 # Use each project's folder as the download root. The old code
@@ -4515,8 +4627,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                             continue
                         json_files.append(os.path.join(root, name))
 
-                groups: Dict[str, Dict[str, Any]] = {}
-                unmatched = set(urls)
+                candidates: Dict[str, str] = {}
                 for json_path in json_files:
                     try:
                         with open(json_path, encoding="utf-8", errors="replace") as fh:
@@ -4524,19 +4635,53 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                     except OSError as exc:
                         logger.warning("Cannot read %s during audio retry: %s", json_path, exc)
                         continue
-                    matching = {url for url in urls if url in project_text}
-                    if not matching:
-                        continue
-                    folder = os.path.dirname(json_path)
-                    group = groups.setdefault(folder, {"urls": set(), "projects": []})
-                    group["urls"].update(matching)
-                    group["projects"].append((json_path, project_text))
-                    unmatched.difference_update(matching)
+                    candidates[json_path] = project_text
 
-                if unmatched:
-                    groups.setdefault(out, {"urls": set(), "projects": []})["urls"].update(unmatched)
+                groups: Dict[str, Dict[str, Any]] = {}
+                import re as _re
+
+                def _reference_keys(url: str) -> set[str]:
+                    keys = {url}
+                    match = _re.search(r"(?:v=|youtu\.be/)([A-Za-z0-9_-]{11})", url)
+                    if match:
+                        keys.add(match.group(1))
+                    return keys
+
+                for url, report_folder in entries:
+                    keys = _reference_keys(url)
+                    matches = [
+                        (path, text) for path, text in candidates.items()
+                        if any(key in text for key in keys)
+                    ]
+                    # Prefer the live payload, but allow the raw backup to
+                    # identify the project on a second retry after the live
+                    # project has already been localized.
+                    matches.sort(key=lambda item: (
+                        0 if os.path.basename(item[0]).lower() == "project.json" else (
+                            2 if item[0].lower().endswith("_original.json") else 1
+                        ),
+                        item[0].lower(),
+                    ))
+                    if matches:
+                        json_path, project_text = matches[0]
+                        if json_path.lower().endswith("_original.json"):
+                            # project_original.json is a read-only source
+                            # reference; patch its sibling project.json.
+                            target = json_path[:-len("_original.json")] + ".json"
+                            if target in candidates:
+                                json_path, project_text = target, candidates[target]
+                        folder = os.path.dirname(json_path)
+                        group = groups.setdefault(folder, {"urls": set(), "projects": {}})
+                        group["urls"].add(url)
+                        group["projects"][json_path] = project_text
+                    else:
+                        # Deterministic fallback: keep audio beside the report,
+                        # never in the global output/audio directory by accident.
+                        group = groups.setdefault(report_folder, {"urls": set(), "projects": {}})
+                        group["urls"].add(url)
+
                 if not groups:
-                    groups[out] = {"urls": set(urls), "projects": []}
+                    groups[out] = {"urls": set(urls), "projects": {}}
 
                 downloaded_total = 0
                 patched_total = 0
@@ -4545,7 +4690,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                         sorted(group["urls"]), folder, log_dir=folder,
                     )
                     downloaded_total += len(result)
-                    for json_path, project_text in group["projects"]:
+                    for json_path, project_text in group["projects"].items():
                         patched = _patch_youtube_refs_in_json(project_text, result)
                         if patched == project_text:
                             continue
@@ -4566,6 +4711,8 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             finally:
                 if _mod is not None:
                     _mod._ytdlp_gui_progress_cb = None
+                if _state is not None:
+                    _state._ytdlp_gui_progress_cb = None
             self.root.after(0, lambda: self._set_status(
                 f"Retry YT audio selesai: {ok}/{len(urls)} berhasil"))
 
@@ -6832,9 +6979,11 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 ("📋  Queue Management", "accent", [
                     ("Add URL", "Paste a URL and press Enter or click Add. Duplicate URLs are kept as separate jobs."),
                     ("Edit name", "Edit the filename field below each queued URL before downloading."),
+                    ("Change mode", "Click the mode badge (for example, Auto) on a row and choose another mode. The URL stays in the queue."),
                     ("Reorder", "Drag the handle at the left of a row to change download priority."),
                     ("Remove", "Use the row close button, Remove, or Clear All to manage the queue."),
                     ("Batch import", "Imports .txt, .csv, .xlsx, or Google Sheet CSV sources with URL, filename, and mode columns."),
+                    ("Export list", "Click Export List to save the current URL, filename, and mode as CSV or TXT for backup or reuse."),
                 ]),
                 ("🔍  Pre-flight Preview", "muted", [
                     ("Probe", "Checks URLs before starting downloads and shows whether project data is likely available."),
@@ -7020,9 +7169,11 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 ("📋  Manajemen Antrean", "accent", [
                     ("Tambah URL", "Tempel URL dan tekan Enter atau klik Tambah. URL duplikat tetap menjadi job terpisah."),
                     ("Edit nama", "Edit field nama file di bawah setiap URL antrean sebelum mengunduh."),
+                    ("Ubah mode", "Klik badge mode, misalnya Auto, pada baris lalu pilih mode lain. URL tetap berada di antrean."),
                     ("Ubah urutan", "Seret handle di kiri baris untuk mengubah prioritas unduhan."),
                     ("Hapus", "Gunakan tombol tutup baris, Hapus, atau Bersihkan untuk mengatur antrean."),
                     ("Impor batch", "Mengimpor sumber .txt, .csv, .xlsx, atau Google Sheet CSV dengan kolom URL, filename, dan mode."),
+                    ("Ekspor list", "Klik Ekspor List untuk menyimpan URL, nama file, dan mode saat ini sebagai CSV atau TXT."),
                 ]),
                 ("🔍  Pratinjau Awal", "muted", [
                     ("Probe", "Memeriksa URL sebelum unduhan penuh dimulai dan menampilkan kemungkinan ketersediaan data project."),

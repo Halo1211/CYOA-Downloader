@@ -1,6 +1,6 @@
 # Credits
 
-CYOA Downloader v1.0 Release is distributed under the MIT License.
+CYOA Downloader v1.0.5 is distributed under the MIT License.
 
 ## Bundled localhost helper credit
 

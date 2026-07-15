@@ -237,8 +237,10 @@ def _patch_youtube_refs_in_json(
     import re as _re
 
     local_paths = set(yt_map.values())  # "audio/ID.mp3"
+    local_refs: Dict[str, str] = {}
     local_ytids: Dict[str, str] = {}    # "dQw4w9W" → "audio/dQw4w9W.mp3"
     for yt_url, local_path in yt_map.items():
+        local_refs[str(yt_url).strip()] = local_path
         vm = _re.search(r'(?:v=|youtu\.be/)([A-Za-z0-9_-]{11})', yt_url)
         if vm:
             local_ytids[vm.group(1)] = local_path
@@ -259,6 +261,8 @@ def _patch_youtube_refs_in_json(
                     if bgm in local_paths:
                         # Already patched path — just ensure useAudioURL is set
                         new_path = bgm
+                    elif str(bgm).strip() in local_refs:
+                        new_path = local_refs[str(bgm).strip()]
                     elif bgm in local_ytids:
                         # Raw YouTube video ID
                         new_path = local_ytids[bgm]

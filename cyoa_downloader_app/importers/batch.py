@@ -260,6 +260,55 @@ def import_queue_items_from_source(source: str) -> List[Dict[str, str]]:
             )
     return items
 
+
+def export_queue_items_to_file(items: List[Dict[str, str]], file_path: str) -> int:
+    """Export queue rows in a format that :func:`import_queue_items_from_file` can read.
+
+    CSV is the default-friendly format because it keeps URL, filename, and mode
+    in separate columns.  TXT uses the existing ``url | filename | mode``
+    syntax, so exported lists can also be edited in a plain text editor.
+    Internal queue fields (for example ``_queue_id``) are deliberately omitted.
+
+    Returns the number of rows written.
+    """
+    if not file_path:
+        raise ValueError("An export file path is required")
+
+    rows = []
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        url = str(item.get("url") or "").strip()
+        if not url:
+            continue
+        rows.append({
+            "url": url,
+            "filename": str(item.get("filename") or "").strip(),
+            "mode": str(item.get("mode") or "auto").strip() or "auto",
+        })
+
+    ext = os.path.splitext(str(file_path))[1].lower()
+    if ext == ".txt":
+        with open(file_path, "w", encoding="utf-8", newline="") as handle:
+            for row in rows:
+                fields = [row["url"]]
+                if row["filename"] or row["mode"]:
+                    fields.append(row["filename"])
+                if row["mode"]:
+                    fields.append(row["mode"])
+                handle.write(" | ".join(fields) + "\n")
+    elif ext == ".csv":
+        # utf-8-sig makes the exported file open cleanly in Excel while remaining
+        # compatible with pandas and the existing CSV importer.
+        with open(file_path, "w", encoding="utf-8-sig", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=["url", "filename", "mode"])
+            writer.writeheader()
+            writer.writerows(rows)
+    else:
+        raise ValueError("Queue export supports .csv and .txt files only")
+
+    return len(rows)
+
 def write_failed_url_log(
     failed_items: List[Dict[str, str]],
     output_dir: str,
@@ -289,4 +338,6 @@ def write_failed_url_log(
     logger.info(f"Failed URL log saved: {log_path}")
     return log_path
 
-__all__ = ['_derive_mode_flags', '_normalize_batch_mode', 'import_queue_items_from_file', '_google_sheet_csv_export_url', 'import_queue_items_from_source', 'write_failed_url_log']
+__all__ = ['_derive_mode_flags', '_normalize_batch_mode', 'import_queue_items_from_file',
+           '_google_sheet_csv_export_url', 'import_queue_items_from_source',
+           'export_queue_items_to_file', 'write_failed_url_log']

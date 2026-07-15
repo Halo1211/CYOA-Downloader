@@ -4,6 +4,24 @@ This guide covers optional and advanced workflows: AI Assist, Cloudflare recover
 
 Start with [Getting Started](./GETTING_STARTED.md) and [User Guide](./USER_GUIDE.md) before using these options. Advanced flags should be added one at a time so failures remain diagnosable.
 
+> **Beginner warning:** these features are optional recovery tools. A normal
+> image/viewer backup does not require an AI key, Cloudflare solver, proxy,
+> browser automation, or FFMPEG. Only use the section that matches the error
+> you are trying to fix.
+
+Optional Python packages are grouped in `requirements-optional.txt`:
+
+```bash
+pip install -r requirements-optional.txt
+```
+
+You still need to install **FFMPEG separately** through your operating system
+for media conversion. Playwright also needs a browser install:
+
+```bash
+python -m playwright install chromium
+```
+
 ---
 
 ## 1. Advanced feature rule

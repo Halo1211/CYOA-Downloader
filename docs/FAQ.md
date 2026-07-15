@@ -30,6 +30,14 @@ ICC modes resolve the project data and build a proper offline viewer. Pure Websi
 the site's files without trying to resolve `project.json` first — use it for unusual or custom
 sites where normal detection fails.
 
+**How do I change a queued URL from Auto to another mode?**
+Click the mode badge on the queue row and choose a new mode. The URL, filename,
+and row position remain in place.
+
+**How do I save or move my queue to another computer?**
+Click **Export List…** and save a CSV or TXT file. It contains the URL, filename,
+and mode. Use **Import List…** on the other computer.
+
 ## Common problems
 
 **Some images are missing.**
@@ -55,7 +63,8 @@ Run once: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, confirm with `Y
 Install Tk: `sudo apt install python3-tk`.
 
 **XLSX batch import fails.**
-Install the spreadsheet dependencies: `pip install pandas openpyxl`.
+Install the optional dependencies with `pip install -r requirements-optional.txt`
+from the repository root, or install `pandas` and `openpyxl` directly.
 
 **Audio downloads fail.**
 Install `yt-dlp` and FFmpeg, and confirm `ffmpeg -version` works.
