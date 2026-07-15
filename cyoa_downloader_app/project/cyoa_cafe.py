@@ -276,6 +276,44 @@ class CYOACafeResolver:
             self._responses[url] = response
         return response
 
+    def _authoritative_metadata_target(self, normalized: str) -> str:
+        """Return the viewer named by the current catalogue record, if any.
+
+        A resolver cache is useful for repeated downloads, but a catalogue
+        route is an alias whose target can change.  Resolve the record id again
+        before trusting a cached target so a previous game's viewer can never
+        bleed into the current ``/game/<id>`` request.
+        """
+        parsed = urlparse(normalized)
+        path = re.sub(r"/+", "/", parsed.path or "/")
+        if parsed.netloc.lower() != "cyoa.cafe" or not re.fullmatch(
+            r"/game/[^/]+/?", path, flags=re.IGNORECASE
+        ):
+            return ""
+        try:
+            record = fetch_cyoa_cafe_record(
+                normalized,
+                timeout=self.timeout,
+                fetcher=self.fetcher,
+            )
+        except Exception as exc:
+            logger.debug("Authoritative CYOA.CAFE record check skipped: %s", exc)
+            return ""
+        if not isinstance(record, dict):
+            return ""
+        for field in _CYOA_CAFE_FIELDS:
+            value = record.get(field)
+            if not isinstance(value, str) or not is_probable_url(value):
+                continue
+            try:
+                candidate = canonicalize_url(value)
+            except Exception:
+                continue
+            allowed, _reason = self._candidate_allowed(candidate)
+            if allowed:
+                return candidate
+        return ""
+
     def _reject(self, url: str, reason: str) -> None:
         self.rejections.append((url, reason))
         logger.debug(f"cyoa.cafe candidate rejected: {url} — {reason}")
@@ -478,10 +516,24 @@ class CYOACafeResolver:
             # Exclude the metadata/catalog shell unless a viewer marker is strong.
             if urlparse(canonical).netloc.lower() == "cyoa.cafe" and "/game/" in path:
                 if not any(marker in lower for marker in ("iframe", "project.json", "interactive cyoa creator")) \
-                        and not _looks_like_custom_viewer_html(text):
+                    and not _looks_like_custom_viewer_html(text):
                     self._reject(canonical, "metadata page, not viewer")
                     return False
             return True
+
+        # The CYOA.CAFE core can also publish a self-contained, CSS/HTML-only
+        # CYOA.  It has no app root, JavaScript bundle, or project.json; its
+        # catalogue record is the authoritative link.  Recognize that generic
+        # shape instead of requiring a viewer-specific template signature.
+        # Requiring the CYOA title plus the input/label choice structure keeps
+        # ordinary HTML pages out of this fallback.
+        if (
+            ("text/html" in ctype or lower.startswith(("<!doctype html", "<html")))
+            and "<title>[cyoa]" in lower
+            and all(marker in lower for marker in ("<main", "<input", "<label"))
+        ):
+            return True
+
         base = canonical if canonical.endswith("/") else canonical + "/"
         endpoints = (
             urljoin(base, "project.json"),
@@ -527,6 +579,22 @@ class CYOACafeResolver:
         host = parsed.netloc.lower()
         if host != "cyoa.cafe" and not host.endswith(".cyoa.cafe"):
             return normalized
+
+        authoritative_target = self._authoritative_metadata_target(normalized)
+        if authoritative_target:
+            cached_target = self._cache_get(normalized)
+            if cached_target:
+                try:
+                    cached_key = canonicalize_url(cached_target)
+                except Exception:
+                    cached_key = cached_target
+                if cached_key != authoritative_target:
+                    logger.info(
+                        "Discarding stale CYOA.CAFE resolver cache: "
+                        f"{cached_target} (record says {authoritative_target})"
+                    )
+                    self.invalidate(normalized)
+
         cached = self._cache_get(normalized)
         if cached:
             if self.validate_candidate(cached):

@@ -2733,6 +2733,35 @@ def _v462_resolve_cafe(self: CYOACafeResolver, url: str) -> str:
     if host != "cyoa.cafe" and not host.endswith(".cyoa.cafe"):
         return normalized
 
+    # A /game/<id> route is an alias, so its PocketBase record is the source
+    # of truth.  Clear both resolver caches when they disagree with that
+    # record; otherwise a previous game's pure-website target can be reused
+    # for a different game in the same GUI process.
+    authoritative_target = self._authoritative_metadata_target(normalized)
+    if authoritative_target:
+        cached_targets = [
+            _v462_pure_cache_get(normalized),
+            CYOACafeResolver._cache_get(normalized),
+        ]
+        stale = False
+        for cached_target in cached_targets:
+            if not cached_target:
+                continue
+            try:
+                stale = canonicalize_url(cached_target) != authoritative_target
+            except Exception:
+                stale = cached_target != authoritative_target
+            if stale:
+                break
+        if stale:
+            logger.info(
+                "Discarding stale CYOA.CAFE pure-website cache for %s; "
+                "record says %s",
+                normalized,
+                authoritative_target,
+            )
+            _v462_invalidate_cafe_cache(normalized)
+
     cached_pure = _v462_pure_cache_get(normalized)
     if cached_pure:
         if _v462_validate_pure_website_candidate(self, cached_pure, rejection_prefix="cached pure website"):

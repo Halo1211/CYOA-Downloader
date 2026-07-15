@@ -249,11 +249,30 @@ def _patch_youtube_refs_in_json(
         obj = json.loads(project_str)
         patched_count = 0
 
+        def _replace_embedded_youtube(value: str) -> str:
+            """Patch custom ``playVideo('ID')`` text to local audio paths."""
+            result = value
+            for yt_url, local_path in yt_map.items():
+                vm = _re.search(r'(?:v=|youtu\.be/)([A-Za-z0-9_-]{11})', yt_url)
+                if not vm:
+                    continue
+                video_id = vm.group(1)
+                result = _re.sub(
+                    rf"(playVideo\s*\(\s*['\"]){_re.escape(video_id)}(['\"]\s*\))",
+                    rf"\g<1>{local_path}\g<2>",
+                    result,
+                    flags=_re.IGNORECASE,
+                )
+            return result
+
         def _walk(node) -> None:
             nonlocal patched_count
             if isinstance(node, list):
-                for item in node:
-                    _walk(item)
+                for index, item in enumerate(node):
+                    if isinstance(item, str):
+                        node[index] = _replace_embedded_youtube(item)
+                    else:
+                        _walk(item)
             elif isinstance(node, dict):
                 bgm = node.get("bgmId", "")
                 if bgm:
@@ -277,9 +296,11 @@ def _patch_youtube_refs_in_json(
                         node["useAudioURL"]  = True   # ← ON THE OBJECT (critical!)
                         patched_count += 1
 
-                for v in node.values():
-                    if isinstance(v, (dict, list)):
-                        _walk(v)
+                for key, value in list(node.items()):
+                    if isinstance(value, str):
+                        node[key] = _replace_embedded_youtube(value)
+                    elif isinstance(value, (dict, list)):
+                        _walk(value)
 
         _walk(obj)
 

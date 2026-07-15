@@ -24,6 +24,16 @@ from ..constants.assets import (
 from ..logging_setup import logger
 from ..project.parse import try_decode_bytes
 
+_EMBEDDED_YOUTUBE_ID_RE = re.compile(
+    r"(?:playVideo|youtube(?:Id|VideoId)?)\s*[:=(]\s*['\"]([A-Za-z0-9_-]{11})['\"]",
+    re.IGNORECASE,
+)
+_EMBEDDED_YOUTUBE_URL_RE = re.compile(
+    r"https?://(?:www\.)?(?:youtube\.com|youtu\.be|youtube-nocookie\.com)/"
+    r"[^\s'\"<>\\]+",
+    re.IGNORECASE,
+)
+
 # Raw CDN hosts used by the gallery-dl smart-mode classifier. Kept here as an
 # independent constant so this low-level scanner does not need to import the
 # transitional gallery_dl bridge (which would pull legacy.py back in).
@@ -183,6 +193,19 @@ def _scan_file_for_assets(
         raw = raw.strip().lstrip()
         if not raw or len(raw) > 400:
             return None
+        # Ignore JavaScript expression fragments that can look like asset
+        # strings after a minifier combines template literals.  They are
+        # runtime values, not fetchable filenames.
+        if file_ext in ('.js', '.mjs', '.cjs') and (
+            '`' in raw
+            or 'import.meta' in raw
+            or _re.search(r'[A-Za-z_$][\w$]*\s*\(', raw)
+        ):
+            return None
+        # MIME accept lists such as ``application/json,.json`` contain an
+        # extension but are not paths.
+        if _re.match(r'^(?:application|text|image|audio|video|font)/', raw, _re.IGNORECASE) and ',' in raw:
+            return None
         if raw.startswith(('data:', '#', 'javascript:', 'mailto:',
                             'http://www.w3.org', 'blob:')):
             return None
@@ -246,6 +269,12 @@ def _scan_file_for_assets(
         r'url\(\s*["\']?([^"\')\s]+' + ASSET_EXTS + r'[^"\')\s]*)["\']?\s*\)',
         text, _re.IGNORECASE
     ):
+        # JavaScript's ``new URL(`asset.webp`, import.meta.url)`` looks like
+        # CSS ``url(...)`` to a case-insensitive regex.  Do not turn the
+        # complete JS expression into an asset filename.
+        before = text[max(0, m.start() - 48):m.start()]
+        if _re.search(r'\bnew(?:\s+[A-Za-z_$][\w$]*\.)?\s*$', before, _re.IGNORECASE):
+            continue
         r = _resolve(m.group(1))
         if r: found.add(r)
 
@@ -272,7 +301,23 @@ def _scan_file_for_assets(
             continue
         if raw in inferred_dynamic_assets:
             continue
-        r = _resolve_js_literal(raw)
+        if _re.match(r'^(?:application|text|image|audio|video|font)/', raw, _re.IGNORECASE) and ',' in raw:
+            continue
+        after = text[m.end():m.end() + 48]
+        before = text[max(0, m.start() - 48):m.start()]
+        # Vite emits ``new URL(`asset-hash.webp`, import.meta.url)``.  This
+        # path is relative to the JS bundle, while an ordinary JS string is
+        # resolved from the viewer/document root.
+        is_module_asset = bool(
+            _re.search(r'\bnew(?:\s+[A-Za-z_$][\w$]*\.)?\s*URL\s*\(\s*$', before, _re.IGNORECASE)
+            and _re.match(r'\s*,\s*import\.meta\.url\b', after, _re.IGNORECASE)
+        )
+        # Object keys such as ``"../../assets/heroines/foo.webp": hashed``
+        # are aliases used by the Vite bundle's lookup table, not network
+        # requests.  The hashed import on the value side is the real asset.
+        if file_ext in ('.js', '.mjs', '.cjs') and _re.match(r'\s*:', after):
+            continue
+        r = _resolve(raw) if is_module_asset else _resolve_js_literal(raw)
         if r: found.add(r)
 
     # ── Static ES module imports: import{...}from"./foo.js" / import"./foo.js" ──
@@ -293,12 +338,19 @@ def _scan_file_for_assets(
         text, _re.DOTALL
     )
     if _vite_arr:
-        bare_chunks = _re.findall(r'["\']([A-Za-z0-9][^"\']+' + JS_CHUNK + r')["\']',
-                                  _vite_arr.group(1))
-        for bc in bare_chunks:
-            if '/' not in bc:   # bare name → Vite puts these in /assets/
+        vite_chunks = _re.findall(
+            r'["\']((?:\./)?[A-Za-z0-9][^"\']+' + JS_CHUNK + r')["\']',
+            _vite_arr.group(1),
+        )
+        for chunk in vite_chunks:
+            if chunk.startswith('./'):
+                r = _resolve(chunk)
+                if r:
+                    found.add(r)
+                continue
+            if '/' not in chunk:
                 parsed_base = urlparse(base_url)
-                r = f"{parsed_base.scheme}://{parsed_base.netloc}/assets/{bc}"
+                r = f"{parsed_base.scheme}://{parsed_base.netloc}/assets/{chunk}"
                 found.add(r)
 
     # ── Lazy-loaded JS chunks: import("./chunk-abc.js") ──────────────
@@ -331,8 +383,23 @@ def _scan_file_for_assets(
         raw = m.group(1)
         if raw in inferred_dynamic_assets:
             continue
+        if _re.match(r'^(?:application|text|image|audio|video|font)/', raw, _re.IGNORECASE) and ',' in raw:
+            continue
+        after = text[m.end():m.end() + 48]
+        before = text[max(0, m.start() - 48):m.start()]
+        is_module_asset = False
+        if file_ext in ('.js', '.mjs', '.cjs'):
+            if _re.match(r'\s*:', after):
+                continue
+            is_module_asset = (
+                _re.search(r'\bnew(?:\s+[A-Za-z_$][\w$]*\.)?\s*URL\s*\(\s*$', before, _re.IGNORECASE)
+                and _re.match(r'\s*,\s*import\.meta\.url\b', after, _re.IGNORECASE)
+            )
         if '/' not in raw:
-            found.add(urljoin(base_url.rstrip('/') + '/', raw))
+            if is_module_asset:
+                found.add(_resolve(raw))
+            else:
+                found.add(urljoin(base_url.rstrip('/') + '/', raw))
 
     # ── srcset (scan in ALL file types — JS template strings can carry it) ──
     for m in _re.finditer(r'srcset\s*=\s*["\']([^"\']+)["\']', text, _re.IGNORECASE):
@@ -572,6 +639,16 @@ def _deep_scan_project_assets(
                     v = value.strip()
                     if not v or _is_data_uri(v):
                         continue
+
+                    # Custom viewers often store music buttons inside text,
+                    # e.g. onclick="playVideo('VIDEO_ID')", instead of using
+                    # the standard bgmId field.
+                    for id_match in _EMBEDDED_YOUTUBE_ID_RE.finditer(v):
+                        youtube_ids.add(
+                            f"https://www.youtube.com/watch?v={id_match.group(1)}"
+                        )
+                    for url_match in _EMBEDDED_YOUTUBE_URL_RE.finditer(v):
+                        youtube_ids.add(url_match.group(0).rstrip(".,;"))
 
                     # ── Image fields ─────────────────────────────────────
                     if key_lower in image_keys:

@@ -745,6 +745,7 @@ def _deep_scan_and_download_assets(
     failed_deep_assets: List[Dict[str, str]] = []
     scanned_files: Set[str]        = set()   # abs file paths already scanned
     known_urls:    Set[str]        = set()   # canonical candidate URLs already seen
+    candidate_sources: Dict[str, Set[str]] = {}
     excluded_paths = {
         str(path).replace('\\', '/').lstrip('./').lower()
         for path in (exclude_relative_paths or set())
@@ -813,6 +814,8 @@ def _deep_scan_and_download_assets(
                     urls = run_asset_scanner_plugins(text, f_url, base_url, ext)
                     canonical_urls = {_canonical_scan_url(url) for url in urls}
                     new_candidates |= (canonical_urls - known_urls)
+                    for candidate in canonical_urls:
+                        candidate_sources.setdefault(candidate, set()).add(f_url)
                 except Exception as e:
                     logger.debug(f"[deep scan] {fn}: {e}")
         return new_candidates
@@ -833,6 +836,31 @@ def _deep_scan_and_download_assets(
             digest = hashlib.sha1(parsed.query.encode("utf-8", "replace")).hexdigest()[:10]
             rel_path = f"{root}_{digest}{ext}"
         return rel_path
+
+    def _css_root_fallback(url: str) -> Optional[str]:
+        """Return a page-root alternative for a failed CSS asset."""
+        refs = candidate_sources.get(_canonical_scan_url(url), set())
+        if not any(urlparse(ref).path.lower().endswith(".css") for ref in refs):
+            return None
+        parsed = urlparse(url)
+        base = urlparse(base_url)
+        if (
+            parsed.scheme.lower() != base.scheme.lower()
+            or parsed.netloc.lower() != base.netloc.lower()
+        ):
+            return None
+        base_path = base.path.rstrip("/")
+        candidate_path = parsed.path
+        if not base_path or not candidate_path.startswith(base_path + "/"):
+            return None
+        relative = candidate_path[len(base_path) + 1:]
+        filename = relative.rsplit("/", 1)[-1]
+        if "/" not in relative or not filename:
+            return None
+        alt_path = base_path + "/" + filename
+        if alt_path == candidate_path:
+            return None
+        return urlunparse(parsed._replace(path=alt_path))
 
     # ── Reusable session with connection pooling ──────────────────────
     # Keeps TCP connections alive across requests to the same host,
@@ -999,6 +1027,29 @@ def _deep_scan_and_download_assets(
                             failed_deep_assets.append({"url": url, "path": rel, "error": f"save failed: {e}", "kind": "deep-scan"})
                             logger.debug(f"[deep scan] save {rel}: {e}")
                     elif status != 200:
+                        fallback_url = _css_root_fallback(url)
+                        if fallback_url:
+                            fallback_rel = (
+                                _url_to_local(fallback_url)
+                                or os.path.basename(urlparse(fallback_url).path)
+                                or "asset"
+                            )
+                            if fallback_url in all_downloaded or fallback_rel in _disk_files:
+                                continue
+                            known_urls.add(fallback_url)
+                            _, fallback_content, _ = _try_fetch(fallback_url)
+                            if fallback_content:
+                                fallback_local = _safe_join(folder, fallback_rel)
+                                os.makedirs(os.path.dirname(fallback_local), exist_ok=True)
+                                try:
+                                    atomic_write_bytes(fallback_local, fallback_content)
+                                    all_downloaded[fallback_url] = fallback_rel
+                                    _disk_files.add(fallback_rel)
+                                    new_this_round += 1
+                                    logger.info(f"  [deep ✓ CSS root] {fallback_rel}")
+                                    continue
+                                except Exception as e:
+                                    logger.debug(f"[deep scan] CSS root fallback save {fallback_rel}: {e}")
                         failed_deep_assets.append({"url": url, "path": _url_to_local(url), "error": f"HTTP {status or 'request failed'}", "kind": "deep-scan"})
                         # Vite correction: if root-level JS 404'd, try /assets/
                         p = urlparse(url).path

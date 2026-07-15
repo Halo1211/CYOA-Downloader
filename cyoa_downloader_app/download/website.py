@@ -752,15 +752,38 @@ class WebsiteDownloader:
         #   js/images/foo.avif, correct is images/foo.avif (page root).
         # If the fetch failed AND the raw path is relative AND the
         # referrer was a JS file, retry from page root.
-        if r is None and referrer_url and not url.startswith(("http", "//", "data:", "#")):
+        if r is None and referrer_url:
             ref_path = urlparse(referrer_url).path.lower()
-            if ref_path.endswith((".js", ".mjs")):
+            relative_input = not url.startswith(("http", "//", "data:", "#"))
+            css_root_candidate = False
+            if ref_path.endswith(".css"):
+                candidate = urlparse(full)
+                start = urlparse(self.start_url)
+                base_path = start.path.rstrip("/")
+                candidate_path = candidate.path
+                relative_candidate = (
+                    candidate.scheme.lower() == start.scheme.lower()
+                    and candidate.netloc.lower() == start.netloc.lower()
+                    and bool(base_path)
+                    and candidate_path.startswith(base_path + "/")
+                )
+                if relative_candidate:
+                    css_root_candidate = "/" in candidate_path[len(base_path) + 1:]
+            if relative_input or css_root_candidate:
                 # Custom viewers commonly put data paths in a JS bundle but
                 # intend them relative to the viewer route, not the domain
                 # root.  Preserve the normal root-relative fallback for
                 # ordinary sites.
                 js_root = self.base_url if self._custom_viewer_route else self.start_url
-                alt = self._normalize_remote_url(url, js_root)
+                if css_root_candidate:
+                    parsed_full = urlparse(full)
+                    base_path = urlparse(self.start_url).path.rstrip("/")
+                    filename = parsed_full.path.rsplit("/", 1)[-1]
+                    alt = urlunparse(parsed_full._replace(
+                        path=base_path + "/" + filename
+                    ))
+                else:
+                    alt = self._normalize_remote_url(url, js_root)
                 if alt and alt != full:
                     # Check cache first — same raw string may appear multiple times in data.js
                     with self._lock:
@@ -769,7 +792,11 @@ class WebsiteDownloader:
                     r_alt = self._fetch(alt)
                     _raise_if_cancelled()
                     if r_alt:
-                        logger.info(f"  JS root-fallback: {url} → {alt}")
+                        logger.info(f"  root-fallback: {url} → {alt}")
+                        self._failed_items = [
+                            item for item in self._failed_items
+                            if item.get("url") != full
+                        ]
                         r    = r_alt
                         full = alt
 
@@ -953,39 +980,118 @@ class WebsiteDownloader:
         return self._quoted_asset_re.sub(repl, text)
 
     def _download_runtime_template_assets(self, text: str, referrer_url: str) -> None:
-        """Download safe concrete assets hidden behind simple JS templates.
+        """Download concrete assets exposed by simple JS templates.
 
-        Custom viewers often render image URLs such as ``${i.id}.jpg`` from
-        an inline data array.  The template itself must remain in the local
-        HTML/JS, but its concrete values can be mirrored ahead of time.
-        Currently this targets the common ``DATA.incarnations`` shape used by
-        lightweight CYOA viewers; unresolved templates are left untouched.
+        A custom viewer may keep records in any array/object shape and build a
+        URL from a property, for example ``${item.slug}.webp`` or
+        ``images/${entry.file}.png``.  The old implementation special-cased
+        one field name and one variable name, which made the downloader look
+        like it belonged to a single CYOA.  This deliberately conservative
+        extractor handles only a simple ``object.property`` placeholder and
+        leaves more complex expressions for the browser/runtime archive.
         """
-        if not text or "${i.id}" not in text:
+        if not text:
             return
-        template_exts = set(re.findall(r"\$\{i\.id\}\.([a-z0-9]+)", text, re.IGNORECASE))
-        if not template_exts:
+
+        # Some viewers select an asset from a numeric range at runtime, for
+        # example ``Math.floor(Math.random() * 135) + 1`` followed by
+        # ``"comics/" + randomIndex + ".png"``.  The browser only requests
+        # one random item, so a normal static scan sees no concrete URL and
+        # the offline copy gets a broken image on most loads.  Prefetch the
+        # bounded range when the path expression is simple enough to prove.
+        # This is intentionally capped: the downloader must not turn an
+        # arbitrary runtime expression into an unbounded crawl.
+        range_re = re.compile(
+            r"\b(?P<var>[A-Za-z_$][\w$]*)\s*=\s*"
+            r"Math\.floor\s*\(\s*Math\.random\s*\(\s*\)\s*\*\s*"
+            r"(?P<count>\d+)\s*\)\s*"
+            r"(?:\+\s*(?P<start>\d+))?",
+            re.IGNORECASE,
+        )
+        path_re = re.compile(
+            r"(?P<q1>['\"])(?P<prefix>[A-Za-z0-9_./-]{0,160})(?P=q1)"
+            r"\s*\+\s*(?P<var>[A-Za-z_$][\w$]*)\s*\+\s*"
+            r"(?P<q2>['\"])(?P<suffix>[A-Za-z0-9_./?=&%:+-]{0,160}"
+            r"\.[A-Za-z0-9]{1,8}(?:\?[^'\"\s<>]*)?)(?P=q2)",
+            re.IGNORECASE,
+        )
+        max_runtime_range = 1000
+        seen_numeric = set()
+        ranges = {}
+        for match in range_re.finditer(text):
+            count = int(match.group("count"))
+            if count <= 0 or count > max_runtime_range:
+                continue
+            start = int(match.group("start") or 0)
+            ranges[match.group("var")] = (start, start + count - 1)
+
+        for path_match in path_re.finditer(text):
+            bounds = ranges.get(path_match.group("var"))
+            if not bounds:
+                continue
+            prefix = path_match.group("prefix")
+            suffix = path_match.group("suffix")
+            for number in range(bounds[0], bounds[1] + 1):
+                raw_path = f"{prefix}{number}{suffix}"
+                asset_url = urljoin(referrer_url, raw_path)
+                if asset_url in seen_numeric:
+                    continue
+                seen_numeric.add(asset_url)
+                self._download_asset(
+                    asset_url,
+                    preferred_kind=self._asset_kind_from_path(asset_url),
+                    referrer_url=referrer_url,
+                )
+
+        template_re = re.compile(
+            r"(?P<prefix>[A-Za-z0-9_./-]{0,160})"
+            r"\$\{\s*(?P<root>[A-Za-z_$][\w$]*)\s*\.\s*"
+            r"(?P<prop>[A-Za-z_$][\w$]*)\s*\}"
+            r"(?P<suffix>[A-Za-z0-9_./?=&%:+-]{0,160}\.(?P<ext>[A-Za-z0-9]{1,8})"
+            r"(?:\?[^'\"`\s<>]*)?)",
+            re.IGNORECASE,
+        )
+        templates = list(template_re.finditer(text))
+        if not templates:
             return
-        for block_match in re.finditer(
-            r"\bincarnations\s*:\s*\[(?P<body>.*?)\]",
-            text,
-            re.IGNORECASE | re.DOTALL,
-        ):
-            ids = re.findall(
-                r"\bid\s*:\s*['\"]([^'\"]+)['\"]",
-                block_match.group("body"),
+
+        for template in templates:
+            prop = template.group("prop")
+            prefix = template.group("prefix")
+            suffix = template.group("suffix")
+            if not prop or not suffix:
+                continue
+
+            # Support both quoted and unquoted object keys.  Values are kept
+            # bounded and conservative because this is a best-effort prefetch,
+            # not a JavaScript interpreter.
+            property_re = re.compile(
+                rf"(?:\b{re.escape(prop)}\b|['\"]{re.escape(prop)}['\"])"
+                r"\s*:\s*['\"]([^'\"\r\n]+)['\"]",
                 re.IGNORECASE,
             )
-            for asset_id in dict.fromkeys(ids):
-                for ext in template_exts:
-                    asset_url = urljoin(referrer_url, f"{asset_id}.{ext}")
-                    self._download_asset(
-                        asset_url,
-                        preferred_kind="images",
-                        referrer_url=referrer_url,
-                    )
-            if ids:
-                return
+            values = []
+            for match in property_re.finditer(text):
+                value = match.group(1).strip()
+                if (
+                    value
+                    and len(value) <= 200
+                    and not value.startswith(("data:", "javascript:"))
+                    and "${" not in value
+                    and value not in values
+                ):
+                    values.append(value)
+                if len(values) >= 200:
+                    break
+
+            for value in values:
+                raw_path = f"{prefix}{value}{suffix}"
+                asset_url = urljoin(referrer_url, raw_path)
+                self._download_asset(
+                    asset_url,
+                    preferred_kind=self._asset_kind_from_path(asset_url),
+                    referrer_url=referrer_url,
+                )
 
     def _process_css(self, css: str, css_url: str, css_local: str) -> str:
         def repl_import(m: re.Match) -> str:
@@ -1205,6 +1311,61 @@ class WebsiteDownloader:
             if remote:
                 tag[attr] = remote
 
+    def _patch_local_audio_scripts(self) -> None:
+        """Teach custom YouTube button scripts to play patched local audio."""
+        marker = "__cyoaLocalAudioPatch"
+        patch = r'''
+;(function(){
+  if (window.__cyoaLocalAudioPatch) return;
+  var original = window.playVideo;
+  if (typeof original !== 'function') return;
+  var audio = null, current = '';
+  function isLocal(value) {
+    return typeof value === 'string' &&
+      /^(?:audio|media|music|sounds|bgm)\//i.test(value) &&
+      /\.(?:mp3|m4a|ogg|wav|aac|opus|weba)(?:[?#].*)?$/i.test(value);
+  }
+  window.playVideo = function(videoId) {
+    if (!isLocal(videoId)) return original.apply(this, arguments);
+    if (!audio) {
+      audio = document.createElement('audio');
+      audio.loop = true;
+      audio.style.display = 'none';
+      document.body.appendChild(audio);
+    }
+    if (current === videoId && !audio.paused) {
+      audio.pause();
+      return;
+    }
+    if (current !== videoId) {
+      audio.src = videoId;
+      current = videoId;
+    }
+    var iframe = document.getElementById('youtube-video');
+    if (iframe) iframe.src = 'about:blank';
+    var pending = audio.play();
+    if (pending && pending.catch) pending.catch(function(){});
+  };
+  window.__cyoaLocalAudioPatch = true;
+})();
+'''
+        for local in set(self._downloaded.values()):
+            if not local or not str(local).lower().endswith((".js", ".mjs")):
+                continue
+            try:
+                path = pathlib.Path(local)
+                if not path.is_file():
+                    continue
+                text = path.read_text(encoding="utf-8")
+                if marker in text or "function playVideo" not in text:
+                    continue
+                if "youtube.com/embed" not in text:
+                    continue
+                path.write_text(text + patch, encoding="utf-8")
+                logger.info("  Patched custom YouTube player for local audio: %s", path)
+            except (OSError, UnicodeError) as exc:
+                logger.debug("Could not patch local audio player %s: %s", local, exc)
+
     def _download_html(self, url: str, local_html: Optional[str] = None, html_text: Optional[str] = None) -> None:
         _raise_if_cancelled()
         local_html = local_html or self.start_html_local
@@ -1258,6 +1419,11 @@ class WebsiteDownloader:
             self._custom_viewer_route = True
             asset_page_url = self.base_url
             logger.info("  Custom viewer route detected; resolving entry assets below %s", asset_page_url)
+
+        # Inline scripts are not passed through _rewrite_direct_urls.  Run
+        # the conservative runtime prefetch here as well so HTML-only viewers
+        # with dynamically numbered assets are complete in offline mode.
+        self._download_runtime_template_assets(html_text, asset_page_url)
 
         for tag in soup.find_all("link"):
             _raise_if_cancelled()
@@ -1329,6 +1495,8 @@ class WebsiteDownloader:
                 tag["src"] = self._rel(local_html, stub_local)
                 continue
             self._set_attr_local(tag, "src", asset_page_url, local_html, preferred_kind="js")
+
+        self._patch_local_audio_scripts()
 
         # Replace YouTube <iframe> embeds with an offline placeholder.
         # Direct YouTube iframes cannot work offline regardless of the JS stub —

@@ -25,6 +25,7 @@ def dependency_check_report() -> str:
         # httpx[http2] is checked below as a capability. Checking only the
         # httpx module gives false positives when the h2 extra is missing.
         ("yt_dlp", "yt-dlp", "optional-media", "YouTube/SoundCloud and supported media download", "Media URL is skipped or logged as unavailable."),
+        ("browser_cookie3", "browser-cookie3", "optional-media-auth", "Browser cookie/session fallback for authenticated yt-dlp downloads", "yt-dlp native browser-cookie extraction is still attempted."),
         ("customtkinter", "customtkinter", "required-for-gui", "Modern GUI widgets", "CLI remains usable; GUI cannot launch."),
         ("PIL", "pillow", "optional-gui-image", "GUI/image preview utilities", "GUI runs with reduced image utilities."),
         ("cloudscraper", "cloudscraper", "optional-network", "Cloudflare fallback", "Normal requests and FlareSolverr path remain."),

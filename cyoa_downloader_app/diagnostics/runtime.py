@@ -86,7 +86,7 @@ def build_diagnostic_report(output_dir: str = "", check_network: bool = True,
         ("tldextract", False), ("PIL", False), ("pandas", False),
         ("openpyxl", False), ("xlrd", False),
         ("keyring", False), ("cloudscraper", False),
-        ("json5", False), ("yt_dlp", False), ("gallery_dl", False),
+        ("json5", False), ("yt_dlp", False), ("browser_cookie3", False), ("gallery_dl", False),
         ("selenium", False),
         ("playwright", False), ("plyer", False), ("rarfile", False),
     ]

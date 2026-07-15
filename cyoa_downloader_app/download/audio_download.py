@@ -222,23 +222,32 @@ def _download_youtube_audio(
 
         def _try_with_cookie_file(browser: str, opts: dict) -> Tuple[bool, Optional[str]]:
             """
-            Try to use browser cookies. If Chrome is locked (common when browser
-            is open), copy the DB to a temp file first so yt-dlp can read it.
+            Try the browser's authenticated cookie store, not its HTTP asset
+            cache.  yt-dlp's native reader is first because it understands
+            Chromium App-Bound Encryption and safely copies locked databases.
+            browser_cookie3 is the compatibility fallback for older Chromium
+            profiles and Firefox.
             """
             if browser == "chrome" and sys.platform == "win32":
-                # yt-dlp performs its own safe browser-cookie database copy.
-                # The previous code created a temporary SQLite copy but never
-                # passed it to yt-dlp, so it added a security warning and no
-                # functional benefit. Keep the same public behavior without
-                # the unused/race-prone temporary file.
+                # Keep this diagnostic so users can tell that the browser
+                # profile was found even when Chromium is currently open.
                 src_db = _chrome_cookie_path()
                 if src_db:
                     logger.debug(f"yt-dlp browser cookie source detected: {src_db}")
 
-            # browser_cookie3 can decrypt older profiles and Firefox even
-            # when yt-dlp's native Chromium reader cannot. Prefer those
-            # cookies as an HTTP header, then let yt-dlp try its native reader
-            # as the fallback for browsers that support it.
+            # Native yt-dlp extraction is the reliable path for modern Chrome,
+            # Edge, Brave, Chromium, and Firefox profiles. It also handles a
+            # browser that is still open more safely than reading SQLite here.
+            native_ok, native_err = _try_ytdlp(
+                {**opts, "cookiesfrombrowser": (browser,)}
+            )
+            if _any_audio_exists():
+                return native_ok, native_err
+
+            # browser_cookie3 can still decrypt older profiles and some
+            # Firefox installations when the native extractor cannot. Only
+            # pass non-empty cookies through the request header; an empty
+            # browser jar is not an authenticated fallback.
             try:
                 from ..network.browser import _make_cookie_session
                 session = _make_cookie_session(browser)
@@ -254,7 +263,7 @@ def _download_youtube_audio(
                         return _try_ytdlp({**opts, "http_headers": headers})
             except Exception as exc:
                 logger.debug("Browser cookie session unavailable for %s: %s", browser, exc)
-            return _try_ytdlp({**opts, "cookiesfrombrowser": (browser,)})
+            return native_ok, native_err
 
         try:
             import yt_dlp
