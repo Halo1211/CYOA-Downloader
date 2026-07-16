@@ -2973,6 +2973,112 @@ def _v462_configure_queue_viewport(self: CYOADownloaderGUI) -> None:
     except Exception as exc:
         logger.debug(f"Could not compact queue viewport: {exc}")
 
+
+def _v462_apply_small_screen_layout(self: CYOADownloaderGUI) -> None:
+    """Adapt the main workspace when a laptop cannot show the wide layout."""
+    try:
+        window_width = int(self.root.winfo_width() or 1)
+        screen_width = int(self.root.winfo_screenwidth() or 1)
+    except (TypeError, ValueError):
+        window_width, screen_width = 1, 1
+    compact = min(window_width, screen_width) < 1050
+    if compact == bool(getattr(self, "_v462_small_screen", False)):
+        return
+
+    sidebar = getattr(self, "_sidebar", None)
+    main = getattr(self, "_v462_main", None)
+    if main is None:
+        try:
+            main = self._v46_progress_host.master.master
+            self._v462_main = main
+        except Exception:
+            main = None
+
+    try:
+        if compact:
+            if sidebar is not None:
+                sidebar.grid_remove()
+            self.root.grid_columnconfigure(0, weight=1, minsize=0)
+            self.root.grid_columnconfigure(1, weight=0, minsize=0)
+            if main is not None:
+                main.grid_configure(column=0, columnspan=2)
+        else:
+            if sidebar is not None:
+                sidebar.grid()
+            self.root.grid_columnconfigure(0, weight=0, minsize=248)
+            self.root.grid_columnconfigure(1, weight=1, minsize=0)
+            if main is not None:
+                main.grid_configure(column=1, columnspan=1)
+    except Exception as exc:
+        logger.debug(f"Small-screen sidebar layout failed: {exc}")
+
+    input_row = getattr(self, "_input_row", None)
+    url_label = getattr(self, "_url_label", None)
+    url_widget = getattr(self, "_url_entry", None)
+    fn_label = getattr(self, "_fn_label", None)
+    fn_entry = getattr(self, "_fn_entry", None)
+    add_btn = getattr(self, "_add_btn", None)
+    try:
+        if compact and input_row is not None and url_label is not None and fn_label is not None and add_btn is not None:
+            input_row.grid_columnconfigure(0, weight=0, minsize=54)
+            input_row.grid_columnconfigure(1, weight=1, minsize=0)
+            for column in (2, 3, 4):
+                input_row.grid_columnconfigure(column, weight=0, minsize=0)
+            url_label.grid_configure(row=0, column=0, columnspan=1)
+            if url_widget is not None:
+                url_widget.grid_configure(row=0, column=1, columnspan=4, padx=(0, 0))
+            fn_label.grid_configure(row=1, column=0, columnspan=1, padx=(0, 6))
+            fn_entry.grid_configure(row=1, column=1, columnspan=2, padx=(0, 8))
+            add_btn.grid_configure(row=1, column=3, columnspan=2)
+            header_actions = getattr(self, "_input_header_actions", None)
+            if header_actions is not None:
+                header_actions.grid_remove()
+        elif input_row is not None and url_label is not None and fn_label is not None and add_btn is not None:
+            input_row.grid_columnconfigure(0, weight=0, minsize=54)
+            input_row.grid_columnconfigure(1, weight=9, minsize=520)
+            input_row.grid_columnconfigure(2, weight=0, minsize=78)
+            input_row.grid_columnconfigure(3, weight=4, minsize=260)
+            input_row.grid_columnconfigure(4, weight=0, minsize=160)
+            url_label.grid_configure(row=0, column=0, columnspan=1)
+            if url_widget is not None:
+                url_widget.grid_configure(row=0, column=1, columnspan=1, padx=(0, 10))
+            fn_label.grid_configure(row=0, column=2, columnspan=1, padx=(0, 6))
+            fn_entry.grid_configure(row=0, column=3, columnspan=1, padx=(0, 10))
+            add_btn.grid_configure(row=0, column=4, columnspan=1)
+            header_actions = getattr(self, "_input_header_actions", None)
+            if header_actions is not None:
+                header_actions.grid()
+    except Exception as exc:
+        logger.debug(f"Small-screen input layout failed: {exc}")
+
+    row_wrap = getattr(self, "_rowB_wrap", None)
+    row_tools = getattr(self, "_rowB1", None)
+    try:
+        if compact and row_wrap is not None and row_tools is not None:
+            row_wrap.configure(height=104)
+            row_tools.grid_configure(sticky="ew", padx=8, pady=(3, 3))
+            children = list(row_tools.winfo_children())
+            for child in children:
+                child.pack_forget()
+                child.grid_configure(
+                    row=(children.index(child) // 5),
+                    column=(children.index(child) % 5),
+                    padx=2, pady=2, sticky="ew",
+                )
+            for col in range(5):
+                row_tools.grid_columnconfigure(col, weight=1)
+        elif row_wrap is not None and row_tools is not None:
+            row_wrap.configure(height=38)
+            row_tools.grid_configure(sticky="w", padx=12, pady=(3, 3))
+            for child in list(row_tools.winfo_children()):
+                child.grid_forget()
+                child.pack(side="left", padx=(0, 1), pady=3)
+            for col in range(5):
+                row_tools.grid_columnconfigure(col, weight=0)
+    except Exception as exc:
+        logger.debug(f"Small-screen tool-strip layout failed: {exc}")
+    self._v462_small_screen = compact
+
 def _v462_apply_progress_visibility_gui(self: CYOADownloaderGUI, expanded: Optional[bool] = None) -> None:
     _V461_APPLY_PROGRESS_VISIBILITY_FINAL(self, expanded)
     input_panel, queue_panel = _v462_find_main_panels(self)
@@ -2999,11 +3105,18 @@ def _v462_apply_progress_visibility_gui(self: CYOADownloaderGUI, expanded: Optio
             logger.debug(f"Responsive panel visibility update failed: {exc}")
 
 def _v462_refresh_responsive_layout(self: CYOADownloaderGUI) -> None:
+    _v462_apply_small_screen_layout(self)
     _v462_configure_queue_viewport(self)
     self._v46_apply_progress_visibility(bool(getattr(self, "_v46_progress_expanded", False)))
 
 def _v462_gui_setup_ui_final(self: CYOADownloaderGUI) -> None:
     _V461_GUI_SETUP_UI_FINAL(self)
+    try:
+        self._v462_main = self._v46_progress_host.master.master
+    except Exception:
+        self._v462_main = None
+    self._v462_small_screen = False
+    _v462_apply_small_screen_layout(self)
     _v462_configure_queue_viewport(self)
     _v462_find_main_panels(self)
     self._v46_apply_progress_visibility(bool(getattr(self, "_v46_progress_expanded", False)))

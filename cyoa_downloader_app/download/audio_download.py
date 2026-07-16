@@ -16,6 +16,30 @@ from ..logging_setup import logger
 from .audio_reports import _find_ffmpeg, _write_youtube_skip_log
 
 
+_COOKIE_DATABASE_LOCK_MARKERS = (
+    "could not copy chrome cookie database",
+    "could not copy chromium cookie database",
+    "permission denied",
+    "access is denied",
+)
+
+
+def _is_cookie_database_lock_error(error: Optional[str]) -> bool:
+    """Return whether yt-dlp failed before downloading because a cookie DB is locked."""
+    text = str(error or "").lower()
+    return "cookie database" in text and any(marker in text for marker in _COOKIE_DATABASE_LOCK_MARKERS)
+
+
+def _summarize_ytdlp_error(error: Optional[str]) -> str:
+    """Turn noisy yt-dlp/browser-cookie errors into an actionable report reason."""
+    if _is_cookie_database_lock_error(error):
+        return (
+            "browser cookie database is locked; close Chrome/Edge/Brave completely "
+            "and retry, or select an exported Netscape cookies.txt in YouTube cookies"
+        )
+    return " ".join((str(error or "no output file")).split())[:500]
+
+
 def _legacy_module():
     import sys as _sys
     return _sys.modules.get("cyoa_downloader_app.runtime.surface")
@@ -316,14 +340,15 @@ def _download_youtube_audio(
         def _try_with_cookie_file(browser: str, profile: Optional[str], opts: dict) -> Tuple[bool, Optional[str]]:
             """
             Try the browser's authenticated cookie store, not its HTTP asset
-            cache.  yt-dlp's native reader is first because it understands
-            Chromium App-Bound Encryption and safely copies locked databases.
-            browser_cookie3 is the compatibility fallback for older Chromium
-            profiles and Firefox.
+            cache. yt-dlp's native reader is first because it understands
+            Chromium App-Bound Encryption. On Windows, an open Chromium
+            browser can still deny the database copy; browser_cookie3 is the
+            compatibility fallback for older Chromium profiles and Firefox.
             """
             # Native yt-dlp extraction is the reliable path for modern Chrome,
             # Edge, Brave, Chromium, and Firefox profiles. It also handles a
-            # browser that is still open more safely than reading SQLite here.
+            # browser profile without making this downloader handle encrypted
+            # Chromium SQLite values itself.
             cookie_source = (browser,) if profile is None else (browser, profile)
             native_ok, native_err = _try_ytdlp(
                 {**opts, "cookiesfrombrowser": cookie_source}
@@ -338,6 +363,7 @@ def _download_youtube_audio(
             try:
                 from ..network.browser import _make_cookie_session
                 session = _make_cookie_session(browser)
+                headers = dict(opts.get("http_headers") or {})
                 if session is not None:
                     pairs = [
                         f"{cookie.name}={cookie.value}"
@@ -345,9 +371,8 @@ def _download_youtube_audio(
                         if cookie.name and cookie.value
                     ]
                     if pairs:
-                        headers = dict(opts.get("http_headers") or {})
                         headers["Cookie"] = "; ".join(pairs)
-                return _try_ytdlp({**opts, "http_headers": headers})
+                        return _try_ytdlp({**opts, "http_headers": headers})
             except Exception as exc:
                 logger.debug("Browser cookie session unavailable for %s: %s", browser, exc)
             return native_ok, native_err
@@ -362,11 +387,12 @@ def _download_youtube_audio(
             found_file = _any_audio_exists()
             last_error = err1
 
+            manual_cookie_files = _ytdlp_cookie_files(output_dir, log_dir)
             if not found_file:
                 # An explicitly exported cookie file is the least ambiguous
                 # authenticated retry and also works when Chromium's profile
                 # is locked by App-Bound Encryption.
-                for cookie_file in _ytdlp_cookie_files(output_dir, log_dir):
+                for cookie_file in manual_cookie_files:
                     logger.info("  yt-dlp: trying supplied browser cookie file")
                     ok_c, err_c = _try_ytdlp({**opts, "cookiefile": cookie_file})
                     last_error = err_c or last_error
@@ -375,7 +401,7 @@ def _download_youtube_audio(
                         logger.info("  yt-dlp: cookie file authentication succeeded")
                         break
 
-            if not found_file:
+            if not found_file and not manual_cookie_files:
                 # Nothing downloaded — retry with installed browser cookies.
                 # Do not probe browsers that have no local profile; that used
                 # to create a long list of misleading cookie errors.
@@ -395,11 +421,30 @@ def _download_youtube_audio(
                             suffix = f" ({profile})" if profile else ""
                             logger.info(f"  yt-dlp: cookie source → {browser}{suffix}")
                             break
+                        if _is_cookie_database_lock_error(err_c):
+                            # Every Chromium profile uses the same browser-level
+                            # locking behavior on Windows. Trying Profile 1,
+                            # Profile 2, etc. only repeats the same noisy failure;
+                            # continue with another browser or the manual file.
+                            logger.debug(
+                                "  yt-dlp: skipping remaining %s profiles because its cookie database is locked",
+                                browser,
+                            )
+                            break
                         if ok_c:
                             # yt-dlp said OK but file still missing — next profile
                             continue
                     if found_file:
                         break
+            elif not found_file and manual_cookie_files:
+                # An explicitly selected cookie file is authoritative. If it
+                # fails, do not fall back to Chrome and report a second,
+                # unrelated cookie-database error. This also prevents a stale
+                # automatic browser session from overriding the user's choice.
+                logger.info(
+                    "  yt-dlp: supplied cookies.txt did not produce a file; "
+                    "automatic browser-cookie probing skipped"
+                )
 
             if found_file:
                 # ── Convert to MP3 if needed ───────────────────────────
@@ -443,7 +488,7 @@ def _download_youtube_audio(
                             "                  sudo apt install ffmpeg       (Linux)"
                         )
             else:
-                reason = " ".join((last_error or "no output file").split())[:500]
+                reason = _summarize_ytdlp_error(last_error)
                 logger.warning(f"  yt-dlp: file not found after download: {url_clean} — {reason}")
                 failed.append(yt_url)
                 failure_reasons[yt_url] = reason

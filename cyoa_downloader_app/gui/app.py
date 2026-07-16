@@ -13,6 +13,19 @@ import uuid
 from collections import Counter
 
 
+def _responsive_window_geometry(screen_width: int, screen_height: int) -> tuple[int, int, int, int]:
+    """Return safe initial/minimum sizes for the available laptop display."""
+    sw = max(1, int(screen_width or 1))
+    sh = max(1, int(screen_height or 1))
+    available_width = max(320, sw - 32)
+    available_height = max(320, sh - 88)
+    safe_width = max(320, min(1100, available_width))
+    safe_height = max(320, min(720, available_height))
+    min_width = max(320, min(900, available_width))
+    min_height = max(320, min(640, available_height))
+    return safe_width, safe_height, min_width, min_height
+
+
 def _sync_legacy_globals(namespace: dict) -> type:
     """Expose legacy module globals to mechanically moved GUI methods.
 
@@ -109,8 +122,13 @@ class CYOADownloaderGUI:
                 self.root.wm_iconphoto(False, self._window_icon)
             except Exception as _ignored_exc:
                 logger.debug("Ignored recoverable exception while setting GUI icon: %s", _ignored_exc)
-        self.root.minsize(900, 640)
-        self.root.geometry("1100x720")
+        try:
+            sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        except Exception:
+            sw, sh = 1366, 768
+        initial_w, initial_h, min_w, min_h = _responsive_window_geometry(sw, sh)
+        self.root.minsize(min_w, min_h)
+        self.root.geometry(f"{initial_w}x{initial_h}")
 
         # Windows can restore the launcher icon when the Tk window is first
         # realized. Re-apply the canonical emblem after the window is visible.
@@ -440,6 +458,40 @@ class CYOADownloaderGUI:
             win.bind("<Destroy>", _cleanup, add="+")
         except Exception as _ignored_exc:
             logger.debug("Ignored recoverable exception in _make_singleton_window (line 5019): %s", _ignored_exc)
+
+        # A modal Toplevel keeps a Tk grab. If Windows minimizes that window,
+        # the hidden grab can make the main window appear impossible to
+        # restore. Release it while the utility window is unmapped and restore
+        # it only after the utility window comes back.
+        grab_state = {"released": False}
+
+        def _release_grab_on_unmap(event=None, _win=win):
+            try:
+                if event is not None and getattr(event, "widget", None) is not _win:
+                    return
+                current = str(_win.grab_current() or "")
+                own_path = str(_win)
+                if current == own_path or current.startswith(own_path + "."):
+                    _win.grab_release()
+                    grab_state["released"] = True
+            except Exception as _ignored_exc:
+                logger.debug("Ignored recoverable exception releasing utility-window grab: %s", _ignored_exc)
+
+        def _restore_grab_on_map(event=None, _win=win):
+            try:
+                if event is not None and getattr(event, "widget", None) is not _win:
+                    return
+                if grab_state["released"] and _win.state() == "normal":
+                    _win.grab_set()
+                    grab_state["released"] = False
+            except Exception as _ignored_exc:
+                logger.debug("Ignored recoverable exception restoring utility-window grab: %s", _ignored_exc)
+
+        try:
+            win.bind("<Unmap>", _release_grab_on_unmap, add="+")
+            win.bind("<Map>", _restore_grab_on_map, add="+")
+        except Exception as _ignored_exc:
+            logger.debug("Ignored recoverable exception binding utility-window map handlers: %s", _ignored_exc)
         return win
 
     def _apply_window_icon_to(self, window) -> None:
@@ -829,7 +881,7 @@ class CYOADownloaderGUI:
         # cookie contents remain in the user's local Netscape file.
         cookie_card = ctk.CTkFrame(
             body, fg_color=p["surface"], corner_radius=12,
-            border_width=1, border_color="#ef4444",
+            border_width=1, border_color=p["border"],
         )
         cookie_card.grid(row=2, column=0, columnspan=2, sticky="ew", padx=6, pady=(0, 10))
         cookie_card.grid_columnconfigure(1, weight=1)
@@ -845,9 +897,9 @@ class CYOADownloaderGUI:
         ctk.CTkLabel(
             cookie_card,
             text=(
-                "Select an exported Netscape cookies.txt when automatic browser cookies do not work."
+                "Select an exported Netscape cookies.txt. When selected, yt-dlp uses this file only."
                 if is_en else
-                "Pilih file cookies.txt format Netscape jika cookie browser otomatis tidak berhasil."
+                "Pilih cookies.txt format Netscape. Jika dipilih, yt-dlp hanya memakai file ini."
             ),
             font=ctk.CTkFont("Segoe UI", 10), text_color=p["muted"],
             anchor="w", justify="left", wraplength=650,
@@ -860,7 +912,12 @@ class CYOADownloaderGUI:
         )
         cookie_entry.grid(row=2, column=1, sticky="ew", padx=(0, 6), pady=(0, 12))
         cookie_status = ctk.StringVar(value=(
-            "Automatic browser cookies are used when this is empty." if is_en else
+            "Saved cookies.txt will be used for YouTube audio."
+            if is_en and self._ytdlp_cookies_var.get().strip() else
+            "File cookies.txt tersimpan akan dipakai untuk audio YouTube."
+            if self._ytdlp_cookies_var.get().strip() else
+            "Automatic browser cookies are used when this is empty."
+            if is_en else
             "Cookie browser otomatis dipakai jika kolom ini kosong."
         ))
         ctk.CTkLabel(
@@ -1216,9 +1273,10 @@ class CYOADownloaderGUI:
         input_row.grid_columnconfigure(3, weight=4, minsize=260)
         input_row.grid_columnconfigure(4, weight=0, minsize=160)
 
-        T(ctk.CTkLabel(input_row, text="URL", font=ctk.CTkFont("Segoe UI", 11, "bold"),
+        self._url_label = T(ctk.CTkLabel(input_row, text="URL", font=ctk.CTkFont("Segoe UI", 11, "bold"),
                        text_color=p["muted"], width=50),
-          text_color="muted").grid(row=0, column=0, padx=(0, 6), sticky="w")
+          text_color="muted")
+        self._url_label.grid(row=0, column=0, padx=(0, 6), sticky="w")
 
         self._url_var = ctk.StringVar()
         url_e = T(ctk.CTkEntry(input_row, textvariable=self._url_var,
@@ -1228,20 +1286,22 @@ class CYOADownloaderGUI:
                                text_color=p["input_fg"], height=34, width=560),
                   fg_color="input_bg", border_color="border", text_color="input_fg")
         url_e.grid(row=0, column=1, sticky="ew", padx=(0, 10))
+        self._url_entry = url_e
         url_e.bind("<Return>", lambda _: self._add_to_queue())
 
-        T(ctk.CTkLabel(input_row, text="Filename", font=ctk.CTkFont("Segoe UI", 11, "bold"),
+        self._fn_label = T(ctk.CTkLabel(input_row, text="Filename", font=ctk.CTkFont("Segoe UI", 11, "bold"),
                        text_color=p["muted"]),
-          text_color="muted").grid(row=0, column=2, padx=(0, 6), sticky="w")
+          text_color="muted")
+        self._fn_label.grid(row=0, column=2, padx=(0, 6), sticky="w")
 
         self._fn_var = ctk.StringVar()
-        T(ctk.CTkEntry(input_row, textvariable=self._fn_var,
+        self._fn_entry = T(ctk.CTkEntry(input_row, textvariable=self._fn_var,
                        placeholder_text="(opsional)",
                        font=ctk.CTkFont("Segoe UI", 11),
                        fg_color=p["input_bg"], border_color=p["border"],
                        text_color=p["input_fg"], height=34, width=300),
-          fg_color="input_bg", border_color="border", text_color="input_fg").grid(
-            row=0, column=3, sticky="ew", padx=(0, 10))
+          fg_color="input_bg", border_color="border", text_color="input_fg")
+        self._fn_entry.grid(row=0, column=3, sticky="ew", padx=(0, 10))
 
         self._add_btn = T(ctk.CTkButton(input_row, text=self._tr("add_url"), height=34, width=150,
                       font=ctk.CTkFont("Segoe UI", 11, "bold"),
@@ -1250,6 +1310,8 @@ class CYOADownloaderGUI:
                       command=self._add_to_queue),
           fg_color="#3b82f6", hover_color="#2563eb", text_color="#ffffff")
         self._add_btn.grid(row=0, column=4, padx=(0, 0), sticky="ew")
+        self._input_row = input_row
+        self._input_header_actions = header_actions
 
         # Options row
         # ── Options: 2-row compact layout ───────────────────────────
@@ -1745,6 +1807,8 @@ class CYOADownloaderGUI:
 
         rowB1 = T(ctk.CTkFrame(rowB_wrap, fg_color="transparent"), fg_color="panel")
         rowB1.grid(row=0, column=0, sticky="w", padx=12, pady=(3, 3))
+        self._rowB_wrap = rowB_wrap
+        self._rowB1 = rowB1
 
         def _pill(parent, text, cmd, *,
                   bg="surface2", fg="muted", hv="surface", icon=None, width=86):
@@ -7111,7 +7175,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 ]),
                 ("🔁  Browser Cookies", "muted", [
                     ("Automatic", "Tries browser cookies from Chrome, Firefox, Edge, Brave, Chromium, and Safari."),
-                    ("Locked Chrome", "Copies the cookie database to a temporary location when Chrome keeps it locked."),
+                    ("Locked Chrome", "Windows may lock the Chromium cookie database while the browser is open; close Chrome/Edge/Brave completely before retrying, or use an exported cookies.txt."),
                     ("Manual cookies.txt", "Export a Netscape cookies.txt with a browser extension, then open Settings / Maintenance → YouTube cookies, choose it, and click Save."),
                 ]),
                 ("🔇  Browser Autoplay", "red", [
@@ -7301,7 +7365,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 ]),
                 ("🔁  Cookie Browser", "muted", [
                     ("Otomatis", "Mencoba cookie browser dari Chrome, Firefox, Edge, Brave, Chromium, dan Safari."),
-                    ("Chrome terkunci", "Menyalin database cookie ke lokasi sementara saat Chrome menguncinya."),
+                    ("Chrome terkunci", "Windows dapat mengunci database cookie Chromium saat browser terbuka; tutup Chrome/Edge/Brave sepenuhnya sebelum mencoba lagi, atau gunakan cookies.txt hasil ekspor."),
                     ("cookies.txt manual", "Ekspor cookies.txt format Netscape dengan ekstensi browser, lalu buka Settings / Maintenance → Cookie YouTube, pilih file, dan klik Simpan."),
                 ]),
                 ("🔇  Autoplay Browser", "red", [
