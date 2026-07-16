@@ -191,6 +191,8 @@ def main() -> None:
     parser.add_argument("--language", choices=["id", "en"], default=None, help="CLI/UI language preference. Saved only when explicitly provided.")
     parser.add_argument("--no-ytdlp", action="store_true",
                         help="Disable automatic YouTube audio download via yt-dlp.")
+    parser.add_argument("--ytdlp-cookies", metavar="FILE", default="",
+                        help="Use an exported Netscape cookies.txt for yt-dlp when YouTube requires sign-in.")
     # ── v7.5.8 feature toggles (additive; defaults preserve old behavior) ──
     parser.add_argument("--no-deep-scan", action="store_true",
                         help="Disable the JS/CSS deep-scan asset pass (default: on).")
@@ -216,6 +218,14 @@ def main() -> None:
     parser.add_argument("--gui", action="store_true", help="Force GUI.")
     args = parser.parse_args()
     args.url = (args.url_opt or args.url or "").strip()
+
+    if args.ytdlp_cookies:
+        cookie_path = os.path.abspath(os.path.expanduser(args.ytdlp_cookies))
+        if not os.path.isfile(cookie_path):
+            parser.error(f"yt-dlp cookie file not found: {cookie_path}")
+        # Pass only the path through the process environment; the cookie
+        # contents must never enter settings, logs, or command output.
+        os.environ["CYOA_YTDLP_COOKIES"] = cookie_path
 
     if args.dependency_check:
         _safe_console_print(dependency_check_report())

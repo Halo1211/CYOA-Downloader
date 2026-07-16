@@ -2145,6 +2145,9 @@ def _v46_start(self) -> None:
     else:
         outdir = os.getcwd()
 
+    if not self._prepare_ytdlp_cookies():
+        return
+
     run_items = [dict(item) for item in self._queue_data]
     # Snapshot the output identity together with the URL. Queue rows remain
     # editable/reorderable while a run is active; the worker must never derive

@@ -53,6 +53,7 @@ _SETTINGS_DEFAULTS: Dict[str, Any] = {
     "bebasdns_variant": "",
     "gallery_dl_mode": "off",
     "auto_detect_output": "folder",
+    "ytdlp_cookies": "",
     "cloudflare_mode": "auto",
     "cloudflare_priority": "flaresolverr_first",
     "flaresolverr_url": "http://localhost:8191/v1",
@@ -99,6 +100,9 @@ _SETTINGS_GROUPS = (
         "cloudflare_priority",
         "flaresolverr_url", "flaresolverr_session_policy",
         "flaresolverr_timeout", "flaresolverr_wait_after", "flaresolverr_proxy_mode",
+    )),
+    ("YouTube audio", (
+        "ytdlp_cookies",
     )),
     ("CYOA and gallery integrations", (
         "cyoa_mgr_enabled", "cyoa_mgr_db_path", "gallery_dl_mode",

@@ -34,6 +34,90 @@ _EMBEDDED_YOUTUBE_URL_RE = re.compile(
     re.IGNORECASE,
 )
 
+_EMBEDDED_HTTP_URL_RE = re.compile(
+    r"(?<![A-Za-z0-9])https?:/{1,2}[^\s\"'<>]+",
+    re.IGNORECASE,
+)
+
+
+def _normalize_embedded_http_url(value: str) -> str:
+    """Repair the common ``https:/host`` typo found in hand-authored HTML."""
+    value = str(value or "").strip().rstrip(".,;:)]}")
+    return re.sub(r"^(https?):/(?!/)", r"\1://", value, flags=re.IGNORECASE)
+
+
+def _is_image_reference(value: str) -> bool:
+    """Return whether a value has an image-like path extension."""
+    try:
+        path = urlparse(_normalize_embedded_http_url(value)).path.lower()
+    except Exception:
+        path = str(value or "").split("?", 1)[0].lower()
+    return os.path.splitext(path)[1] in IMAGE_EXTENSIONS
+
+
+def _extract_image_references(value: str, *, allow_bare_path: bool = False) -> Set[str]:
+    """Extract image URLs from either a direct field or rich-text HTML.
+
+    ICC project fields named ``image`` are not consistently typed in the wild:
+    some custom viewers put a complete HTML description in that field, while
+    others store ``label https:/cdn.example/image.gif``.  Treating the entire
+    value as a URL makes ``urljoin`` create a request for the whole HTML blob.
+    Only direct URLs, image-looking URLs, and URLs in image-bearing attributes
+    are accepted here.
+    """
+    text = str(value or "").strip()
+    if not text or text.startswith("data:"):
+        return set()
+
+    refs: Set[str] = set()
+
+    def add(raw: str, *, require_image_extension: bool = False) -> None:
+        candidate = _normalize_embedded_http_url(raw)
+        if not candidate or candidate.startswith(("data:", "javascript:", "#")):
+            return
+        if require_image_extension and not _is_image_reference(candidate):
+            return
+        refs.add(candidate)
+
+    # A direct image endpoint may not have an image extension (for example
+    # pixiv's decorate.php), so accept a URL only when the complete field is
+    # the URL rather than arbitrary prose containing a link.
+    if re.fullmatch(r"https?:/{1,2}[^\s\"'<>]+", text, flags=re.IGNORECASE):
+        add(text)
+        return refs
+    if re.fullmatch(r"//[^\s\"'<>]+", text):
+        add("https:" + text)
+        return refs
+
+    # Image-bearing HTML/CSS attributes can contain extensionless proxy URLs.
+    for match in re.finditer(
+        r"<(?:img|source)[^>]+(?:src|srcset)\s*=\s*[\"']([^\"']+)[\"']"
+        r"|(?:background(?:-image)?|src)\s*:\s*url\(\s*[\"']?([^\"')\s]+)",
+        text,
+        re.IGNORECASE,
+    ):
+        raw = match.group(1) or match.group(2) or ""
+        if "," in raw and " " in raw:
+            raw = raw.split(",", 1)[0].strip().split()[0]
+        if raw.startswith("//"):
+            raw = "https:" + raw
+        if raw:
+            add(raw)
+
+    # Prose labels commonly precede a real CDN URL. Only accept embedded URLs
+    # that look like image files, so unrelated links in intro HTML are ignored.
+    for match in _EMBEDDED_HTTP_URL_RE.finditer(text):
+        add(match.group(0), require_image_extension=True)
+
+    if refs:
+        return refs
+
+    # Preserve ordinary relative image paths from actual image fields, but do
+    # not treat arbitrary prose/markup as a path.
+    if allow_bare_path and not re.search(r"[<>]", text) and _is_image_reference(text):
+        refs.add(text)
+    return refs
+
 # Raw CDN hosts used by the gallery-dl smart-mode classifier. Kept here as an
 # independent constant so this low-level scanner does not need to import the
 # transitional gallery_dl bridge (which would pull legacy.py back in).
@@ -293,6 +377,17 @@ def _scan_file_for_assets(
         text, _re.IGNORECASE
     ):
         raw = m.group(1)
+        # Some project exports store a human-readable label and the real CDN
+        # URL in one string, e.g. ``"Luna tongue https:/cdn.test/a.gif"``.
+        # Resolving the whole string against the viewer creates a bogus path
+        # and hides the usable image URL.
+        embedded_refs = _extract_image_references(raw)
+        if embedded_refs:
+            found.update(
+                ref if ref.startswith(("http://", "https://")) else urljoin(base_url, ref)
+                for ref in embedded_refs
+            )
+            continue
         if raw.strip() in ('.json', '.mp3', '.webp', '.png', '.js', '.css'):
             continue
         if raw in base_prefixed_literals:
@@ -453,6 +548,18 @@ def _scan_file_for_assets(
                     """Add only a real asset token, never an HTML/text wrapper."""
                     value = str(raw_value or '').strip()
                     if not value or value.startswith(('data:', '#', 'javascript:')):
+                        return
+
+                    # Some ICC JSON fields are exported as ``label URL``.
+                    # The normal string scanner extracts the URL, but the
+                    # recursive manifest walker must not add the whole label
+                    # as a second relative asset candidate.
+                    embedded_refs = _extract_image_references(value)
+                    if embedded_refs:
+                        for candidate in embedded_refs:
+                            resolved = _resolve(candidate)
+                            if resolved:
+                                found.add(resolved)
                         return
 
                     # JSON payloads can contain rich HTML descriptions. Extract
@@ -652,7 +759,7 @@ def _deep_scan_project_assets(
 
                     # ── Image fields ─────────────────────────────────────
                     if key_lower in image_keys:
-                        image_paths.add(v)
+                        image_paths.update(_extract_image_references(v, allow_bare_path=True))
 
                     # ── bgmId: context-dependent ──────────────────────────
                     elif key_lower == "bgmid":
@@ -692,7 +799,14 @@ def _deep_scan_project_assets(
                     # ── Relative paths with asset extensions ──────────────
                     # Catch "images/hero.png", "audio/theme.mp3" etc.
                     # that aren't in known field lists but ARE valid paths.
-                    elif '/' in v and not v.startswith(('#', 'javascript:')):
+                    elif (
+                        '/' in v
+                        and not v.startswith(('#', 'javascript:'))
+                        # Do not enqueue a prose label containing a real CDN
+                        # image URL as one relative path. The embedded URL is
+                        # extracted below and must be the only candidate.
+                        and not _extract_image_references(v)
+                    ):
                         ext = os.path.splitext(v.split('?')[0])[1].lower()
                         if ext in IMAGE_EXTENSIONS:
                             image_paths.add(v)
@@ -702,13 +816,7 @@ def _deep_scan_project_assets(
                     # ── HTML <img> embedded in text/description fields ────
                     # CYOA creators put HTML in choice text, descriptions,
                     # titles, etc. with inline <img src="..."> tags.
-                    _img_refs = re.findall(
-                        r'<img[^>]+src\s*=\s*["\']([^"\']+)["\']',
-                        v, re.IGNORECASE
-                    )
-                    for img_url in _img_refs:
-                        if img_url and not img_url.startswith('data:'):
-                            image_paths.add(img_url)
+                    image_paths.update(_extract_image_references(v))
 
                     # ── Markdown image syntax ─────────────────────────────
                     # ![alt text](image_url) — used in some custom viewers

@@ -25,6 +25,7 @@ from .asset_scan import (
     _safe_response_text,
     _scan_file_for_assets,
     _deep_scan_project_assets,
+    _extract_image_references,
 )
 from .audio_reports import (
     _write_failed_images_log,
@@ -89,6 +90,11 @@ def process_images(
         # not here — so empty folders are never left behind.
 
     # ── Phase A: JSON-aware deep scan (handles bgmId+useAudioURL, nested sfx) ──
+    # Reports belong beside the project payload, not beside the process-wide
+    # output root. ICC/website mode stages bytes in temp_folder but has one
+    # site_folder per CYOA, so batch reports must follow site_folder.
+    report_dir = os.path.abspath(site_folder or output_dir or temp_folder or os.getcwd())
+
     deep_images, deep_audio, deep_youtube = _deep_scan_project_assets(input_str, base_url)
 
     # ── Phase B: Regex scan as fallback/supplement ──────────────────
@@ -118,7 +124,9 @@ def process_images(
         if _YOUTUBE_URL_RE.search(path):
             youtube_paths.add(path)
         elif field.lower() in image_fields_lower:
-            image_paths.add(path)
+            # A malformed project can still reach this regex fallback. Do not
+            # enqueue an entire HTML/text value as one image URL.
+            image_paths.update(_extract_image_references(path, allow_bare_path=True))
         else:
             audio_paths.add(path)
 
@@ -144,7 +152,7 @@ def process_images(
         yt_audio_dir = temp_folder if temp_folder else output_dir
         yt_map = _download_youtube_audio(
             sorted(youtube_paths), yt_audio_dir, source_url=source_url,
-            log_dir=output_dir,
+            log_dir=report_dir,
         )
         if yt_map:
             input_str = _patch_youtube_refs_in_json(input_str, yt_map)
@@ -245,6 +253,10 @@ def process_images(
             asset_path
             if asset_path.startswith(("http://", "https://"))
             else urljoin(base_url.rstrip("/") + "/", asset_path)
+        )
+        # Repair URLs extracted from hand-authored HTML such as https:/cdn/… .
+        asset_url = re.sub(
+            r"^(https?):/(?!/)", r"\1://", asset_url, flags=re.IGNORECASE
         )
 
         # SSRF screen: refuse cross-origin internal asset
@@ -477,7 +489,7 @@ def process_images(
             f"{len(failed_images)} image(s) could not be downloaded — "
             f"original URLs kept in JSON. Check failed_images.txt."
         )
-        _write_failed_images_log(failed_images, output_dir, source_url=source_url)
+        _write_failed_images_log(failed_images, report_dir, source_url=source_url)
     if failed_audio:
         logger.warning(
             f"{len(failed_audio)} audio file(s) could not be downloaded "
@@ -487,7 +499,7 @@ def process_images(
         try:
             write_asset_failure_summary(
                 failed_images + failed_audio,
-                output_dir or os.getcwd(),
+                report_dir,
                 source_url=source_url,
                 title="Broken Project Asset Report",
             )
@@ -683,15 +695,23 @@ def process_images(
     def _single_pass_asset_sub(text: str, mapping: Dict[str, str]) -> str:
         if not mapping:
             return text
+        # The scanner repairs https:/… to https://…, but the original JSON may
+        # still contain the one-slash spelling. Rewrite both source spellings
+        # after a successful fetch.
+        expanded_mapping = dict(mapping)
+        for source, replacement in mapping.items():
+            if source.startswith(("http://", "https://")):
+                malformed = source.replace("://", ":/", 1)
+                expanded_mapping.setdefault(malformed, replacement)
         # Replace the remote token wherever it appears, including inside
         # escaped JSON strings such as `<img src=\"https://...\">`. Longest
         # keys first prevent a shorter URL from shadowing a longer one.
-        keys = sorted(mapping.keys(), key=len, reverse=True)
+        keys = sorted(expanded_mapping.keys(), key=len, reverse=True)
         alt = "|".join(re.escape(k) for k in keys)
         asset_re = re.compile(alt)
 
         def _repl(m: "re.Match") -> str:
-            return mapping.get(m.group(0), m.group(0))
+            return expanded_mapping.get(m.group(0), m.group(0))
 
         return asset_re.sub(_repl, text)
 
@@ -861,6 +881,21 @@ def _deep_scan_and_download_assets(
         if alt_path == candidate_path:
             return None
         return urlunparse(parsed._replace(path=alt_path))
+
+    def _viewer_route_asset_fallback(url: str) -> Optional[str]:
+        """Prefix a deployed viewer route onto a failed root /assets URL."""
+        parsed = urlparse(url)
+        base = urlparse(base_url)
+        route_prefix = base.path.rstrip("/")
+        if not route_prefix or not parsed.path.startswith("/assets/"):
+            return None
+        if (
+            parsed.scheme.lower() != base.scheme.lower()
+            or parsed.netloc.lower() != base.netloc.lower()
+            or parsed.path.startswith(route_prefix + "/")
+        ):
+            return None
+        return urlunparse(parsed._replace(path=route_prefix + parsed.path))
 
     # ── Reusable session with connection pooling ──────────────────────
     # Keeps TCP connections alive across requests to the same host,
@@ -1050,6 +1085,27 @@ def _deep_scan_and_download_assets(
                                     continue
                                 except Exception as e:
                                     logger.debug(f"[deep scan] CSS root fallback save {fallback_rel}: {e}")
+                        route_url = _viewer_route_asset_fallback(url)
+                        if route_url:
+                            route_rel = (
+                                _url_to_local(route_url)
+                                or os.path.basename(urlparse(route_url).path)
+                                or "asset"
+                            )
+                            known_urls.add(route_url)
+                            _, route_content, _ = _try_fetch(route_url)
+                            if route_content:
+                                route_local = _safe_join(folder, route_rel)
+                                os.makedirs(os.path.dirname(route_local), exist_ok=True)
+                                try:
+                                    atomic_write_bytes(route_local, route_content)
+                                    all_downloaded[route_url] = route_rel
+                                    _disk_files.add(route_rel)
+                                    new_this_round += 1
+                                    logger.info(f"  [deep ✓ route] {route_rel}")
+                                    continue
+                                except Exception as e:
+                                    logger.debug(f"[deep scan] route fallback save {route_rel}: {e}")
                         failed_deep_assets.append({"url": url, "path": _url_to_local(url), "error": f"HTTP {status or 'request failed'}", "kind": "deep-scan"})
                         # Vite correction: if root-level JS 404'd, try /assets/
                         p = urlparse(url).path

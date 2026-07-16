@@ -17,6 +17,13 @@ from typing import Dict, List, Optional
 from ..logging_setup import logger
 
 
+def _report_target(output_dir: str) -> str:
+    """Resolve a report directory without silently falling back to CWD."""
+    target = os.path.abspath(output_dir) if output_dir else os.getcwd()
+    os.makedirs(target, exist_ok=True)
+    return target
+
+
 def _write_failed_images_log(
     failed: List[Dict[str, str]],
     output_dir: str,
@@ -29,7 +36,7 @@ def _write_failed_images_log(
     """
     if not failed:
         return
-    target   = output_dir if output_dir and os.path.isdir(output_dir) else os.getcwd()
+    target   = _report_target(output_dir)
     log_path = os.path.join(target, "failed_images.txt")
     is_new   = not os.path.exists(log_path)
 
@@ -52,6 +59,7 @@ def _write_youtube_skip_log(
     items: List[str],
     output_dir: str,
     source_url: str = "",
+    reasons: Optional[Dict[str, str]] = None,
 ) -> None:
     """
     Append YouTube URLs (with source CYOA) to skipped_youtube_audio.txt.
@@ -62,7 +70,7 @@ def _write_youtube_skip_log(
     """
     if not items:
         return
-    target   = output_dir if output_dir and os.path.isdir(output_dir) else os.getcwd()
+    target   = _report_target(output_dir)
     log_path = os.path.join(target, "skipped_youtube_audio.txt")
     is_new   = not os.path.exists(log_path)
 
@@ -92,6 +100,11 @@ def _write_youtube_skip_log(
         f.write(f"# Count       : {len(items)}\n")
         for url in items:
             f.write(url + "\n")
+            reason = (reasons or {}).get(url, "")
+            if reason:
+                # Keep the report actionable while never writing cookie
+                # contents or request headers to disk.
+                f.write(f"# Reason      : {reason[:500]}\n")
         f.write("\n")
 
     logger.warning(

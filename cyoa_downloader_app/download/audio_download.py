@@ -7,6 +7,8 @@ those values lazily so the public behavior and callback wiring remain unchanged.
 from __future__ import annotations
 
 import os
+import glob
+import shutil
 import sys
 from typing import Dict, List, Optional, Tuple
 
@@ -55,6 +57,111 @@ def _make_ytdlp_hook(vid_id: str, idx: int, total: int):
     return _hook
 
 
+def _yt_dlp_runtime_options() -> Dict[str, object]:
+    """Return safe yt-dlp options for YouTube's current JS challenge flow.
+
+    Recent yt-dlp releases need an external JavaScript runtime for full
+    YouTube support.  Do not guess a runtime path: ``shutil.which`` keeps the
+    setting portable and lets yt-dlp report a useful diagnostic when none is
+    installed.  The official EJS scripts are allowed to be fetched only when
+    the companion package is not installed.
+    """
+    def _runtime_path(name: str) -> Optional[str]:
+        path = shutil.which(name)
+        if not path and name == "deno" and sys.platform == "win32":
+            local = os.environ.get("LOCALAPPDATA", "")
+            matches = sorted(glob.glob(os.path.join(
+                local, "Microsoft", "WinGet", "Packages", "DenoLand.Deno_*", "deno.exe"
+            )))
+            path = matches[0] if matches else None
+        if not path:
+            return None
+        if name == "node":
+            # yt-dlp 2026+ requires Node 22 or newer; Node 20/21 must not be
+            # advertised as available because yt-dlp will reject it.
+            try:
+                import subprocess
+                output = subprocess.check_output(
+                    [path, "--version"], stderr=subprocess.STDOUT,
+                    text=True, timeout=3,
+                ).strip().lstrip("v")
+                major = int(output.split(".", 1)[0])
+                if major < 22:
+                    return None
+            except Exception:
+                return None
+        return path
+
+    runtimes: Dict[str, Dict[str, str]] = {}
+    for name in ("deno", "bun", "node", "qjs"):
+        path = _runtime_path(name)
+        if path:
+            runtimes[name] = {"path": path}
+
+    options: Dict[str, object] = {}
+    if runtimes:
+        options["js_runtimes"] = runtimes
+        try:
+            import importlib.util
+            has_ejs = importlib.util.find_spec("yt_dlp_ejs") is not None
+        except Exception:
+            has_ejs = False
+        if not has_ejs:
+            # This is the upstream-supported fallback for a plain PyPI
+            # yt-dlp install.  It is not a CAPTCHA/anti-bot bypass.
+            options["remote_components"] = {"ejs:github"}
+    return options
+
+
+def _ytdlp_cookie_files(output_dir: str, log_dir: str) -> List[str]:
+    """Find explicitly supplied Netscape cookie files without exposing them."""
+    candidates = [
+        os.environ.get("CYOA_YTDLP_COOKIES", ""),
+        os.environ.get("YTDLP_COOKIES", ""),
+        os.path.join(output_dir, "cookies.txt") if output_dir else "",
+        os.path.join(log_dir, "cookies.txt") if log_dir else "",
+    ]
+    found: List[str] = []
+    for candidate in candidates:
+        path = os.path.abspath(os.path.expanduser(candidate)) if candidate else ""
+        if path and os.path.isfile(path) and path not in found:
+            found.append(path)
+    return found
+
+
+def _ytdlp_browser_profiles(browser: str) -> List[Optional[str]]:
+    """Return installed Chromium/Firefox profiles worth trying.
+
+    Native yt-dlp cookie loading supports a profile argument.  The old code
+    only tried the default profile, which silently failed when YouTube was
+    logged in under ``Profile 1`` or another profile.
+    """
+    if sys.platform != "win32":
+        return [None]
+    local = os.environ.get("LOCALAPPDATA", "")
+    appdata = os.environ.get("APPDATA", "")
+    roots = {
+        "chrome": os.path.join(local, "Google", "Chrome", "User Data"),
+        "edge": os.path.join(local, "Microsoft", "Edge", "User Data"),
+        "brave": os.path.join(local, "BraveSoftware", "Brave-Browser", "User Data"),
+        "chromium": os.path.join(local, "Chromium", "User Data"),
+        "firefox": os.path.join(appdata, "Mozilla", "Firefox", "Profiles"),
+    }
+    root = roots.get(browser.lower(), "")
+    if not root or not os.path.isdir(root):
+        return []
+    try:
+        names = sorted(
+            entry.name for entry in os.scandir(root)
+            if entry.is_dir() and (entry.name == "Default" or entry.name.startswith("Profile "))
+        )
+    except OSError:
+        names = []
+    if browser.lower() == "firefox":
+        return [entry for entry in names] or [None]
+    return [None] + [entry for entry in names if entry != "Default"]
+
+
 def _download_youtube_audio(
     youtube_urls: List[str],
     output_dir: str,
@@ -88,6 +195,7 @@ def _download_youtube_audio(
     os.makedirs(audio_dir, exist_ok=True)
     result: Dict[str, str] = {}
     failed: List[str]      = []
+    failure_reasons: Dict[str, str] = {}
 
     logger.info(f"yt-dlp: Downloading {len(youtube_urls)} YouTube audio track(s)…")
 
@@ -142,20 +250,23 @@ def _download_youtube_audio(
             "quiet":            True,
             "no_warnings":      True,
             "extract_flat":     False,
-            "retries":          3,
-            "fragment_retries": 3,
+            "retries":          5,
+            "fragment_retries": 5,
+            "extractor_retries": 3,
+            "file_access_retries": 3,
+            "socket_timeout":   30,
+            "continuedl":       True,
             "sleep_interval":   1,
             "max_sleep_interval": 3,
-            "http_headers": {
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/124.0.0.0 Safari/537.36"
-                ),
-            },
+            # Avoid a stale hard-coded browser identity. yt-dlp supplies a
+            # current standard header and browser-cookie attempts add only
+            # the authenticated Cookie header.
+            "http_headers": {},
             # Progress hook — update GUI status bar
             "progress_hooks": [_make_ytdlp_hook(vid_id, idx, total)],
         }
+
+        ydl_opts.update(_yt_dlp_runtime_options())
 
         # Auto-locate ffmpeg — pass to yt-dlp if found; if not, yt-dlp
         # will still search its own PATH. Only warn if conversion later fails.
@@ -182,10 +293,10 @@ def _download_youtube_audio(
                 captured = io.StringIO()
                 class _QuietLogger:
                     def debug(self, msg):   pass
-                    def info(self, msg):    pass
-                    def warning(self, msg): pass
+                    def info(self, msg):     pass
+                    def warning(self, msg): captured.write("WARNING: " + str(msg) + "\n")
                     def error(self, msg):
-                        captured.write(msg + "\n")
+                        captured.write("ERROR: " + str(msg) + "\n")
                 opts2 = {**opts, "logger": _QuietLogger()}
                 with yt_dlp.YoutubeDL(opts2) as ydl:
                     ydl.download([url_clean])
@@ -202,25 +313,7 @@ def _download_youtube_audio(
                 "This video is not available",
             ])
 
-        def _chrome_cookie_path() -> Optional[str]:
-            """Return Chrome Cookies DB path, or None if not found."""
-            if sys.platform != "win32":
-                return None
-            local = os.environ.get("LOCALAPPDATA", "")
-            for sub in [
-                r"Google\Chrome\User Data\Default\Cookies",
-                r"Google\Chrome\User Data\Default\Network\Cookies",
-                r"BraveSoftware\Brave-Browser\User Data\Default\Cookies",
-                r"BraveSoftware\Brave-Browser\User Data\Default\Network\Cookies",
-                r"Microsoft\Edge\User Data\Default\Cookies",
-                r"Microsoft\Edge\User Data\Default\Network\Cookies",
-            ]:
-                p = os.path.join(local, sub)
-                if os.path.exists(p):
-                    return p
-            return None
-
-        def _try_with_cookie_file(browser: str, opts: dict) -> Tuple[bool, Optional[str]]:
+        def _try_with_cookie_file(browser: str, profile: Optional[str], opts: dict) -> Tuple[bool, Optional[str]]:
             """
             Try the browser's authenticated cookie store, not its HTTP asset
             cache.  yt-dlp's native reader is first because it understands
@@ -228,18 +321,12 @@ def _download_youtube_audio(
             browser_cookie3 is the compatibility fallback for older Chromium
             profiles and Firefox.
             """
-            if browser == "chrome" and sys.platform == "win32":
-                # Keep this diagnostic so users can tell that the browser
-                # profile was found even when Chromium is currently open.
-                src_db = _chrome_cookie_path()
-                if src_db:
-                    logger.debug(f"yt-dlp browser cookie source detected: {src_db}")
-
             # Native yt-dlp extraction is the reliable path for modern Chrome,
             # Edge, Brave, Chromium, and Firefox profiles. It also handles a
             # browser that is still open more safely than reading SQLite here.
+            cookie_source = (browser,) if profile is None else (browser, profile)
             native_ok, native_err = _try_ytdlp(
-                {**opts, "cookiesfrombrowser": (browser,)}
+                {**opts, "cookiesfrombrowser": cookie_source}
             )
             if _any_audio_exists():
                 return native_ok, native_err
@@ -260,7 +347,7 @@ def _download_youtube_audio(
                     if pairs:
                         headers = dict(opts.get("http_headers") or {})
                         headers["Cookie"] = "; ".join(pairs)
-                        return _try_ytdlp({**opts, "http_headers": headers})
+                return _try_ytdlp({**opts, "http_headers": headers})
             except Exception as exc:
                 logger.debug("Browser cookie session unavailable for %s: %s", browser, exc)
             return native_ok, native_err
@@ -273,25 +360,46 @@ def _download_youtube_audio(
             ok1, err1 = _try_ytdlp(opts)
 
             found_file = _any_audio_exists()
+            last_error = err1
 
             if not found_file:
-                # Nothing downloaded — retry with browser cookies
-                # Always retry on failure; prioritise if error looks bot-related
-                browsers = ["chrome", "firefox", "edge", "brave", "chromium", "safari"]
+                # An explicitly exported cookie file is the least ambiguous
+                # authenticated retry and also works when Chromium's profile
+                # is locked by App-Bound Encryption.
+                for cookie_file in _ytdlp_cookie_files(output_dir, log_dir):
+                    logger.info("  yt-dlp: trying supplied browser cookie file")
+                    ok_c, err_c = _try_ytdlp({**opts, "cookiefile": cookie_file})
+                    last_error = err_c or last_error
+                    found_file = _any_audio_exists()
+                    if found_file:
+                        logger.info("  yt-dlp: cookie file authentication succeeded")
+                        break
+
+            if not found_file:
+                # Nothing downloaded — retry with installed browser cookies.
+                # Do not probe browsers that have no local profile; that used
+                # to create a long list of misleading cookie errors.
+                browsers = ["chrome", "edge", "brave", "chromium", "firefox"]
                 logger.info(
                     f"  yt-dlp: first attempt failed "
                     f"{'(bot-detected)' if _is_bot_error(err1) else '(unknown error)'},"
                     f" retrying with browser cookies…"
                 )
                 for browser in browsers:
-                    ok_c, err_c = _try_with_cookie_file(browser, opts)
-                    found_file = _any_audio_exists()
+                    profiles = _ytdlp_browser_profiles(browser)
+                    for profile in profiles:
+                        ok_c, err_c = _try_with_cookie_file(browser, profile, opts)
+                        last_error = err_c or last_error
+                        found_file = _any_audio_exists()
+                        if found_file:
+                            suffix = f" ({profile})" if profile else ""
+                            logger.info(f"  yt-dlp: cookie source → {browser}{suffix}")
+                            break
+                        if ok_c:
+                            # yt-dlp said OK but file still missing — next profile
+                            continue
                     if found_file:
-                        logger.info(f"  yt-dlp: cookie source → {browser}")
                         break
-                    if ok_c:
-                        # yt-dlp said OK but file still missing — next browser
-                        continue
 
             if found_file:
                 # ── Convert to MP3 if needed ───────────────────────────
@@ -335,14 +443,20 @@ def _download_youtube_audio(
                             "                  sudo apt install ffmpeg       (Linux)"
                         )
             else:
-                logger.warning(f"  yt-dlp: file not found after download: {url_clean}")
+                reason = " ".join((last_error or "no output file").split())[:500]
+                logger.warning(f"  yt-dlp: file not found after download: {url_clean} — {reason}")
                 failed.append(yt_url)
+                failure_reasons[yt_url] = reason
         except Exception as e:
             logger.error(f"  yt-dlp FAILED: {url_clean} — {e}")
             failed.append(yt_url)
+            failure_reasons[yt_url] = str(e)[:500]
 
     if failed:
-        _write_youtube_skip_log(failed, log_dir or output_dir, source_url=source_url)
+        _write_youtube_skip_log(
+            failed, log_dir or output_dir, source_url=source_url,
+            reasons=failure_reasons,
+        )
 
     if result:
         logger.info(

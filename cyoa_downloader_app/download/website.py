@@ -426,11 +426,11 @@ class WebsiteDownloader:
 
 
     def localize_existing_text_assets(self) -> None:
-        """Second-pass scan for index.html/css/js already downloaded."""
+        """Second-pass scan for downloaded text and JSON assets."""
         for root, _, files in os.walk(self.output_folder):
             for name in files:
                 ext = os.path.splitext(name)[1].lower()
-                if ext not in {".html", ".css", ".js", ".mjs"}:
+                if ext not in {".html", ".css", ".js", ".mjs", ".json"}:
                     continue
                 local_path = os.path.join(root, name)
                 source_url = self._source_for_local.get(os.path.abspath(local_path), self.start_url)
@@ -440,6 +440,8 @@ class WebsiteDownloader:
                         updated = self._process_css(text, source_url, local_path)
                     elif ext in {".js", ".mjs"}:
                         updated = self._process_js(text, source_url, local_path)
+                    elif ext == ".json":
+                        updated = self._rewrite_known_downloaded_urls(text, source_url, local_path)
                     else:
                         updated = self._rewrite_direct_urls(text, source_url, local_path)
                     if updated != text:
@@ -501,6 +503,10 @@ class WebsiteDownloader:
         if not url:
             return None
         url = url.strip().strip('"\'')
+        # Hand-authored ICC exports sometimes use ``https:/host``. Treat it
+        # as the same absolute URL before urljoin() can turn it into a path
+        # under the viewer origin.
+        url = re.sub(r"^(https?):/(?!/)", r"\1://", url, flags=re.IGNORECASE)
         lowered = url.lower()
         if lowered.startswith(("data:", "javascript:", "mailto:", "file:", "ftp:", "blob:", "chrome:", "about:")) or url.startswith("#"):
             return None
@@ -800,6 +806,43 @@ class WebsiteDownloader:
                         r    = r_alt
                         full = alt
 
+        # Some Vite builds are deployed below a subfolder but retain absolute
+        # ``/assets/...`` references from the original root deployment. The
+        # root URL is a genuine 404, while ``/<viewer-route>/assets/...`` is
+        # valid. Try this route-relative variant only after the root request
+        # failed and only for same-origin /assets paths.
+        if r is None:
+            parsed_full = urlparse(full)
+            parsed_start = urlparse(self.start_url)
+            route_prefix = parsed_start.path.rstrip("/")
+            same_origin = (
+                parsed_full.scheme.lower() == parsed_start.scheme.lower()
+                and parsed_full.netloc.lower() == parsed_start.netloc.lower()
+            )
+            if (
+                same_origin
+                and route_prefix
+                and parsed_full.path.startswith("/assets/")
+                and not parsed_full.path.startswith(route_prefix + "/")
+            ):
+                alt = urlunparse(parsed_full._replace(
+                    path=route_prefix + parsed_full.path
+                ))
+                if alt != full:
+                    with self._lock:
+                        if alt in self._downloaded:
+                            return self._downloaded[alt]
+                    r_alt = self._fetch(alt)
+                    _raise_if_cancelled()
+                    if r_alt:
+                        logger.info(f"  route-fallback: {url} → {alt}")
+                        self._failed_items = [
+                            item for item in self._failed_items
+                            if item.get("url") != full
+                        ]
+                        r = r_alt
+                        full = alt
+
         if not r:
             return None
 
@@ -977,7 +1020,84 @@ class WebsiteDownloader:
                 return m.group(0)
             rel = self._rel(local_text_path, local)
             return f'{m.group("quote")}{rel}{m.group("quote")}'
-        return self._quoted_asset_re.sub(repl, text)
+        rewritten = self._quoted_asset_re.sub(repl, text)
+
+        # Project JSON and rich JS strings may contain ``label https://...``
+        # rather than a URL occupying the whole quoted value. Localize only
+        # absolute URLs that are already present in the successful download
+        # cache; unavailable/runtime URLs stay online for diagnostics.
+        embedded_url_re = re.compile(
+            r"(?P<url>https?:/{1,2}[^\s\"'<>]+)", re.IGNORECASE
+        )
+
+        def rewrite_embedded(match: re.Match) -> str:
+            original = match.group("url")
+            normalized = self._normalize_remote_url(original, referrer_url)
+            if not normalized:
+                return original
+            local = self._downloaded.get(normalized)
+            if local is None:
+                local = self._downloaded.get(self._normalize_cache_key(normalized))
+            if not local or not os.path.isfile(local):
+                return original
+            return self._rel(local_text_path, local)
+
+        return embedded_url_re.sub(rewrite_embedded, rewritten)
+
+    def _rewrite_known_downloaded_urls(
+        self,
+        text: str,
+        referrer_url: str,
+        local_text_path: str,
+    ) -> str:
+        """Rewrite absolute URL tokens already saved by the archive pass.
+
+        React/Webpack bundles can contain the complete project data as a
+        JavaScript string. Rewriting every string is unsafe, but leaving the
+        bundle untouched leaves successfully downloaded CDN images online.
+        This narrow pass changes only absolute URLs present in ``_downloaded``;
+        failed or runtime-generated URLs remain unchanged.
+        """
+        if not text:
+            return text
+
+        def repl(match: re.Match) -> str:
+            original = match.group("url")
+            normalized = original.replace("\\/", "/")
+            if not re.match(r"^(?:https?:/{1,2}|//)", normalized, re.IGNORECASE):
+                return match.group(0)
+            full = self._normalize_remote_url(normalized, referrer_url)
+            if not full:
+                return match.group(0)
+            local = self._downloaded.get(full)
+            if local is None:
+                local = self._downloaded.get(self._normalize_cache_key(full))
+            if not local or not os.path.isfile(local):
+                return match.group(0)
+            rel = self._rel(local_text_path, local)
+            return f'{match.group("quote")}{rel}{match.group("quote")}'
+
+        rewritten = self._quoted_asset_re.sub(repl, text)
+
+        # Rich project records can store ``label https://cdn/file.gif`` in a
+        # single JSON/JS string. Rewrite only URLs known to be downloaded.
+        embedded_url_re = re.compile(
+            r"(?P<url>https?:/{1,2}[^\s\"'<>]+)", re.IGNORECASE
+        )
+
+        def rewrite_embedded(match: re.Match) -> str:
+            original = match.group("url")
+            full = self._normalize_remote_url(original, referrer_url)
+            if not full:
+                return original
+            local = self._downloaded.get(full)
+            if local is None:
+                local = self._downloaded.get(self._normalize_cache_key(full))
+            if not local or not os.path.isfile(local):
+                return original
+            return self._rel(local_text_path, local)
+
+        return embedded_url_re.sub(rewrite_embedded, rewritten)
 
     def _download_runtime_template_assets(self, text: str, referrer_url: str) -> None:
         """Download concrete assets exposed by simple JS templates.
@@ -1206,8 +1326,12 @@ class WebsiteDownloader:
 
         # Guard 2: app bundle
         if self._is_app_bundle(js_url):
-            logger.debug(f"  Skip JS rewrite (app bundle): {js_url.split('/')[-1]}")
-            return js
+            localized = self._rewrite_known_downloaded_urls(js, js_url, js_local)
+            if localized != js:
+                logger.info(f"  Localized downloaded URLs in app bundle: {js_url.split('/')[-1]}")
+            else:
+                logger.debug(f"  No downloaded URLs to localize in app bundle: {js_url.split('/')[-1]}")
+            return localized
 
         return self._rewrite_direct_urls(js, js_url, js_local)
 

@@ -174,6 +174,14 @@ class CYOADownloaderGUI:
         _set_cheat_enabled(_s.get("cheat_enabled", True))
         _set_itch_enabled(_s.get("itch_enabled", False))
 
+        # Keep only the selected cookie-file path in the GUI/settings layer.
+        # The Netscape cookie contents are never loaded into settings or logs.
+        _cookie_setting = str(_s.get("ytdlp_cookies", "") or "").strip()
+        if not _cookie_setting:
+            _cookie_setting = os.environ.get("CYOA_YTDLP_COOKIES", "").strip()
+        self._ytdlp_cookies_var = ctk.StringVar(
+            value=os.path.abspath(os.path.expanduser(_cookie_setting)) if _cookie_setting else "")
+
         self._setup_ui()
         self._apply_language()
         self._setup_logging()
@@ -816,7 +824,83 @@ class CYOADownloaderGUI:
             fg_color="#0891b2", hover_color="#0e7490",
         ).grid(row=0, column=2, rowspan=2, sticky="e")
 
-        r = 2
+        # YouTube authentication belongs in persistent Settings rather than
+        # the main download form. Only the selected file path is retained;
+        # cookie contents remain in the user's local Netscape file.
+        cookie_card = ctk.CTkFrame(
+            body, fg_color=p["surface"], corner_radius=12,
+            border_width=1, border_color="#ef4444",
+        )
+        cookie_card.grid(row=2, column=0, columnspan=2, sticky="ew", padx=6, pady=(0, 10))
+        cookie_card.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(
+            cookie_card, text="🍪", width=34,
+            font=ctk.CTkFont("Segoe UI Emoji", 19), text_color="#f87171",
+        ).grid(row=0, column=0, rowspan=3, padx=(14, 4), pady=(12, 8), sticky="n")
+        ctk.CTkLabel(
+            cookie_card,
+            text=("YouTube cookies" if is_en else "Cookie YouTube"),
+            font=ctk.CTkFont("Segoe UI", 13, "bold"), text_color=p["fg"], anchor="w",
+        ).grid(row=0, column=1, columnspan=4, sticky="ew", padx=(0, 10), pady=(12, 1))
+        ctk.CTkLabel(
+            cookie_card,
+            text=(
+                "Select an exported Netscape cookies.txt when automatic browser cookies do not work."
+                if is_en else
+                "Pilih file cookies.txt format Netscape jika cookie browser otomatis tidak berhasil."
+            ),
+            font=ctk.CTkFont("Segoe UI", 10), text_color=p["muted"],
+            anchor="w", justify="left", wraplength=650,
+        ).grid(row=1, column=1, columnspan=4, sticky="ew", padx=(0, 14), pady=(0, 7))
+        cookie_card.grid_columnconfigure(1, weight=1)
+        cookie_entry = ctk.CTkEntry(
+            cookie_card, textvariable=self._ytdlp_cookies_var, height=30,
+            placeholder_text=("Netscape cookies.txt (optional)" if is_en else "Netscape cookies.txt (opsional)"),
+            fg_color=p["input_bg"], text_color=p["input_fg"], border_color=p["border"],
+        )
+        cookie_entry.grid(row=2, column=1, sticky="ew", padx=(0, 6), pady=(0, 12))
+        cookie_status = ctk.StringVar(value=(
+            "Automatic browser cookies are used when this is empty." if is_en else
+            "Cookie browser otomatis dipakai jika kolom ini kosong."
+        ))
+        ctk.CTkLabel(
+            cookie_card, textvariable=cookie_status,
+            font=ctk.CTkFont("Segoe UI", 9), text_color=p["muted"], anchor="w",
+        ).grid(row=3, column=1, columnspan=2, sticky="ew", padx=(0, 8), pady=(0, 12))
+
+        def _browse_cookie_setting() -> None:
+            self._browse_ytdlp_cookies()
+            cookie_status.set(
+                "Path selected; click Save." if is_en else
+                "Path dipilih; klik Simpan."
+            )
+
+        def _save_cookie_setting() -> None:
+            if self._save_ytdlp_cookie_setting(show_error=True):
+                cookie_status.set(
+                    "Saved. yt-dlp will use this file for future downloads." if is_en else
+                    "Tersimpan. yt-dlp akan memakai file ini untuk download berikutnya."
+                )
+
+        ctk.CTkButton(
+            cookie_card, text=("Browse…" if is_en else "Browse…"), width=82, height=30,
+            command=_browse_cookie_setting, fg_color=p["surface2"],
+            hover_color=p["surface"], text_color=p["fg"],
+        ).grid(row=2, column=2, padx=(0, 6), pady=(0, 12))
+        ctk.CTkButton(
+            cookie_card, text=("Save" if is_en else "Simpan"), width=82, height=30,
+            command=_save_cookie_setting, fg_color="#b91c1c", hover_color="#991b1b",
+            text_color="#ffffff",
+        ).grid(row=2, column=3, padx=(0, 6), pady=(0, 12))
+        ctk.CTkButton(
+            cookie_card, text=("Clear" if is_en else "Bersihkan"), width=82, height=30,
+            command=lambda: (self._clear_ytdlp_cookies(), cookie_status.set(
+                "Cleared; automatic browser cookies will be used." if is_en else
+                "Dibersihkan; cookie browser otomatis akan dipakai."
+            )), fg_color=p["surface2"], hover_color=p["surface"], text_color=p["fg"],
+        ).grid(row=2, column=4, pady=(0, 12))
+
+        r = 3
         r = _section(r, "Settings files" if is_en else "File settings")
         _action(r, 0, "Open settings.json" if is_en else "Buka settings.json",
                 "Open the active JSON in an editable editor." if is_en else "Buka JSON aktif di editor yang bisa disimpan.",
@@ -2139,6 +2223,8 @@ class CYOADownloaderGUI:
             "download_all": {"id": "▶  Download Semua", "en": "▶  Download All"},
             "browse": {"id": "Browse…", "en": "Browse…"},
             "output_folder": {"id": "Folder output:", "en": "Output folder:"},
+            "ytdlp_cookies": {"id": "Cookie YouTube:", "en": "YouTube cookies:"},
+            "clear": {"id": "Bersihkan", "en": "Clear"},
             "import_list": {"id": "Import List…", "en": "Import List…"},
             "export_list": {"id": "Ekspor List…", "en": "Export List…"},
             "queue_empty_title": {"id": "Queue kosong", "en": "Queue Empty"},
@@ -2963,6 +3049,59 @@ class CYOADownloaderGUI:
         if d:
             self._outdir_var.set(d)
 
+    def _browse_ytdlp_cookies(self) -> None:
+        """Choose an exported Netscape cookies.txt for YouTube audio."""
+        from tkinter import filedialog
+        current = self._ytdlp_cookies_var.get().strip()
+        initialdir = os.path.dirname(current) if current else os.path.expanduser("~/Downloads")
+        if not os.path.isdir(initialdir):
+            initialdir = os.getcwd()
+        path = filedialog.askopenfilename(
+            title=("Select YouTube cookies.txt" if self._language == "en" else "Pilih cookies.txt YouTube"),
+            initialdir=initialdir,
+            filetypes=[
+                ("Netscape cookies", "*.txt"),
+                ("Cookie files", "*.txt;*.cookies"),
+                ("All files", "*.*"),
+            ],
+        )
+        if path:
+            self._ytdlp_cookies_var.set(os.path.abspath(path))
+
+    def _save_ytdlp_cookie_setting(self, show_error: bool = True) -> bool:
+        """Validate the selected file and persist only its path."""
+        from tkinter import messagebox
+        raw = self._ytdlp_cookies_var.get().strip()
+        if not raw:
+            _update_setting("ytdlp_cookies", "")
+            os.environ.pop("CYOA_YTDLP_COOKIES", None)
+            return True
+        path = os.path.abspath(os.path.expanduser(raw))
+        if not os.path.isfile(path):
+            if show_error:
+                messagebox.showerror(
+                    "YouTube cookies",
+                    (f"Cookie file tidak ditemukan:\n{path}\n\nPilih file Netscape cookies.txt yang valid."
+                     if self._language != "en" else
+                     f"Cookie file was not found:\n{path}\n\nChoose a valid Netscape cookies.txt file."),
+                )
+            return False
+        self._ytdlp_cookies_var.set(path)
+        _update_setting("ytdlp_cookies", path)
+        os.environ["CYOA_YTDLP_COOKIES"] = path
+        logger.info("yt-dlp: GUI cookie path saved")
+        return True
+
+    def _clear_ytdlp_cookies(self) -> None:
+        """Return YouTube audio authentication to automatic browser cookies."""
+        self._ytdlp_cookies_var.set("")
+        _update_setting("ytdlp_cookies", "")
+        os.environ.pop("CYOA_YTDLP_COOKIES", None)
+
+    def _prepare_ytdlp_cookies(self) -> bool:
+        """Validate and activate the GUI-selected cookie path for this run."""
+        return self._save_ytdlp_cookie_setting(show_error=True)
+
     def _open_path_in_os(self, path: str) -> None:
         """Open a file/folder with the platform default handler."""
         import subprocess, platform
@@ -3296,7 +3435,7 @@ Rows without a valid URL are skipped. If mode is empty, the current GUI mode is 
 • Missing images: open failed_images.txt and use Retry Images.
 • Broken ICC folder: use Serve instead of opening index.html directly.
 • Cloudflare page: set Cloudflare Mode to Auto or FlareSolverr, then retry.
-• YouTube/audio failure: install yt-dlp and check browser cookie access.
+• YouTube/audio failure: install yt-dlp, then open Settings / Maintenance → YouTube cookies, choose a Netscape cookies.txt, click Save, and use Retry YT Audio.
 • XLS/XLSX import failure: install pandas, xlrd, and openpyxl.
 • Slow/broken network: reduce threads, increase retry seconds, or set proxy/DNS.
 """.strip()
@@ -3394,7 +3533,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
 • Gambar hilang: buka failed_images.txt lalu gunakan Retry Images.
 • Folder website bermasalah: buka melalui Serve, jangan langsung double-click index.html.
 • Halaman Cloudflare: pilih Cloudflare Mode Auto atau FlareSolverr, lalu ulangi.
-• YouTube/audio gagal: instal yt-dlp dan cek akses cookie browser.
+• YouTube/audio gagal: instal yt-dlp, lalu buka Settings / Maintenance → Cookie YouTube, pilih cookies.txt format Netscape, klik Simpan, lalu gunakan Ulang Audio YT.
 • Import XLS/XLSX gagal: instal pandas, xlrd, dan openpyxl.
 • Jaringan lambat/sering gagal: kurangi thread, naikkan retry seconds, atau atur proxy/DNS.
 """.strip()
@@ -3486,6 +3625,9 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                     f"Folder output tidak bisa ditulis:\n{outdir}\n\n{e}\n\n"
                     "Pilih folder lain lalu coba lagi.")
                 return
+
+        if not self._prepare_ytdlp_cookies():
+            return
 
         # Snapshot the queue for this run only. The GUI intentionally still
         # allows users to add more URLs while a run is active; those new rows
@@ -4577,6 +4719,8 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
     def _retry_youtube_audio(self) -> None:
         """Re-download YouTube audio from skipped_youtube_audio.txt."""
         import glob as _glob
+        if not self._prepare_ytdlp_cookies():
+            return
         out = os.path.abspath(self._outdir_var.get() or os.getcwd())
         skip_files = _glob.glob(os.path.join(out, "**", "skipped_youtube_audio.txt"),
                                 recursive=True)
@@ -6968,7 +7112,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 ("🔁  Browser Cookies", "muted", [
                     ("Automatic", "Tries browser cookies from Chrome, Firefox, Edge, Brave, Chromium, and Safari."),
                     ("Locked Chrome", "Copies the cookie database to a temporary location when Chrome keeps it locked."),
-                    ("Manual cookies.txt", "Place cookies.txt in the output folder or pass it through the CLI when automatic cookies fail."),
+                    ("Manual cookies.txt", "Export a Netscape cookies.txt with a browser extension, then open Settings / Maintenance → YouTube cookies, choose it, and click Save."),
                 ]),
                 ("🔇  Browser Autoplay", "red", [
                     ("Blocked playback", "Modern browsers can block autoplay. The offline viewer adds an enable-audio banner when needed."),
@@ -7101,7 +7245,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 ("🎵  yt-dlp Cookies", "green", [
                     ("Automatic", "Log in to YouTube in your browser, then let yt-dlp read browser cookies automatically."),
                     ("Browser order", "Chrome, Firefox, Edge, Brave, Chromium, then Safari."),
-                    ("Manual export", "Export cookies.txt with a browser extension when automatic cookie reading fails."),
+                    ("Manual export", "Export Netscape cookies.txt with a browser extension, select it in Settings / Maintenance → YouTube cookies, then click Save."),
                     ("Common failures", "Expired cookies, private videos, deleted videos, and region locks can still fail."),
                 ]),
                 ("🎨  gallery-dl Authentication", "accent", [
@@ -7158,7 +7302,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 ("🔁  Cookie Browser", "muted", [
                     ("Otomatis", "Mencoba cookie browser dari Chrome, Firefox, Edge, Brave, Chromium, dan Safari."),
                     ("Chrome terkunci", "Menyalin database cookie ke lokasi sementara saat Chrome menguncinya."),
-                    ("cookies.txt manual", "Letakkan cookies.txt di folder output atau kirim lewat CLI saat cookie otomatis gagal."),
+                    ("cookies.txt manual", "Ekspor cookies.txt format Netscape dengan ekstensi browser, lalu buka Settings / Maintenance → Cookie YouTube, pilih file, dan klik Simpan."),
                 ]),
                 ("🔇  Autoplay Browser", "red", [
                     ("Pemutaran diblokir", "Browser modern dapat memblokir autoplay. Viewer offline menambahkan banner aktifkan audio jika diperlukan."),
@@ -7291,7 +7435,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 ("🎵  Cookie yt-dlp", "green", [
                     ("Otomatis", "Login ke YouTube di browser, lalu biarkan yt-dlp membaca cookie browser secara otomatis."),
                     ("Urutan browser", "Chrome, Firefox, Edge, Brave, Chromium, lalu Safari."),
-                    ("Ekspor manual", "Ekspor cookies.txt dengan ekstensi browser saat pembacaan cookie otomatis gagal."),
+                    ("Ekspor manual", "Ekspor cookies.txt format Netscape dengan ekstensi browser, pilih di Settings / Maintenance → Cookie YouTube, lalu klik Simpan."),
                     ("Kegagalan umum", "Cookie kedaluwarsa, video privat, video terhapus, dan kunci wilayah tetap dapat gagal."),
                 ]),
                 ("🎨  Autentikasi gallery-dl", "accent", [
