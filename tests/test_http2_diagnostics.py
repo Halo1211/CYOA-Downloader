@@ -18,6 +18,8 @@ def test_dependency_reports_distinguish_http2_extra_from_httpx_module():
     report = dependency_check_report()
 
     assert "httpx[http2]" in report
+    assert "yt-dlp-ejs" in report
+    assert "YouTube JS runtime" in report
     assert "Installed Python modules/capabilities:" in report
 
 
@@ -25,3 +27,6 @@ def test_runtime_diagnostics_include_http2_capability_check():
     report, _counts = build_diagnostic_report(check_network=False, check_ai=False)
 
     assert "dependency: httpx[http2]" in report
+    assert "YouTube JavaScript runtime" in report
+    assert "Playwright Chromium" in report
+    assert "RAR extraction helper" in report

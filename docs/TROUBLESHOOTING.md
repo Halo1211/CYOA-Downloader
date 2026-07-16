@@ -38,6 +38,11 @@ Changing many options at once makes the cause harder to find.
 | `python -m py_compile cyoa_downloader.py` | Python syntax. | The file may be corrupted or patched incorrectly. |
 | `python cyoa_downloader.py --verify "output_folder"` | Whether a finished backup is complete and intact (missing/empty/broken files). | If it reports FAIL, re-download or use the GUI retry tools; the report names the missing files. |
 
+The GUI diagnostics include separate checks for `yt-dlp-ejs`, a YouTube
+JavaScript runtime, Selenium browser/driver, Playwright Chromium, FFmpeg, and a
+RAR extraction helper. In a PyInstaller build they also show whether the
+application is running frozen and where its bundled resources are loaded from.
+
 Use these before reporting a bug.
 
 ---
@@ -54,7 +59,10 @@ Use these before reporting a bug.
 | Excel batch import fails | Missing `pandas` or `openpyxl`. | `pip install -r requirements-optional.txt`. |
 | HTTP/2 warning | Missing optional HTTP/2 extras. | `pip install "httpx[http2]"` or disable HTTP/2. |
 | FFMPEG warning | `ffmpeg` not in PATH. | Install FFMPEG and confirm `ffmpeg -version`. |
-| yt-dlp warning | Optional media extractor missing. | `pip install -U yt-dlp`. |
+| yt-dlp warning | Optional media extractor missing or outdated. | `pip install -U "yt-dlp[default]"`. |
+| YouTube JS runtime warning | Deno/Bun/Node is not visible, or EJS support is missing. | Install Deno, update `yt-dlp[default]`, then rerun diagnostics. Set `CYOA_YTDLP_DENO` if Deno is not on `PATH`. |
+| YouTube cookies invalid | Browser rotated the account session. | Export a new Netscape-format cookie file; do not reuse or share the old file. |
+| Playwright Chromium warning | Browser payload is not installed. | Run `python -m playwright install chromium`. |
 
 ---
 
@@ -157,7 +165,7 @@ ffmpeg -version
 Install/update:
 
 ```bash
-pip install -U yt-dlp
+pip install -U "yt-dlp[default]"
 ```
 
 Important notes:
@@ -167,6 +175,13 @@ Important notes:
 - FFMPEG may be needed for merge/conversion workflows.
 - Missing FFMPEG should not break normal image backups.
 - Media extractor behavior can change when source platforms change.
+
+For YouTube errors such as `No supported JavaScript runtime`, `Signature
+solving failed`, or `Requested format is not available`, run diagnostics first.
+These usually indicate that Deno/EJS support is missing or that `yt-dlp` is
+outdated, not that the cookie file alone is wrong. A video can still be
+unavailable because it was deleted, private, age-restricted, or blocked for the
+current account.
 
 If media is not needed:
 

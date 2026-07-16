@@ -3,7 +3,7 @@ pandas>=2.0
 openpyxl>=3.1
 
 # Optional media recovery
-yt-dlp>=2024.1.1
+yt-dlp[default]>=2026.7.4
 
 # Optional HTTP/2 deep scanning
 httpx[http2]>=0.26

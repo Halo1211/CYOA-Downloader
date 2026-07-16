@@ -2,6 +2,17 @@
 
 This project uses a single changelog file. Older split release notes and patch reports have been consolidated here so users do not have to search through multiple Markdown files.
 
+## Unreleased
+
+- Expanded Diagnostics to cover `yt-dlp-ejs`, JavaScript runtimes, browser
+  backends, Playwright Chromium, RAR helpers, FFmpeg, and PyInstaller resources.
+- Added actionable YouTube extraction errors and Windows runtime discovery.
+- Added a reproducible Windows build and GitHub Actions artifact build.
+- Switched the Windows package to a single-file executable and added the
+  transparent black logo as its multi-resolution Windows icon.
+- Removed generated release ZIP and obsolete historical source copies from the
+  repository tree.
+
 ## v1.0.5 — GUI queue editing and export
 
 ### New features

@@ -11,6 +11,7 @@ from ..network.throttle import http2_runtime_info
 def dependency_check_report() -> str:
     """Return an offline dependency report for GUI, network, batch, AI, media, and fallback features."""
     import importlib.util
+    import sys
 
     # module name, display name, requirement group, purpose, fallback
     checks = [
@@ -25,6 +26,7 @@ def dependency_check_report() -> str:
         # httpx[http2] is checked below as a capability. Checking only the
         # httpx module gives false positives when the h2 extra is missing.
         ("yt_dlp", "yt-dlp", "optional-media", "YouTube/SoundCloud and supported media download", "Media URL is skipped or logged as unavailable."),
+        ("yt_dlp_ejs", "yt-dlp-ejs", "optional-media-runtime", "YouTube JavaScript challenge components", "yt-dlp may use its remote EJS fallback when online."),
         ("browser_cookie3", "browser-cookie3", "optional-media-auth", "Browser cookie/session fallback for authenticated yt-dlp downloads", "yt-dlp native browser-cookie extraction is still attempted."),
         ("customtkinter", "customtkinter", "required-for-gui", "Modern GUI widgets", "CLI remains usable; GUI cannot launch."),
         ("PIL", "pillow", "optional-gui-image", "GUI/image preview utilities", "GUI runs with reduced image utilities."),
@@ -38,8 +40,14 @@ def dependency_check_report() -> str:
         ("dns", "dnspython", "optional-network", "Custom DNS resolver backend", "System DNS remains available."),
     ]
     lines = [f"CYOA Downloader v{_APP_VERSION} dependency check", "=" * 72]
+    if getattr(sys, "frozen", False):
+        lines.append(f"Runtime mode: frozen executable ({sys.executable})")
+        lines.append(f"Frozen resource root: {getattr(sys, '_MEIPASS', 'not exposed')}")
+    else:
+        lines.append("Runtime mode: source Python interpreter")
     ok = 0
     missing_required = 0
+    capability_total = len(checks) + 2  # h2 module + active httpx[http2]
     for module, display, group, purpose, fallback in checks:
         found = importlib.util.find_spec(module) is not None
         ok += int(found)
@@ -79,7 +87,57 @@ def dependency_check_report() -> str:
             f'"{http2["python"]}" -m pip install "httpx[http2]"'
         )
 
+    try:
+        from .runtime import _first_executable, _installed_browser, _playwright_chromium, _rar_backend
+        from ..download.audio_download import _yt_dlp_runtime_options
+        runtime_options = _yt_dlp_runtime_options()
+        runtimes = runtime_options.get("js_runtimes", {})
+        capability_total += 1
+        ok += int(bool(runtimes))
+        lines.append(
+            f"{'OK' if runtimes else 'MISSING':7}  {'YouTube JS runtime':18}  {'optional-media-cli':22}  "
+            f"{', '.join(sorted(runtimes)) if runtimes else 'Deno/Node not found; YouTube audio may fail'}"
+        )
+        if runtime_options.get("remote_components"):
+            lines.append(
+                f"         {'':18}  {'fallback':22}  "
+                "remote EJS delivery enabled; bundle yt-dlp-ejs for offline .exe use"
+            )
+        if importlib.util.find_spec("selenium") is not None:
+            browser = _installed_browser()
+            driver = _first_executable(("chromedriver", "msedgedriver", "geckodriver"))
+            capability_total += 2
+            ok += int(bool(browser)) + int(bool(driver))
+            lines.append(
+                f"{'OK' if browser else 'MISSING':7}  {'Selenium browser':18}  {'optional-headless':22}  "
+                f"{browser or 'Chrome/Edge/Firefox not found'}"
+            )
+            lines.append(
+                f"{'OK' if driver else 'MISSING':7}  {'Selenium driver':18}  {'optional-headless':22}  "
+                f"{driver or 'not found; Selenium Manager may supply one'}"
+            )
+        if importlib.util.find_spec("playwright") is not None:
+            pw_browser = _playwright_chromium()
+            capability_total += 1
+            ok += int(bool(pw_browser))
+            lines.append(
+                f"{'OK' if pw_browser else 'MISSING':7}  {'Playwright Chromium':18}  {'optional-headless':22}  "
+                f"{pw_browser or 'run playwright install chromium'}"
+            )
+        if importlib.util.find_spec("rarfile") is not None:
+            rar_helper = _rar_backend()
+            capability_total += 1
+            ok += int(bool(rar_helper))
+            lines.append(
+                f"{'OK' if rar_helper else 'MISSING':7}  {'RAR helper':18}  {'optional-viewer':22}  "
+                f"{rar_helper or 'unrar/7z not found; ZIP remains available'}"
+            )
+    except Exception as _e:
+        lines.append(f"WARN     {'runtime probes':18}  {'diagnostics':22}  probe error: {_e}")
+
     ffmpeg_path = _detect_ffmpeg_path()
+    capability_total += 1
+    ok += int(bool(ffmpeg_path))
     if ffmpeg_path:
         lines.append(f"OK       {'ffmpeg':18}  {'optional-media-cli':22}  Available on PATH: {ffmpeg_path}")
     else:
@@ -87,7 +145,7 @@ def dependency_check_report() -> str:
         lines.append(f"         {'':18}  {'fallback':22}  Normal JSON/image/font downloads continue; media conversion is skipped/limited.")
 
     lines.append("-" * 72)
-    lines.append(f"Installed Python modules/capabilities: {ok}/{len(checks) + 2} detected")
+    lines.append(f"Installed Python modules/capabilities: {ok}/{capability_total} detected")
     if missing_required:
         lines.append(f"Required missing: {missing_required}. Install required modules before full downloader use.")
     else:

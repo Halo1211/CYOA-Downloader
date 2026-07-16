@@ -19,12 +19,16 @@ until you need them.
 
 This is the easiest Windows option:
 
-1. Open the [Releases page](../../releases).
+1. Open the [GitHub Releases page](https://github.com/Halo1211/CYOA-Downloader/releases).
 2. Download the asset ending in `-Windows-x64.zip`.
 3. Right-click it and choose **Extract All**.
 4. Open the extracted folder and run `CYOA Downloader.exe`.
 
 The executable may trigger Windows SmartScreen because it is not code-signed.
+The ZIP contains the Python application and packaged Python modules. Open
+**Diagnostics** after starting it; external tools such as FFmpeg, Deno,
+Chrome/Chromium, Selenium drivers, Playwright Chromium, and unrar/7-Zip are
+reported separately because they are not silently bundled.
 Confirm that it came from the project release page before choosing **More info
 → Run anyway**.
 
@@ -157,11 +161,11 @@ pip install -r requirements-optional.txt
 This adds support for:
 
 - XLSX/XLS batch import (`pandas`, `openpyxl`);
-- YouTube/SoundCloud recovery (`yt-dlp`);
+- YouTube/SoundCloud recovery (`yt-dlp[default]`, including `yt-dlp-ejs`);
 - HTTP/2 deep scanning (`httpx[http2]`);
 - Cloudflare, gallery, browser, DNS, cookie, and AI-key helpers.
 
-FFMPEG is a separate operating-system program. It is needed for some media
+FFmpeg is a separate operating-system program. It is needed for some media
 conversion workflows, not for normal JSON/image/viewer backups:
 
 ```bash
@@ -173,6 +177,14 @@ Playwright also needs its browser after the Python package is installed:
 ```bash
 python -m playwright install chromium
 ```
+
+YouTube extraction also needs a supported JavaScript runtime. Install Deno and
+confirm it is visible with `deno --version`. If Deno is outside `PATH`, set
+`CYOA_YTDLP_DENO` to the full path of `deno.exe` before launching the program.
+
+When YouTube reports that account cookies are no longer valid, export a fresh
+Netscape-format cookie file. Cookies are session credentials; never commit or
+share the file.
 
 ## What to do when a download is incomplete
 

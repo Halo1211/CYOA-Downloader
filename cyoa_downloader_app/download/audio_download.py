@@ -37,7 +37,24 @@ def _summarize_ytdlp_error(error: Optional[str]) -> str:
             "browser cookie database is locked; close Chrome/Edge/Brave completely "
             "and retry, or select an exported Netscape cookies.txt in YouTube cookies"
         )
-    return " ".join((str(error or "no output file")).split())[:500]
+    text = " ".join((str(error or "no output file")).split())
+    lowered = text.lower()
+    if "no supported javascript runtime" in lowered:
+        return (
+            "YouTube now requires a JavaScript runtime for audio extraction; "
+            "install/update yt-dlp[default], install Deno, and restart CYOA Downloader"
+        )
+    if "signature solving failed" in lowered or "challenge solving failed" in lowered:
+        return (
+            "YouTube format signatures could not be solved; install/update Deno "
+            "and yt-dlp, then retry"
+        )
+    if "provided youtube account cookies are no longer valid" in lowered:
+        return (
+            "YouTube rejected the exported cookies; log in again and export a "
+            "fresh Netscape cookies.txt"
+        )
+    return text[:500]
 
 
 def _legacy_module():
@@ -91,13 +108,31 @@ def _yt_dlp_runtime_options() -> Dict[str, object]:
     the companion package is not installed.
     """
     def _runtime_path(name: str) -> Optional[str]:
-        path = shutil.which(name)
-        if not path and name == "deno" and sys.platform == "win32":
+        # GUI-launched processes do not always inherit the PATH that an
+        # interactive PowerShell has. Prefer an explicit override, then PATH,
+        # then the per-user install locations used by Windows installers.
+        env_name = f"CYOA_YTDLP_{name.upper()}"
+        candidates = [os.environ.get(env_name, ""), shutil.which(name)]
+        if sys.platform == "win32":
             local = os.environ.get("LOCALAPPDATA", "")
-            matches = sorted(glob.glob(os.path.join(
-                local, "Microsoft", "WinGet", "Packages", "DenoLand.Deno_*", "deno.exe"
-            )))
-            path = matches[0] if matches else None
+            user = os.environ.get("USERPROFILE", os.path.expanduser("~"))
+            if name == "deno":
+                candidates.extend([
+                    os.path.join(local, "Programs", "deno", "deno.exe"),
+                    os.path.join(user, ".deno", "bin", "deno.exe"),
+                ])
+                candidates.extend(sorted(glob.glob(os.path.join(
+                    local, "Microsoft", "WinGet", "Packages", "DenoLand.Deno_*",
+                    "deno.exe"
+                ))))
+            elif name == "bun":
+                candidates.append(os.path.join(user, ".bun", "bin", "bun.exe"))
+            elif name == "node":
+                candidates.append(os.path.join(local, "Programs", "nodejs", "node.exe"))
+
+        path = next((os.path.abspath(os.path.expanduser(candidate))
+                     for candidate in candidates
+                     if candidate and os.path.isfile(os.path.expanduser(candidate))), None)
         if not path:
             return None
         if name == "node":
@@ -125,6 +160,10 @@ def _yt_dlp_runtime_options() -> Dict[str, object]:
     options: Dict[str, object] = {}
     if runtimes:
         options["js_runtimes"] = runtimes
+        logger.debug(
+            "yt-dlp: JavaScript runtime(s) enabled: %s",
+            ", ".join(sorted(runtimes)),
+        )
         try:
             import importlib.util
             has_ejs = importlib.util.find_spec("yt_dlp_ejs") is not None
@@ -134,6 +173,11 @@ def _yt_dlp_runtime_options() -> Dict[str, object]:
             # This is the upstream-supported fallback for a plain PyPI
             # yt-dlp install.  It is not a CAPTCHA/anti-bot bypass.
             options["remote_components"] = {"ejs:github"}
+    else:
+        logger.warning(
+            "yt-dlp: no JavaScript runtime found; install Deno and restart "
+            "the downloader (yt-dlp[default] is recommended)"
+        )
     return options
 
 

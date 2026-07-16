@@ -15,7 +15,9 @@ import requests
 
 from ..app_info import _APP_VERSION
 from ..config.secrets import _is_secret_setting_key
-from ..config.settings import _SETTINGS_DEFAULTS, _SETTINGS_FILE, _load_settings
+from ..config.settings import (
+    _SETTINGS_DEFAULTS, _SETTINGS_FILE, _detect_ffmpeg_path, _load_settings,
+)
 from ..storage.cache import _CACHE_DIR, _cache_stats
 from ..storage.history import _HISTORY_FILE
 from ..network.proxy import _get_active_proxy
@@ -53,6 +55,87 @@ def _ai_provider_label(*args, **kwargs):
     return l._ai_provider_label(*args, **kwargs)
 
 
+def _first_executable(names: Tuple[str, ...]) -> str:
+    """Return the first executable on PATH without raising."""
+    import shutil
+    for name in names:
+        try:
+            path = shutil.which(name)
+        except Exception:
+            path = None
+        if path:
+            return path
+    return ""
+
+
+def _installed_browser() -> str:
+    """Find a browser even when its installer did not add it to PATH."""
+    import pathlib
+
+    found = _first_executable((
+        "chrome", "google-chrome", "chromium", "chromium-browser", "msedge", "firefox",
+    ))
+    if found:
+        return found
+    if sys.platform != "win32":
+        return ""
+    local = os.environ.get("LOCALAPPDATA", "")
+    program_files = os.environ.get("PROGRAMFILES", r"C:\Program Files")
+    program_files_x86 = os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)")
+    candidates = (
+        os.path.join(local, "Google", "Chrome", "Application", "chrome.exe"),
+        os.path.join(local, "Microsoft", "Edge", "Application", "msedge.exe"),
+        os.path.join(local, "BraveSoftware", "Brave-Browser", "Application", "brave.exe"),
+        os.path.join(program_files, "Google", "Chrome", "Application", "chrome.exe"),
+        os.path.join(program_files_x86, "Google", "Chrome", "Application", "chrome.exe"),
+    )
+    for candidate in candidates:
+        if pathlib.Path(candidate).is_file():
+            return str(pathlib.Path(candidate))
+    return ""
+
+
+def _playwright_chromium() -> str:
+    """Find the separately installed Chromium payload used by Playwright."""
+    import glob
+    import importlib.util
+    import pathlib
+
+    roots = []
+    configured = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "").strip()
+    if configured and configured != "0":
+        roots.append(os.path.expanduser(os.path.expandvars(configured)))
+    elif configured == "0":
+        spec = importlib.util.find_spec("playwright")
+        for location in (spec.submodule_search_locations or []) if spec else []:
+            roots.append(os.path.join(location, ".local-browsers"))
+    if sys.platform == "win32":
+        roots.append(os.path.join(os.environ.get("LOCALAPPDATA", ""), "ms-playwright"))
+    elif sys.platform == "darwin":
+        roots.append(os.path.expanduser("~/Library/Caches/ms-playwright"))
+    else:
+        roots.append(os.path.expanduser("~/.cache/ms-playwright"))
+
+    for root in roots:
+        if not root or not os.path.isdir(root):
+            continue
+        patterns = (
+            os.path.join(root, "chromium-*", "chrome-win", "chrome.exe"),
+            os.path.join(root, "chromium-*", "chrome-linux", "chrome"),
+            os.path.join(root, "chromium-*", "chrome-mac", "Chromium.app", "Contents", "MacOS", "Chromium"),
+        )
+        for pattern in patterns:
+            for candidate in sorted(glob.glob(pattern)):
+                if pathlib.Path(candidate).is_file():
+                    return candidate
+    return ""
+
+
+def _rar_backend() -> str:
+    """Find an external helper required by rarfile to open RAR archives."""
+    return _first_executable(("unrar", "UnRAR", "unar", "7z", "7zz", "bsdtar"))
+
+
 def build_diagnostic_report(output_dir: str = "", check_network: bool = True,
                             check_ai: bool = False, language: str = "en") -> Tuple[str, Dict[str, int]]:
     """Run runtime diagnostics and return (report_text, counts).
@@ -79,6 +162,14 @@ def build_diagnostic_report(output_dir: str = "", check_network: bool = True,
     else:
         _add("FAIL", "Python version", f"{platform.python_version()} (need 3.9+)")
 
+    if getattr(sys, "frozen", False):
+        bundle_root = getattr(sys, "_MEIPASS", "")
+        _add("PASS", "Runtime mode", f"frozen executable: {sys.executable}")
+        _add("PASS" if bundle_root else "WARN", "Frozen resource root",
+             bundle_root or "_MEIPASS is not exposed")
+    else:
+        _add("PASS", "Runtime mode", "source Python interpreter")
+
     # Python dependencies
     deps = [
         ("requests", True), ("urllib3", True), ("bs4", True), ("customtkinter", True),
@@ -86,7 +177,8 @@ def build_diagnostic_report(output_dir: str = "", check_network: bool = True,
         ("tldextract", False), ("PIL", False), ("pandas", False),
         ("openpyxl", False), ("xlrd", False),
         ("keyring", False), ("cloudscraper", False),
-        ("json5", False), ("yt_dlp", False), ("browser_cookie3", False), ("gallery_dl", False),
+        ("json5", False), ("yt_dlp", False), ("yt_dlp_ejs", False),
+        ("browser_cookie3", False), ("gallery_dl", False),
         ("selenium", False),
         ("playwright", False), ("plyer", False), ("rarfile", False),
     ]
@@ -111,20 +203,56 @@ def build_diagnostic_report(output_dir: str = "", check_network: bool = True,
             f'install with "{http2["python"]}" -m pip install "httpx[http2]"',
         )
 
-    # Selenium driver (only meaningful if selenium present)
+    if importlib.util.find_spec("yt_dlp") is not None:
+        try:
+            from ..download.audio_download import _yt_dlp_runtime_options
+            runtime_options = _yt_dlp_runtime_options()
+            runtimes = runtime_options.get("js_runtimes", {})
+            if runtimes:
+                _add("PASS", "YouTube JavaScript runtime",
+                     ", ".join(sorted(runtimes)))
+            else:
+                _add("WARN", "YouTube JavaScript runtime",
+                     "Deno/Node not found; YouTube audio may fail")
+            if runtime_options.get("remote_components"):
+                _add("WARN", "yt-dlp EJS delivery",
+                     "remote EJS fallback enabled; bundle yt_dlp_ejs for offline reliability")
+        except Exception as e:
+            _add("WARN", "YouTube JavaScript runtime", f"probe error: {e}")
+
+    # Selenium browser and driver are separate capabilities. Selenium Manager
+    # may supply a driver automatically, so a browser is the stronger check.
     if importlib.util.find_spec("selenium") is not None:
-        import shutil as _sh
-        drv = _sh.which("chromedriver") or _sh.which("chromium") or _sh.which("google-chrome") or _sh.which("chrome")
-        if drv:
-            _add("PASS", "Chrome/Chromium driver", drv)
+        browser = _installed_browser()
+        driver = _first_executable(("chromedriver", "msedgedriver", "geckodriver"))
+        if browser:
+            _add("PASS", "Selenium browser", browser)
         else:
-            _add("WARN", "Chrome/Chromium driver", "not found on PATH; install Chrome + chromedriver")
+            _add("WARN", "Selenium browser", "Chrome/Edge/Firefox not found")
+        _add("PASS" if driver else "WARN", "Selenium driver",
+             driver or "not found; Selenium Manager may download one on first use")
+
+    if importlib.util.find_spec("playwright") is not None:
+        pw_browser = _playwright_chromium()
+        _add("PASS" if pw_browser else "WARN", "Playwright Chromium",
+             pw_browser or "browser payload not found; run `playwright install chromium`")
+
+    if importlib.util.find_spec("rarfile") is not None:
+        rar_helper = _rar_backend()
+        _add("PASS" if rar_helper else "WARN", "RAR extraction helper",
+             rar_helper or "unrar/7z not found; ZIP still works")
 
     # External tools
     import shutil as _sh2
-    for tool, label in (("yt-dlp", "yt-dlp binary"), ("gallery-dl", "gallery-dl binary"), ("ffmpeg", "FFmpeg")):
-        path = _sh2.which(tool)
-        _add("PASS" if path else "WARN", label, path or f"not on PATH (optional)")
+    yt_cli = _sh2.which("yt-dlp")
+    _add("PASS" if yt_cli else "WARN", "yt-dlp CLI (optional)",
+         yt_cli or "not on PATH; Python yt_dlp API is used by the app")
+    gallery_cli = _sh2.which("gallery-dl")
+    _add("PASS" if gallery_cli else "WARN", "gallery-dl CLI (optional)",
+         gallery_cli or "not on PATH; Python module/config may still work")
+    ffmpeg_path = _detect_ffmpeg_path()
+    _add("PASS" if ffmpeg_path else "WARN", "FFmpeg",
+         ffmpeg_path or "not found; YouTube MP3 conversion is unavailable")
 
     # itch-dl backend (external CLI; uvx / pipx / itch-dl on PATH)
     try:
