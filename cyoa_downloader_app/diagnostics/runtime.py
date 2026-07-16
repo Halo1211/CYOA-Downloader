@@ -219,6 +219,12 @@ def build_diagnostic_report(output_dir: str = "", check_network: bool = True,
                      "remote EJS fallback enabled; bundle yt_dlp_ejs for offline reliability")
         except Exception as e:
             _add("WARN", "YouTube JavaScript runtime", f"probe error: {e}")
+    else:
+        _add(
+            "WARN",
+            "YouTube JavaScript runtime",
+            "yt-dlp is not installed; install yt-dlp[default] and Deno to enable YouTube audio",
+        )
 
     # Selenium browser and driver are separate capabilities. Selenium Manager
     # may supply a driver automatically, so a browser is the stronger check.

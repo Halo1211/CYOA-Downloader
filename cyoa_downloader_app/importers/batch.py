@@ -82,6 +82,30 @@ def _normalize_batch_mode(raw_mode: str, url: str = "") -> str:
     logger.warning(f"Unknown mode '{canon}' for {url or '(row)'} — using GUI/CLI default")
     return ""
 
+
+def _import_csv_without_pandas(file_path: str) -> List[Dict[str, str]]:
+    """Read the portable CSV subset without requiring the optional pandas package."""
+    items: List[Dict[str, str]] = []
+    with open(file_path, "r", encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = list(reader.fieldnames or [])
+        columns = {str(column).strip().lower(): column for column in fieldnames}
+        url_col = next((columns[name] for name in ("url", "link", "urls", "links") if name in columns), None)
+        name_col = next((columns[name] for name in ("filename", "name", "output", "title", "file") if name in columns), None)
+        mode_col = next((columns[name] for name in ("mode", "output_mode", "type") if name in columns), None)
+        if url_col is None:
+            logger.warning("Batch import: no URL/Link column found.")
+            return items
+
+        for row in reader:
+            url = str(row.get(url_col) or "").strip()
+            if not url or not is_probable_url(url):
+                continue
+            filename = str(row.get(name_col) or "").strip() if name_col else ""
+            mode = _normalize_batch_mode(str(row.get(mode_col) or ""), url) if mode_col else ""
+            items.append({"url": url, "filename": filename, "mode": mode})
+    return items
+
 def import_queue_items_from_file(file_path: str) -> List[Dict[str, str]]:
     """
     Import batch URLs from txt/csv/xlsx/xls.
@@ -123,7 +147,14 @@ def import_queue_items_from_file(file_path: str) -> List[Dict[str, str]]:
     try:
         import pandas as pd  # type: ignore
     except Exception as e:
-        logger.warning(f"Batch import needs pandas for {ext}: {e}")
+        if ext == ".csv":
+            logger.info("pandas unavailable for CSV; using the standard-library CSV reader")
+            try:
+                return _import_csv_without_pandas(file_path)
+            except Exception as csv_error:
+                logger.error(f"Failed reading CSV batch file {file_path}: {csv_error}")
+        else:
+            logger.warning(f"Batch import needs pandas for {ext}: {e}")
         return items
 
     try:
