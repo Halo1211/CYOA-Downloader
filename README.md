@@ -1,10 +1,29 @@
-# CYOA Downloader
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.png">
+    <img alt="CYOA Downloader logo" src="assets/logo-light.png" width="170">
+  </picture>
+</p>
+
+<h1 align="center">CYOA Downloader</h1>
+
+<p align="center">
+  Stable ICC/CYOA backup utility with GUI, CLI, batch import, offline viewer export, deep asset recovery, local preview tools, and GitHub-ready documentation.
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg"></a>
+  <img alt="Python" src="https://img.shields.io/badge/Python-3.10%2B-blue.svg">
+  <img alt="Release" src="https://img.shields.io/badge/Release-v1.0.5-orange.svg">
+</p>
+
+---
+
+## What is this?
 
 CYOA Downloader saves interactive web projects for offline inspection. It can
 download a normal website, preserve an ICC-style project folder, recover media,
 and verify the resulting backup.
-
-Current version: **1.0.5**
 
 ## Start quickly
 
