@@ -116,6 +116,14 @@ def dependency_check_report() -> str:
                 f"{'OK' if driver else 'MISSING':7}  {'Selenium driver':18}  {'optional-headless':22}  "
                 f"{driver or 'not found; Selenium Manager may supply one'}"
             )
+        else:
+            capability_total += 2
+            lines.append(
+                f"MISSING  {'Selenium browser':18}  {'optional-headless':22}  selenium package not installed"
+            )
+            lines.append(
+                f"MISSING  {'Selenium driver':18}  {'optional-headless':22}  selenium package not installed"
+            )
         if importlib.util.find_spec("playwright") is not None:
             pw_browser = _playwright_chromium()
             capability_total += 1
@@ -124,6 +132,11 @@ def dependency_check_report() -> str:
                 f"{'OK' if pw_browser else 'MISSING':7}  {'Playwright Chromium':18}  {'optional-headless':22}  "
                 f"{pw_browser or 'run playwright install chromium'}"
             )
+        else:
+            capability_total += 1
+            lines.append(
+                f"MISSING  {'Playwright Chromium':18}  {'optional-headless':22}  playwright package not installed"
+            )
         if importlib.util.find_spec("rarfile") is not None:
             rar_helper = _rar_backend()
             capability_total += 1
@@ -131,6 +144,11 @@ def dependency_check_report() -> str:
             lines.append(
                 f"{'OK' if rar_helper else 'MISSING':7}  {'RAR helper':18}  {'optional-viewer':22}  "
                 f"{rar_helper or 'unrar/7z not found; ZIP remains available'}"
+            )
+        else:
+            capability_total += 1
+            lines.append(
+                f"MISSING  {'RAR helper':18}  {'optional-viewer':22}  rarfile package not installed"
             )
     except Exception as _e:
         lines.append(f"WARN     {'runtime probes':18}  {'diagnostics':22}  probe error: {_e}")

@@ -237,16 +237,25 @@ def build_diagnostic_report(output_dir: str = "", check_network: bool = True,
             _add("WARN", "Selenium browser", "Chrome/Edge/Firefox not found")
         _add("PASS" if driver else "WARN", "Selenium driver",
              driver or "not found; Selenium Manager may download one on first use")
+    else:
+        _add("WARN", "Selenium browser", "selenium package not installed")
+        _add("WARN", "Selenium driver", "selenium package not installed")
 
     if importlib.util.find_spec("playwright") is not None:
         pw_browser = _playwright_chromium()
         _add("PASS" if pw_browser else "WARN", "Playwright Chromium",
              pw_browser or "browser payload not found; run `playwright install chromium`")
+    else:
+        _add("WARN", "Playwright Chromium",
+             "playwright package not installed; install requirements-optional.txt")
 
     if importlib.util.find_spec("rarfile") is not None:
         rar_helper = _rar_backend()
         _add("PASS" if rar_helper else "WARN", "RAR extraction helper",
              rar_helper or "unrar/7z not found; ZIP still works")
+    else:
+        _add("WARN", "RAR extraction helper",
+             "rarfile package not installed; ZIP remains available")
 
     # External tools
     import shutil as _sh2
