@@ -9,6 +9,9 @@ output names, report formats, and download behavior are unchanged.
 from __future__ import annotations
 
 import hashlib
+import os
+import re
+from typing import Dict, List, Optional, Set, Tuple
 from urllib.parse import parse_qsl, unquote, urlencode, urljoin, urlparse, urlunparse
 
 # The legacy module still owns several mutable GUI/network flags during the
@@ -39,13 +42,140 @@ from ..core.cancellation import _cancel_requested, _raise_if_cancelled
 from ..core.progress import DownloadCancelledError
 
 
-def _asset_is_error_document(mime: str, content: bytes) -> bool:
-    """Reject successful HTTP error pages masquerading as image/audio data."""
+_DEEP_SCAN_IMAGE_EXTENSIONS = {
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".bmp", ".svg", ".ico", ".tif", ".tiff",
+}
+_DEEP_SCAN_AUDIO_EXTENSIONS = {
+    ".mp3", ".ogg", ".wav", ".m4a", ".aac", ".opus", ".flac", ".weba",
+}
+_DEEP_SCAN_FONT_EXTENSIONS = {".woff", ".woff2", ".ttf", ".otf", ".eot"}
+_DEEP_SCAN_TEXT_EXTENSIONS = {".css", ".js", ".mjs", ".cjs", ".json", ".txt", ".html", ".htm"}
+
+
+def _deep_scan_content_extension(url: str, content: Optional[bytes] = None) -> str:
+    """Best-effort extension for external assets whose CDN URL has none.
+
+    A number of image CDNs use paths such as ``/avatarhd`` or append a
+    transformation suffix after the real filename.  Keeping those paths as
+    directories is noisy, while saving them without an extension makes local
+    preview servers serve them with the wrong MIME type.  Prefer the URL/query
+    hint and fall back to a small magic-byte check for the common formats.
+    """
+    try:
+        parsed = urlparse(str(url))
+        path_ext = os.path.splitext(parsed.path.rstrip("/"))[1].lower()
+        if path_ext in (_DEEP_SCAN_IMAGE_EXTENSIONS | _DEEP_SCAN_AUDIO_EXTENSIONS | _DEEP_SCAN_FONT_EXTENSIONS | _DEEP_SCAN_TEXT_EXTENSIONS):
+            return path_ext
+        for key, value in parse_qsl(parsed.query, keep_blank_values=True):
+            if key.lower() not in {"format", "fm", "ext", "type"}:
+                continue
+            hint = os.path.splitext(value.split("/", 1)[-1])[1].lower()
+            if hint in (_DEEP_SCAN_IMAGE_EXTENSIONS | _DEEP_SCAN_AUDIO_EXTENSIONS):
+                return hint
+            if value.lower().lstrip(".") in {ext[1:] for ext in _DEEP_SCAN_IMAGE_EXTENSIONS | _DEEP_SCAN_AUDIO_EXTENSIONS}:
+                return "." + value.lower().lstrip(".")
+    except (TypeError, ValueError):
+        pass
+
+    raw = bytes(content or b"")
+    if raw.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png"
+    if raw.startswith(b"\xff\xd8\xff"):
+        return ".jpg"
+    if raw.startswith((b"GIF87a", b"GIF89a")):
+        return ".gif"
+    if raw.startswith(b"RIFF") and raw[8:12] == b"WEBP":
+        return ".webp"
+    if len(raw) >= 12 and raw[4:12] in {b"ftypavif", b"ftypavis"}:
+        return ".avif"
+    if raw.startswith(b"BM"):
+        return ".bmp"
+    if raw.startswith(b"ID3") or raw.startswith(b"\xff\xfb"):
+        return ".mp3"
+    if raw.lstrip().startswith((b"<svg", b"<?xml")):
+        return ".svg"
+    return ""
+
+
+def _deep_scan_external_rel_path(url: str, content: Optional[bytes] = None) -> str:
+    """Return a flat, stable path for a cross-origin deep-scan asset."""
+    parsed = urlparse(str(url))
+    path_name = os.path.basename(unquote(parsed.path.rstrip("/"))) or "asset"
+    try:
+        from .package import clean_url_path_component
+        path_name = clean_url_path_component(path_name)
+    except Exception:
+        path_name = re.sub(r'[\\/:*?"<>|\x00-\x1f\x7f]', "_", path_name).strip(". ") or "asset"
+
+    extension = _deep_scan_content_extension(url, content)
+    stem, existing_ext = os.path.splitext(path_name)
+    if existing_ext.lower() not in (_DEEP_SCAN_IMAGE_EXTENSIONS | _DEEP_SCAN_AUDIO_EXTENSIONS | _DEEP_SCAN_FONT_EXTENSIONS | _DEEP_SCAN_TEXT_EXTENSIONS):
+        extension = extension or ".bin"
+        stem = path_name
+    else:
+        extension = existing_ext
+
+    # The short URL digest keeps same-named files from different CDNs and
+    # meaningful query variants distinct without recreating the CDN directory
+    # tree (which was the source of the huge hash-folder output).
+    digest = hashlib.sha1(str(url).encode("utf-8", "replace")).hexdigest()[:10]
+    filename = f"{stem[:120]}_{digest}{extension}"
+
+    lower_ext = extension.lower()
+    if lower_ext in _DEEP_SCAN_IMAGE_EXTENSIONS:
+        kind = "images"
+    elif lower_ext in _DEEP_SCAN_AUDIO_EXTENSIONS:
+        kind = "audio"
+    elif lower_ext in _DEEP_SCAN_FONT_EXTENSIONS:
+        kind = "fonts"
+    elif lower_ext in _DEEP_SCAN_TEXT_EXTENSIONS:
+        kind = "assets"
+    else:
+        kind = "assets"
+    return f"external/{kind}/{filename}"
+
+
+def _asset_is_error_document(
+    mime: str,
+    content: bytes,
+    *,
+    binary_asset: bool = True,
+) -> bool:
+    """Reject HTML/error documents while preserving valid deep-scan JSON.
+
+    Image/audio downloads must reject any JSON response because it cannot be
+    the requested binary media.  The website deep scanner also handles real
+    JSON assets (notably ``project.json``), so it opts out of that MIME-only
+    rejection and still rejects HTML plus obvious JSON error payloads.
+    """
     content_type = (mime or "").split(";", 1)[0].strip().lower()
-    if content_type in {"text/html", "application/xhtml+xml", "application/json"}:
+    if content_type in {"text/html", "application/xhtml+xml"}:
+        return True
+    if binary_asset and content_type == "application/json":
         return True
     prefix = bytes(content or b"")[:512].lstrip().lower()
-    return prefix.startswith((b"<!doctype html", b"<html", b"<head", b"<body"))
+    if prefix.startswith((b"<!doctype html", b"<html", b"<head", b"<body")):
+        return True
+    return prefix.startswith((b'{"error', b'{"errors'))
+
+
+def _media_content_extension(url: str, mime: str, content: bytes) -> str:
+    """Choose a media extension from bytes first, then MIME/URL hints.
+
+    CDN responses can negotiate AVIF while retaining an old ``image/jpeg``
+    cache MIME or exposing no useful filename.  The file signature is the
+    authoritative signal for common image/audio formats; MIME and URL are
+    fallbacks for formats without a small signature probe.
+    """
+    magic_ext = _deep_scan_content_extension("", content)
+    if magic_ext:
+        return magic_ext
+    mime_ext = mimetypes.guess_extension((mime or "").split(";", 1)[0].strip()) or ""
+    if mime_ext in (".jpe", ".jpeg"):
+        mime_ext = ".jpg"
+    if mime_ext:
+        return mime_ext
+    return _deep_scan_content_extension(url, None)
 
 
 def process_images(
@@ -544,9 +674,7 @@ def process_images(
                     )
 
         if download:
-            ext = mimetypes.guess_extension(mime) or ".bin"
-            if ext in (".jpe", ".jpeg"):
-                ext = ".jpg"
+            ext = _media_content_extension(resolved, mime, content) or ".bin"
 
             # ── Preserve relative path structure (directory hierarchy) ─────
             # e.g. ./CYOAs/Images/BranchingHeart/0/3.avif
@@ -580,11 +708,17 @@ def process_images(
                 )
             )
             if is_external_image:
+                from .package import clean_url_path_component
                 host = re.sub(r"[^a-z0-9]+", "_", (resolved_parsed.hostname or "external").lower()).strip("_")
                 raw_name = os.path.basename(unquote(resolved_parsed.path)) or "image"
-                stem, source_ext = os.path.splitext(raw_name)
+                safe_name = clean_url_path_component(raw_name)
+                stem, source_ext = os.path.splitext(safe_name)
                 digest = hashlib.sha1(resolved.encode("utf-8", "replace")).hexdigest()[:12]
-                fn = f"{host or 'external'}_{stem or 'image'}_{digest}{source_ext}"
+                # Keep the final Windows filename bounded too: the host + hash
+                # prefix can push an already-long CDN basename over MAX_PATH.
+                fn = clean_url_path_component(
+                    f"{host or 'external'}_{stem or 'image'}_{digest}{source_ext or ext}"
+                )
             elif '/' in url_path:
                 # Multi-segment path: preserve directory structure
                 fn = url_path
@@ -840,9 +974,21 @@ def _deep_scan_and_download_assets(
                     logger.debug(f"[deep scan] {fn}: {e}")
         return new_candidates
 
-    def _url_to_local(url: str) -> str:
-        """Convert absolute URL to relative path within the folder."""
+    def _url_to_local(url: str, content: Optional[bytes] = None) -> str:
+        """Convert an asset URL to a safe relative path within the folder."""
         parsed   = urlparse(url)
+        base_parsed = urlparse(base_url)
+
+        # Preserve the authored directory layout only for the site being
+        # archived. External CDN paths are storage details (and often contain
+        # giant hash trees such as Tumblr/Wix/Pinterest paths), so keep those
+        # assets flat and grouped by type instead.
+        if (
+            parsed.scheme.lower() in {"http", "https"}
+            and parsed.netloc.lower() != base_parsed.netloc.lower()
+        ):
+            return _deep_scan_external_rel_path(url, content)
+
         rel_path = parsed.path.lstrip('/')
         base_path = urlparse(base_url).path.rstrip('/')
         # Whole-segment match only; plain startswith()
@@ -856,6 +1002,28 @@ def _deep_scan_and_download_assets(
             digest = hashlib.sha1(parsed.query.encode("utf-8", "replace")).hexdigest()[:10]
             rel_path = f"{root}_{digest}{ext}"
         return rel_path
+
+    def _deep_scan_rel_for_content(url: str, content: bytes) -> Optional[str]:
+        """Validate a deep-scan response before choosing its local path.
+
+        Deep scan candidates are often extracted from JSON fields that are
+        labelled as images, but a remote URL can still return a branded HTML
+        page with HTTP 200 (for example an image proxy landing page).  Keep
+        this check immediately before every deep-scan write as a last line of
+        defence, and derive the extension from the actual bytes so extension-
+        less CDN images do not fall into ``external/assets/*.bin``.
+        """
+        if _asset_is_error_document("", content):
+            rel_hint = _url_to_local(url)
+            failed_deep_assets.append({
+                "url": url,
+                "path": rel_hint,
+                "error": "response was an HTML/error document, not a binary asset",
+                "kind": "deep-scan",
+            })
+            logger.warning(f"  [deep rejected] HTML/error document: {url}")
+            return None
+        return _url_to_local(url, content) or os.path.basename(urlparse(url).path) or "asset"
 
     def _css_root_fallback(url: str) -> Optional[str]:
         """Return a page-root alternative for a failed CSS asset."""
@@ -959,7 +1127,7 @@ def _deep_scan_and_download_assets(
                     if r2.status_code == 200:
                         content = r2.content
                         mime = r2.headers.get("Content-Type", "")
-                        if _asset_is_error_document(mime, content):
+                        if _asset_is_error_document(mime, content, binary_asset=False):
                             return url, None, 200
                         _throttle_bandwidth(len(content))
                         return url, content, 200
@@ -970,6 +1138,10 @@ def _deep_scan_and_download_assets(
             r = fetch_response(url, extra_headers=hdrs, timeout=20, as_bytes=True)
             if r is not None and r.status_code == 200:
                 content = r.content
+                if _asset_is_error_document(
+                    r.headers.get("Content-Type", ""), content, binary_asset=False
+                ):
+                    return url, None, 200
                 _throttle_bandwidth(len(content))
                 return url, content, 200
             return url, None, int(getattr(r, "status_code", 0) or 0)
@@ -1047,9 +1219,9 @@ def _deep_scan_and_download_assets(
             for url, content, status in _fetch_many(to_download):
                     _raise_if_cancelled()
                     if content:
-                        rel = _url_to_local(url)
-                        if not rel:
-                            rel = os.path.basename(urlparse(url).path) or 'asset'
+                        rel = _deep_scan_rel_for_content(url, content)
+                        if rel is None:
+                            continue
                         local = _safe_join(folder, rel)
                         os.makedirs(os.path.dirname(local), exist_ok=True)
                         try:
@@ -1074,6 +1246,11 @@ def _deep_scan_and_download_assets(
                             known_urls.add(fallback_url)
                             _, fallback_content, _ = _try_fetch(fallback_url)
                             if fallback_content:
+                                fallback_rel = (
+                                    _url_to_local(fallback_url, fallback_content)
+                                    or os.path.basename(urlparse(fallback_url).path)
+                                    or "asset"
+                                )
                                 fallback_local = _safe_join(folder, fallback_rel)
                                 os.makedirs(os.path.dirname(fallback_local), exist_ok=True)
                                 try:
@@ -1095,6 +1272,11 @@ def _deep_scan_and_download_assets(
                             known_urls.add(route_url)
                             _, route_content, _ = _try_fetch(route_url)
                             if route_content:
+                                route_rel = (
+                                    _url_to_local(route_url, route_content)
+                                    or os.path.basename(urlparse(route_url).path)
+                                    or "asset"
+                                )
                                 route_local = _safe_join(folder, route_rel)
                                 os.makedirs(os.path.dirname(route_local), exist_ok=True)
                                 try:
@@ -1122,9 +1304,9 @@ def _deep_scan_and_download_assets(
                 for url, content, status in _fetch_many(vite_retry):
                         _raise_if_cancelled()
                         if content:
-                            rel = _url_to_local(url)
-                            if not rel:
-                                rel = os.path.basename(urlparse(url).path) or 'asset'
+                            rel = _deep_scan_rel_for_content(url, content)
+                            if rel is None:
+                                continue
                             local = _safe_join(folder, rel)
                             os.makedirs(os.path.dirname(local), exist_ok=True)
                             try:
@@ -1200,9 +1382,9 @@ def _deep_scan_and_download_assets(
                             _raise_if_cancelled()
                             if not content_ai:
                                 continue
-                            rel_ai = _url_to_local(url_ai)
-                            if not rel_ai:
-                                rel_ai = os.path.basename(urlparse(url_ai).path) or 'asset'
+                            rel_ai = _deep_scan_rel_for_content(url_ai, content_ai)
+                            if rel_ai is None:
+                                continue
                             local_ai = _safe_join(folder, rel_ai)
                             os.makedirs(os.path.dirname(local_ai), exist_ok=True)
                             try:

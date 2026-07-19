@@ -65,7 +65,42 @@ def _first_executable(names: Tuple[str, ...]) -> str:
             path = None
         if path:
             return path
+    # Windows installers often do not add 7-Zip/WinRAR to PATH.  Check their
+    # conventional install folders so Diagnostics does not report a healthy
+    # local helper as missing merely because the shell PATH is stale.
+    if sys.platform == "win32":
+        roots = (
+            os.environ.get("PROGRAMFILES", r"C:\Program Files"),
+            os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)"),
+            os.environ.get("LOCALAPPDATA", ""),
+        )
+        relative_paths = {
+            "7z": ("7-Zip\\7z.exe",),
+            "7zz": ("7-Zip\\7zz.exe",),
+            "unrar": ("WinRAR\\UnRAR.exe", "UnRAR\\UnRAR.exe"),
+            "UnRAR": ("WinRAR\\UnRAR.exe", "UnRAR\\UnRAR.exe"),
+        }
+        for name in names:
+            for relative in relative_paths.get(name, ()):
+                for root in roots:
+                    candidate = os.path.join(root, relative) if root else ""
+                    if candidate and os.path.isfile(candidate):
+                        return candidate
     return ""
+
+
+def _selenium_manager_driver(browser: str = "chrome") -> str:
+    """Resolve a driver through Selenium Manager without requiring PATH setup."""
+    try:
+        from selenium.webdriver.common.selenium_manager import SeleniumManager
+
+        result = SeleniumManager().binary_paths([
+            "--browser", str(browser or "chrome"), "--avoid-browser-download",
+        ])
+        driver = str(result.get("driver_path", "") or "")
+        return driver if driver and os.path.isfile(driver) else ""
+    except Exception:
+        return ""
 
 
 def _installed_browser() -> str:
@@ -106,6 +141,8 @@ def _playwright_chromium() -> str:
     if configured and configured != "0":
         roots.append(os.path.expanduser(os.path.expandvars(configured)))
     elif configured == "0":
+        # `PLAYWRIGHT_BROWSERS_PATH=0` stores browsers beside the Python
+        # package, which is common in portable/frozen-style deployments.
         spec = importlib.util.find_spec("playwright")
         for location in (spec.submodule_search_locations or []) if spec else []:
             roots.append(os.path.join(location, ".local-browsers"))
@@ -121,7 +158,12 @@ def _playwright_chromium() -> str:
             continue
         patterns = (
             os.path.join(root, "chromium-*", "chrome-win", "chrome.exe"),
+            # Playwright 1.59+ uses the platform-specific `*64` directory
+            # names on Windows/Linux. Keep the legacy names above for older
+            # browser payloads and frozen installations.
+            os.path.join(root, "chromium-*", "chrome-win64", "chrome.exe"),
             os.path.join(root, "chromium-*", "chrome-linux", "chrome"),
+            os.path.join(root, "chromium-*", "chrome-linux64", "chrome"),
             os.path.join(root, "chromium-*", "chrome-mac", "Chromium.app", "Contents", "MacOS", "Chromium"),
         )
         for pattern in patterns:
@@ -134,6 +176,33 @@ def _playwright_chromium() -> str:
 def _rar_backend() -> str:
     """Find an external helper required by rarfile to open RAR archives."""
     return _first_executable(("unrar", "UnRAR", "unar", "7z", "7zz", "bsdtar"))
+
+
+_PYTHON_DISTRIBUTIONS = {
+    "bs4": "beautifulsoup4",
+    "PIL": "pillow",
+    "yt_dlp": "yt-dlp[default]",
+    "yt_dlp_ejs": "yt-dlp-ejs",
+    "gallery_dl": "gallery-dl",
+    "dns": "dnspython",
+    "customtkinter": "customtkinter",
+}
+
+
+def _pip_install(package: str) -> str:
+    """Return an install command for the interpreter running Diagnostics."""
+    return f'"{sys.executable}" -m pip install {package}'
+
+
+def _requirements_install() -> str:
+    return f'"{sys.executable}" -m pip install -r requirements.txt'
+
+
+def _dependency_install_hint(module: str, *, required: bool = False) -> str:
+    distribution = _PYTHON_DISTRIBUTIONS.get(module, module)
+    if required:
+        return f"Install: {_requirements_install()} (or {_pip_install(distribution)})"
+    return f"Install: {_pip_install(distribution)}"
 
 
 def build_diagnostic_report(output_dir: str = "", check_network: bool = True,
@@ -162,6 +231,9 @@ def build_diagnostic_report(output_dir: str = "", check_network: bool = True,
     else:
         _add("FAIL", "Python version", f"{platform.python_version()} (need 3.9+)")
 
+    # A PyInstaller build has a different resource/import layout from source
+    # Python. Report it explicitly so an .exe diagnostic can distinguish a
+    # missing bundled module from a missing system executable.
     if getattr(sys, "frozen", False):
         bundle_root = getattr(sys, "_MEIPASS", "")
         _add("PASS", "Runtime mode", f"frozen executable: {sys.executable}")
@@ -184,6 +256,13 @@ def build_diagnostic_report(output_dir: str = "", check_network: bool = True,
     ]
     for mod, required in deps:
         present = importlib.util.find_spec(mod) is not None
+        if not present:
+            _add(
+                "FAIL" if required else "WARN",
+                f"dependency: {mod}",
+                f"{'required' if required else 'optional'}; {_dependency_install_hint(mod, required=required)}",
+            )
+            continue
         if present:
             _add("PASS", f"dependency: {mod}", "installed")
         elif required:
@@ -203,6 +282,10 @@ def build_diagnostic_report(output_dir: str = "", check_network: bool = True,
             f'install with "{http2["python"]}" -m pip install "httpx[http2]"',
         )
 
+    # YouTube's current extractor needs both yt-dlp and a JS runtime. The EJS
+    # package is preferred; audio_download can use the remote EJS fallback when
+    # it is absent, but that fallback needs network access and is less suitable
+    # for an offline/frozen deployment.
     if importlib.util.find_spec("yt_dlp") is not None:
         try:
             from ..download.audio_download import _yt_dlp_runtime_options
@@ -231,31 +314,49 @@ def build_diagnostic_report(output_dir: str = "", check_network: bool = True,
     if importlib.util.find_spec("selenium") is not None:
         browser = _installed_browser()
         driver = _first_executable(("chromedriver", "msedgedriver", "geckodriver"))
+        if not driver and browser:
+            browser_kind = (
+                "edge" if "edge" in browser.lower() or "msedge" in browser.lower() else
+                "firefox" if "firefox" in browser.lower() else
+                "chrome"
+            )
+            managed_driver = _selenium_manager_driver(browser_kind)
+            if managed_driver:
+                driver = f"Selenium Manager: {managed_driver}"
         if browser:
             _add("PASS", "Selenium browser", browser)
         else:
-            _add("WARN", "Selenium browser", "Chrome/Edge/Firefox not found")
+            _add("WARN", "Selenium browser",
+                 "Chrome/Edge/Firefox not found; Install: winget install Google.Chrome")
         _add("PASS" if driver else "WARN", "Selenium driver",
-             driver or "not found; Selenium Manager may download one on first use")
+             driver or f"not found; Install: {_pip_install('selenium')} and allow Selenium Manager")
     else:
-        _add("WARN", "Selenium browser", "selenium package not installed")
-        _add("WARN", "Selenium driver", "selenium package not installed")
+        _add("WARN", "Selenium browser",
+             f"selenium package not installed; {_dependency_install_hint('selenium')} then install Chrome/Edge")
+        _add("WARN", "Selenium driver",
+             f"provided by Selenium Manager; {_dependency_install_hint('selenium')}")
 
     if importlib.util.find_spec("playwright") is not None:
         pw_browser = _playwright_chromium()
         _add("PASS" if pw_browser else "WARN", "Playwright Chromium",
-             pw_browser or "browser payload not found; run `playwright install chromium`")
+             pw_browser or (
+                 "browser payload not found. "
+                 f"Install: {_pip_install('playwright')}; then "
+                 f'"{sys.executable}" -m playwright install chromium'
+             ))
     else:
         _add("WARN", "Playwright Chromium",
-             "playwright package not installed; install requirements-optional.txt")
+             f"playwright package not installed. {_dependency_install_hint('playwright')}; then "
+             f'"{sys.executable}" -m playwright install chromium')
 
     if importlib.util.find_spec("rarfile") is not None:
         rar_helper = _rar_backend()
         _add("PASS" if rar_helper else "WARN", "RAR extraction helper",
-             rar_helper or "unrar/7z not found; ZIP still works")
+             rar_helper or "unrar/7z not found; ZIP still works. Install: winget install 7zip.7zip")
     else:
         _add("WARN", "RAR extraction helper",
-             "rarfile package not installed; ZIP remains available")
+             f"rarfile package not installed; ZIP remains available. {_dependency_install_hint('rarfile')} "
+             "and install 7-Zip for RAR support")
 
     # External tools
     import shutil as _sh2

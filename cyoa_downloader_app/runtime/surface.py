@@ -104,7 +104,8 @@ from ..storage.history import (
 from ..storage.cache import (
     _CACHE_DIR, _CACHE_IDX, _cache_index, _cache_lock, _cache_loaded,
     _cache_load, _cache_get, _cache_stats, _clear_image_cache,
-    _v465_flush_cache_index, _v465_cache_writer, _v465_schedule_cache_save, _cache_put,
+    _cache_limit_mb, _enforce_cache_limit, _v465_flush_cache_index,
+    _v465_cache_writer, _v465_schedule_cache_save, _cache_put,
 )
 from ..storage.resume import (
     _RESUME_FILE, load_resume_state, save_resume_state, clear_resume_state,

@@ -13,14 +13,43 @@ import sys
 from types import ModuleType
 
 
+_CONSOLE_ASCII_REPLACEMENTS = str.maketrans({
+    "→": "->",
+    "←": "<-",
+    "—": "-",
+    "–": "-",
+    "•": "*",
+    "…": "...",
+    "✓": "OK",
+    "✗": "X",
+    "“": '"',
+    "”": '"',
+    "‘": "'",
+    "’": "'",
+    " ": " ",
+})
+
+
 def _safe_console_print(value="", *, file=None) -> None:
     """Print safely on legacy Windows console encodings such as CP1252."""
     stream = file or sys.stdout
     text = str(value)
-    encoding = getattr(stream, "encoding", None)
-    if encoding:
+    encoding = getattr(stream, "encoding", None) or ""
+    normalized_encoding = encoding.lower().replace("_", "-")
+    if normalized_encoding and normalized_encoding not in {"utf-8", "utf8", "utf-8-sig"}:
+        text = text.translate(_CONSOLE_ASCII_REPLACEMENTS)
         text = text.encode(encoding, errors="replace").decode(encoding, errors="replace")
-    print(text, file=stream)
+    try:
+        print(text, file=stream)
+        return
+    except UnicodeEncodeError:
+        # Keep diagnostic output readable on legacy Windows code pages. The
+        # old implementation replaced unsupported arrows/checkmarks with '?',
+        # which then appeared as U+FFFD in some GUI/terminal captures.
+        encoding = encoding or "ascii"
+        fallback = text.translate(_CONSOLE_ASCII_REPLACEMENTS)
+        fallback = fallback.encode(encoding, errors="replace").decode(encoding, errors="replace")
+        print(fallback, file=stream)
 
 
 def _legacy() -> ModuleType:

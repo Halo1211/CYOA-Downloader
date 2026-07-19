@@ -231,7 +231,7 @@ def _apply_offline_viewer(
 
         if icc_marker_file:
             logger.info(
-                f"Offline inject: Strategy B â€” ICC Plus marker injection "
+                f"Offline inject: Strategy B - ICC Plus marker injection "
                 f"({os.path.basename(icc_marker_file)})"
             )
             try:
@@ -279,19 +279,19 @@ def _apply_offline_viewer(
                         )
                         pathlib.Path(icc_marker_file).write_text(_patched_js, encoding="utf-8")
                         logger.info(
-                            f"  Marker inject OK: {len(_app_js):,} chars â†’ "
+                            f"  Marker inject OK: {len(_app_js):,} chars -> "
                             f"{os.path.basename(icc_marker_file)} "
                             f"(was {_abs_end - _abs_start:,} chars default state)"
                         )
                         _injected = True
 
             if not _injected:
-                logger.warning("ICC Plus marker found but injection failed â€” falling to Strategy C")
+                logger.warning("ICC Plus marker found but injection failed - falling to Strategy C")
                 icc_marker_file = None
 
         # â”€â”€ Strategy C: fetch() patch + prepend data to app.js â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         if not icc_marker_file:
-            logger.info("Offline inject: Strategy C â€” fetch() patch in app.js")
+            logger.info("Offline inject: Strategy C - fetch() patch in app.js")
 
             with open(os.path.join(os.path.dirname(index_path), "project.json"), "w",
                       encoding="utf-8") as f:
@@ -342,7 +342,7 @@ def _apply_offline_viewer(
             # that previously-broken path (_patched_any False), so output for
             # already-working cases is byte-identical.
             if not _patched_any:
-                logger.info("  No fetch() literal matched â€” injecting <head> fetch interceptor fallback")
+                logger.info("  No fetch() literal matched - injecting <head> fetch interceptor fallback")
                 html = _inject_into_head(html, _build_html_interceptor(data_js, size_bytes))
 
     # â”€â”€ Apply ICC Plus viewerConfig hints before final write â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -398,26 +398,26 @@ border-bottom:1px solid rgba(99,140,255,.3)}
 color:#fff;padding:6px 14px;font:inherit;cursor:pointer;white-space:nowrap}
 </style>
 <div id="__cyoa_audio_banner" style="display:none">
-  <span>ðŸ”‡ Audio diblokir browser (autoplay policy)</span>
-  <button onclick="__cyoaUnblockAudio()">â–¶ Aktifkan Audio</button>
-  <span style="margin-left:auto;cursor:pointer;opacity:.6" onclick="document.getElementById('__cyoa_audio_banner').style.display='none'">âœ•</span>
+  <span>🔇 Audio diblokir browser (autoplay policy)</span>
+  <button onclick="__cyoaUnblockAudio()">▶ Aktifkan Audio</button>
+  <span style="margin-left:auto;cursor:pointer;opacity:.6" onclick="document.getElementById('__cyoa_audio_banner').style.display='none'">✕</span>
 </div>
 <div id="__cyoa_panel">
-<div class="__cy_title">âš¡ Serve Developer Tools</div>
+<div class="__cy_title">⚡ Serve Developer Tools</div>
 <div class="__cy_row">
 <label style="flex:1.2"><div class="__cy_lbl">Point type</div>
 <select class="__cy_sel" id="__cyoa_pt_sel"></select></label>
 <label style="flex:.8"><div class="__cy_lbl">Value</div>
 <input class="__cy_inp" id="__cyoa_pt_val" type="number" step="1"></label>
 </div>
-<button class="__cy_btn" id="__cyoa_set_pts">ðŸ’° Set Points</button>
+<button class="__cy_btn" id="__cyoa_set_pts">💰 Set Points</button>
 <hr class="__cy_sep">
-<button class="__cy_btn" id="__cyoa_rm_reqs">ðŸ”“ Remove All Requirements</button>
-<button class="__cy_btn" id="__cyoa_unlim">â™¾ï¸ Unlimited Choices (all rows)</button>
-<button class="__cy_btn" id="__cyoa_sel_all">âœ… Select All Choices</button>
-<button class="__cy_btn" id="__cyoa_desel_all">â˜ Deselect All Choices</button>
+<button class="__cy_btn" id="__cyoa_rm_reqs">🔓 Remove All Requirements</button>
+<button class="__cy_btn" id="__cyoa_unlim">♾️ Unlimited Choices (all rows)</button>
+<button class="__cy_btn" id="__cyoa_sel_all">✅ Select All Choices</button>
+<button class="__cy_btn" id="__cyoa_desel_all">☐ Deselect All Choices</button>
 </div>
-<button id="__cyoa_gear" title="Serve Developer Tools" aria-label="Serve Developer Tools">âš™</button>
+<button id="__cyoa_gear" title="Serve Developer Tools" aria-label="Serve Developer Tools">⚙</button>
 <script id="__cyoa_cheat_script__">(function(){
 var btn=document.getElementById('__cyoa_gear'),
     panel=document.getElementById('__cyoa_panel'),
@@ -493,10 +493,10 @@ if(!isNaN(v)&&app.pointTypes[idx]){app.pointTypes[idx].startingSum=v;refresh();}
 document.getElementById('__cyoa_rm_reqs').onclick=function(){var app=getApp();if(!app)return;
 (app.rows||[]).forEach(function(r){if(!r)return;delete r.requireds;
 (r.objects||[]).forEach(function(o){if(o)delete o.requireds;});});
-this.textContent='âœ“ Requirements removed';var self=this;setTimeout(function(){self.textContent='ðŸ”“ Remove All Requirements';},1500);};
+this.textContent='✓ Requirements removed';var self=this;setTimeout(function(){self.textContent='🔓 Remove All Requirements';},1500);};
 document.getElementById('__cyoa_unlim').onclick=function(){var app=getApp();if(!app)return;
 (app.rows||[]).forEach(function(r){if(r)r.allowedChoices=0;});
-this.textContent='âœ“ Done';var self=this;setTimeout(function(){self.textContent='â™¾ï¸ Unlimited Choices (all rows)';},1500);};
+this.textContent='✓ Done';var self=this;setTimeout(function(){self.textContent='♾️ Unlimited Choices (all rows)';},1500);};
 document.getElementById('__cyoa_sel_all').onclick=function(){var app=getApp();if(!app)return;
 (app.rows||[]).forEach(function(r){(r&&r.objects||[]).forEach(function(o){if(o&&o.id)o.isSelected=true;});});};
 document.getElementById('__cyoa_desel_all').onclick=function(){var app=getApp();if(!app)return;
@@ -533,16 +533,16 @@ setTimeout(function(){clearInterval(t);},30000);
             _n = _copytree_merge_safe(_asset_src_dir, _asset_dst, label=_asset_dir_name)
             if _n:
                 logger.info(
-                    f"  Copied {_n} {_asset_dir_name} file(s) â†’ "
+                    f"  Copied {_n} {_asset_dir_name} file(s) -> "
                     f"{os.path.relpath(_asset_dst, output_dir)}"
                 )
 
     try:
         pathlib.Path(index_path).write_text(html, encoding="utf-8")
         logger.info(
-            f"âœ“ Offline viewer ready â†’ {os.path.relpath(index_path, output_dir)} "
+            f"OK Offline viewer ready -> {os.path.relpath(index_path, output_dir)} "
             f"({size_bytes/1024/1024:.1f} MB data, viewer: '{viewer_meta.get('name','')}') "
-            f"â€” double-click index.html to play offline."
+            f"- double-click index.html to play offline."
         )
         return index_path
     except Exception as e:

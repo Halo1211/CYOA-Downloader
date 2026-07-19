@@ -10,11 +10,13 @@ import threading
 import time as _time
 from typing import Dict, Optional
 
+from ..config.settings import _load_settings
 from ..core.atomic_io import atomic_write_bytes, atomic_write_text
 from ..logging_setup import logger
 
 _CACHE_DIR = pathlib.Path.home() / ".cyoa_downloader" / "image_cache"
 _CACHE_IDX = _CACHE_DIR / "index.json"
+_DEFAULT_CACHE_MAX_MB = 2048
 _cache_index: Dict[str, str] = {}
 _cache_lock = threading.Lock()
 _cache_loaded = False
@@ -59,6 +61,12 @@ def _cache_get(url: str) -> Optional[bytes]:
         try:
             data = fpath.read_bytes()
             if _hashlib.sha256(data).hexdigest() == h:
+                # Keep LRU ordering useful on systems where atime updates are
+                # disabled or heavily coalesced.
+                try:
+                    fpath.touch()
+                except OSError:
+                    pass
                 return data
         except Exception as _ignored_exc:
             logger.debug("Ignored recoverable exception in _cache_get: %s", _ignored_exc)
@@ -69,15 +77,78 @@ def _cache_get(url: str) -> Optional[bytes]:
 
 def _cache_stats() -> Dict[str, int]:
     _cache_load()
+    with _cache_lock:
+        digests = set(_cache_index.values())
+    size_bytes = sum(
+        ((_CACHE_DIR / h[:2] / h).stat().st_size
+         for h in digests
+         if (_CACHE_DIR / h[:2] / h).exists()),
+        0,
+    )
     return {
         "entries": len(_cache_index),
-        "size_mb": sum(
-            ((_CACHE_DIR / h[:2] / h).stat().st_size
-             for h in _cache_index.values()
-             if (_CACHE_DIR / h[:2] / h).exists()),
-            0,
-        ) // (1024 * 1024),
+        "size_mb": size_bytes // (1024 * 1024),
+        "limit_mb": _cache_limit_mb(),
     }
+
+
+def _cache_limit_mb() -> int:
+    """Read and sanitize the configured image-cache limit."""
+    try:
+        value = int(_load_settings().get("image_cache_max_mb", _DEFAULT_CACHE_MAX_MB))
+    except (TypeError, ValueError, OverflowError):
+        value = _DEFAULT_CACHE_MAX_MB
+    return max(1, min(1024 * 1024, value))
+
+
+def _enforce_cache_limit() -> int:
+    """Evict least-recently-used image files until the cache fits its limit."""
+    limit_bytes = _cache_limit_mb() * 1024 * 1024
+    removed = 0
+    removed_digests = set()
+    try:
+        if not _CACHE_DIR.exists():
+            return 0
+        files = []
+        total_bytes = 0
+        for folder in _CACHE_DIR.iterdir():
+            if not folder.is_dir():
+                continue
+            for path in folder.iterdir():
+                if not path.is_file():
+                    continue
+                try:
+                    stat = path.stat()
+                except OSError:
+                    continue
+                total_bytes += stat.st_size
+                files.append((stat.st_mtime_ns, path, stat.st_size))
+        if total_bytes <= limit_bytes:
+            return 0
+
+        files.sort(key=lambda item: (item[0], str(item[1])))
+        with _cache_lock:
+            for _mtime, path, size in files:
+                if total_bytes <= limit_bytes:
+                    break
+                try:
+                    path.unlink()
+                except OSError as exc:
+                    logger.debug("Could not evict image cache file %s: %s", path, exc)
+                    continue
+                total_bytes -= size
+                removed += 1
+                removed_digests.add(path.name)
+            if removed_digests:
+                for url, digest in list(_cache_index.items()):
+                    if digest in removed_digests:
+                        _cache_index.pop(url, None)
+        if removed:
+            _v465_schedule_cache_save()
+            logger.info("Image cache auto-cleaned: %s file(s) removed", removed)
+    except Exception as exc:
+        logger.debug("Image cache auto-cleanup failed: %s", exc)
+    return removed
 
 
 def _clear_image_cache() -> int:
@@ -85,19 +156,28 @@ def _clear_image_cache() -> int:
     global _cache_index
     count = 0
     try:
-        if _CACHE_DIR.exists():
-            for item in _CACHE_DIR.iterdir():
-                if item.is_dir():
-                    for f in item.iterdir():
-                        f.unlink(missing_ok=True)
-                        count += 1
-                    try:
-                        item.rmdir()
-                    except OSError as _ignored_exc:
-                        logger.debug("Ignored recoverable exception in _clear_image_cache: %s", _ignored_exc)
-            if _CACHE_IDX.exists():
-                _CACHE_IDX.unlink()
-        _cache_index = {}
+        with _cache_lock:
+            if _CACHE_DIR.exists():
+                for item in _CACHE_DIR.iterdir():
+                    if item.is_dir():
+                        for f in item.iterdir():
+                            try:
+                                f.unlink()
+                                count += 1
+                            except FileNotFoundError:
+                                pass
+                            except OSError as _ignored_exc:
+                                logger.debug("Ignored recoverable exception in _clear_image_cache: %s", _ignored_exc)
+                        try:
+                            item.rmdir()
+                        except OSError as _ignored_exc:
+                            logger.debug("Ignored recoverable exception in _clear_image_cache: %s", _ignored_exc)
+                if _CACHE_IDX.exists():
+                    _CACHE_IDX.unlink()
+            _cache_index = {}
+        if "_v465_cache_save_event" in globals():
+            _v465_cache_save_event.clear()
+            _v465_flush_cache_index()
         logger.info(f"Image cache cleared — {count} file(s) removed")
     except Exception as e:
         logger.warning(f"Cache clear error: {e}")
@@ -163,6 +243,7 @@ def _cache_put(url: str, data: bytes) -> None:
         with _cache_lock:
             _cache_index[url] = digest
         _v465_schedule_cache_save()
+        _enforce_cache_limit()
     except Exception as exc:
         logger.debug(f"Image cache put failed: {exc}")
 

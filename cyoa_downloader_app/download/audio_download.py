@@ -109,8 +109,8 @@ def _yt_dlp_runtime_options() -> Dict[str, object]:
     """
     def _runtime_path(name: str) -> Optional[str]:
         # GUI-launched processes do not always inherit the PATH that an
-        # interactive PowerShell has. Prefer an explicit override, then PATH,
-        # then the per-user install locations used by Windows installers.
+        # interactive PowerShell has.  Prefer an explicit override, then PATH,
+        # then the per-user install locations used by the Windows installers.
         env_name = f"CYOA_YTDLP_{name.upper()}"
         candidates = [os.environ.get(env_name, ""), shutil.which(name)]
         if sys.platform == "win32":

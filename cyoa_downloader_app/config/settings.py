@@ -48,6 +48,9 @@ _SETTINGS_DEFAULTS: Dict[str, Any] = {
     "language": "en",
     "theme_mode": "System",
     "theme_accent_color": "#3b82f6",
+    # Stored in MiB so the setting remains an integer and is easy to edit in
+    # settings.json. The GUI presents this value as GB.
+    "image_cache_max_mb": 2048,
     "http2_enabled": False,
     "dns": "",
     "bebasdns_variant": "",
@@ -86,6 +89,9 @@ _SETTINGS_DEFAULTS: Dict[str, Any] = {
 _SETTINGS_GROUPS = (
     ("Interface and output", (
         "language", "theme_mode", "theme_accent_color", "auto_detect_output",
+    )),
+    ("Image cache", (
+        "image_cache_max_mb",
     )),
     ("JavaScript website archive", (
         "archive_strategy", "archive_max_pages", "archive_max_depth",
@@ -149,6 +155,7 @@ _SETTINGS_INT_RANGES = {
     "ai_max_calls_per_download": (0, 100),
     "ai_max_html_chars": (1000, 2_000_000),
     "ai_max_js_chars": (1000, 2_000_000),
+    "image_cache_max_mb": (1, 1024 * 1024),
 }
 
 

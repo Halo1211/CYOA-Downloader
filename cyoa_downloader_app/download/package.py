@@ -315,9 +315,7 @@ def verify_output_package(folder: str) -> Tuple[bool, str]:
         integrity = checker.validate_integrity()
         checked_refs += len(integrity.get("ok", [])) + len(integrity.get("missing", []))
         for label in integrity.get("missing", []):
-            if " â†’ " in label:
-                src_name, ref = label.split(" â†’ ", 1)
-            elif " → " in label:
+            if " → " in label:
                 src_name, ref = label.split(" → ", 1)
             else:
                 src_name, ref = "website files", label

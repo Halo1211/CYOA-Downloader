@@ -190,7 +190,7 @@ def base_fetch_response(
         priority = getattr(l, "_CLOUDFLARE_PRIORITY", "flaresolverr_first")
         if str(priority).strip().lower() != "cloudscraper_first":
             for label in ("flaresolverr", "cloudscraper"):
-                l.logger.info("[Cloudflare] Auto mode: trying %s fallbackâ€¦", label)
+                l.logger.info("[Cloudflare] Auto mode: trying %s fallback...", label)
                 if label == "flaresolverr":
                     result = fetch_via_flaresolverr(url, extra_headers=headers, timeout=timeout)
                 else:

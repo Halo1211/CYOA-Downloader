@@ -16,14 +16,25 @@ datas = [(str(ROOT / "assets"), "assets")]
 binaries = []
 hiddenimports = []
 
-for package in ("yt_dlp", "yt_dlp_ejs", "customtkinter", "PIL", "playwright"):
+for package in (
+    "requests", "urllib3", "bs4", "tldextract", "json5", "customtkinter",
+    "PIL", "pandas", "openpyxl", "xlrd", "keyring", "cloudscraper",
+    "selenium", "playwright", "yt_dlp", "yt_dlp_ejs", "browser_cookie3",
+    "httpx", "dns", "plyer", "rarfile", "gallery_dl",
+):
     try:
         package_datas, package_binaries, package_hiddenimports = collect_all(package)
     except (ImportError, ModuleNotFoundError):
         continue
     datas += package_datas
     binaries += package_binaries
-    hiddenimports += package_hiddenimports
+    # Some packages (notably pandas) expose their entire internal test suite
+    # through collect_submodules. Those tests are not runtime dependencies and
+    # would make the one-file executable unnecessarily huge.
+    hiddenimports += [
+        name for name in package_hiddenimports
+        if ".tests" not in name and not name.endswith(".tests")
+    ]
 
 
 a = Analysis(

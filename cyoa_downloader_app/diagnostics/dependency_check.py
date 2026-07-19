@@ -12,6 +12,10 @@ def dependency_check_report() -> str:
     """Return an offline dependency report for GUI, network, batch, AI, media, and fallback features."""
     import importlib.util
     import sys
+    from .runtime import (
+        _dependency_install_hint, _installed_browser, _pip_install,
+        _playwright_chromium, _rar_backend, _selenium_manager_driver,
+    )
 
     # module name, display name, requirement group, purpose, fallback
     checks = [
@@ -57,6 +61,7 @@ def dependency_check_report() -> str:
         lines.append(f"{status:7}  {display:18}  {group:22}  {purpose}")
         if not found:
             lines.append(f"         {'':18}  {'fallback':22}  {fallback}")
+            lines.append(f"         {'':18}  {'install':22}  {_dependency_install_hint(module, required=(group == 'required'))}")
 
     http2 = http2_runtime_info()
     h2_found = importlib.util.find_spec("h2") is not None
@@ -70,23 +75,11 @@ def dependency_check_report() -> str:
             f"         {'':18}  {'install':22}  "
             f'"{http2["python"]}" -m pip install "httpx[http2]"'
         )
-    if http2["available"]:
-        ok += 1
-        lines.append(
-            f"OK       {'httpx[http2]':18}  {'optional-network':22}  "
-            f"HTTP/2 deep-scan fetch ({http2['detail']})"
-        )
-    else:
-        lines.append(
-            f"MISSING  {'httpx[http2]':18}  {'optional-network':22}  "
-            "HTTP/2 deep-scan fetch unavailable"
-        )
-        lines.append(f"         {'':18}  {'reason':22}  {http2['detail'] or 'httpx[http2] is incomplete'}")
-        lines.append(
-            f"         {'':18}  {'install':22}  "
-            f'"{http2["python"]}" -m pip install "httpx[http2]"'
-        )
 
+    # Modern YouTube extraction needs a JavaScript runtime in addition to the
+    # Python yt-dlp module. Keep this check in the CLI dependency report too;
+    # otherwise `--dependency-check` can claim the media stack is healthy while
+    # the actual extractor has no Deno/Node runtime.
     try:
         from .runtime import _first_executable, _installed_browser, _playwright_chromium, _rar_backend
         from ..download.audio_download import _yt_dlp_runtime_options
@@ -103,9 +96,19 @@ def dependency_check_report() -> str:
                 f"         {'':18}  {'fallback':22}  "
                 "remote EJS delivery enabled; bundle yt-dlp-ejs for offline .exe use"
             )
+
         if importlib.util.find_spec("selenium") is not None:
             browser = _installed_browser()
             driver = _first_executable(("chromedriver", "msedgedriver", "geckodriver"))
+            if not driver and browser:
+                browser_kind = (
+                    "edge" if "edge" in browser.lower() or "msedge" in browser.lower() else
+                    "firefox" if "firefox" in browser.lower() else
+                    "chrome"
+                )
+                managed_driver = _selenium_manager_driver(browser_kind)
+                if managed_driver:
+                    driver = f"Selenium Manager: {managed_driver}"
             capability_total += 2
             ok += int(bool(browser)) + int(bool(driver))
             lines.append(
@@ -114,8 +117,10 @@ def dependency_check_report() -> str:
             )
             lines.append(
                 f"{'OK' if driver else 'MISSING':7}  {'Selenium driver':18}  {'optional-headless':22}  "
-                f"{driver or 'not found; Selenium Manager may supply one'}"
+                f"{driver or 'not found; Selenium Manager could not resolve one'}"
             )
+            if not driver:
+                lines.append(f"         {'':18}  {'install':22}  {_pip_install('selenium')} (and install Chrome/Edge)")
         else:
             capability_total += 2
             lines.append(
@@ -124,19 +129,23 @@ def dependency_check_report() -> str:
             lines.append(
                 f"MISSING  {'Selenium driver':18}  {'optional-headless':22}  selenium package not installed"
             )
+            lines.append(f"         {'':18}  {'install':22}  {_dependency_install_hint('selenium')}")
         if importlib.util.find_spec("playwright") is not None:
             pw_browser = _playwright_chromium()
             capability_total += 1
             ok += int(bool(pw_browser))
             lines.append(
                 f"{'OK' if pw_browser else 'MISSING':7}  {'Playwright Chromium':18}  {'optional-headless':22}  "
-                f"{pw_browser or 'run playwright install chromium'}"
+                f"{pw_browser or 'browser payload not found'}"
             )
+            if not pw_browser:
+                lines.append(f"         {'':18}  {'install':22}  {_pip_install('playwright')} then \"{sys.executable}\" -m playwright install chromium")
         else:
             capability_total += 1
             lines.append(
                 f"MISSING  {'Playwright Chromium':18}  {'optional-headless':22}  playwright package not installed"
             )
+            lines.append(f"         {'':18}  {'install':22}  {_dependency_install_hint('playwright')} then \"{sys.executable}\" -m playwright install chromium")
         if importlib.util.find_spec("rarfile") is not None:
             rar_helper = _rar_backend()
             capability_total += 1
@@ -145,13 +154,32 @@ def dependency_check_report() -> str:
                 f"{'OK' if rar_helper else 'MISSING':7}  {'RAR helper':18}  {'optional-viewer':22}  "
                 f"{rar_helper or 'unrar/7z not found; ZIP remains available'}"
             )
+            if not rar_helper:
+                lines.append(f"         {'':18}  {'install':22}  winget install 7zip.7zip")
         else:
             capability_total += 1
             lines.append(
                 f"MISSING  {'RAR helper':18}  {'optional-viewer':22}  rarfile package not installed"
             )
+            lines.append(f"         {'':18}  {'install':22}  {_dependency_install_hint('rarfile')} and winget install 7zip.7zip")
     except Exception as _e:
         lines.append(f"WARN     {'runtime probes':18}  {'diagnostics':22}  probe error: {_e}")
+    if http2["available"]:
+        ok += 1
+        lines.append(
+            f"OK       {'httpx[http2]':18}  {'optional-network':22}  "
+            f"HTTP/2 deep-scan fetch ({http2['detail']})"
+        )
+    else:
+        lines.append(
+            f"MISSING  {'httpx[http2]':18}  {'optional-network':22}  "
+            "HTTP/2 deep-scan fetch unavailable"
+        )
+        lines.append(f"         {'':18}  {'reason':22}  {http2['detail'] or 'httpx[http2] is incomplete'}")
+        lines.append(
+            f"         {'':18}  {'install':22}  "
+            f'"{http2["python"]}" -m pip install "httpx[http2]"'
+        )
 
     ffmpeg_path = _detect_ffmpeg_path()
     capability_total += 1

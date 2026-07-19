@@ -1527,6 +1527,8 @@ def _v27_cache_manager_panel(self: Any) -> None:
     stats_frame.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 12))
     stats_var = ctk.StringVar(value="")
     path_var = ctk.StringVar(value="")
+    cache_limit_var = ctk.StringVar(value="2")
+    cache_limit_status = ctk.StringVar(value="")
 
     badge_entries = ctk.CTkLabel(stats_frame, text="ENTRIES 0", width=130, height=38,
                                  fg_color="#0f766e", text_color="#ecfeff", corner_radius=12,
@@ -1544,10 +1546,28 @@ def _v27_cache_manager_panel(self: Any) -> None:
             badge_size.configure(text=f"SIZE {stats['size_mb']} MB" if is_en else f"UKURAN {stats['size_mb']} MB")
             cache_dir = os.path.join(os.path.dirname(_SETTINGS_FILE), "image_cache")
             path_var.set(cache_dir)
+            cache_limit_var.set(f"{stats['limit_mb'] / 1024:g}")
             stats_var.set((f"Cache is writable and used to avoid re-downloading duplicate images.\nLocation: {cache_dir}"
                            if is_en else f"Cache dapat ditulis dan dipakai agar gambar yang sama tidak diunduh ulang.\nLokasi: {cache_dir}"))
         except Exception as exc:
             stats_var.set((f"Failed to read cache: {exc}" if is_en else f"Gagal membaca cache: {exc}"))
+
+    def _save_cache_limit() -> None:
+        import math
+        try:
+            gb = float(cache_limit_var.get().strip())
+            if not math.isfinite(gb) or gb <= 0:
+                raise ValueError
+            mb = max(1, min(1024 * 1024, int(round(gb * 1024))))
+        except (TypeError, ValueError, OverflowError):
+            cache_limit_status.set(("Enter a positive number of GB." if is_en else "Masukkan angka GB yang lebih besar dari 0."))
+            return
+        _update_setting("image_cache_max_mb", mb)
+        _enforce_cache_limit()
+        cache_limit_var.set(f"{mb / 1024:g}")
+        cache_limit_status.set((f"Saved. Auto-cleanup limit: {mb / 1024:g} GB." if is_en
+                                else f"Tersimpan. Batas auto-cleanup: {mb / 1024:g} GB."))
+        _refresh()
 
     card = ctk.CTkFrame(body, fg_color=p["surface"], corner_radius=14, border_width=1, border_color=p["border"])
     card.grid(row=1, column=0, columnspan=2, sticky="nsew", pady=(0, 12))
@@ -1557,6 +1577,17 @@ def _v27_cache_manager_panel(self: Any) -> None:
     ctk.CTkLabel(card, textvariable=stats_var, font=ctk.CTkFont("Segoe UI", 10), text_color=p["muted"], anchor="w", justify="left", wraplength=560).grid(row=1, column=1, sticky="ew", pady=(0, 8))
     path_entry = ctk.CTkEntry(card, textvariable=path_var, fg_color=p["input_bg"], border_color=p["border"], text_color=p["input_fg"], font=ctk.CTkFont("Consolas", 10))
     path_entry.grid(row=2, column=1, sticky="ew", padx=(0, 16), pady=(0, 16))
+    limit_row = ctk.CTkFrame(card, fg_color="transparent")
+    limit_row.grid(row=3, column=1, columnspan=1, sticky="ew", padx=(0, 16), pady=(0, 4))
+    limit_row.grid_columnconfigure(1, weight=1)
+    ctk.CTkLabel(limit_row, text=("Max cache size (GB)" if is_en else "Ukuran cache maksimal (GB)"),
+                 font=ctk.CTkFont("Segoe UI", 10, "bold"), text_color=p["fg"], anchor="w").grid(row=0, column=0, sticky="w", padx=(0, 8))
+    ctk.CTkEntry(limit_row, textvariable=cache_limit_var, width=90, height=30,
+                 fg_color=p["input_bg"], border_color=p["border"], text_color=p["input_fg"], justify="center").grid(row=0, column=1, sticky="e", padx=(0, 8))
+    ctk.CTkButton(limit_row, text=("Save" if is_en else "Simpan"), width=80, height=30,
+                  fg_color="#2563eb", hover_color="#1d4ed8", command=_save_cache_limit).grid(row=0, column=2, sticky="e")
+    ctk.CTkLabel(card, textvariable=cache_limit_status, font=ctk.CTkFont("Segoe UI", 9),
+                 text_color=p["muted"], anchor="w").grid(row=4, column=1, sticky="ew", padx=(0, 16), pady=(0, 10))
 
     note = ctk.CTkFrame(body, fg_color=p["panel"], corner_radius=12, border_width=1, border_color=p["border"])
     note.grid(row=2, column=0, columnspan=2, sticky="ew")
@@ -3057,22 +3088,35 @@ def _v462_apply_small_screen_layout(self: CYOADownloaderGUI) -> None:
         if compact and row_wrap is not None and row_tools is not None:
             row_wrap.configure(height=104)
             row_tools.grid_configure(sticky="ew", padx=8, pady=(3, 3))
+            retry_group = getattr(getattr(self, "_retry_btn", None), "master", None)
             children = list(row_tools.winfo_children())
+            left_tools = getattr(self, "_left_tools", None)
             for child in children:
+                child.grid_forget()
                 child.pack_forget()
-                child.grid_configure(
-                    row=(children.index(child) // 5),
-                    column=(children.index(child) % 5),
-                    padx=2, pady=2, sticky="ew",
-                )
+            for child in (retry_group, left_tools):
+                if child in children:
+                    child.pack(side="left", padx=(0, 1), pady=3)
+            for child in children:
+                if child not in (retry_group, left_tools):
+                    child.pack(side="left", padx=(0, 1), pady=3)
             for col in range(5):
-                row_tools.grid_columnconfigure(col, weight=1)
+                row_tools.grid_columnconfigure(col, weight=0)
         elif row_wrap is not None and row_tools is not None:
             row_wrap.configure(height=38)
-            row_tools.grid_configure(sticky="w", padx=12, pady=(3, 3))
-            for child in list(row_tools.winfo_children()):
+            row_tools.grid_configure(sticky="ew", padx=12, pady=(3, 3))
+            children = list(row_tools.winfo_children())
+            retry_group = getattr(getattr(self, "_retry_btn", None), "master", None)
+            left_tools = getattr(self, "_left_tools", None)
+            for child in children:
                 child.grid_forget()
-                child.pack(side="left", padx=(0, 1), pady=3)
+                child.pack_forget()
+            for child in (retry_group, left_tools):
+                if child in children:
+                    child.pack(side="left", padx=(0, 1), pady=3)
+            for child in children:
+                if child not in (retry_group, left_tools):
+                    child.pack(side="left", padx=(0, 1), pady=3)
             for col in range(5):
                 row_tools.grid_columnconfigure(col, weight=0)
     except Exception as exc:
