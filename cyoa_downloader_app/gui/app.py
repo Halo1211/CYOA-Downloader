@@ -13,6 +13,33 @@ import uuid
 from collections import Counter
 
 
+def _mode_label(mode: str, language: str = "en") -> str:
+    """Return the user-facing label for a canonical queue mode.
+
+    ``website_*`` is retained as the internal compatibility value used by the
+    batch importer and dispatcher, but it is an implementation name rather
+    than the product name shown to users. In particular, ICC output must not
+    appear as the confusing ``website folder`` result in queue/status views.
+    """
+    normalized = str(mode or "auto").strip().lower().replace("-", "_").replace(" ", "_")
+    labels = {
+        "auto": ("Auto (detect)", "Auto (deteksi)"),
+        "embed": ("Embedded JSON", "JSON Embedded"),
+        "zip": ("ZIP", "ZIP"),
+        "both": ("Both", "Keduanya"),
+        "website_zip": ("ICC ZIP", "ZIP ICC"),
+        "website_folder": ("ICC Folder", "Folder ICC"),
+        "pure_website_zip": ("Pure Website ZIP", "ZIP Pure Website"),
+        "pure_website_folder": ("Pure Website Folder", "Folder Pure Website"),
+        "cyoap_vue_zip": ("cyoap_vue ZIP", "ZIP cyoap_vue"),
+        "cyoap_vue_folder": ("cyoap_vue Folder", "Folder cyoap_vue"),
+    }
+    pair = labels.get(normalized)
+    if pair is None:
+        return normalized.replace("_", " ")
+    return pair[0] if str(language).lower() == "en" else pair[1]
+
+
 def _responsive_window_geometry(screen_width: int, screen_height: int) -> tuple[int, int, int, int]:
     """Return safe initial/minimum sizes for the available laptop display."""
     sw = max(1, int(screen_width or 1))
@@ -2569,13 +2596,13 @@ class CYOADownloaderGUI:
         """Update sidebar info box to describe current mode and expected output."""
         auto_pref = _normalize_auto_detect_output(_load_settings().get("auto_detect_output", "folder"))
         if auto_pref == "zip":
-            auto_pair_en = "website_zip / cyoap_vue_zip"
-            auto_pair_id = "website_zip / cyoap_vue_zip"
+            auto_pair_en = "ICC ZIP / cyoap_vue ZIP"
+            auto_pair_id = "ZIP ICC / ZIP cyoap_vue"
             auto_default_en = "Auto default: ZIP"
             auto_default_id = "Default Auto: ZIP"
         else:
-            auto_pair_en = "website_folder / cyoap_vue_folder"
-            auto_pair_id = "website_folder / cyoap_vue_folder"
+            auto_pair_en = "ICC Folder / cyoap_vue Folder"
+            auto_pair_id = "Folder ICC / Folder cyoap_vue"
             auto_default_en = "Auto default: Folder"
             auto_default_id = "Default Auto: Folder"
         INFO_EN = {
@@ -3354,7 +3381,11 @@ class CYOADownloaderGUI:
         item_ref.pop("auto_detected_mode", None)
         try:
             bg, fg = self._badge_colors(mode)
-            badge.configure(text=mode.replace("_", " "), fg_color=bg, text_color=fg)
+            badge.configure(
+                text=_mode_label(mode, getattr(self, "_language", "en")),
+                fg_color=bg,
+                text_color=fg,
+            )
         except Exception as exc:
             logger.debug("Queue mode badge update skipped: %s", exc)
 
@@ -3367,7 +3398,7 @@ class CYOADownloaderGUI:
         menu = tk.Menu(self.root, tearoff=False)
         for mode in self.QUEUE_MODE_OPTIONS:
             menu.add_command(
-                label=mode.replace("_", " "),
+                label=_mode_label(mode, getattr(self, "_language", "en")),
                 command=lambda selected=mode: self._set_queue_item_mode(
                     item_ref, selected, badge))
         try:
@@ -3431,7 +3462,7 @@ class CYOADownloaderGUI:
         # menu so the URL can switch mode in place without remove/re-add.
         bg, fg = self._badge_colors(mode)
         badge = ctk.CTkButton(row,
-                              text=mode.replace("_", " "),
+                              text=_mode_label(mode, getattr(self, "_language", "en")),
                               font=ctk.CTkFont("Segoe UI", 9, "bold"),
                               fg_color=bg, hover_color=bg,
                               text_color=fg, corner_radius=10,
@@ -4154,7 +4185,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
 8) Troubleshooting
 ------------------
 • Gambar hilang: buka failed_images.txt lalu gunakan Retry Images.
-• Folder website bermasalah: buka melalui Serve, jangan langsung double-click index.html.
+• Folder ICC bermasalah: buka melalui Serve, jangan langsung double-click index.html.
 • Halaman Cloudflare: pilih Cloudflare Mode Auto atau FlareSolverr, lalu ulangi.
 • YouTube/audio gagal: instal yt-dlp, lalu buka Settings / Maintenance → Cookie YouTube, pilih cookies.txt format Netscape, klik Simpan, lalu gunakan Ulang Audio YT.
 • Import XLS/XLSX gagal: instal pandas, xlrd, dan openpyxl.
@@ -4721,12 +4752,12 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
         ).pack(anchor="w", padx=14, pady=(0, 12))
 
         mapping = (
-            "Folder → website_folder / cyoap_vue_folder\n"
-            "ZIP    → website_zip / cyoap_vue_zip\n\n"
+            "Folder → ICC Folder / cyoap_vue Folder\n"
+            "ZIP    → ICC ZIP / cyoap_vue ZIP\n\n"
             "This setting affects Auto mode in GUI queue, imported rows with mode=auto, and CLI batch rows with mode=auto."
             if is_en else
-            "Folder → website_folder / cyoap_vue_folder\n"
-            "ZIP    → website_zip / cyoap_vue_zip\n\n"
+            "Folder → Folder ICC / Folder cyoap_vue\n"
+            "ZIP    → ZIP ICC / ZIP cyoap_vue\n\n"
             "Pengaturan ini berlaku untuk mode Auto di antrean GUI, baris import dengan mode=auto, dan batch CLI dengan mode=auto."
         )
         ctk.CTkLabel(
@@ -5898,7 +5929,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 make_lbl("✓" if is_ok else "✗", 0,
                          color="#22c55e" if is_ok else "#ef4444")
                 make_lbl(r["url"], 1, mono=True)
-                make_lbl(r["mode"].replace("_", " "), 2, color=p["muted"])
+                make_lbl(_mode_label(r["mode"], getattr(self, "_language", "en")), 2, color=p["muted"])
                 make_lbl(r["filename"] or "[auto]", 3, color=p["muted"])
                 if not is_ok:
                     make_lbl(r["error"][:80], 4, color="#f87171")
@@ -8185,7 +8216,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             ("🧾  Contoh Template Excel / CSV", "green", [
                 ("Excel baris 1", "A1=url | B1=filename | C1=mode | D1=notes"),
                 ("Excel baris 2", "A2=https://author.neocities.org/cyoa/ | B2=Contoh_Satu | C2=website_folder | D2=folder ICC offline normal"),
-                ("Excel baris 3", "A3=https://example.com/story/ | B3=Contoh_Zip | C3=website_zip | D3=output website dikompres"),
+                ("Excel baris 3", "A3=https://example.com/story/ | B3=Contoh_Zip | C3=website_zip | D3=output ZIP ICC"),
                 ("Excel baris 4", "A4=https://example.com/project/ | B4=Contoh_JSON | C4=embed | D4=backup JSON embedded satu file"),
                 ("Baris CSV", "url,filename,mode,notes"),
                 ("Contoh CSV", "https://author.neocities.org/cyoa/,Contoh_Satu,website_folder,folder ICC offline normal"),
@@ -8418,7 +8449,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             headers = ["url", "filename", "mode", "notes"]
             rows = (
                 ["https://author.neocities.org/cyoa/", "Example_One" if is_en else "Contoh_Satu", "website_folder", "normal offline ICC folder" if is_en else "folder ICC offline normal"],
-                ["https://example.com/story/", "Example_Zip" if is_en else "Contoh_Zip", "website_zip", "compressed ICC output" if is_en else "output website dikompres"],
+                ["https://example.com/story/", "Example_Zip" if is_en else "Contoh_Zip", "website_zip", "compressed ICC output" if is_en else "output ZIP ICC"],
                 ["https://example.com/project/", "Example_JSON" if is_en else "Contoh_JSON", "embed", "single embedded JSON backup" if is_en else "backup JSON embedded satu file"],
                 ["https://example.com/cyoa-vue/", "Example_CYOAP_Vue" if is_en else "Contoh_CYOAP_Vue", "cyoap_vue_folder", "CYOA-P Vue folder output" if is_en else "output folder CYOA-P Vue"],
                 ["https://example.com/auto/", "Example_Auto" if is_en else "Contoh_Auto", "auto", "follows Settings → Default Auto Output" if is_en else "mengikuti Settings → Default Output Auto"],
@@ -8462,7 +8493,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 if is_en else
                 "url,filename,mode,notes\n"
                 "https://author.neocities.org/cyoa/,Contoh_Satu,website_folder,folder ICC offline normal\n"
-                "https://example.com/story/,Contoh_Zip,website_zip,output website dikompres\n"
+                "https://example.com/story/,Contoh_Zip,website_zip,output ZIP ICC\n"
                 "https://example.com/auto/,Contoh_Auto,auto,mengikuti Default Output Auto"
             )
             note = ctk.CTkFrame(parent, fg_color=p["surface2"], corner_radius=6)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime
 
 from ..logging_setup import logger
@@ -25,15 +26,21 @@ def prepare_clean_output_folder(folder: str) -> None:
 
 
 def _cleanup_recent_part_files(root: str, since: float) -> int:
-    """Remove only .part files created/modified by the current run."""
+    """Remove only downloader temporary files created/modified by this run.
+
+    A user may legitimately download or create an asset whose name ends in
+    ``.part``.  Atomic writers in this project use the more specific
+    ``<target>.<pid>.<thread>.part`` suffix, so cleanup must match that shape
+    instead of treating every ``*.part`` file as disposable.
+    """
     if not root or not os.path.isdir(root):
         return 0
     removed = 0
     for current_root, _dirs, files in os.walk(root):
         for name in files:
-            # Atomic downloads use ``<target>.<pid>.<thread>.part``. A real
-            # asset may legitimately contain ".part" in its basename.
-            if not name.endswith(".part"):
+            # Atomic downloads use ``<target>.<pid>.<thread>.part``. Do not
+            # delete user content such as ``asset.part``.
+            if not re.fullmatch(r".+\.\d+\.\d+\.part", name):
                 continue
             path = os.path.join(current_root, name)
             try:

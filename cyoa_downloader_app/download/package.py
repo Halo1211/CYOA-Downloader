@@ -31,6 +31,7 @@ from ..core.archive import validate_zip_archive
 from ..core.atomic_io import atomic_write_text, validate_response_content_length
 from ..core.cancellation import _emit_progress_event, _raise_if_cancelled
 from ..core.output import prepare_clean_output_folder, _cleanup_recent_part_files
+from ..core.paths import _safe_archive_rel_path
 from ..core.url_utils import canonicalize_url
 from ..network.throttle import _throttle_bandwidth
 
@@ -566,16 +567,25 @@ def zip_temp_folder(temp_path: str, zip_name: str = "") -> str:
     part = target + f".{os.getpid()}.{threading.get_ident()}.part"
     try:
         with zipfile.ZipFile(part, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as archive:
-            for root, _, files in os.walk(temp_path):
+            for root, dirs, files in os.walk(temp_path, followlinks=False):
                 _raise_if_cancelled()
+                # Do not dereference a symlink/junction while packaging. The
+                # temporary folder can contain attacker-controlled page
+                # content, and following one could copy files outside the
+                # intended download root into the resulting archive.
+                dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(root, d))]
                 for file in files:
                     _raise_if_cancelled()
                     abs_path = os.path.join(root, file)
+                    if os.path.islink(abs_path):
+                        logger.warning(f"Skipping linked file while creating ZIP: {abs_path}")
+                        continue
                     # ZIP spec requires '/' separators. On
                     # Windows os.path.relpath returns backslashes, so a member
                     # like "images\\a.png" would extract as one literal filename
                     # on macOS/Linux instead of an images/ subfolder. Normalize.
                     arc = os.path.relpath(abs_path, start=temp_path).replace("\\", "/")
+                    arc = _safe_archive_rel_path(arc)
                     archive.write(abs_path, arcname=arc)
         validate_zip_archive(part)
         os.replace(part, target)

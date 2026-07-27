@@ -144,7 +144,7 @@ class WebsiteDownloader:
         self._used_local_paths: Set[str] = set()
         parsed = urlparse(start_url)
         self.base_origin = f"{parsed.scheme}://{parsed.netloc}"
-        self.start_html_local = os.path.join(self.output_folder, "index.html")
+        self.start_html_local = _safe_join(self.output_folder, "index.html")
         self._success_items: List[Dict[str, str]] = []
         self._failed_items: List[Dict[str, str]] = []
         self._project_aliases: List[str] = []
@@ -612,7 +612,7 @@ class WebsiteDownloader:
         if kind == "html":
             return self.start_html_local
         if kind == "json" and urlparse(url).path.lower().endswith("project.json"):
-            return os.path.join(self.output_folder, "project.json")
+            return _safe_join(self.output_folder, "project.json")
 
         # ── Preserve original relative path from site root ────────────────
         parsed       = urlparse(url)
@@ -686,10 +686,11 @@ class WebsiteDownloader:
             root, ext = os.path.splitext(filename)
             digest = hashlib.sha1(normalized_query.encode("utf-8", "replace")).hexdigest()[:10]
             filename = f"{root}_{digest}{ext}"
-        folder = os.path.join(self.output_folder, kind if kind not in {"html", "json"} else "assets")
+        folder_name = kind if kind not in {"html", "json"} else "assets"
+        folder = _safe_join(self.output_folder, folder_name, fallback="assets")
         os.makedirs(folder, exist_ok=True)
 
-        local = os.path.join(folder, filename)
+        local = _safe_join(folder, filename, fallback=kind or "asset")
         root, ext = os.path.splitext(local)
         counter = 1
         while local in self._used_local_paths:
@@ -1700,7 +1701,7 @@ class WebsiteDownloader:
     # ── Methods that were previously monkey-patched — now proper class methods ──
 
     def _ensure_youtube_iframe_api_stub(self) -> str:
-        stub_local = os.path.join(self.output_folder, "js", "youtube-iframe-api-stub.js")
+        stub_local = _safe_join(self.output_folder, "js/youtube-iframe-api-stub.js")
         os.makedirs(os.path.dirname(stub_local), exist_ok=True)
         # Always overwrite — ensures new HTML5 audio version replaces old dummy stub
         stub = r"""(function(){
@@ -1828,7 +1829,7 @@ class WebsiteDownloader:
         return stub_local
 
     def write_project_payload(self, project_url: str, project_text: str) -> None:
-        root_local = os.path.join(self.output_folder, "project.json")
+        root_local = _safe_join(self.output_folder, "project.json")
         pathlib.Path(root_local).write_text(project_text, encoding="utf-8")
         root_abs = os.path.abspath(root_local)
         self._source_for_local[root_abs] = project_url or self.start_url
@@ -1841,7 +1842,7 @@ class WebsiteDownloader:
             parsed = urlparse(project_url)
             basename = os.path.basename(parsed.path)
             if basename and basename.lower() != "project.json":
-                alias_paths.add(os.path.join(self.output_folder, basename))
+                alias_paths.add(_safe_join(self.output_folder, basename, fallback="project"))
 
         for alias in alias_paths:
             if os.path.abspath(alias) == root_abs:
@@ -1916,7 +1917,7 @@ class WebsiteDownloader:
                 lines.append("")
             report_text += "\n".join(lines)
 
-        manifest_path = os.path.join(self.output_folder, "backup_report.txt")
+        manifest_path = _safe_join(self.output_folder, "backup_report.txt")
         pathlib.Path(manifest_path).write_text(report_text, encoding="utf-8")
         logger.info(f"  Manifest: {os.path.relpath(manifest_path, self.output_folder)}")
         if failed:

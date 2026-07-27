@@ -60,7 +60,12 @@ def _looks_like_custom_viewer_html(text: str) -> bool:
 
 
 def _cyoa_cafe_record_id(url: str) -> str:
-    """Return a validated PocketBase record id for a /game/<id> URL."""
+    """Return the validated key from a /game/<id-or-slug> URL.
+
+    Older CYOA.CAFE links used the PocketBase record id.  The catalog now also
+    emits human-readable slugs in the same route, so the value is a route key
+    rather than necessarily a PocketBase id.
+    """
     try:
         normalized = canonicalize_url(str(url or "").strip())
         parsed = urlparse(normalized)
@@ -71,6 +76,15 @@ def _cyoa_cafe_record_id(url: str) -> str:
         return ""
     record_id = parts[1]
     return record_id if re.fullmatch(r"[A-Za-z0-9_-]{1,64}", record_id) else ""
+
+
+def _cyoa_cafe_slug_api_url(slug: str) -> str:
+    """Build the exact PocketBase slug lookup used by current catalog routes."""
+    expression = f"slug='{str(slug or '').strip()}'"
+    return (
+        "https://cyoa.cafe/api/collections/games/records"
+        f"?filter={quote(expression, safe='')}&perPage=10"
+    )
 
 
 def fetch_cyoa_cafe_record(url: str, *, timeout: int = 15, fetcher: Optional[Any] = None) -> Optional[Dict[str, Any]]:
@@ -91,27 +105,53 @@ def fetch_cyoa_cafe_record(url: str, *, timeout: int = 15, fetcher: Optional[Any
             return dict(cached[1])
         if cached:
             _CYOA_CAFE_RECORD_CACHE.pop(cache_key, None)
-    api_url = f"https://cyoa.cafe/api/collections/games/records/{quote(record_id, safe='')}"
     fetch = fetcher or CYOACafeResolver._default_fetch
-    response = None
-    try:
+    # /game/<key> historically addressed the record directly.  Current links
+    # may use a slug, for which the direct endpoint returns 404; fall back to
+    # PocketBase's exact slug filter in that case.
+    api_urls = [
+        "https://cyoa.cafe/api/collections/games/records/"
+        f"{quote(record_id, safe='')}",
+        _cyoa_cafe_slug_api_url(record_id),
+    ]
+    data: Any = None
+    for api_url in api_urls:
+        response = None
         try:
-            response = fetch(api_url, timeout=max(3, int(timeout)))
-        except TypeError:
-            response = fetch(api_url)
-        if response is None or CYOACafeResolver._response_status(response) >= 400:
-            return None
-        data = CYOACafeResolver._json_from_response(response)
-    except Exception as exc:
-        logger.debug("cyoa.cafe record fetch failed for %s: %s", record_id, exc)
-        return None
-    finally:
-        if response is not None:
             try:
-                response.close()
-            except Exception:
-                pass
-    if not isinstance(data, dict) or str(data.get("id") or "") != record_id:
+                response = fetch(api_url, timeout=max(3, int(timeout)))
+            except TypeError:
+                response = fetch(api_url)
+            if response is None or CYOACafeResolver._response_status(response) >= 400:
+                continue
+            data = CYOACafeResolver._json_from_response(response)
+        except Exception as exc:
+            logger.debug("cyoa.cafe record fetch failed for %s via %s: %s", record_id, api_url, exc)
+            continue
+        finally:
+            if response is not None:
+                try:
+                    response.close()
+                except Exception:
+                    pass
+
+        if isinstance(data, dict) and str(data.get("id") or "") == record_id:
+            break
+        items = data.get("items") if isinstance(data, dict) else None
+        matching = next(
+            (
+                item for item in items
+                if isinstance(item, dict)
+                and str(item.get("slug") or "") == record_id
+            ),
+            None,
+        ) if isinstance(items, list) else None
+        if matching is not None:
+            data = matching
+            break
+        data = None
+
+    if not isinstance(data, dict) or not str(data.get("id") or ""):
         return None
     with _CYOA_CAFE_CACHE_LOCK:
         _CYOA_CAFE_RECORD_CACHE[cache_key] = (now + _CYOA_CAFE_CACHE_TTL, dict(data))
@@ -373,6 +413,9 @@ class CYOACafeResolver:
                     ]
             record_id = parts[1]
             api_urls.append(f"https://cyoa.cafe/api/collections/games/records/{quote(record_id, safe='')}")
+            # New catalog routes use /game/<slug>; retain the id endpoint above
+            # for legacy links and query the slug when it is not an id.
+            api_urls.append(_cyoa_cafe_slug_api_url(record_id))
         elif host.endswith(".cyoa.cafe") and host != "cyoa.cafe":
             slug = parts[0] if parts else ""
             if slug:

@@ -43,6 +43,7 @@ from ..download.headers import get_headers_for_url
 from ..download.package import zip_temp_folder
 from ..download.asset_scan import _safe_response_text
 from ..network.fetch import fetch_response
+from ..integrations.ai_core import _ssrf_block_cross_origin
 
 
 def _legacy():
@@ -154,6 +155,10 @@ def try_download_cyoap_vue_site(
     website_zip_output: bool = True,
     max_workers: int = DEFAULT_MAX_WORKERS,
 ) -> bool:
+    try:
+        max_workers = max(1, min(64, int(max_workers or DEFAULT_MAX_WORKERS)))
+    except (TypeError, ValueError, OverflowError):
+        max_workers = DEFAULT_MAX_WORKERS
     base_url = _directory_base_url(start_url)
     platform_url = urljoin(base_url, "dist/platform.json")
     list_url = urljoin(base_url, "dist/nodes/list.json")
@@ -182,6 +187,15 @@ def try_download_cyoap_vue_site(
             failed_by_kind.setdefault(kind, []).append(remote_url)
 
     def fetch_remote(remote_url: str, *, kind: str = "assets", binary: bool = False, referrer: str = ""):
+        # Project JSON is remote input. Apply the same cross-origin internal-host
+        # policy used by the standard website/image pipelines before any request
+        # reaches the network stack. Exact same-origin localhost CYOAP sites
+        # remain supported by the guard.
+        ssrf_base = referrer or base_url
+        if _ssrf_block_cross_origin(remote_url, ssrf_base):
+            record_failed(remote_url, kind, "blocked: cross-origin internal host")
+            logger.warning("[SSRF blocked] CYOAP Vue asset: %s", remote_url)
+            return None
         headers = get_headers_for_url(remote_url) or {"User-Agent": "Mozilla/5.0"}
         if referrer:
             parsed = urlparse(referrer)
@@ -288,7 +302,11 @@ def try_download_cyoap_vue_site(
 
     page_text = fetch_remote(start_url, kind="html", binary=False, referrer=base_url)
     if page_text is not None:
-        page_local = _cyoap_local_path(output_folder, start_url)
+        # An extensionless entry route such as /game maps to the local
+        # directory /game because its dist assets live below /game/. Force the
+        # page mapping through the directory form so it becomes /game/index.html
+        # instead of colliding with that directory on disk.
+        page_local = _cyoap_local_path(output_folder, start_url.rstrip("/") + "/")
         os.makedirs(os.path.dirname(page_local), exist_ok=True)
         pathlib.Path(page_local).write_text(page_text, encoding="utf-8")
         seen_downloads.add(start_url)

@@ -76,6 +76,21 @@ def base_fetch_response(
                 sanitized.pop(name, None)
         return sanitized
 
+    def _accept_backend_result(value):
+        """Keep FlareSolverr error semantics aligned with normal requests."""
+        if (
+            isinstance(value, requests.Response)
+            and int(getattr(value, "status_code", 0) or 0) >= 400
+            and not return_error_response
+        ):
+            try:
+                value.close()
+            except Exception:
+                # FlareSolverr response-like objects may not have a raw socket.
+                pass
+            return None
+        return value
+
     def _do_request(*, use_cf_session: bool = False, verify_ssl: bool = True):
         try:
             session = _get_shared_session(use_cf=bool(use_cf_session))
@@ -178,6 +193,7 @@ def base_fetch_response(
         if result == "SSL_ERROR":
             ssl_error = True
             break
+        result = _accept_backend_result(result)
         if result is not None:
             l.logger.info(f"Downloaded: {url}" + (f" via {label}" if label != "normal" else ""))
             return result
@@ -195,6 +211,7 @@ def base_fetch_response(
                     result = fetch_via_flaresolverr(url, extra_headers=headers, timeout=timeout)
                 else:
                     result = _do_request(use_cf_session=True, verify_ssl=True)
+                result = _accept_backend_result(result)
                 if result in {"SSL_ERROR", "CF_CHALLENGE"}:
                     continue
                 if result is not None:
@@ -204,11 +221,13 @@ def base_fetch_response(
             return None
         l.logger.info("[Cloudflare] Auto mode: trying cloudscraper fallback…")
         result = _do_request(use_cf_session=True, verify_ssl=True)
+        result = _accept_backend_result(result)
         if result and result not in {"SSL_ERROR", "CF_CHALLENGE"}:
             l.logger.info(f"Downloaded: {url} via cloudscraper")
             return result
         l.logger.info("[Cloudflare] Auto mode: trying FlareSolverr fallback…")
         result = fetch_via_flaresolverr(url, extra_headers=headers, timeout=timeout)
+        result = _accept_backend_result(result)
         if result is not None and result not in {"SSL_ERROR", "CF_CHALLENGE"}:
             return result
 

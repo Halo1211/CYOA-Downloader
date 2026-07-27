@@ -52,6 +52,16 @@ def _safe_join(root: str, rel_path: str, fallback: str = "asset") -> str:
     target = os.path.abspath(os.path.join(root_abs, *safe_rel.split("/")))
     if target != root_abs and not target.startswith(root_abs + os.sep):
         raise ValueError(f"Unsafe output path rejected: {rel_path!r}")
+    # The lexical check above is insufficient when an existing directory or
+    # file component is a symlink/junction/reparse point. Resolve existing
+    # components before returning a path so writes cannot escape the selected
+    # output root through filesystem indirection.
+    root_real = os.path.realpath(root_abs)
+    if os.path.lexists(root_abs) and root_real != root_abs:
+        raise ValueError(f"Output root must not be a symlink or junction: {root!r}")
+    target_real = os.path.realpath(target)
+    if target_real != root_real and not target_real.startswith(root_real + os.sep):
+        raise ValueError(f"Unsafe linked output path rejected: {rel_path!r}")
     return target
 
 def _safe_archive_rel_path(member: str) -> str:
@@ -70,6 +80,8 @@ def _safe_archive_rel_path(member: str) -> str:
             raise ValueError(f"Unsafe archive path rejected: {member!r}")
         if re.match(r"^[A-Za-z]:", part) or any(ch in part for ch in "<>:\"|?*\x00"):
             raise ValueError(f"Unsafe archive path rejected: {member!r}")
+        if _is_windows_reserved_basename(part):
+            raise ValueError(f"Unsafe archive path rejected: {member!r}")
         parts.append(part)
     if not parts:
         raise ValueError(f"Unsafe archive path rejected: {member!r}")
@@ -82,6 +94,12 @@ def _safe_archive_join(root: str, member: str) -> str:
     target = os.path.abspath(os.path.join(root_abs, *rel.split("/")))
     if target == root_abs or not target.startswith(root_abs + os.sep):
         raise ValueError(f"Unsafe archive path rejected: {member!r}")
+    root_real = os.path.realpath(root_abs)
+    if os.path.lexists(root_abs) and root_real != root_abs:
+        raise ValueError(f"Archive output root must not be a symlink or junction: {root!r}")
+    target_real = os.path.realpath(target)
+    if target_real == root_real or not target_real.startswith(root_real + os.sep):
+        raise ValueError(f"Unsafe linked archive path rejected: {member!r}")
     return target
 
 def _copytree_merge_safe(src_dir: str, dst_dir: str, *, label: str = "assets") -> int:
