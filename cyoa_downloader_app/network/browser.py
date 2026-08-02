@@ -5,12 +5,87 @@ from __future__ import annotations
 import os
 import pathlib
 import sys
+import threading
+from dataclasses import dataclass
+from typing import Dict
 from typing import Optional
 
 import requests
 
 from ..logging_setup import logger
 from .sessions import create_retry_session
+
+
+@dataclass(frozen=True)
+class BrowserFetchResult:
+    content: bytes
+    headers: Dict[str, str]
+    status: int
+    url: str
+
+
+class BrowserFetchSession:
+    """Reusable Playwright transport for sites that rate-limit HTTP clients."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._playwright = None
+        self._browser = None
+        self._context = None
+        self._page = None
+
+    def _ensure(self) -> None:
+        if self._page is not None:
+            return
+        from playwright.sync_api import sync_playwright
+
+        self._playwright = sync_playwright().start()
+        self._browser = self._playwright.chromium.launch(
+            headless=True, args=["--no-sandbox"],
+        )
+        self._context = self._browser.new_context(
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36"
+            ),
+            ignore_https_errors=True,
+        )
+        self._page = self._context.new_page()
+
+    def fetch(self, url: str, *, timeout_ms: int = 45_000) -> Optional[BrowserFetchResult]:
+        with self._lock:
+            try:
+                self._ensure()
+                response = self._page.goto(
+                    url, wait_until="domcontentloaded", timeout=timeout_ms,
+                )
+                if response is None or not response.ok:
+                    return None
+                return BrowserFetchResult(
+                    content=response.body(),
+                    headers={str(k): str(v) for k, v in response.headers.items()},
+                    status=int(response.status),
+                    url=str(response.url),
+                )
+            except Exception as exc:
+                logger.debug("Reusable browser fetch failed (%s): %s", url, exc)
+                return None
+
+    def close(self) -> None:
+        with self._lock:
+            for obj in (self._page, self._context, self._browser):
+                try:
+                    if obj is not None:
+                        obj.close()
+                except Exception:
+                    pass
+            self._page = self._context = self._browser = None
+            try:
+                if self._playwright is not None:
+                    self._playwright.stop()
+            except Exception:
+                pass
+            self._playwright = None
 
 def _make_cookie_session(browser: str = "chrome") -> Optional["requests.Session"]:
     """
@@ -205,4 +280,7 @@ def _fetch_headless(url: str, reject_error_documents: bool = False) -> Optional[
 
     return None
 
-__all__ = ["_make_cookie_session", "_fetch_headless"]
+__all__ = [
+    "BrowserFetchResult", "BrowserFetchSession",
+    "_make_cookie_session", "_fetch_headless",
+]

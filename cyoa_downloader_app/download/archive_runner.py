@@ -53,6 +53,13 @@ def run_archive_extensions(downloader, policy: ArchivePolicy):
     crawl = RouteCrawler(downloader, policy).crawl()
     runtime = None
     if policy.capture_runtime:
+        # Route crawling may have enabled WebsiteDownloader's reusable
+        # Playwright transport after an HTTP 429. Close it before starting the
+        # dedicated runtime-capture Playwright lifecycle; nested Sync API
+        # instances otherwise fail and skip late assets.
+        close_transport = getattr(downloader, "close", None)
+        if callable(close_transport):
+            close_transport()
         from ..network.runtime_capture import capture_runtime_assets
         runtime_urls = list(crawl.pages.keys())[:policy.runtime_max_pages]
         runtime = capture_runtime_assets(

@@ -119,6 +119,22 @@ def truncate_display_url(url: str, max_length: int = 72) -> str:
 def canonicalize_url(url: str) -> str:
     """Canonicalize HTTP(S) URLs for deterministic deduplication/cache keys."""
     text = str(url or "").strip()
+    # People commonly paste a host/path without a protocol into the GUI or a
+    # batch file.  Treat a syntactically host-like value as HTTPS while still
+    # rejecting relative paths and explicit unsafe schemes (file:, ftp:,
+    # javascript:, and so on).  Do this before urlparse(), which otherwise
+    # mistakes ``example.com:8080`` for a custom URI scheme.
+    bare_host = re.match(
+        r"^(?:localhost|(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+"
+        r"[A-Za-z]{2,63}|(?:\d{1,3}\.){3}\d{1,3}|\[[0-9A-Fa-f:.]+\])"
+        r"(?::\d{1,5})?(?:[/?#]|$)",
+        text,
+        re.IGNORECASE,
+    )
+    if text.startswith("//"):
+        text = "https:" + text
+    elif bare_host:
+        text = "https://" + text
     parsed = urlparse(text)
     scheme = parsed.scheme.lower()
     if scheme not in {"http", "https"}:

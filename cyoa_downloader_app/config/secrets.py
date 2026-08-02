@@ -5,7 +5,7 @@ from __future__ import annotations
 # Schema version is bumped only when the settings shape changes in a way that
 # importers must know about. Export/import are additive and never touch the
 # download pipeline or output formats.
-_SETTINGS_SCHEMA_VERSION = 1
+_SETTINGS_SCHEMA_VERSION = 3
 
 # Keys that must NEVER leave the machine in an export. Anything matching an
 # exact name OR any of the substring fragments below is dropped (denylist, not

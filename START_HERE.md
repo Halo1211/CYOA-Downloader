@@ -1,5 +1,8 @@
 # Start here
 
+New users can follow the [Beginner Guide](docs/BEGINNER_GUIDE.md), which walks
+through installation, the first download, and checking the finished backup.
+
 ## Windows users
 
 1. Download `CYOA-Downloader-Windows-x64.zip` from the [GitHub Releases page](https://github.com/Halo1211/CYOA-Downloader/releases).

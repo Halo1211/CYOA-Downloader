@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import threading
 from typing import Dict, List, Optional, Set, Tuple
 from urllib.parse import parse_qsl, unquote, urlencode, urljoin, urlparse, urlunparse
 
@@ -40,6 +41,13 @@ from .audio_download import _make_ytdlp_hook, _download_youtube_audio
 from .headers import get_headers_for_url
 from ..core.cancellation import _cancel_requested, _raise_if_cancelled
 from ..core.progress import DownloadCancelledError
+from ..integrations.discord_attachments import (
+    DiscordAttachmentClient,
+    REFRESHABLE_HTTP_STATUSES,
+    discord_recovery_enabled,
+    is_discord_attachment_url,
+    resolve_discord_bot_token,
+)
 
 
 _DEEP_SCAN_IMAGE_EXTENSIONS = {
@@ -378,6 +386,43 @@ def process_images(
         if download:
             download_map[_yt_rel] = _yt_rel
 
+    # Discord recovery belongs here, after project discovery and before files
+    # are localized. It therefore works identically for project.json and for a
+    # project object extracted from an embedded JavaScript bundle.
+    discord_urls = {path for path in image_paths if is_discord_attachment_url(path)}
+    discord_client = None
+    discord_refresh_lock = threading.Lock()
+    discord_refreshed_urls: Dict[str, str] = {}
+    if discord_urls and discord_recovery_enabled():
+        discord_token = resolve_discord_bot_token()
+        if discord_token:
+            discord_client = DiscordAttachmentClient(discord_token)
+            logger.info(
+                "Discord recovery is active for %d attachment(s); direct download is tried first.",
+                len(discord_urls),
+            )
+        else:
+            logger.info(
+                "Discord attachment URL(s) found. Configure a Bot Token in Settings > "
+                "Discord Attachments to recover expired URLs automatically."
+            )
+
+    def _refresh_discord_url(original_url: str) -> str:
+        if discord_client is None or not is_discord_attachment_url(original_url):
+            return ""
+        # Multiple image workers can fail together. Serialize this small API
+        # call and memoize each original URL so it is refreshed at most once.
+        with discord_refresh_lock:
+            if original_url in discord_refreshed_urls:
+                return discord_refreshed_urls[original_url]
+            try:
+                refreshed = discord_client.refresh_urls([original_url]).get(original_url, "")
+            except Exception as exc:
+                logger.warning("Discord URL refresh failed: %s", exc)
+                refreshed = ""
+            discord_refreshed_urls[original_url] = refreshed
+            return refreshed
+
     def fetch_one(asset_path: str):
         asset_url = (
             asset_path
@@ -415,6 +460,7 @@ def process_images(
         last_err = ""
         permanent_http_failure = False
         _cookie_session_tried = False
+        _discord_refresh_tried = False
 
         for attempt in range(4):  # 4 attempts: 3 normal + 1 cookie
             r = None
@@ -471,6 +517,19 @@ def process_images(
                     logger.warning(f"{r.status_code} — backoff {backoff:.1f}s: {asset_url}")
                     _cancel_aware_sleep(backoff)
                     continue
+
+                if (
+                    r.status_code in REFRESHABLE_HTTP_STATUSES
+                    and not _discord_refresh_tried
+                    and is_discord_attachment_url(asset_url)
+                ):
+                    _discord_refresh_tried = True
+                    refreshed_url = _refresh_discord_url(asset_url)
+                    if refreshed_url and refreshed_url != asset_url:
+                        logger.info("  [Discord] Refreshed expired attachment URL")
+                        asset_url = refreshed_url
+                        headers = get_headers_for_url(asset_url) or {}
+                        continue
 
                 if r.status_code in (404, 410):
                     last_err = f"HTTP {r.status_code}: asset not found"

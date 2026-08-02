@@ -136,7 +136,11 @@ def base_fetch_response(
                 # them before escalating so retries do not exhaust the pool.
                 r.close()
                 return "CF_CHALLENGE"
-            if return_error_response and r.status_code in {429, 500, 502, 503, 504}:
+            # ``return_error_response`` is used by diagnostics and archive
+            # callers that need the actual status (for example 404 versus a
+            # transport failure).  Limiting this to a handful of retryable
+            # statuses made the option silently discard other HTTP errors.
+            if return_error_response and r.status_code >= 400:
                 return r
             r.raise_for_status()
             if as_bytes:
@@ -161,11 +165,23 @@ def base_fetch_response(
             # Do not classify plain HTTP 429 as Cloudflare; callers may need Retry-After.
             status = getattr(getattr(e, "response", None), "status_code", None)
             if status in {403, 503}:
+                response = getattr(e, "response", None)
+                if response is not None:
+                    try:
+                        response.close()
+                    except Exception:
+                        pass
                 return "CF_CHALLENGE"
             if quiet:
                 l.logger.debug(f"Probe miss: {url} — {e}")
             else:
                 l.logger.error(f"Error: {url} — {e}")
+            response = getattr(e, "response", None)
+            if response is not None:
+                try:
+                    response.close()
+                except Exception:
+                    pass
             return None
 
     cf_mode = _normalize_cloudflare_mode(l._CLOUDFLARE_MODE)
@@ -222,7 +238,9 @@ def base_fetch_response(
         l.logger.info("[Cloudflare] Auto mode: trying cloudscraper fallback…")
         result = _do_request(use_cf_session=True, verify_ssl=True)
         result = _accept_backend_result(result)
-        if result and result not in {"SSL_ERROR", "CF_CHALLENGE"}:
+        # requests.Response is falsey for HTTP 4xx/5xx.  An error response is
+        # nevertheless a valid result when return_error_response=True.
+        if result is not None and result not in {"SSL_ERROR", "CF_CHALLENGE"}:
             l.logger.info(f"Downloaded: {url} via cloudscraper")
             return result
         l.logger.info("[Cloudflare] Auto mode: trying FlareSolverr fallback…")

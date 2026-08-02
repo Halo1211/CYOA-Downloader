@@ -28,13 +28,9 @@ jobs:
           python -m pip install -r requirements-optional.txt
           python -m pip install -r requirements-dev.txt
 
-      - name: Build executable
+      - name: Test and build executable
         shell: pwsh
-        run: python -m PyInstaller --clean --noconfirm CYOA-Downloader.spec
-
-      - name: Archive executable
-        shell: pwsh
-        run: Compress-Archive -Path "dist\CYOA Downloader.exe" -DestinationPath "dist\CYOA-Downloader-Windows-x64.zip"
+        run: .\tools\build_windows.ps1 -SkipInstall
 
       - name: Upload executable artifact
         uses: actions/upload-artifact@v4

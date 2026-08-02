@@ -52,7 +52,7 @@ def test_cli_report_is_safe_on_legacy_windows_encoding():
     stream = io.TextIOWrapper(raw, encoding="cp1252", errors="strict")
     _safe_console_print("PASS ✓ / FAIL ✗", file=stream)
     stream.flush()
-    assert b"PASS ? / FAIL ?" in raw.getvalue()
+    assert b"PASS OK / FAIL X" in raw.getvalue()
 
 
 def test_package_verifier_ignores_minified_js_and_source_map_false_positives(tmp_path):

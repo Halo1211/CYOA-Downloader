@@ -38,7 +38,7 @@ from ..core.atomic_io import atomic_write_text
 from ..core.cancellation import _raise_if_cancelled
 from ..core.progress import DownloadCancelledError
 from ..core.paths import _safe_join
-from ..core.url_utils import _directory_base_url
+from ..core.url_utils import _directory_base_url, canonicalize_url
 from ..diagnostics.reports import format_backup_report_text
 from ..integrations.ai_core import (
     AIUsageBudget,
@@ -49,6 +49,7 @@ from ..integrations.ai_core import (
 )
 from ..config.settings import _load_settings
 from ..logging_setup import logger
+from ..network.browser import BrowserFetchSession
 from ..project.discover import get_source, url_file_exists, get_first_folder_from_url, strip_document_from_url
 from ..project.parse import is_zip_bytes
 
@@ -103,7 +104,12 @@ class WebsiteDownloader:
     """
 
     _quoted_asset_re = re.compile(
-        r'(?P<quote>["\'])(?P<url>(?:https?:)?//[^"\']+|(?:\./|\.\./|/)?[^"\']+\.(?:json|txt|zip|js|mjs|css|png|jpe?g|gif|webp|avif|bmp|svg|ico|mp3|ogg|wav|m4a|aac|opus|woff2?|ttf|otf|eot)(?:\?[^"\']*)?)(?P=quote)',
+        # Only rewrite real string delimiters. Framework payloads such as
+        # Next.js React Flight embed JSON inside a JavaScript string and use
+        # escaped delimiters (\"/_next/...js\"). Treating those escaped quotes
+        # as delimiters removes their backslashes and makes the whole inline
+        # script invalid JavaScript.
+        r'(?<!\\)(?P<quote>["\'])(?P<url>(?:https?:)?//[^"\']+|(?:\./|\.\./|/)?[^"\']+\.(?:json|txt|zip|js|mjs|css|png|jpe?g|gif|webp|avif|bmp|svg|ico|mp3|ogg|wav|m4a|aac|opus|woff2?|ttf|otf|eot)(?:\?[^"\']*)?)(?<!\\)(?P=quote)',
         re.IGNORECASE,
     )
     _css_url_re = re.compile(r'url\(([^)]+)\)', re.IGNORECASE)
@@ -123,7 +129,7 @@ class WebsiteDownloader:
                  ai_mode: str = "auto_fallback",
                  ai_budget: Optional[AIUsageBudget] = None,
                  archive_strategy: str = "classic") -> None:
-        self.start_url     = start_url
+        self.start_url     = canonicalize_url(start_url)
         self.output_folder = output_folder
         self.max_workers   = max_workers
         self.ai_api_key    = ai_api_key
@@ -135,14 +141,14 @@ class WebsiteDownloader:
         # relative paths).  Extensionless routes such as ``/drukhari`` are
         # viewer directories, not documents; the shared helper preserves
         # that final route segment.
-        self.base_url = _directory_base_url(start_url)
+        self.base_url = _directory_base_url(self.start_url)
         self.max_workers = max_workers
         self.session = create_retry_session()
         self._lock = threading.Lock()
         self._downloaded: Dict[str, str] = {}
         self._source_for_local: Dict[str, str] = {}
         self._used_local_paths: Set[str] = set()
-        parsed = urlparse(start_url)
+        parsed = urlparse(self.start_url)
         self.base_origin = f"{parsed.scheme}://{parsed.netloc}"
         self.start_html_local = _safe_join(self.output_folder, "index.html")
         self._success_items: List[Dict[str, str]] = []
@@ -150,18 +156,101 @@ class WebsiteDownloader:
         self._project_aliases: List[str] = []
         self._collision_log: List[Dict[str, str]] = []
         self._custom_viewer_route = False
+        self._browser_fetch_session = None
+        self._browser_transport_preferred = False
+
+    def close(self) -> None:
+        """Release an optional reusable browser transport."""
+        session = self._browser_fetch_session
+        self._browser_fetch_session = None
+        if session is not None:
+            try:
+                session.close()
+            except Exception:
+                pass
+
+    def __del__(self) -> None:  # pragma: no cover - best-effort process cleanup
+        try:
+            self.close()
+        except Exception:
+            pass
+
+    def _fetch_with_browser(self, url: str) -> Optional[requests.Response]:
+        """Return a requests-compatible response from a shared browser page."""
+        if self.archive_strategy not in {"auto", "browser"}:
+            return None
+        try:
+            parsed = urlparse(url)
+            start = urlparse(self.start_url)
+            if (parsed.scheme.lower(), parsed.netloc.lower()) != (
+                start.scheme.lower(), start.netloc.lower(),
+            ):
+                return None
+            if self._browser_fetch_session is None:
+                self._browser_fetch_session = BrowserFetchSession()
+            fetched = self._browser_fetch_session.fetch(url)
+            if fetched is None:
+                return None
+            response = requests.Response()
+            response.status_code = fetched.status
+            response.url = fetched.url
+            response.headers.update(fetched.headers)
+            response._content = fetched.content
+            # This response is synthesized from an already-buffered browser
+            # body and has no urllib3 ``raw`` stream. Mark it consumed so
+            # requests.iter_content() slices ``_content`` instead of trying to
+            # call ``response.raw.read``.
+            response._content_consumed = True
+            # Browser response bodies preserve the server bytes. Do not run
+            # statistical encoding detection here: short/minified documents
+            # containing mostly ASCII can be misclassified as a Windows code
+            # page, corrupting UTF-8 punctuation and emoji inside React Flight
+            # payloads. That produces valid JavaScript with different data and
+            # silently prevents framework hydration.
+            declared_encoding = requests.utils.get_encoding_from_headers(response.headers)
+            if str(declared_encoding or "").lower() in {
+                "", "iso-8859-1", "iso8859-1", "latin-1", "latin1",
+            }:
+                declared_encoding = "utf-8"
+            response.encoding = declared_encoding
+            self._browser_transport_preferred = True
+            logger.info("  [Browser transport] %s -> %d bytes", url, len(fetched.content))
+            return response
+        except Exception as exc:
+            logger.debug("Browser transport unavailable for %s: %s", url, exc)
+            return None
 
     def download(self) -> None:
         os.makedirs(self.output_folder, exist_ok=True)
         logger.info(f"ICC download started: {self.start_url}")
         self._download_html(self.start_url, self.start_html_local)
         logger.info(f"ICC package saved: {self.output_folder}/")
+
+        # Auto profiling depends on the localized entry HTML and its directly
+        # linked bundles, so resolve it here before deciding whether deep scan
+        # is redundant. Previously Auto skipped deep scan here and was only
+        # profiled later by run_archive_extensions(); targets that ultimately
+        # selected Classic therefore received neither deep scan nor runtime
+        # capture.
+        auto_profile = getattr(self, "archive_auto_profile", None)
+        if self.archive_strategy == "auto" and auto_profile is None:
+            try:
+                from .archive_profiler import profile_archive_target
+
+                auto_profile = profile_archive_target(self)
+                self.archive_auto_profile = auto_profile
+            except Exception as exc:
+                # Profiling is an optimization. Falling back to deep scan is
+                # safer than silently reducing archive coverage.
+                logger.warning(
+                    "Auto archive profiling failed; keeping generic deep scan enabled: %s",
+                    exc,
+                )
+
         # Deep scan: find assets referenced in JS/CSS bundles not in HTML
         if (
             self.archive_strategy == "auto"
-            and _auto_profile_uses_project_data(
-                getattr(self, "archive_auto_profile", None)
-            )
+            and _auto_profile_uses_project_data(auto_profile)
         ):
             logger.info(
                 "[Auto] Project data is authoritative; skipping redundant "
@@ -174,6 +263,7 @@ class WebsiteDownloader:
             folder=self.output_folder,
             base_url=self.base_url,
             output_dir=self.output_folder,
+            max_workers=self.max_workers,
             ai_api_key=self.ai_api_key,
             ai_provider=self.ai_provider,
             ai_mode=self.ai_mode,
@@ -429,6 +519,11 @@ class WebsiteDownloader:
         """Second-pass scan for downloaded text and JSON assets."""
         for root, _, files in os.walk(self.output_folder):
             for name in files:
+                if name in {
+                    "archive_manifest.json", "download_state.json",
+                    "download_history.json", "cyoa_manifest.json",
+                }:
+                    continue
                 ext = os.path.splitext(name)[1].lower()
                 if ext not in {".html", ".css", ".js", ".mjs", ".json"}:
                     continue
@@ -463,7 +558,15 @@ class WebsiteDownloader:
         headers = self._headers_for(url)
         try:
             _raise_if_cancelled()
-            r = fetch_response(url, extra_headers=headers, timeout=20, as_bytes=False, stream=True)
+            if self._browser_transport_preferred:
+                r = self._fetch_with_browser(url)
+                if r is None:
+                    self._failed_items.append({"url": url, "error": "browser transport failed"})
+                    return None
+            else:
+                r = fetch_response(url, extra_headers=headers, timeout=20, as_bytes=False, stream=True)
+                if r is None:
+                    r = self._fetch_with_browser(url)
             if r is None:
                 self._failed_items.append({"url": url, "error": "request failed"})
                 return None
@@ -712,6 +815,29 @@ class WebsiteDownloader:
 
     def _rel(self, from_file: str, to_file: str) -> str:
         return os.path.relpath(to_file, os.path.dirname(from_file)).replace("\\", "/")
+
+    def _local_asset_reference(self, from_file: str, to_file: str) -> str:
+        """Return a browser-safe local reference for a downloaded asset.
+
+        Next.js client chunks pass image strings back through ``next/image``,
+        which accepts absolute URLs or paths beginning with ``/`` but rejects
+        ordinary filesystem-relative values such as ``../../../images/x.png``.
+        A Next.js archive already needs an HTTP server for its root-relative
+        runtime chunks, so keep rewritten bundle assets root-relative too.
+        """
+        relative = self._rel(from_file, to_file)
+        try:
+            owner = os.path.relpath(from_file, self.output_folder).replace("\\", "/")
+            target = os.path.relpath(to_file, self.output_folder).replace("\\", "/")
+            if (
+                owner.lower().startswith("_next/static/")
+                and target not in {"", "."}
+                and not target.startswith(("../", "/"))
+            ):
+                return "/" + target
+        except (OSError, ValueError):
+            pass
+        return relative
 
     def _download_asset(self, url: str, preferred_kind: str = "", referrer_url: Optional[str] = None) -> Optional[str]:
         _raise_if_cancelled()
@@ -1019,7 +1145,7 @@ class WebsiteDownloader:
             )
             if not local:
                 return m.group(0)
-            rel = self._rel(local_text_path, local)
+            rel = self._local_asset_reference(local_text_path, local)
             return f'{m.group("quote")}{rel}{m.group("quote")}'
         rewritten = self._quoted_asset_re.sub(repl, text)
 
@@ -1041,7 +1167,7 @@ class WebsiteDownloader:
                 local = self._downloaded.get(self._normalize_cache_key(normalized))
             if not local or not os.path.isfile(local):
                 return original
-            return self._rel(local_text_path, local)
+            return self._local_asset_reference(local_text_path, local)
 
         return embedded_url_re.sub(rewrite_embedded, rewritten)
 
@@ -1075,7 +1201,7 @@ class WebsiteDownloader:
                 local = self._downloaded.get(self._normalize_cache_key(full))
             if not local or not os.path.isfile(local):
                 return match.group(0)
-            rel = self._rel(local_text_path, local)
+            rel = self._local_asset_reference(local_text_path, local)
             return f'{match.group("quote")}{rel}{match.group("quote")}'
 
         rewritten = self._quoted_asset_re.sub(repl, text)
@@ -1096,7 +1222,7 @@ class WebsiteDownloader:
                 local = self._downloaded.get(self._normalize_cache_key(full))
             if not local or not os.path.isfile(local):
                 return original
-            return self._rel(local_text_path, local)
+            return self._local_asset_reference(local_text_path, local)
 
         return embedded_url_re.sub(rewrite_embedded, rewritten)
 
@@ -1354,7 +1480,7 @@ class WebsiteDownloader:
         value = tag.get(attr)
         if not value:
             return
-        if attr in {"srcset", "imagesrcset"}:
+        if attr in {"srcset", "imagesrcset", "data-srcset"}:
             # data: URIs commonly contain commas (inline SVG,
             # base64). A naive value.split(",") shreds them into garbage pieces,
             # destroying the data URI and mis-parsing the following candidate.
@@ -1524,6 +1650,22 @@ class WebsiteDownloader:
         _raise_if_cancelled()
         os.makedirs(os.path.dirname(local_html), exist_ok=True)
 
+        # HTML's <base href> changes how every relative URL is resolved.  The
+        # mirror writes localized references relative to the output file, so
+        # retaining a remote base would make otherwise-correct local paths
+        # point back under the live site's base path when opened offline.
+        # Resolve downloads against it first, then remove it from the archive.
+        html_base_url = url
+        has_html_base = False
+        base_tag = soup.find("base", href=True)
+        if base_tag is not None:
+            candidate = self._normalize_remote_url(str(base_tag.get("href") or ""), url)
+            if candidate:
+                html_base_url = candidate
+                has_html_base = True
+                logger.info("  HTML base URL detected: %s", html_base_url)
+            base_tag.decompose()
+
         # Some hand-written CYOA viewers are served from an extensionless
         # route (for example ``/drukhari``) but store all relative assets
         # below that route (``/drukhari/js/...``).  ``urljoin`` quite
@@ -1532,7 +1674,7 @@ class WebsiteDownloader:
         # URL intact, but use the directory route as the asset referrer for
         # this custom-viewer shape.
         html_lower = str(html_text or "").lower()
-        asset_page_url = url
+        asset_page_url = html_base_url
         if (
             url == self.start_url
             and not url.rstrip().endswith("/")
@@ -1542,7 +1684,8 @@ class WebsiteDownloader:
             )
         ):
             self._custom_viewer_route = True
-            asset_page_url = self.base_url
+            if not has_html_base:
+                asset_page_url = self.base_url
             logger.info("  Custom viewer route detected; resolving entry assets below %s", asset_page_url)
 
         # Inline scripts are not passed through _rewrite_direct_urls.  Run
@@ -1660,6 +1803,51 @@ class WebsiteDownloader:
             if tag.get("poster"):
                 self._set_attr_local(tag, "poster", asset_page_url, local_html, preferred_kind="images")
 
+        # Lazy-loading libraries use non-standard attributes and copy them to
+        # src/srcset only after intersection or user interaction.  Downloading
+        # the bytes without rewriting these values still leaves the offline
+        # page dependent on the live site, so localize the common variants.
+        lazy_attributes = {
+            "data-src": "",
+            "data-lazy-src": "",
+            "data-original": "",
+            "data-lazy": "",
+            "data-poster": "images",
+            "data-background": "images",
+            "data-background-image": "images",
+            "data-bg": "images",
+        }
+        for tag in soup.find_all(True):
+            for attr, default_kind in lazy_attributes.items():
+                if not tag.get(attr):
+                    continue
+                kind = default_kind
+                if not kind:
+                    if tag.name in {"img", "picture"}:
+                        kind = "images"
+                    elif tag.name in {"audio", "video", "source", "track"}:
+                        kind = "media"
+                    elif tag.name == "script":
+                        kind = "js"
+                self._set_attr_local(tag, attr, asset_page_url, local_html, preferred_kind=kind)
+            if tag.get("data-srcset"):
+                self._set_attr_local(
+                    tag, "data-srcset", asset_page_url, local_html,
+                    preferred_kind="images",
+                )
+
+        # Less-common native resource elements are still used by custom CYOA
+        # viewers for captions, image buttons, and embedded downloadable media.
+        for tag in soup.find_all("track", src=True):
+            self._set_attr_local(tag, "src", asset_page_url, local_html, preferred_kind="media")
+        for tag in soup.find_all("embed", src=True):
+            self._set_attr_local(tag, "src", asset_page_url, local_html)
+        for tag in soup.find_all("object", data=True):
+            self._set_attr_local(tag, "data", asset_page_url, local_html)
+        for tag in soup.find_all("input", src=True):
+            if str(tag.get("type") or "").lower() == "image":
+                self._set_attr_local(tag, "src", asset_page_url, local_html, preferred_kind="images")
+
         # ── Inline <style> @font-face and url() ─────────────────────────────
         # Fonts declared directly in <style> tags (not linked CSS) are missed
         # unless we process them explicitly here.
@@ -1682,6 +1870,38 @@ class WebsiteDownloader:
                 )
                 if new_style != raw_style:
                     tag["style"] = new_style
+
+        # Some server-rendered Next.js games cannot hydrate without their live
+        # backend even when every client chunk is present. Preserve the narrow,
+        # self-contained dice control used by accessible roulette/game pages.
+        # The fallback waits for React first and only acts when the status did
+        # not change, so a functioning application remains authoritative.
+        if (
+            soup.find("button", attrs={"aria-label": re.compile(r"^Roll dice again$", re.I)})
+            and not soup.find(attrs={"data-cyoa-offline-dice-fallback": True})
+        ):
+            fallback = soup.new_tag("script")
+            fallback["data-cyoa-offline-dice-fallback"] = ""
+            fallback.string = r"""(()=>{
+const findStatus=()=>document.querySelector('[role="status"][aria-label^="Dice results:"]');
+const placeholder=s=>/[?\u2013-]\s*$/.test((s?.getAttribute('aria-label')||'').trim());
+const localRoll=(status)=>{
+  if(!status)return;
+  const value=1+Math.floor(Math.random()*6);
+  const children=Array.from(status.children);
+  if(children.length)children[children.length-1].textContent=String(value);
+  const label=status.getAttribute('aria-label')||'Dice results:';
+  status.setAttribute('aria-label',label.replace(/(?:\?|\u2013|-|\d+)\s*$/,String(value)));
+};
+document.addEventListener('click',event=>{
+  const button=event.target.closest&&event.target.closest('button[aria-label="Roll dice again"]');
+  if(!button)return;
+  const status=findStatus(),before=status?.getAttribute('aria-label')||'';
+  setTimeout(()=>{if(status&&(status.getAttribute('aria-label')||'')===before)localRoll(status)},120);
+});
+setTimeout(()=>{const status=findStatus();if(placeholder(status))localRoll(status)},250);
+})()"""
+            (soup.body or soup).append(fallback)
 
         html_output = str(soup)
         # NOTE: do NOT call _rewrite_direct_urls(html_output) here.
@@ -1887,16 +2107,21 @@ class WebsiteDownloader:
             )
             grouped_failed.setdefault(kind, []).append(item_url)
 
+        has_project = bool(project_url)
         report_text = format_backup_report_text(
             start_url=self.start_url,
             project_url=project_url,
-            project_root="project.json",
-            project_aliases=self._project_aliases,
+            project_root="project.json" if has_project else "",
+            project_aliases=self._project_aliases if has_project else [],
             downloaded=success,
             failed=failed,
             downloaded_groups=grouped_success,
             failed_groups=grouped_failed,
-            notes=["Engine mode: standard website", "Project payload written to project.json root."],
+            notes=(
+                ["Engine mode: standard website", "Project payload written to project.json root."]
+                if has_project else
+                ["Engine mode: pure website", "Project discovery was intentionally skipped."]
+            ),
         )
 
         # Append collision log if any

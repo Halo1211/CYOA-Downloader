@@ -25,7 +25,13 @@ _RUNTIME_CONTENT_TYPES = {
 }
 
 
-def _is_runtime_asset_response(url: str, content_type: str) -> bool:
+def _is_runtime_asset_response(url: str, content_type: str, status: int = 200) -> bool:
+    try:
+        normalized_status = int(status)
+    except (TypeError, ValueError, OverflowError):
+        normalized_status = 0
+    if normalized_status < 200 or normalized_status >= 400:
+        return False
     normalized = (content_type or "").split(";", 1)[0].strip().lower()
     if normalized.startswith(("image/", "audio/", "video/", "font/")):
         return True
@@ -272,7 +278,9 @@ def capture_runtime_assets(
                 def on_response(response) -> None:
                     try:
                         content_type = (response.headers.get("content-type", "").split(";", 1)[0].lower())
-                        if _is_runtime_asset_response(response.url, content_type):
+                        if _is_runtime_asset_response(
+                            response.url, content_type, response.status,
+                        ):
                             observed.setdefault(response.url, content_type)
                     except Exception:
                         pass

@@ -9,8 +9,17 @@ sync supplies those names during the transition.
 from __future__ import annotations
 
 import importlib
+import os
+import pathlib
 import sys
 from types import ModuleType
+
+from .runtime.archive_preview import (
+    extract_next_flight_stream,
+    resolve_archived_page,
+    resolve_next_optimizer_image,
+    select_archive_root,
+)
 
 
 _CONSOLE_ASCII_REPLACEMENTS = str.maketrans({
@@ -140,7 +149,7 @@ def main() -> None:
     parser.add_argument("--pure-website-folder", action="store_true",
                         help="Same as --pure-website but keep as folder instead of ZIP.")
     parser.add_argument("--archive-strategy", choices=["classic", "smart", "browser", "auto"],
-                        default=str(_cli_saved_settings.get("archive_strategy", "classic")),
+                        default=str(_cli_saved_settings.get("archive_strategy", "auto")),
                         help="Website archive engine: auto fingerprints the site; classic keeps historical behavior; smart crawls story routes; browser captures runtime assets.")
     parser.add_argument("--archive-max-pages", type=int,
                         default=int(_cli_saved_settings.get("archive_max_pages", 300) or 300),
@@ -245,8 +254,19 @@ def main() -> None:
     parser.add_argument("--import-settings", metavar="FILE", default=None,
                         help="Merge settings from a prior export FILE (secrets ignored) and exit.")
     parser.add_argument("--gui", action="store_true", help="Force GUI.")
+    parser.add_argument("--discord-token", metavar="TOKEN", default="",
+                        help="Session-only Discord bot token for automatic expired attachment recovery.")
+    parser.add_argument("--no-discord-refresh", action="store_true",
+                        help="Disable automatic Discord attachment URL recovery for this run.")
     args = parser.parse_args()
     args.url = (args.url_opt or args.url or "").strip()
+
+    if args.discord_token:
+        # Process-local only: the token is consumed by the normal image
+        # pipeline and is never written to settings or command output.
+        os.environ["CYOA_DISCORD_BOT_TOKEN"] = args.discord_token.strip()
+    if args.no_discord_refresh:
+        os.environ["CYOA_DISABLE_DISCORD_REFRESH"] = "1"
 
     if args.ytdlp_cookies:
         cookie_path = os.path.abspath(os.path.expanduser(args.ytdlp_cookies))
@@ -595,7 +615,7 @@ def main() -> None:
         import webbrowser as _webbrowser
 
         serve_dir = globals().get("_LAST_PREVIEW_FOLDER") or args.output_dir
-        serve_dir = os.path.abspath(serve_dir)
+        serve_dir = select_archive_root(os.path.abspath(serve_dir))
         if not os.path.isdir(serve_dir):
             logger.warning(f"Serve skipped: preview folder not found: {serve_dir}")
             logger.warning("Tip: use --icc-folder or --pure-website-folder when you want to preview immediately after download.")
@@ -833,6 +853,71 @@ def main() -> None:
                     self.end_headers()
                     self.wfile.write(data)
                     return
+
+                # Framework archives need their original clean route (for
+                # example /game/story) even when the HTML is stored below the
+                # internal routes/ folder. Next.js also prefetches/revalidates
+                # those pages as React Server Component streams. Reconstruct
+                # that stream from the captured inline Flight queue so a
+                # hydration mismatch can recover without the live server.
+                from urllib.parse import parse_qs as _parse_qs
+                archived_page = resolve_archived_page(serve_dir, route)
+                if "_rsc" in _parse_qs(query, keep_blank_values=True) and archived_page:
+                    try:
+                        raw = pathlib.Path(archived_page).read_text(encoding="utf-8")
+                        flight = extract_next_flight_stream(raw)
+                        if flight:
+                            return self._send_text(
+                                flight,
+                                ctype="text/x-component; charset=utf-8",
+                            )
+                    except (OSError, UnicodeError) as e:
+                        logger.debug(f"Archived RSC response unavailable: {e}")
+
+                # Next/Image regenerates optimizer URLs during client render.
+                # Serve the downloaded source image instead of returning 404.
+                if route == "/_next/image":
+                    image_path = resolve_next_optimizer_image(serve_dir, self.path)
+                    if image_path:
+                        try:
+                            import mimetypes as _mimetypes
+                            data = pathlib.Path(image_path).read_bytes()
+                            self.send_response(200)
+                            self.send_header(
+                                "Content-Type",
+                                _mimetypes.guess_type(image_path)[0] or "application/octet-stream",
+                            )
+                            self.send_header("Content-Length", str(len(data)))
+                            self.send_header("Cache-Control", "no-store")
+                            self.end_headers()
+                            self.wfile.write(data)
+                            return
+                        except OSError as e:
+                            logger.debug(f"Archived optimizer image unavailable: {e}")
+
+                # Runtime capture stores JSON API responses with a .json suffix
+                # to preserve their type. Map the original extensionless API
+                # route back to that file during preview.
+                try:
+                    api_path = self.translate_path(route) + ".json"
+                    if not os.path.exists(self.translate_path(route)) and os.path.isfile(api_path):
+                        return self._send_text(
+                            pathlib.Path(api_path).read_text(encoding="utf-8"),
+                            ctype="application/json; charset=utf-8",
+                        )
+                except (OSError, UnicodeError) as e:
+                    logger.debug(f"Archived JSON route unavailable: {e}")
+
+                if archived_page and route != "/":
+                    try:
+                        raw = pathlib.Path(archived_page).read_text(encoding="utf-8")
+                        if not any(flag in query for flag in (
+                            "no_tools=1", "serve_tools=0", "cyoa_tools=0", "tools=0",
+                        )):
+                            raw = self._inject_tools(raw)
+                        return self._send_text(raw, ctype="text/html; charset=utf-8")
+                    except (OSError, UnicodeError) as e:
+                        logger.debug(f"Archived clean route unavailable: {e}")
 
                 disabled = any(flag in query for flag in ("no_tools=1", "serve_tools=0", "cyoa_tools=0", "tools=0"))
                 if not disabled:

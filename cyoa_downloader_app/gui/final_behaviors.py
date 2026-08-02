@@ -2862,7 +2862,11 @@ def _v462_is_cafe_url(url: str) -> bool:
     return host == "cyoa.cafe" or host.endswith(".cyoa.cafe")
 
 def _v462_resolve_pure_download_url(source_url: str) -> str:
-    if not _v462_is_cafe_url(source_url):
+    # Viewer hosts such as ``author.cyoa.cafe/story/`` are already the final
+    # target.  Only the public catalog's /game/<slug> route needs PocketBase /
+    # iframe resolution; treating every *.cyoa.cafe host as metadata causes a
+    # valid direct Pure Website URL to be resolved a second time and rejected.
+    if not _v466_is_cafe_metadata_game_url(source_url):
         return source_url
     resolved = get_iframe_url_from_cyoa_cafe(source_url)
     return resolved or source_url
@@ -2892,7 +2896,7 @@ def _v462_run_download(
 ) -> None:
     source_url = url
     preserved_name = file_name
-    if pure_website and _v462_is_cafe_url(source_url):
+    if pure_website and _v466_is_cafe_metadata_game_url(source_url):
         from ..project.cyoa_cafe import classify_cyoa_cafe_record, fetch_cyoa_cafe_record
         _record_kind = classify_cyoa_cafe_record(fetch_cyoa_cafe_record(source_url))
         resolved = source_url if _record_kind == "static_pages" else _v462_resolve_pure_download_url(source_url)
@@ -2931,7 +2935,7 @@ def _v462_run_download(
         fallback_allowed = (
             website_output
             and not pure_website
-            and _v462_is_cafe_url(source_url)
+            and _v466_is_cafe_metadata_game_url(source_url)
             and "Could not resolve project data" in message
         )
         if not fallback_allowed:
@@ -3658,7 +3662,8 @@ def _v466_run_download(
     archive_capture_interactions: bool = False,
 ) -> None:
     """Resolve CYOA.CAFE metadata URLs before website/deep-scan execution."""
-    source_url = url
+    source_url = canonicalize_url(url)
+    url = source_url
     effective_name = file_name
     should_resolve = (website_output or pure_website) and _v466_is_cafe_metadata_game_url(source_url)
     if should_resolve:

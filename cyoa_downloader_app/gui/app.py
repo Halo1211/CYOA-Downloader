@@ -796,7 +796,7 @@ class CYOADownloaderGUI:
         for col in range(3):
             archive_card.grid_columnconfigure(col, weight=1)
         archive_values = {
-            "strategy": ctk.StringVar(value=str(st.get("archive_strategy", "classic") or "classic").lower()),
+            "strategy": ctk.StringVar(value=str(st.get("archive_strategy", "auto") or "auto").lower()),
             "interaction": ctk.StringVar(value=str(st.get("archive_interaction_policy", "safe") or "safe").lower()),
             "pages": ctk.StringVar(value=str(st.get("archive_max_pages", 300))),
             "depth": ctk.StringVar(value=str(st.get("archive_max_depth", 30))),
@@ -968,6 +968,215 @@ class CYOADownloaderGUI:
                       command=win.destroy, fg_color=p["surface2"], hover_color=p["surface"],
                       text_color=p["fg"]).grid(row=0, column=1, padx=14, pady=8)
 
+    def _discord_attachments_panel(self) -> None:
+        """Compatibility redirect: Discord settings now live in Settings."""
+        return self._settings_maintenance_panel()
+
+        # Legacy panel layout retained below only for source compatibility with
+        # older GUI patch modules; it is unreachable and no longer opens.
+        import os
+        import threading
+        import customtkinter as ctk
+
+        from ..config.secrets import _keyring_module
+        from ..config.settings import _load_settings, _update_settings
+        from ..integrations.discord_attachments import (
+            DISCORD_KEYRING_SERVICE,
+            DISCORD_KEYRING_USER,
+            DiscordAttachmentClient,
+            resolve_discord_bot_token,
+        )
+
+        p = self._p()
+        is_en = getattr(self, "_language", "id") == "en"
+        win = self._make_singleton_window("discord_attachments")
+        if win is None:
+            return
+        win.title("Discord Attachments" if is_en else "Attachment Discord")
+        win.geometry("780x540")
+        win.minsize(700, 500)
+        win.configure(fg_color=p["bg"])
+        try:
+            win.transient(self.root)
+            win.grab_set()
+        except Exception:
+            pass
+
+        root = ctk.CTkFrame(win, fg_color=p["bg"], corner_radius=0)
+        root.pack(fill="both", expand=True)
+        root.grid_rowconfigure(1, weight=1)
+        root.grid_columnconfigure(0, weight=1)
+
+        header = ctk.CTkFrame(root, fg_color=p["panel"], corner_radius=0, height=82)
+        header.grid(row=0, column=0, sticky="ew")
+        header.grid_propagate(False)
+        ctk.CTkLabel(
+            header,
+            text=("Discord Attachment Recovery" if is_en else "Pemulihan Attachment Discord"),
+            font=ctk.CTkFont("Segoe UI", 18, "bold"),
+            text_color=p["fg"], anchor="w",
+        ).pack(anchor="w", padx=20, pady=(13, 0))
+        ctk.CTkLabel(
+            header,
+            text=(
+                "Runs automatically during normal downloads; no project.json selection is needed."
+                if is_en else
+                "Berjalan otomatis saat download biasa; tidak perlu memilih project.json."
+            ),
+            font=ctk.CTkFont("Segoe UI", 10), text_color=p["muted"], anchor="w",
+        ).pack(anchor="w", padx=20, pady=(0, 10))
+
+        body = ctk.CTkScrollableFrame(root, fg_color=p["bg"], scrollbar_button_color=p["surface2"])
+        body.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
+        body.grid_columnconfigure(1, weight=1)
+
+        def _label(row: int, text: str, description: str = "") -> None:
+            ctk.CTkLabel(body, text=text, font=ctk.CTkFont("Segoe UI", 11, "bold"),
+                         text_color=p["fg"], anchor="w").grid(
+                             row=row, column=0, columnspan=3, sticky="ew", padx=8, pady=(9, 1))
+            if description:
+                ctk.CTkLabel(body, text=description, font=ctk.CTkFont("Segoe UI", 9),
+                             text_color=p["muted"], anchor="w", justify="left",
+                             wraplength=720).grid(
+                                 row=row + 1, column=0, columnspan=3, sticky="ew", padx=8, pady=(0, 6))
+
+        settings = _load_settings()
+        _label(
+            0,
+            "Automatic integration" if is_en else "Integrasi otomatis",
+            (
+                "After the app finds project data—from project.json or inside a .js bundle—the normal image pipeline detects Discord attachment URLs. It downloads directly first and refreshes only an expired URL."
+                if is_en else
+                "Setelah program menemukan data project—dari project.json atau yang tertanam di bundle .js—pipeline gambar otomatis mendeteksi URL attachment Discord. Program mencoba download langsung dahulu dan hanya me-refresh URL yang kedaluwarsa."
+            ),
+        )
+        enabled_var = ctk.BooleanVar(value=bool(settings.get("discord_enabled", True)))
+
+        def _save_enabled() -> None:
+            _update_settings({"discord_enabled": bool(enabled_var.get())})
+
+        ctk.CTkCheckBox(
+            body,
+            text=("Enable automatic Discord recovery" if is_en else "Aktifkan pemulihan Discord otomatis"),
+            variable=enabled_var, command=_save_enabled, text_color=p["fg"],
+            fg_color="#5865F2", hover_color="#4752C4",
+        ).grid(row=2, column=0, columnspan=3, sticky="w", padx=8, pady=(5, 12))
+
+        _label(
+            3,
+            "Bot authentication" if is_en else "Autentikasi bot",
+            "Create a bot in Discord Developer Portal and copy its token. For CDN URLs already present in JSON, no source-server invite is needed."
+            if is_en else
+            "Buat bot di Discord Developer Portal lalu salin tokennya. Jika URL CDN sudah ada di JSON, bot tidak perlu diundang ke server asal.",
+        )
+        token_entry = ctk.CTkEntry(body, height=32, show="*", placeholder_text="Discord Bot Token",
+                                   fg_color=p["input_bg"], text_color=p["input_fg"], border_color=p["border"])
+        token_entry.grid(row=5, column=0, columnspan=2, sticky="ew", padx=(8, 6), pady=5)
+        configured_storage = str(settings.get("discord_token_storage", "keyring") or "keyring").strip().lower()
+        if configured_storage not in {"keyring", "session", "plain"}:
+            configured_storage = "keyring"
+        storage_var = ctk.StringVar(value=configured_storage)
+        ctk.CTkOptionMenu(body, variable=storage_var, values=["keyring", "session", "plain"],
+                          width=110, height=32, fg_color=p["surface2"],
+                          button_color=p["surface"], button_hover_color=p["surface2"]).grid(
+                              row=5, column=2, padx=(0, 8), pady=5)
+        token_status = ctk.StringVar(value="")
+        ctk.CTkLabel(body, textvariable=token_status, font=ctk.CTkFont("Segoe UI", 9),
+                     text_color=p["muted"], anchor="w", justify="left", wraplength=720).grid(
+                         row=6, column=0, columnspan=3, sticky="ew", padx=8, pady=(0, 7))
+
+        def _get_saved_token() -> str:
+            return resolve_discord_bot_token()
+
+        existing_token = _get_saved_token()
+        if existing_token:
+            token_entry.insert(0, existing_token)
+            token_status.set(
+                "Token loaded from environment/keyring; it is hidden." if is_en else
+                "Token dimuat dari environment/keyring; token disembunyikan."
+            )
+
+        def _save_token() -> None:
+            token = token_entry.get().strip()
+            storage = storage_var.get().strip().lower()
+            if not token:
+                token_status.set("Enter a Bot Token first." if is_en else "Masukkan Bot Token terlebih dahulu.")
+                return
+            # Session storage is shared with the core pipeline through a
+            # process-local environment value; it is never written to disk.
+            os.environ["CYOA_DISCORD_BOT_TOKEN"] = token
+            if storage == "keyring":
+                kr = _keyring_module()
+                if kr is not None:
+                    try:
+                        kr.set_password(DISCORD_KEYRING_SERVICE, DISCORD_KEYRING_USER, token)
+                        _update_settings({"discord_token_storage": "keyring", "discord_bot_token": ""})
+                        token_status.set("Saved to the OS credential store." if is_en else "Tersimpan di credential store OS.")
+                        return
+                    except Exception as exc:
+                        logger.debug("Discord token keyring write failed: %s", exc)
+                storage = "session"
+            if storage == "plain":
+                _update_settings({"discord_token_storage": "plain", "discord_bot_token": token})
+                token_status.set("Saved in settings.json; keyring is safer." if is_en else "Tersimpan di settings.json; keyring lebih aman.")
+            else:
+                _update_settings({"discord_token_storage": "session", "discord_bot_token": ""})
+                token_status.set("Saved for this GUI session only." if is_en else "Tersimpan hanya untuk sesi GUI ini.")
+
+        def _validate_token() -> None:
+            token = token_entry.get().strip() or _get_saved_token()
+            if not token:
+                token_status.set("Enter or save a Bot Token first." if is_en else "Masukkan atau simpan Bot Token terlebih dahulu.")
+                return
+            token_status.set("Testing token..." if is_en else "Menguji token...")
+            test_button.configure(state="disabled")
+
+            def _work() -> None:
+                try:
+                    account = DiscordAttachmentClient(token).validate_token()
+                    name = account.get("username") or account.get("global_name") or "bot"
+                    result = (True, f"OK: authenticated as {name}")
+                except Exception as exc:
+                    result = (False, f"Error: {exc}")
+
+                def _finish() -> None:
+                    test_button.configure(state="normal")
+                    token_status.set(result[1])
+
+                self.root.after(0, _finish)
+
+            threading.Thread(target=_work, daemon=True).start()
+
+        token_buttons = ctk.CTkFrame(body, fg_color="transparent")
+        token_buttons.grid(row=7, column=0, columnspan=3, sticky="w", padx=8, pady=(0, 8))
+        ctk.CTkButton(token_buttons, text=("Save token" if is_en else "Simpan token"), width=110, height=30,
+                      command=_save_token, fg_color="#2563eb", hover_color="#1d4ed8").pack(side="left", padx=(0, 6))
+        test_button = ctk.CTkButton(token_buttons, text=("Test token" if is_en else "Tes token"), width=100, height=30,
+                                    command=_validate_token, fg_color=p["surface2"], hover_color=p["surface"],
+                                    text_color=p["fg"])
+        test_button.pack(side="left")
+
+        ctk.CTkLabel(
+            body,
+            text=(
+                "No separate Run button: save the token, then use the app's normal Download button."
+                if is_en else
+                "Tidak ada tombol Run terpisah: simpan token, lalu gunakan tombol Download biasa pada program."
+            ),
+            font=ctk.CTkFont("Segoe UI", 10, "bold"), text_color="#22c55e",
+            anchor="w", justify="left", wraplength=700,
+        ).grid(row=8, column=0, columnspan=3, sticky="ew", padx=8, pady=(10, 14))
+
+        footer = ctk.CTkFrame(root, fg_color=p["panel"], corner_radius=0, height=48)
+        footer.grid(row=2, column=0, sticky="ew")
+        ctk.CTkButton(footer, text=("Open Guide" if is_en else "Buka Panduan"), width=105, height=28,
+                      command=lambda: self._show_feature_guide("settings"),
+                      fg_color="#2563eb", hover_color="#1d4ed8",
+                      text_color="#ffffff").pack(side="left", padx=14, pady=9)
+        ctk.CTkButton(footer, text=("Close" if is_en else "Tutup"), width=90, height=28,
+                      command=win.destroy, fg_color=p["surface2"], hover_color=p["surface"],
+                      text_color=p["fg"]).pack(side="right", padx=14, pady=9)
+
     def _settings_maintenance_panel(self) -> None:
         """Compact Settings / Maintenance center.
 
@@ -976,6 +1185,8 @@ class CYOADownloaderGUI:
         shown first because it affects Auto mode, imported batch rows with
         mode=auto, and CLI batch rows with mode=auto.
         """
+        import os
+        import threading
         import customtkinter as ctk
         from tkinter import messagebox
 
@@ -1144,7 +1355,7 @@ class CYOADownloaderGUI:
             archive_form.grid_columnconfigure(archive_col, weight=1, uniform="archive_setting")
 
         archive_values = {
-            "strategy": ctk.StringVar(value=str(st.get("archive_strategy", "classic") or "classic").lower()),
+            "strategy": ctk.StringVar(value=str(st.get("archive_strategy", "auto") or "auto").lower()),
             "interaction": ctk.StringVar(value=str(st.get("archive_interaction_policy", "safe") or "safe").lower()),
             "pages": ctk.StringVar(value=str(st.get("archive_max_pages", 300))),
             "depth": ctk.StringVar(value=str(st.get("archive_max_depth", 30))),
@@ -1349,6 +1560,96 @@ class CYOADownloaderGUI:
             )), fg_color=p["surface2"], hover_color=p["surface"], text_color=p["fg"],
         ).grid(row=2, column=4, pady=(0, 12))
 
+        # Discord authentication is a normal persistent setting. Keep it
+        # directly in this window instead of opening a second settings panel.
+        from ..integrations.discord_attachments import (
+            DiscordAttachmentClient,
+            resolve_discord_bot_token,
+        )
+
+        discord_card = ctk.CTkFrame(
+            body, fg_color=p["surface"], corner_radius=12,
+            border_width=1, border_color="#5865F2",
+        )
+        discord_card.grid(row=12, column=0, columnspan=2, sticky="ew", padx=6, pady=(0, 10))
+        discord_card.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(
+            discord_card, text="DC", width=34, height=28,
+            font=ctk.CTkFont("Segoe UI", 9, "bold"), text_color="#ffffff",
+            fg_color="#5865F2", corner_radius=8,
+        ).grid(row=0, column=0, rowspan=3, padx=(12, 8), pady=12, sticky="n")
+        ctk.CTkLabel(
+            discord_card, text=("Discord Bot Token" if is_en else "Bot Token Discord"),
+            font=ctk.CTkFont("Segoe UI", 12, "bold"), text_color=p["fg"], anchor="w",
+        ).grid(row=0, column=1, columnspan=4, sticky="ew", padx=(0, 12), pady=(11, 1))
+        ctk.CTkLabel(
+            discord_card,
+            text=(
+                "Saved directly in settings.json and used automatically for expired Discord attachment URLs."
+                if is_en else
+                "Disimpan langsung di settings.json dan dipakai otomatis untuk URL attachment Discord kedaluwarsa."
+            ),
+            font=ctk.CTkFont("Segoe UI", 9), text_color=p["muted"], anchor="w",
+        ).grid(row=1, column=1, columnspan=4, sticky="ew", padx=(0, 12), pady=(0, 7))
+        discord_token_entry = ctk.CTkEntry(
+            discord_card, height=30, show="*", placeholder_text="Discord Bot Token",
+            fg_color=p["input_bg"], text_color=p["input_fg"], border_color=p["border"],
+        )
+        discord_token_entry.grid(row=2, column=1, columnspan=2, sticky="ew", padx=(0, 6), pady=(0, 5))
+        discord_status = ctk.StringVar(value="")
+        existing_discord_token = resolve_discord_bot_token()
+        if existing_discord_token:
+            discord_token_entry.insert(0, existing_discord_token)
+            discord_status.set("Token loaded and hidden." if is_en else "Token sudah dimuat dan disembunyikan.")
+
+        def _save_discord_token_inline() -> None:
+            token = discord_token_entry.get().strip()
+            if not token:
+                discord_status.set("Enter a Bot Token first." if is_en else "Masukkan Bot Token terlebih dahulu.")
+                return
+            os.environ["CYOA_DISCORD_BOT_TOKEN"] = token
+            _update_setting("discord_bot_token", token)
+            discord_status.set("Saved in settings.json." if is_en else "Tersimpan di settings.json.")
+
+        def _test_discord_token_inline() -> None:
+            token = discord_token_entry.get().strip() or resolve_discord_bot_token()
+            if not token:
+                discord_status.set("Enter or save a Bot Token first." if is_en else "Masukkan atau simpan Bot Token terlebih dahulu.")
+                return
+            discord_test_button.configure(state="disabled")
+            discord_status.set("Testing token..." if is_en else "Menguji token...")
+
+            def _work() -> None:
+                try:
+                    account = DiscordAttachmentClient(token).validate_token()
+                    name = account.get("username") or account.get("global_name") or "bot"
+                    message = f"OK: authenticated as {name}"
+                except Exception as exc:
+                    message = f"Error: {exc}"
+
+                def _finish() -> None:
+                    discord_test_button.configure(state="normal")
+                    discord_status.set(message)
+
+                self.root.after(0, _finish)
+
+            threading.Thread(target=_work, daemon=True).start()
+
+        ctk.CTkButton(
+            discord_card, text=("Save" if is_en else "Simpan"), width=72, height=30,
+            command=_save_discord_token_inline, fg_color="#5865F2", hover_color="#4752C4",
+        ).grid(row=2, column=3, padx=(0, 6), pady=(0, 5))
+        discord_test_button = ctk.CTkButton(
+            discord_card, text=("Test" if is_en else "Tes"), width=58, height=30,
+            command=_test_discord_token_inline, fg_color=p["surface2"],
+            hover_color=p["surface"], text_color=p["fg"],
+        )
+        discord_test_button.grid(row=2, column=4, padx=(0, 12), pady=(0, 5))
+        ctk.CTkLabel(
+            discord_card, textvariable=discord_status,
+            font=ctk.CTkFont("Segoe UI", 9), text_color=p["muted"], anchor="w",
+        ).grid(row=3, column=1, columnspan=4, sticky="ew", padx=(0, 12), pady=(0, 11))
+
         # Persistent feature switches live here with the other download
         # behavior settings.  Keep the cards deliberately compact: the
         # window is scrollable, but the common switches should be visible at
@@ -1548,10 +1849,10 @@ class CYOADownloaderGUI:
                 "Create config.json if missing, then open it for editing." if is_en else "Buat config.json jika belum ada, lalu buka untuk diedit.",
                 "🎨", self._open_gallery_dl_config, color="#0f766e", hover="#0d9488", fg="#ccfbf1")
         r += 1
-        _action(r, 0, "Cloudflare / FlareSolverr",
+        _action(r, 1, "Cloudflare / FlareSolverr",
                 "Challenge handling, proxy, DNS, and HTTP/2 options." if is_en else "Pengaturan challenge, proxy, DNS, dan HTTP/2.",
                 "☁", self._cloudflare_panel)
-        _action(r, 1, "Offline Viewers" if is_en else "Viewer Offline",
+        _action(r, 0, "Offline Viewers" if is_en else "Viewer Offline",
                 "Register/manage offline viewer ZIP packages." if is_en else "Daftarkan/kelola paket ZIP viewer offline.",
                 "🌐", self._manage_offline_viewers)
         r += 1
@@ -4935,7 +5236,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             font=ctk.CTkFont("Segoe UI", 10), text_color=p["muted"],
             anchor="w", justify="left", wraplength=470,
         ).grid(row=1, column=1, sticky="ew", pady=(0, 12))
-        archive_var = ctk.StringVar(value=str(s.get("archive_strategy", "classic") or "classic").lower())
+        archive_var = ctk.StringVar(value=str(s.get("archive_strategy", "auto") or "auto").lower())
 
         def _set_archive_strategy(value: str) -> None:
             strategy = str(value or "classic").lower()
@@ -5676,12 +5977,46 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
         threading.Thread(target=_do_retry, daemon=True).start()
 
     def _retry_failed(self) -> None:
-        """Re-queue all failed items so they can be re-downloaded."""
+        """Retry failed website assets/routes, or failed queue jobs as fallback."""
         if self._is_running:
+            return
+        outdir = os.path.abspath(self._outdir_var.get() or os.getcwd())
+        from ..download.website_recovery import (
+            has_website_recovery_work,
+            retry_website_assets,
+        )
+        if has_website_recovery_work(outdir):
+            import threading
+            self._is_running = True
+            self._set_status("Retry Assets: membaca report dan manifest website...")
+
+            def _retry_website_work() -> None:
+                try:
+                    summary = retry_website_assets(outdir)
+                    message = (
+                        f"Retry Assets selesai: {summary.recovered_assets}/"
+                        f"{summary.discovered_assets} aset pulih, "
+                        f"{summary.new_routes} route option baru."
+                    )
+                    logger.info("[Retry Assets] %s", message)
+                except Exception as exc:
+                    logger.exception("[Retry Assets] website recovery failed: %s", exc)
+                    message = f"Retry Assets gagal: {exc}"
+
+                def _finish() -> None:
+                    self._is_running = False
+                    self._set_status(message)
+
+                self.root.after(0, _finish)
+
+            threading.Thread(target=_retry_website_work, daemon=True).start()
             return
         if not self._last_results:
             from tkinter import messagebox
-            messagebox.showinfo("Retry Failed", "No results yet. Run a download first.")
+            messagebox.showinfo(
+                "Retry Assets",
+                "Tidak ditemukan failed_assets.txt, archive_manifest.json, atau job gagal di folder output."
+            )
             return
         failed_urls = {r["url"] for r in self._last_results if r["status"] != "OK"}
         if not failed_urls:
@@ -8433,6 +8768,37 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 ("5. Report", "Manifest, log gagal, dan diagnostics membantu recovery aset tanpa mengubah output lama."),
             ]),
         ]
+
+        CONTENT_EN["settings"].insert(1, (
+            "Discord Attachment Recovery", "accent", [
+                ("What it solves", "Automatically recovers expired Discord CDN image URLs while the normal CYOA download pipeline downloads images."),
+                ("JSON or embedded JS", "No file picker is needed. The same recovery runs after the app reads project.json or extracts project data hidden inside a JavaScript bundle."),
+                ("Not an account login", "Enter a Bot Token from your own Discord Developer Portal application. Never enter a Discord password, personal user token, browser cookie, or self-bot token."),
+                ("Owner server access", "The bot does not need to join the CYOA owner's server when the JSON already contains a cdn.discordapp.com/attachments or media.discordapp.net/attachments URL."),
+                ("Why no invite is needed", "This mode sends the attachment URL itself to Discord's refresh endpoint. It does not call guild, channel, or message-reading endpoints."),
+                ("Create the token", "Open discord.com/developers/applications, create an application, open Bot, generate/reset the token, then copy it into the Discord Bot Token section directly in Settings / Maintenance."),
+                ("Token storage", "The Save button writes the Bot Token directly to settings.json. There is no storage-mode selector. Keep that file private."),
+                ("Test token", "Test Token calls Discord API v10 /users/@me and shows the authenticated bot name. It does not inspect the owner's server."),
+                ("Run recovery", "Save the token and use the app's normal Download button. Recovery is automatic; images and local project paths are handled by the main pipeline."),
+                ("When server access is needed", "Only when the input contains a Discord message link instead of an attachment CDN URL and the message itself must be fetched. The current JSON recovery mode does not do that."),
+                ("Cannot recover", "A deleted attachment, deleted original message whose file is gone, or an expired ephemeral attachment cannot be reconstructed from the URL."),
+            ]
+        ))
+        CONTENT_ID["settings"].insert(1, (
+            "Pemulihan Attachment Discord", "accent", [
+                ("Fungsi", "Otomatis memulihkan URL gambar CDN Discord yang kedaluwarsa saat pipeline download CYOA biasa mengunduh gambar."),
+                ("JSON atau JS tertanam", "Tidak perlu memilih file. Recovery yang sama berjalan setelah program membaca project.json atau mengekstrak data project yang disembunyikan di bundle JavaScript."),
+                ("Bukan login akun", "Masukkan Bot Token dari aplikasi milikmu di Discord Developer Portal. Jangan pernah memasukkan password Discord, user token pribadi, cookie browser, atau token self-bot."),
+                ("Akses server owner", "Bot tidak perlu masuk ke server owner CYOA jika JSON sudah berisi URL cdn.discordapp.com/attachments atau media.discordapp.net/attachments."),
+                ("Mengapa tidak perlu invite", "Mode ini mengirim URL attachment itu sendiri ke endpoint refresh Discord. Program tidak memanggil endpoint guild, channel, atau pembacaan pesan."),
+                ("Membuat token", "Buka discord.com/developers/applications, buat application, buka menu Bot, generate/reset token, lalu salin ke bagian Bot Token Discord langsung di Settings / Maintenance."),
+                ("Penyimpanan token", "Tombol Simpan menulis Bot Token langsung ke settings.json. Tidak ada pilihan mode penyimpanan. Jaga agar file tersebut tetap privat."),
+                ("Tes token", "Tombol Tes Token memanggil Discord API v10 /users/@me dan menampilkan nama bot yang terautentikasi. Tombol ini tidak memeriksa server owner."),
+                ("Jalankan recovery", "Simpan token lalu gunakan tombol Download biasa. Recovery berjalan otomatis; gambar dan path project lokal ditangani pipeline utama."),
+                ("Kapan akses server diperlukan", "Hanya jika input berupa link pesan Discord, bukan URL attachment CDN, dan pesannya harus dibaca ulang. Mode recovery JSON saat ini tidak melakukan hal tersebut."),
+                ("Tidak dapat dipulihkan", "Attachment yang sudah dihapus, file dari pesan terhapus yang sudah hilang, atau attachment ephemeral yang kedaluwarsa tidak dapat dibuat ulang dari URL."),
+            ]
+        ))
 
         CONTENT = CONTENT_EN if is_en else CONTENT_ID
 

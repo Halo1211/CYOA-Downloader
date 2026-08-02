@@ -27,7 +27,7 @@ What you expected to happen instead.
 
 - **OS:** (Windows / macOS / Linux + version)
 - **How you run it:** Windows EXE, or Python (paste `python --version`)
-- **App version:** (shown in the title bar / `--help`, e.g. 1.0.2)
+- **App version:** (shown in the title bar / Diagnostics, e.g. 1.0.7)
 - **Cloudflare / proxy / DNS / AI Assist enabled?** (yes/no, which)
 
 ## Logs and reports

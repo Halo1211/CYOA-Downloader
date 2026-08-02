@@ -14,7 +14,7 @@
 <p align="center">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg"></a>
   <img alt="Python" src="https://img.shields.io/badge/Python-3.10%2B-blue.svg">
-  <img alt="Release" src="https://img.shields.io/badge/Release-v1.0.6-orange.svg">
+  <img alt="Release" src="https://img.shields.io/badge/Release-v1.0.7-orange.svg">
 </p>
 
 ---
@@ -26,6 +26,9 @@ download a normal website, preserve an ICC-style project folder, recover media,
 and verify the resulting backup.
 
 ## Start quickly
+
+New users: start with the [Beginner Guide](docs/BEGINNER_GUIDE.md) for setup,
+your first download, output modes, and common troubleshooting.
 
 ### Windows executable
 
@@ -101,6 +104,9 @@ From a Windows development environment:
 .\tools\build_windows.ps1
 ```
 
+If local PowerShell policy blocks scripts, use
+`powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\build_windows.ps1`.
+
 The script installs the requirements, runs `CYOA-Downloader.spec`, and creates
 `dist\CYOA-Downloader-Windows-x64.zip`. GitHub Actions performs the same build
 for version tags and stores the ZIP as a workflow artifact.
@@ -130,7 +136,7 @@ transparent black `logo-light.png` mark in supported icon sizes.
 python -m pip install -r requirements-dev.txt
 python -m compileall -q cyoa_downloader_app cyoa_downloader.py
 pytest -q
-ruff check cyoa_downloader_app tests tools --select F,E9,F63,F7,F82
+ruff check cyoa_downloader.py --select F821,F811,F601
 ```
 
 Please read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes.

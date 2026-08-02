@@ -15,6 +15,7 @@ from .archive_runner import run_archive_extensions
 from .cyoa_cafe_static import download_cyoa_cafe_static_record
 from ..app_info import DEFAULT_MAX_WORKERS
 from ..runtime.state import _RUN_DOWNLOAD_LOCK
+from ..core.url_utils import canonicalize_url
 from ..gui.final_behaviors import (
     _v462_resolve_pure_download_url,
     _v462_run_download,
@@ -83,6 +84,7 @@ def _base_run_download(
     global wait_time, _LAST_PREVIEW_FOLDER
     _sync_legacy_globals()
     _set_last_preview_folder(None)
+    url = canonicalize_url(url)
     # Clamp worker count at the single CLI/programmatic entry point.
     # The GUI already clamps via max(1, ...), but the CLI passed args.threads
     # straight through, so --threads 0 (or negative) reached
@@ -99,7 +101,7 @@ def _base_run_download(
     ai_available = _ai_is_available(ai_api_key, ai_provider) and ai_mode != "off"
     archive_settings = _load_settings()
     archive_policy = ArchivePolicy(
-        strategy=archive_strategy or archive_settings.get("archive_strategy", "classic"),
+        strategy=archive_strategy or archive_settings.get("archive_strategy", "auto"),
         max_pages=archive_max_pages or archive_settings.get("archive_max_pages", 300),
         max_depth=(archive_max_depth if archive_max_depth >= 0 else archive_settings.get("archive_max_depth", 30)),
         capture_interactions=(archive_capture_interactions or archive_settings.get("archive_capture_interactions", False)),
@@ -188,7 +190,22 @@ def _base_run_download(
             viewer.download()
             run_archive_extensions(viewer, archive_policy)
             viewer.localize_existing_text_assets()
-            # No backup_report since there's no project payload
+            # Pure Website used to finish without any asset diagnostics.  Keep
+            # the same output shape while adding the standard failure report
+            # and a context-aware integrity section.
+            viewer.write_manifest()
+            integrity = viewer.validate_integrity()
+            if integrity["missing"]:
+                try:
+                    report_path = os.path.join(site_folder, "backup_report.txt")
+                    with open(report_path, "a", encoding="utf-8") as report:
+                        report.write("\n" + "=" * 60 + "\n")
+                        report.write("INTEGRITY CHECK — MISSING LOCAL REFS\n")
+                        report.write("=" * 60 + "\n")
+                        for missing in integrity["missing"]:
+                            report.write(f"  {missing}\n")
+                except OSError as exc:
+                    logger.debug("Could not append Pure Website integrity report: %s", exc)
             if download_fonts:
                 # Only scan viewer HTML for fonts (no project.json to scan)
                 viewer_html_pu = get_source(url) or ""

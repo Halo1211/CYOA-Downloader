@@ -28,7 +28,13 @@ _SKIP_PATH_RE = re.compile(
     r"/(?:api|auth|login|logout|sign-in|signin|signup|register|account|admin|checkout|payment)(?:/|$)",
     re.IGNORECASE,
 )
-_TRACKING_QUERY_KEYS = {"from", "ref", "source", "fbclid", "gclid"}
+_TRACKING_QUERY_KEYS = {
+    "from", "ref", "source", "fbclid", "gclid",
+    # Navigation-only state used by Next.js sites to choose the destination of
+    # a Back link. It does not change the route content and otherwise creates
+    # duplicate archives of the same page.
+    "returnto",
+}
 
 
 @dataclass
@@ -136,13 +142,22 @@ class RouteCrawler:
         if BeautifulSoup is None:
             return []
         soup = BeautifulSoup(html, "html.parser")
+        link_base = page_url
+        base_tag = soup.find("base", href=True)
+        if base_tag is not None:
+            try:
+                resolved_base = urljoin(page_url, str(base_tag.get("href") or ""))
+                if resolved_base:
+                    link_base = resolved_base
+            except (TypeError, ValueError):
+                pass
         links: List[str] = []
         for tag in soup.find_all("a", href=True):
             href = str(tag.get("href") or "").strip()
             if not href or href.startswith(("#", "javascript:", "mailto:", "tel:", "data:")):
                 continue
             try:
-                candidate = self._canonicalize(urljoin(page_url, href))
+                candidate = self._canonicalize(urljoin(link_base, href))
             except (TypeError, ValueError):
                 continue
             if self._is_allowed(candidate):

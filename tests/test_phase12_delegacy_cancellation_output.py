@@ -62,7 +62,9 @@ def test_output_helpers_moved_out_of_legacy():
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp) / "out"
         root.mkdir()
-        part = root / "x.part"
+        # Only the downloader's atomic temporary-file shape is disposable.
+        # A plain ``x.part`` may be legitimate user content and must survive.
+        part = root / "x.bin.123.456.part"
         part.write_text("partial", encoding="utf-8")
         assert output._cleanup_recent_part_files(str(root), time.time() - 1) == 1
         assert not part.exists()

@@ -11,7 +11,8 @@ from cyoa_downloader_app.importers.batch import _derive_mode_flags, _normalize_b
 
 def test_phase1_facade_names_still_match_modules():
     assert cyoa_downloader._APP_VERSION == _APP_VERSION
-    assert _APP_VERSION == "1.0.5"
+    version_file = Path(__file__).parents[1] / "VERSION"
+    assert version_file.read_text(encoding="utf-8").strip() == _APP_VERSION
     assert cyoa_downloader.IMAGE_FIELDS is IMAGE_FIELDS
     assert ".mp3" in AUDIO_EXTENSIONS
     assert cyoa_downloader._derive_mode_flags is _derive_mode_flags

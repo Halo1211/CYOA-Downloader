@@ -11,7 +11,7 @@ body:
     id: version
     attributes:
       label: CYOA Downloader version
-      placeholder: "1.0.1"
+      placeholder: "1.0.7"
     validations:
       required: true
   - type: dropdown

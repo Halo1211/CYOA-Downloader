@@ -16,6 +16,7 @@ from .secrets import (
     _REDACTED_PLACEHOLDER,
     _SETTINGS_SCHEMA_VERSION,
     _is_secret_setting_key,
+    _keyring_module,
 )
 
 _SETTINGS_FILE = os.path.join(
@@ -55,6 +56,7 @@ _SETTINGS_DEFAULTS: Dict[str, Any] = {
     "dns": "",
     "bebasdns_variant": "",
     "gallery_dl_mode": "off",
+    "discord_bot_token": "",
     "auto_detect_output": "folder",
     "ytdlp_cookies": "",
     "cloudflare_mode": "auto",
@@ -68,7 +70,7 @@ _SETTINGS_DEFAULTS: Dict[str, Any] = {
     "selenium_enabled": True,
     "serve_enabled": True,
     "cheat_enabled": True,
-    "archive_strategy": "classic",
+    "archive_strategy": "auto",
     "archive_max_pages": 300,
     "archive_max_depth": 30,
     "archive_capture_interactions": False,
@@ -87,13 +89,13 @@ _SETTINGS_DEFAULTS: Dict[str, Any] = {
 # is written in these human-friendly sections. JSON allows whitespace between
 # properties, so the saved file gets a blank line between each group.
 _SETTINGS_GROUPS = (
-    ("Interface and output", (
+    ("INTERFACE & OUTPUT / TAMPILAN & OUTPUT", (
         "language", "theme_mode", "theme_accent_color", "auto_detect_output",
     )),
-    ("Image cache", (
+    ("IMAGE CACHE / CACHE GAMBAR", (
         "image_cache_max_mb",
     )),
-    ("JavaScript website archive", (
+    ("JAVASCRIPT WEBSITE ARCHIVE / ARSIP WEBSITE", (
         "archive_strategy", "archive_max_pages", "archive_max_depth",
         "archive_interaction_policy", "archive_runtime_max_pages",
         "archive_settle_time_ms", "archive_max_scroll_steps",
@@ -101,19 +103,20 @@ _SETTINGS_GROUPS = (
         "archive_capture_interactions", "deep_scan_enabled", "selenium_enabled",
         "serve_enabled", "cheat_enabled",
     )),
-    ("Network and Cloudflare", (
+    ("NETWORK & CLOUDFLARE / JARINGAN", (
         "http2_enabled", "dns", "bebasdns_variant", "cloudflare_mode",
         "cloudflare_priority",
         "flaresolverr_url", "flaresolverr_session_policy",
         "flaresolverr_timeout", "flaresolverr_wait_after", "flaresolverr_proxy_mode",
     )),
-    ("YouTube audio", (
+    ("YOUTUBE AUDIO", (
         "ytdlp_cookies",
     )),
-    ("CYOA and gallery integrations", (
+    ("DISCORD, CYOA & GALLERY INTEGRATIONS / INTEGRASI", (
         "cyoa_mgr_enabled", "cyoa_mgr_db_path", "gallery_dl_mode",
+        "discord_bot_token",
     )),
-    ("AI assist", (
+    ("AI ASSIST", (
         "ai_enabled", "ai_provider", "ai_model", "ai_mode", "ai_key_storage",
         "ai_temperature", "ollama_url", "ai_max_calls_per_download",
         "ai_max_html_chars", "ai_max_js_chars", "ai_confirm_large_payload",
@@ -122,10 +125,17 @@ _SETTINGS_GROUPS = (
         "ai_api_key_qwen", "ai_api_key_groq", "ai_api_key_openrouter",
         "ai_api_key_custom",
     )),
-    ("itch.io", (
+    ("ITCH.IO", (
         "itch_enabled", "itch_key_storage", "itch_api_key",
     )),
 )
+
+_OBSOLETE_SETTINGS_KEYS = {
+    # Discord recovery is now automatic whenever a supported attachment URL
+    # is encountered. The old checkbox/setting no longer has any effect.
+    "discord_enabled",
+    "discord_token_storage",
+}
 
 _SETTINGS_ENUMS = {
     "language": {"id", "en"},
@@ -165,12 +175,18 @@ def _settings_metadata() -> Dict[str, Any]:
         "schema_version": _SETTINGS_SCHEMA_VERSION,
         "app_version": _APP_VERSION,
         "edit_note": "Edit values, not key names. Invalid values fall back to safe defaults.",
+        "section_note": "Keys beginning with _section_ are visual headings and are ignored when loading.",
         "guide": "GUI: Help / Guide > JavaScript Archive; docs/JAVASCRIPT_ARCHIVE_GUIDE.md",
+        "quick_help": {
+            "discord_bot_token": "Saved directly in this file. Keep settings.json private.",
+            "archive_strategy": "auto is recommended for modern JavaScript websites.",
+            "archive_max_pages": "Maximum option routes downloaded for one story.",
+        },
         "archive_modes": {
-            "classic": "Original single-page behavior (default)",
+            "classic": "Original single-page behavior",
             "smart": "Classic plus bounded same-story route crawling",
             "browser": "Smart plus assets observed while JavaScript runs",
-            "auto": "Fingerprint the site and choose Classic, Smart, Browser, or a structured adapter",
+            "auto": "Default: fingerprint the site and choose Classic, Smart, Browser, or a structured adapter",
         },
         "archive_limits": {
             "archive_max_pages": "1..5000",
@@ -185,7 +201,7 @@ def _settings_metadata() -> Dict[str, Any]:
             "off": "Never click runtime controls",
             "safe": "Allowlisted non-form controls only; mutation requests and navigation are blocked",
         },
-        "secret_note": "Prefer session/keyring storage. Plain API-key fields are intentionally visible here.",
+        "secret_note": "Discord Bot Token and plain API-key fields are visible here. Keep this file private.",
     }
 
 
@@ -205,7 +221,23 @@ def _coerce_bool(value: Any, default: bool) -> bool:
 
 def _normalize_loaded_settings(data: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize hand-edited settings without changing the public flat shape."""
-    clean = {k: v for k, v in data.items() if k != "_meta"}
+    metadata = data.get("_meta") if isinstance(data.get("_meta"), dict) else {}
+    try:
+        loaded_schema = int(metadata.get("schema_version", 0))
+    except (TypeError, ValueError, OverflowError):
+        loaded_schema = 0
+    clean = {
+        k: v for k, v in data.items()
+        if k != "_meta"
+        and not str(k).startswith("_section_")
+        and k not in _OBSOLETE_SETTINGS_KEYS
+    }
+    # Schema 2 changes the historical archive default from Classic to Auto.
+    # Classic downloaded only the entry HTML and therefore silently omitted
+    # option routes on modern Next.js story sites. Explicit Classic remains
+    # available in Settings after this one-time default migration.
+    if loaded_schema < 2 and str(clean.get("archive_strategy", "classic")).lower() == "classic":
+        clean["archive_strategy"] = "auto"
     merged = {**_SETTINGS_DEFAULTS, **clean}
 
     for key, default in _SETTINGS_DEFAULTS.items():
@@ -246,23 +278,33 @@ def _normalize_loaded_settings(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _ordered_settings_payload(settings: Dict[str, Any]) -> Dict[str, Any]:
-    clean = {k: v for k, v in settings.items() if k != "_meta"}
+    clean = {
+        k: v for k, v in settings.items()
+        if k != "_meta"
+        and not str(k).startswith("_section_")
+        and k not in _OBSOLETE_SETTINGS_KEYS
+    }
     payload: Dict[str, Any] = {"_meta": _settings_metadata()}
     seen = set()
-    for _section, keys in _SETTINGS_GROUPS:
+    for index, (section, keys) in enumerate(_SETTINGS_GROUPS, 1):
+        slug = re.sub(r"[^a-z0-9]+", "_", section.lower().split("/")[0]).strip("_")
+        payload[f"_section_{index:02d}_{slug}"] = section
         for key in keys:
             payload[key] = clean.get(key, _SETTINGS_DEFAULTS[key])
             seen.add(key)
     # Preserve extension/forward-compatible keys after all known categories.
-    for key in sorted(k for k in clean if k not in seen):
+    extra_keys = sorted(k for k in clean if k not in seen)
+    if extra_keys:
+        payload["_section_99_extra"] = "EXTRA / PENGATURAN TAMBAHAN"
+    for key in extra_keys:
         payload[key] = clean[key]
     return payload
 
 
 def _format_settings_json(settings: Dict[str, Any]) -> str:
     text = json.dumps(_ordered_settings_payload(settings), indent=2, ensure_ascii=False)
-    first_keys = [keys[0] for _section, keys in _SETTINGS_GROUPS if keys]
-    for key in first_keys:
+    section_keys = re.findall(r'^  "(_section_[^"]+)":', text, flags=re.MULTILINE)
+    for key in section_keys:
         text = text.replace(f'\n  "{key}":', f'\n\n  "{key}":', 1)
     return text + "\n"
 
@@ -277,6 +319,22 @@ def _load_settings() -> Dict[str, Any]:
             # Accept a portable export pasted in as the active file too.
             source = data.get("settings") if isinstance(data.get("settings"), dict) else data
             merged = _normalize_loaded_settings(source)
+            # One-time compatibility bridge: if an older build stored the
+            # Discord token in the OS keyring, expose it as the new single
+            # plain setting so the user does not unexpectedly lose it. The
+            # next normal settings save writes it into settings.json.
+            if (
+                not merged.get("discord_bot_token")
+                and str(source.get("discord_token_storage", "")).lower() == "keyring"
+            ):
+                keyring = _keyring_module()
+                if keyring is not None:
+                    try:
+                        merged["discord_bot_token"] = str(
+                            keyring.get_password("CYOA Downloader", "discord_bot_token") or ""
+                        ).strip()
+                    except Exception as exc:
+                        logger.debug("Legacy Discord keyring migration unavailable: %s", exc)
             # Migration: old versions stored Anthropic keys directly in settings.json.
             # Preserve old behavior only when an old key exists and no explicit storage mode was saved.
             if source.get("ai_api_key") and "ai_key_storage" not in source:

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from cyoa_downloader_app.gui.app import CYOADownloaderGUI
+from cyoa_downloader_app.gui.app import CYOADownloaderGUI, _mode_label
 from cyoa_downloader_app.importers.batch import (
     export_queue_items_to_file,
     import_queue_items_from_file,
@@ -24,7 +24,8 @@ def test_queue_mode_can_change_in_place():
     gui._set_queue_item_mode(item, "website_folder", badge)
 
     assert item["mode"] == "website_folder"
-    assert badge.values["text"] == "website folder"
+    assert badge.values["text"] == _mode_label("website_folder", "en")
+    assert badge.values["text"] == "ICC Folder"
     assert badge.values["fg_color"] == gui.BADGE_COLORS["website_folder"][0]
 
 

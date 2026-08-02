@@ -70,8 +70,10 @@ def test_active_settings_are_readable_flat_and_metadata_is_not_runtime_state(tmp
     assert raw["archive_strategy"] == "browser"
     assert raw["archive_max_pages"] == 800
     assert "_meta" not in loaded
-    assert '\n\n  "archive_strategy"' in text
-    assert text.index('"language"') < text.index('"archive_strategy"') < text.index('"http2_enabled"')
+    assert '\n\n  "_section_03_javascript_website_archive"' in text
+    assert not any(key.startswith("_section_") for key in loaded)
+    top_level_keys = list(raw)
+    assert top_level_keys.index("language") < top_level_keys.index("archive_strategy") < top_level_keys.index("http2_enabled")
 
 
 def test_hand_edited_settings_are_normalized_and_export_envelope_can_be_loaded(tmp_path, monkeypatch):
@@ -110,7 +112,7 @@ def test_hand_edited_settings_are_normalized_and_export_envelope_can_be_loaded(t
         "archive_strategy": "unknown", "theme_mode": "neon",
     }), encoding="utf-8")
     invalid_enums = settings_mod._load_settings()
-    assert invalid_enums["archive_strategy"] == "classic"
+    assert invalid_enums["archive_strategy"] == "auto"
     assert invalid_enums["theme_mode"] == "System"
 
     settings_file.write_text(json.dumps({"_meta": {}, "settings": {

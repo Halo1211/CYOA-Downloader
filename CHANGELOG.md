@@ -4,6 +4,23 @@ This project uses a single changelog file. Older split release notes and patch r
 
 ## Unreleased
 
+- No unreleased changes.
+
+## v1.0.7 — release consistency and beginner-friendly workflow
+
+- Synchronized the runtime, `VERSION` file, documentation, tests, issue
+  templates, and release badge on v1.0.7.
+- Added an English beginner guide covering the first download, output modes,
+  troubleshooting, source setup, release checks, and Windows packaging.
+- Updated the Windows build script to run release checks, support repeat-build
+  switches, and clearly report each build stage.
+- Updated the Windows GitHub Actions workflow to use the same tested local
+  build script used by maintainers.
+- Refreshed regression tests to match the current ICC labels, readable legacy
+  console output, and safe atomic `.part` cleanup behavior.
+
+## v1.0.6 — runtime diagnostics, Windows packaging, and CYOA.CAFE fixes
+
 - Expanded Diagnostics to cover `yt-dlp-ejs`, JavaScript runtimes, browser
   backends, Playwright Chromium, RAR helpers, FFmpeg, and PyInstaller resources.
 - Added actionable YouTube extraction errors and Windows runtime discovery.
@@ -12,6 +29,15 @@ This project uses a single changelog file. Older split release notes and patch r
   transparent black logo as its multi-resolution Windows icon.
 - Removed generated release ZIP and obsolete historical source copies from the
   repository tree.
+- Updated CYOA.CAFE discovery to support current human-readable `/game/<slug>`
+  links as well as legacy PocketBase record IDs.
+- Hardened archive handling against oversized ZIP metadata, unsafe Windows
+  member names, path traversal through links/junctions, and linked files during
+  packaging.
+- Prevented cleanup from deleting legitimate user files ending in `.part`;
+  only downloader-generated atomic temporary files are removed.
+- Added safer CYOAP Vue path handling, worker limits, cross-origin internal-host
+  blocking, and consistent HTTP error handling for Cloudflare fallbacks.
 
 ## v1.0.5 — GUI queue editing and export
 
