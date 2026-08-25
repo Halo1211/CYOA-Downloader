@@ -9,6 +9,7 @@ final GUI patch stack is composed.
 
 from __future__ import annotations
 
+import threading
 import uuid
 from collections import Counter
 
@@ -5710,25 +5711,43 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
 
 
 
-    def _set_dot(self, idx: int, state: str) -> None:
-        """Update status dot in queue row. state: 'idle'|'running'|'done'|'error'|'skip'"""
-        if idx >= len(self._queue_rows):
-            return
-        _, dot, _, _, _ = self._queue_rows[idx]
-        colors = {"idle": self._p()["muted2"], "running": "#3b82f6",
-                  "done": "#22c55e", "error": "#ef4444", "skip": "#f59e0b"}
-        color = colors.get(state, self._p()["muted2"])
+    def _run_on_ui_thread(self, callback) -> None:
+        """Run *callback* on Tk's owner thread without blocking a worker.
 
+        Calling ``root.after`` from a worker still enters Tcl synchronously.
+        Under a long batch that cross-thread call can wait on Tk while Tk is
+        processing another callback, which is the source of the intermittent
+        Windows ``Not Responding`` state.  Workers therefore write to a plain
+        Python queue; the existing Tk progress poller executes the callbacks.
+        """
+        if threading.current_thread() is threading.main_thread():
+            callback()
+            return
+        command_queue = getattr(self, "_v46_ui_commands", None)
+        if command_queue is not None:
+            command_queue.put(callback)
+            return
+        # Compatibility fallback for callers used before the v46 initializer.
+        self.root.after(0, callback)
+
+    def _set_dot(self, idx: int, state: str) -> None:
+        """Update a queue status dot exclusively on Tk's owner thread."""
         def _update():
             try:
+                if idx < 0 or idx >= len(self._queue_rows):
+                    return
+                _, dot, _, _, _ = self._queue_rows[idx]
                 # Guard: widget may have been destroyed if user removed the row
                 if not dot.winfo_exists():
                     return
+                colors = {"idle": self._p()["muted2"], "running": "#3b82f6",
+                          "done": "#22c55e", "error": "#ef4444", "skip": "#f59e0b"}
+                color = colors.get(state, self._p()["muted2"])
                 dot.delete("all")
                 dot.create_oval(2, 2, 8, 8, fill=color, outline="")
             except Exception as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _update (line 7815): %s", _ignored_exc)
-        self.root.after(0, _update)
+        self._run_on_ui_thread(_update)
 
     def _worker_base(self, items, default_mode, wt, threads, outdir, dl_fonts, show_analysis, cloudflare_mode, http2_enabled, ytdlp_enabled, bw_limit, cyoa_mgr) -> None:
         _self_mod = sys.modules.get(__name__)
@@ -6615,7 +6634,32 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
         _run()
 
     def _set_status(self, msg: str) -> None:
-        self.root.after(0, lambda: self._status_var.set(msg))
+        if threading.current_thread() is threading.main_thread():
+            self._status_var.set(msg)
+            return
+        status_lock = getattr(self, "_v46_status_lock", None)
+        if status_lock is None:
+            self._run_on_ui_thread(lambda: self._status_var.set(msg))
+            return
+
+        # yt-dlp and batch auto-detection can emit status updates faster than
+        # Tk can paint them. Keep only the newest pending text so the bridge is
+        # bounded without ever making the producer wait.
+        with status_lock:
+            self._v46_pending_status = msg
+            if self._v46_status_command_pending:
+                return
+            self._v46_status_command_pending = True
+
+        def _flush_latest_status() -> None:
+            with status_lock:
+                latest = self._v46_pending_status
+                self._v46_pending_status = None
+                self._v46_status_command_pending = False
+            if latest is not None:
+                self._status_var.set(latest)
+
+        self._run_on_ui_thread(_flush_latest_status)
 
     def _retry_youtube_audio(self) -> None:
         """Re-download YouTube audio from skipped_youtube_audio.txt."""

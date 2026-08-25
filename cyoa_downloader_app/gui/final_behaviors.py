@@ -1,8 +1,11 @@
 """Final GUI behavior bodies consolidated from historical versioned modules."""
 from __future__ import annotations
-from collections import Counter, deque
+
+import queue as log_queue_module
 import threading
+from collections import Counter, deque
 from typing import Any, Dict, Optional, Tuple
+
 from ..app_info import DEFAULT_MAX_WORKERS
 
 # This module intentionally keeps the old _v* compatibility names while
@@ -1997,6 +2000,15 @@ def _v46_gui_init(self, root) -> None:
     self._worker_thread = None
     self._run_started_wall = 0.0
     self._v46_progress_queue = log_queue_module.Queue(maxsize=1200)
+    # Tk commands never cross into Tcl from worker threads.  SimpleQueue.put()
+    # is non-blocking and these commands are low-volume (status, dots, finish).
+    self._v46_ui_commands = log_queue_module.SimpleQueue()
+    self._v46_status_lock = threading.Lock()
+    self._v46_pending_status = None
+    self._v46_status_command_pending = False
+    # Important telemetry that arrives during a burst must not block a worker
+    # and must not evict another completion/failure event.
+    self._v46_priority_progress_queue = log_queue_module.SimpleQueue()
     self._v46_failure_events = deque(maxlen=500)
     self._v46_failure_events_lock = threading.Lock()
     self._v46_telemetry = DownloadTelemetry()
@@ -2213,13 +2225,14 @@ def _v46_enqueue_progress(self, event: Dict[str, Any]) -> None:
     except log_queue_module.Full:
         if not important:
             return
-    # Do not evict an arbitrary head item: it may itself be a job failure or
-    # completion event. Give the GUI poller a short chance to make room while
-    # preserving the ordering and contents of events already queued.
-    try:
-        self._v46_progress_queue.put(event, timeout=0.25)
-        return
-    except log_queue_module.Full:
+    # Never wait for Tk from a logging/download worker.  Waiting here used to
+    # add a 250 ms stall for every important event in a saturated batch and
+    # could participate in the random GUI freeze.  Keep critical events in a
+    # separate non-blocking queue instead.
+    priority_queue = getattr(self, "_v46_priority_progress_queue", None)
+    if priority_queue is not None:
+        priority_queue.put(event)
+    else:
         logger.warning("Progress event queue saturated; an important event was dropped")
 
 def _v46_set_event_sink(self) -> None:
@@ -2512,8 +2525,8 @@ def _v46_worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_a
         self._set_status(f"Failed — {exc}")
     finally:
         if len(items) > 1 and self._last_results:
-            self.root.after(0, self._show_results)
-        self.root.after(0, self._done)
+            self._run_on_ui_thread(self._show_results)
+        self._run_on_ui_thread(self._done)
 
 def _v46_done(self) -> None:
     self._is_running = False
@@ -2625,6 +2638,21 @@ def _v46_poll_progress(self) -> None:
             return
     except Exception:
         return
+    # Execute worker-originated GUI commands only from this Tk callback.  Keep
+    # the per-tick budget finite so a large queue cannot monopolize mainloop.
+    ui_drained = 0
+    ui_commands = getattr(self, "_v46_ui_commands", None)
+    if ui_commands is not None:
+        while ui_drained < 100:
+            try:
+                callback = ui_commands.get_nowait()
+            except log_queue_module.Empty:
+                break
+            try:
+                callback()
+            except Exception as exc:
+                logger.debug(f"Queued GUI command failed: {exc}")
+            ui_drained += 1
     drained = 0
     # Limit work per Tk tick. A large asset batch can emit thousands of
     # progress events; draining/rendering all of them in one callback freezes
@@ -2647,12 +2675,39 @@ def _v46_poll_progress(self) -> None:
                 self._v46_telemetry.job_progress,
             )
         drained += 1
+    # Overflowed lifecycle/failure events are kept separately so producers
+    # never block. Reserve part of every tick for them even while normal
+    # asset telemetry remains busy.
+    priority_queue = getattr(self, "_v46_priority_progress_queue", None)
+    if priority_queue is not None:
+        while drained < 125:
+            try:
+                event = priority_queue.get_nowait()
+            except log_queue_module.Empty:
+                break
+            absolute = event.pop("absolute_finished", None)
+            self._v46_telemetry.apply(event)
+            if absolute is not None:
+                self._v46_telemetry.assets_finished = max(
+                    self._v46_telemetry.assets_finished, int(absolute)
+                )
+                self._v46_telemetry.assets_success = max(
+                    self._v46_telemetry.assets_success,
+                    self._v46_telemetry.assets_finished - self._v46_telemetry.assets_failed,
+                )
+                self._v46_telemetry.job_progress = calculate_stage_progress(
+                    self._v46_telemetry.state,
+                    self._v46_telemetry.assets_finished,
+                    self._v46_telemetry.assets_total,
+                    self._v46_telemetry.job_progress,
+                )
+            drained += 1
     snapshot = self._v46_telemetry.snapshot()
     try:
         self._v46_render_progress(snapshot)
     except Exception as exc:
         logger.debug(f"Progress render failed: {exc}")
-    next_delay = 75 if drained >= 100 else 150
+    next_delay = 50 if ui_drained >= 100 or drained >= 100 else 150
     self._v46_progress_after_id = self.root.after(next_delay, self._v46_poll_progress)
 
 def _v46_render_progress(self, s: Dict[str, Any]) -> None:
