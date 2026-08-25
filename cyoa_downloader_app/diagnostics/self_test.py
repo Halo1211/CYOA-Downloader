@@ -134,25 +134,28 @@ def run_internal_self_test() -> Tuple[bool, str]:
             record("SSRF internal-host guard", False, str(e))
 
         try:
-            # cross-origin internal asset screen.
-            _set_allow_internal_hosts(False)
-            xorigin_ok = (
-                # cross-origin internal asset → blocked
-                _ssrf_block_cross_origin("http://127.0.0.1:9/x.png", "http://example.com/cyoa/")
-                and _ssrf_block_cross_origin("http://169.254.169.254/meta", "https://site.org/")
-                # same-origin internal asset → allowed (localhost CYOA)
-                and not _ssrf_block_cross_origin("http://127.0.0.1:8000/img/a.png", "http://127.0.0.1:8000/cyoa/")
-                # public asset → allowed
-                and not _ssrf_block_cross_origin("https://cdn.example.com/a.png", "http://example.com/cyoa/")
-            )
-            # opt-out disables the screen entirely
-            _set_allow_internal_hosts(True)
-            optout_ok = not _ssrf_block_cross_origin("http://127.0.0.1:9/x.png", "http://example.com/cyoa/")
-            _set_allow_internal_hosts(False)
-            record("SSRF cross-origin asset screen", xorigin_ok and optout_ok,
-                   f"xorigin={xorigin_ok} optout={optout_ok}")
+            from ..integrations import ai_core as _ai_core_state
+            previous_allow_internal = _ai_core_state._allow_internal_hosts
+            try:
+                # cross-origin internal asset screen.
+                _set_allow_internal_hosts(False)
+                xorigin_ok = (
+                    # cross-origin internal asset → blocked
+                    _ssrf_block_cross_origin("http://127.0.0.1:9/x.png", "http://example.com/cyoa/")
+                    and _ssrf_block_cross_origin("http://169.254.169.254/meta", "https://site.org/")
+                    # same-origin internal asset → allowed (localhost CYOA)
+                    and not _ssrf_block_cross_origin("http://127.0.0.1:8000/img/a.png", "http://127.0.0.1:8000/cyoa/")
+                    # public asset → allowed
+                    and not _ssrf_block_cross_origin("https://cdn.example.com/a.png", "http://example.com/cyoa/")
+                )
+                # opt-out disables the screen entirely
+                _set_allow_internal_hosts(True)
+                optout_ok = not _ssrf_block_cross_origin("http://127.0.0.1:9/x.png", "http://example.com/cyoa/")
+                record("SSRF cross-origin asset screen", xorigin_ok and optout_ok,
+                       f"xorigin={xorigin_ok} optout={optout_ok}")
+            finally:
+                _set_allow_internal_hosts(previous_allow_internal)
         except Exception as e:
-            _set_allow_internal_hosts(False)
             record("SSRF cross-origin asset screen", False, str(e))
 
         try:
@@ -189,7 +192,11 @@ def run_internal_self_test() -> Tuple[bool, str]:
             import tempfile as _tf2, threading as _th2
             with _tf2.TemporaryDirectory() as _wd:
                 _wd_inst = WebsiteDownloader.__new__(WebsiteDownloader)
-                _wd_inst.folder = _wd
+                # WebsiteDownloader has used ``output_folder`` since the
+                # refactor.  Keeping the retired ``folder`` attribute here
+                # made this diagnostic fail before it exercised the URL
+                # rewrite behavior it was meant to verify.
+                _wd_inst.output_folder = _wd
                 _wd_inst.start_url = "http://site.example/cyoa/"
                 _wd_inst._downloaded = {}
                 _wd_inst._lock = _th2.Lock()
@@ -372,12 +379,17 @@ def run_internal_self_test() -> Tuple[bool, str]:
 
     # ── v7.5.8 checks: toggles, settings-race helper, itch URL detection ──
     try:
-        _set_deep_scan_enabled(False)
-        ok_off = (_DEEP_SCAN_ENABLED is False)
-        _set_deep_scan_enabled(True)
-        ok_on = (_DEEP_SCAN_ENABLED is True)
-        record("deep-scan toggle gates flag", ok_off and ok_on,
-                f"off={not ok_off and 'BAD' or 'ok'}, on={ok_on}")
+        from ..runtime import state as _runtime_state
+        previous_deep_scan = _runtime_state._DEEP_SCAN_ENABLED
+        try:
+            _set_deep_scan_enabled(False)
+            ok_off = (_DEEP_SCAN_ENABLED is False)
+            _set_deep_scan_enabled(True)
+            ok_on = (_DEEP_SCAN_ENABLED is True)
+            record("deep-scan toggle gates flag", ok_off and ok_on,
+                    f"off={not ok_off and 'BAD' or 'ok'}, on={ok_on}")
+        finally:
+            _set_deep_scan_enabled(previous_deep_scan)
     except Exception as e:
         record("deep-scan toggle gates flag", False, str(e))
 
@@ -390,54 +402,68 @@ def run_internal_self_test() -> Tuple[bool, str]:
 
     try:
         import tempfile as _tf
-        global _SETTINGS_FILE
-        _orig = _SETTINGS_FILE
-        with _tf.TemporaryDirectory() as _d:
-            _SETTINGS_FILE = os.path.join(_d, "settings.json")
-            _update_setting("deep_scan_enabled", False)
-            v1 = _load_settings().get("deep_scan_enabled")
-            _update_settings({"serve_enabled": False, "cheat_enabled": False})
-            s2 = _load_settings()
-            ok = (v1 is False and s2.get("serve_enabled") is False
-                  and s2.get("cheat_enabled") is False)
-            record("settings-race helper persists keys", ok, "")
-        _SETTINGS_FILE = _orig
-    except Exception as e:
+        from ..config import settings as _settings_state
+        original_settings_file = _settings_state._SETTINGS_FILE
         try:
-            _SETTINGS_FILE = _orig  # type: ignore
-        except Exception as _ignored_exc:
-            logger.debug("Ignored recoverable exception in run_internal_self_test (line 16378): %s", _ignored_exc)
+            with _tf.TemporaryDirectory() as _d:
+                _settings_state._SETTINGS_FILE = os.path.join(_d, "settings.json")
+                _update_setting("deep_scan_enabled", False)
+                v1 = _load_settings().get("deep_scan_enabled")
+                _update_settings({"serve_enabled": False, "cheat_enabled": False})
+                s2 = _load_settings()
+                ok = (v1 is False and s2.get("serve_enabled") is False
+                      and s2.get("cheat_enabled") is False)
+                record("settings-race helper persists keys", ok, "")
+        finally:
+            _settings_state._SETTINGS_FILE = original_settings_file
+    except Exception as e:
         record("settings-race helper persists keys", False, str(e))
 
     # ── v7.6 checks: serve/cheat lifecycle + itch-dl backend ──────────────
     # 1) Preview token: a fresh token validates; a stale one is rejected; clear
     #    invalidates. This is the stale-preview-session guard.
     try:
-        t1 = _new_preview_token()
-        ok_fresh = _preview_token_valid(t1)
-        t2 = _new_preview_token()          # rotates — t1 now stale
-        ok_stale_rejected = (not _preview_token_valid(t1)) and _preview_token_valid(t2)
-        _clear_preview_token()
-        ok_cleared = (not _preview_token_valid(t2)) and (not _preview_token_valid(""))
-        record("preview token: fresh valid / stale rejected / clear invalidates",
-               ok_fresh and ok_stale_rejected and ok_cleared,
-               f"fresh={ok_fresh} stale_rej={ok_stale_rejected} cleared={ok_cleared}")
+        from ..core import preview_token as _preview_state
+        previous_preview_token = _preview_state._current_preview_token()
+        try:
+            t1 = _new_preview_token()
+            ok_fresh = _preview_token_valid(t1)
+            t2 = _new_preview_token()          # rotates — t1 now stale
+            ok_stale_rejected = (not _preview_token_valid(t1)) and _preview_token_valid(t2)
+            _clear_preview_token()
+            ok_cleared = (not _preview_token_valid(t2)) and (not _preview_token_valid(""))
+            record("preview token: fresh valid / stale rejected / clear invalidates",
+                   ok_fresh and ok_stale_rejected and ok_cleared,
+                   f"fresh={ok_fresh} stale_rej={ok_stale_rejected} cleared={ok_cleared}")
+        finally:
+            with _preview_state._PREVIEW_TOKEN_LOCK:
+                _preview_state._PREVIEW_SESSION_TOKEN = previous_preview_token
     except Exception as e:
         record("preview token guard", False, str(e))
 
     # 2) Serve toggle gates execution (flag, not cosmetic).
     try:
-        _set_serve_enabled(False); off = (_SERVE_ENABLED is False)
-        _set_serve_enabled(True);  on = (_SERVE_ENABLED is True)
-        record("serve toggle gates flag", off and on, f"off={off} on={on}")
+        from ..runtime import state as _runtime_state
+        previous_serve = _runtime_state._SERVE_ENABLED
+        try:
+            _set_serve_enabled(False); off = (_SERVE_ENABLED is False)
+            _set_serve_enabled(True);  on = (_SERVE_ENABLED is True)
+            record("serve toggle gates flag", off and on, f"off={off} on={on}")
+        finally:
+            _set_serve_enabled(previous_serve)
     except Exception as e:
         record("serve toggle gates flag", False, str(e))
 
     # 3) Cheat toggle gates execution.
     try:
-        _set_cheat_enabled(False); coff = (_CHEAT_ENABLED is False)
-        _set_cheat_enabled(True);  con = (_CHEAT_ENABLED is True)
-        record("cheat toggle gates flag", coff and con, f"off={coff} on={con}")
+        from ..runtime import state as _runtime_state
+        previous_cheat = _runtime_state._CHEAT_ENABLED
+        try:
+            _set_cheat_enabled(False); coff = (_CHEAT_ENABLED is False)
+            _set_cheat_enabled(True);  con = (_CHEAT_ENABLED is True)
+            record("cheat toggle gates flag", coff and con, f"off={coff} on={con}")
+        finally:
+            _set_cheat_enabled(previous_cheat)
     except Exception as e:
         record("cheat toggle gates flag", False, str(e))
 
@@ -467,68 +493,70 @@ def run_internal_self_test() -> Tuple[bool, str]:
     # ── v1.0 Release checks: settings export/import (Feature #1) ────────────────
     try:
         import tempfile as _tf
-        _orig_sf = _SETTINGS_FILE
-        with _tf.TemporaryDirectory() as _d:
-            _SETTINGS_FILE = os.path.join(_d, "settings.json")
-            # Seed a secret + a safe value.
-            _update_settings({"ai_api_key_anthropic": "sk-LEAKME",
-                              "itch_api_key": "itch-LEAKME",
-                              "language": "id"})
-            exp = os.path.join(_d, "export.json")
-            ok_e, _ = export_settings(exp)
-            with open(exp, encoding="utf-8") as _ef:
-                raw = _ef.read()
-            secret_excluded = ("sk-LEAKME" not in raw) and ("itch-LEAKME" not in raw)
-            import json as _json
-            blob = _json.loads(raw)
-            has_meta = bool(blob.get("_meta", {}).get("schema_version") is not None
-                            and blob["_meta"].get("app_version"))
-            record("settings export excludes secrets + has metadata",
-                   ok_e and secret_excluded and has_meta,
-                   f"secret_excluded={secret_excluded} meta={has_meta}")
-        _SETTINGS_FILE = _orig_sf
+        from ..config import settings as _settings_state
+        original_settings_file = _settings_state._SETTINGS_FILE
+        try:
+            with _tf.TemporaryDirectory() as _d:
+                _settings_state._SETTINGS_FILE = os.path.join(_d, "settings.json")
+                # Seed a secret + a safe value.
+                _update_settings({"ai_api_key_anthropic": "sk-LEAKME",
+                                  "itch_api_key": "itch-LEAKME",
+                                  "language": "id"})
+                exp = os.path.join(_d, "export.json")
+                ok_e, _ = export_settings(exp)
+                with open(exp, encoding="utf-8") as _ef:
+                    raw = _ef.read()
+                secret_excluded = ("sk-LEAKME" not in raw) and ("itch-LEAKME" not in raw)
+                import json as _json
+                blob = _json.loads(raw)
+                has_meta = bool(blob.get("_meta", {}).get("schema_version") is not None
+                                and blob["_meta"].get("app_version"))
+                record("settings export excludes secrets + has metadata",
+                       ok_e and secret_excluded and has_meta,
+                       f"secret_excluded={secret_excluded} meta={has_meta}")
+        finally:
+            _settings_state._SETTINGS_FILE = original_settings_file
     except Exception as e:
-        try: _SETTINGS_FILE = _orig_sf  # type: ignore
-        except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in run_internal_self_test (line 16461): %s", _ignored_exc)
         record("settings export excludes secrets + has metadata", False, str(e))
 
     try:
         import tempfile as _tf
-        _orig_sf2 = _SETTINGS_FILE
-        with _tf.TemporaryDirectory() as _d:
-            _SETTINGS_FILE = os.path.join(_d, "settings.json")
-            _save_settings(dict(_SETTINGS_DEFAULTS))
-            imp = os.path.join(_d, "import.json")
-            import json as _json
-            with open(imp, "w", encoding="utf-8") as _if:
-                _json.dump({"settings": {
-                    "language": "en",                     # safe → merge
-                    "ai_api_key": "sk-REAL",              # secret w/value → ignore
-                    "itch_api_key": _REDACTED_PLACEHOLDER,# redacted → ignore
-                    "cloudflare_mode": _REDACTED_PLACEHOLDER,  # redacted → ignore
-                    "totally_unknown_xyz": 1,            # unknown → ignore
-                }}, _if)
-            ok_i, _ = import_settings(imp)
-            s = _load_settings()
-            merged = (s.get("language") == "en")
-            no_secret = (s.get("ai_api_key") == "")
-            no_redacted_restore = (s.get("cloudflare_mode") != _REDACTED_PLACEHOLDER)
-            no_unknown = ("totally_unknown_xyz" not in s)
-            # invalid JSON must fail cleanly
-            bad = os.path.join(_d, "bad.json")
-            with open(bad, "w") as _bf:
-                _bf.write("{nope")
-            ok_bad, _ = import_settings(bad)
-            record("settings import merges safe + ignores secrets/redacted/unknown",
-                   ok_i and merged and no_secret and no_redacted_restore
-                   and no_unknown and (ok_bad is False),
-                   f"merged={merged} no_secret={no_secret} "
-                   f"no_redacted={no_redacted_restore} no_unknown={no_unknown} "
-                   f"bad_rejected={not ok_bad}")
-        _SETTINGS_FILE = _orig_sf2
+        from ..config import settings as _settings_state
+        original_settings_file = _settings_state._SETTINGS_FILE
+        try:
+            with _tf.TemporaryDirectory() as _d:
+                _settings_state._SETTINGS_FILE = os.path.join(_d, "settings.json")
+                _save_settings(dict(_SETTINGS_DEFAULTS))
+                imp = os.path.join(_d, "import.json")
+                import json as _json
+                with open(imp, "w", encoding="utf-8") as _if:
+                    _json.dump({"settings": {
+                        "language": "en",                     # safe → merge
+                        "ai_api_key": "sk-REAL",              # secret w/value → ignore
+                        "itch_api_key": _REDACTED_PLACEHOLDER,# redacted → ignore
+                        "cloudflare_mode": _REDACTED_PLACEHOLDER,  # redacted → ignore
+                        "totally_unknown_xyz": 1,            # unknown → ignore
+                    }}, _if)
+                ok_i, _ = import_settings(imp)
+                s = _load_settings()
+                merged = (s.get("language") == "en")
+                no_secret = (s.get("ai_api_key") == "")
+                no_redacted_restore = (s.get("cloudflare_mode") != _REDACTED_PLACEHOLDER)
+                no_unknown = ("totally_unknown_xyz" not in s)
+                # invalid JSON must fail cleanly
+                bad = os.path.join(_d, "bad.json")
+                with open(bad, "w") as _bf:
+                    _bf.write("{nope")
+                ok_bad, _ = import_settings(bad)
+                record("settings import merges safe + ignores secrets/redacted/unknown",
+                       ok_i and merged and no_secret and no_redacted_restore
+                       and no_unknown and (ok_bad is False),
+                       f"merged={merged} no_secret={no_secret} "
+                       f"no_redacted={no_redacted_restore} no_unknown={no_unknown} "
+                       f"bad_rejected={not ok_bad}")
+        finally:
+            _settings_state._SETTINGS_FILE = original_settings_file
     except Exception as e:
-        try: _SETTINGS_FILE = _orig_sf2  # type: ignore
-        except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in run_internal_self_test (line 16498): %s", _ignored_exc)
         record("settings import merges safe + ignores secrets/redacted/unknown", False, str(e))
 
     # ── v1.0 Release checks: plugin registry (Feature #10) ─────────────────────

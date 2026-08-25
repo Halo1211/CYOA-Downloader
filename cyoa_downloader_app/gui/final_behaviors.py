@@ -1,6 +1,7 @@
 """Final GUI behavior bodies consolidated from historical versioned modules."""
 from __future__ import annotations
-from collections import Counter
+from collections import Counter, deque
+import threading
 from typing import Any, Dict, Optional, Tuple
 from ..app_info import DEFAULT_MAX_WORKERS
 
@@ -48,6 +49,64 @@ def _v24_badge(parent: Any, text: str, color: str, width: int = 96) -> Any:
     lbl.pack(side="left", padx=(0, 8))
     return lbl
 
+
+def _v24_result_is_failed(row: Dict[str, Any]) -> bool:
+    """Return whether a result belongs in the Failed filter.
+
+    A resumed SKIP is a successful outcome, while asset-level synthetic rows
+    are real failures even though their parent job completed successfully.
+    """
+    return str(row.get("status", "")).strip().upper() not in {"OK", "SKIP"}
+
+
+def _v46_failure_details_snapshot(self: Any) -> list[Dict[str, Any]]:
+    """Return the run-level failure buffer without racing worker appends."""
+    details = getattr(self, "_v46_failure_events", None)
+    if details is None:
+        return []
+    lock = getattr(self, "_v46_failure_events_lock", None)
+    if lock is None:
+        return [dict(item) for item in details]
+    with lock:
+        return [dict(item) for item in details]
+
+
+def _v24_result_rows(self: Any) -> list[Dict[str, Any]]:
+    """Merge job outcomes with asset failures retained by telemetry."""
+    rows = [dict(row) for row in (getattr(self, "_last_results", None) or [])]
+    telemetry = getattr(self, "_v46_telemetry", None)
+    details = list(getattr(telemetry, "failure_details", None) or [])
+    # The GUI poller may not yet have applied the final file_failed event when
+    # Done/Reports runs. The enqueue-time buffer closes that timing window.
+    details.extend(_v46_failure_details_snapshot(self))
+
+    seen = {
+        (
+            str(row.get("url") or row.get("filename") or "").strip(),
+            str(row.get("error") or "").strip(),
+        )
+        for row in rows
+        if _v24_result_is_failed(row)
+    }
+    for detail in details:
+        name = str(detail.get("name") or "").strip()
+        url = str(detail.get("url") or "").strip()
+        identity = url or name or str(detail.get("source_url") or "").strip()
+        error = str(detail.get("error") or "Asset download failed").strip()
+        key = (identity, error)
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append({
+            "status": "FAIL",
+            "url": identity,
+            "mode": "asset",
+            "filename": name or "[asset]",
+            "error": error,
+            "result_type": "asset",
+        })
+    return rows
+
 def _v24_show_results(self: Any) -> None:
     """Modernized results/report panel with safer row handling."""
     import customtkinter as ctk
@@ -55,15 +114,15 @@ def _v24_show_results(self: Any) -> None:
     import csv as csv_mod
 
     is_en = getattr(self, "_language", "id") == "en"
-    if not getattr(self, "_last_results", None):
+    rows_all = _v24_result_rows(self)
+    if not rows_all:
         messagebox.showinfo("Reports" if is_en else "Laporan", "No results yet. Run a download first." if is_en else "Belum ada hasil. Jalankan download terlebih dahulu.")
         return
 
     p = self._p()
-    rows_all = list(self._last_results or [])
     total = len(rows_all)
-    ok_cnt = sum(1 for r in rows_all if str(r.get("status", "")).upper() == "OK")
-    fail_cnt = total - ok_cnt
+    ok_cnt = sum(1 for r in rows_all if not _v24_result_is_failed(r))
+    fail_cnt = sum(1 for r in rows_all if _v24_result_is_failed(r))
 
     win = self._make_singleton_window("reports_center")
     if win is None:
@@ -123,7 +182,7 @@ def _v24_show_results(self: Any) -> None:
             messagebox.showerror("Reports" if is_en else "Laporan", str(e), parent=win)
 
     def _copy_failed() -> None:
-        failed = [r for r in rows_all if str(r.get("status", "")).upper() != "OK"]
+        failed = [r for r in rows_all if _v24_result_is_failed(r)]
         text = "\n".join(f"{r.get('url','')}\t{r.get('error','')}" for r in failed)
         try:
             win.clipboard_clear(); win.clipboard_append(text)
@@ -137,12 +196,12 @@ def _v24_show_results(self: Any) -> None:
         for child in list_frame.winfo_children():
             child.destroy()
         flt = filter_var.get()
-        rows = [r for r in rows_all if flt == "all" or (flt == "ok" and str(r.get("status", "")).upper() == "OK") or (flt == "fail" and str(r.get("status", "")).upper() != "OK")]
+        rows = [r for r in rows_all if flt == "all" or (flt == "ok" and not _v24_result_is_failed(r)) or (flt == "fail" and _v24_result_is_failed(r))]
         if not rows:
             ctk.CTkLabel(list_frame, text="No rows in this filter." if is_en else "Tidak ada data untuk filter ini.", font=ctk.CTkFont("Segoe UI", 12), text_color=p["muted"]).grid(row=0, column=0, padx=12, pady=28, sticky="w")
             return
         for idx, r in enumerate(rows):
-            ok = str(r.get("status", "")).upper() == "OK"
+            ok = not _v24_result_is_failed(r)
             accent = "#22c55e" if ok else "#ef4444"
             title = (r.get("filename") or "[auto]") + "  ·  " + str(r.get("mode", "")).replace("_", " ")
             detail = str(r.get("url", ""))
@@ -1938,6 +1997,8 @@ def _v46_gui_init(self, root) -> None:
     self._worker_thread = None
     self._run_started_wall = 0.0
     self._v46_progress_queue = log_queue_module.Queue(maxsize=1200)
+    self._v46_failure_events = deque(maxlen=500)
+    self._v46_failure_events_lock = threading.Lock()
     self._v46_telemetry = DownloadTelemetry()
     self._v46_progress_after_id = None
     self._v46_close_pending = False
@@ -2125,20 +2186,39 @@ def _v46_install_url_menu(self, label: Any, getter: Any, kind: str) -> None:
     label.bind("<Leave>", hide_tip, add="+")
 
 def _v46_enqueue_progress(self, event: Dict[str, Any]) -> None:
-    important = event.get("type") in {"job_completed", "job_failed", "job_cancelled", "cancelling", "stage_changed"}
+    event_type = event.get("type")
+    failure_buffer = getattr(self, "_v46_failure_events", None)
+    failure_lock = getattr(self, "_v46_failure_events_lock", None)
+    if failure_buffer is not None and event_type in {"queue_started", "file_failed"}:
+        def _update_failure_buffer() -> None:
+            if event_type == "queue_started":
+                failure_buffer.clear()
+            else:
+                failure_buffer.append({
+                    "name": str(event.get("name") or "").strip(),
+                    "url": str(event.get("url") or "").strip(),
+                    "error": str(event.get("error") or "Asset download failed").strip(),
+                })
+
+        if failure_lock is None:
+            _update_failure_buffer()
+        else:
+            with failure_lock:
+                _update_failure_buffer()
+
+    important = event_type in {"file_failed", "job_completed", "job_failed", "job_cancelled", "cancelling", "stage_changed"}
     try:
         self._v46_progress_queue.put_nowait(event)
         return
     except log_queue_module.Full:
         if not important:
             return
-    # Preserve important events by evicting one stale progress event.
+    # Do not evict an arbitrary head item: it may itself be a job failure or
+    # completion event. Give the GUI poller a short chance to make room while
+    # preserving the ordering and contents of events already queued.
     try:
-        self._v46_progress_queue.get_nowait()
-    except log_queue_module.Empty as _ignored_exc:
-        _ = _ignored_exc  # expected non-blocking queue control flow
-    try:
-        self._v46_progress_queue.put_nowait(event)
+        self._v46_progress_queue.put(event, timeout=0.25)
+        return
     except log_queue_module.Full:
         logger.warning("Progress event queue saturated; an important event was dropped")
 
@@ -2183,9 +2263,20 @@ def _v46_start(self) -> None:
     # Snapshot the output identity together with the URL. Queue rows remain
     # editable/reorderable while a run is active; the worker must never derive
     # a later folder name from mutable UI state.
+    default_mode_snapshot = str(self._mode_var.get() or "auto")
+    from ..storage.resume import resume_job_key
     for item in run_items:
         requested_name = str(item.get("filename") or "").strip()
         item["_run_file_name"] = requested_name or _build_output_name(str(item.get("url") or ""))
+        item["_run_requested_mode"] = str(item.get("mode") or default_mode_snapshot or "auto")
+        # Normalize imported blank modes before auto_detect_modes_batch(),
+        # whose public contract intentionally probes only mode == "auto".
+        item["mode"] = item["_run_requested_mode"]
+        item["_resume_key"] = resume_job_key(
+            str(item.get("url") or ""),
+            item["_run_file_name"],
+            item["_run_requested_mode"],
+        )
     self._active_run_queue_ids = {
         str(it.get("_queue_id") or "")
         for it in run_items
@@ -2209,7 +2300,11 @@ def _v46_start(self) -> None:
     self._status_var.set("Preparing download…")
     self._worker_thread = threading.Thread(
         target=self._worker,
-        args=(run_items, self._mode_var, wt, threads, outdir,
+        # Pass an immutable mode snapshot, not the Tk StringVar itself. Queue
+        # rows imported without an explicit mode fall back to this value in the
+        # worker; stringifying a StringVar produced "PY_VAR..." and selected no
+        # valid download mode.
+        args=(run_items, default_mode_snapshot, wt, threads, outdir,
               self._fonts_var.get(), self._analyse_var.get(),
               _normalize_cloudflare_mode(self._cf_mode_var.get()),
               self._http2_var.get(), self._ytdlp_var.get(), bw,
@@ -2256,9 +2351,16 @@ def _v46_worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_a
     _set_http2_enabled(bool(http2_enabled))
     setup_file_logging(outdir)
     state = load_resume_state(outdir)
-    completed = set(state["completed"])
+    # v2 resume identities include URL + output filename + requested mode.
+    # URL-only legacy entries are intentionally ignored once: otherwise a
+    # prior successful "foo.zip" could skip a later request for the same URL
+    # as "bar" or as a different output mode.
+    completed = {value for value in state["completed"] if str(value).startswith("job-v2:")}
+    legacy_completed = len(state["completed"]) - len(completed)
+    if legacy_completed:
+        logger.info("[Resume] Ignoring %s legacy URL-only completion(s); jobs will be verified again", legacy_completed)
     prev_failed = set(f["url"] if isinstance(f, dict) else f for f in state["failed"])
-    completed_urls: List[str] = list(completed)
+    completed_jobs: List[str] = list(completed)
     failed_items: List[Dict[str, str]] = []
     self._last_results = []
     cancelled = False
@@ -2268,8 +2370,8 @@ def _v46_worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_a
     # intentionally queued the same CYOA twice. Duplicate rows are therefore
     # treated as explicit jobs for this run; each still gets its unique output
     # name/folder from the queue snapshot.
-    url_counts = Counter(str(item.get("url") or "") for item in items if item.get("url"))
-    duplicate_urls = {url for url, count in url_counts.items() if count > 1}
+    job_counts = Counter(str(item.get("_resume_key") or "") for item in items if item.get("_resume_key"))
+    duplicate_jobs = {key for key, count in job_counts.items() if count > 1}
 
     # Surface prior-session state on the queue dots before the
     # run starts, matching the legacy GUI worker. `prev_failed` was previously
@@ -2279,7 +2381,8 @@ def _v46_worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_a
     # is restored.
     for _idx0, _item0 in enumerate(items):
         _u0 = str(_item0.get("url") or "")
-        if _u0 in completed and _u0 not in duplicate_urls:
+        _key0 = str(_item0.get("_resume_key") or "")
+        if _key0 in completed and _key0 not in duplicate_jobs:
             self._set_dot(_idx0, "done")
         elif _u0 in prev_failed:
             self._set_dot(_idx0, "error")
@@ -2287,8 +2390,8 @@ def _v46_worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_a
     try:
         auto_items = [
             it for it in items
-            if it.get("mode", default_mode) == "auto"
-            and (it.get("url") not in completed or it.get("url") in duplicate_urls)
+            if str(it.get("_run_requested_mode") or default_mode or "auto") == "auto"
+            and (it.get("_resume_key") not in completed or it.get("_resume_key") in duplicate_jobs)
         ]
         if auto_items:
             self._set_status(f"Auto-detecting mode for {len(auto_items)} URL(s)…")
@@ -2302,7 +2405,8 @@ def _v46_worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_a
             _raise_if_cancelled()
             url = str(item.get("url") or "")
             mode = str(item.get("mode") or default_mode or "auto")
-            if url in completed and url not in duplicate_urls:
+            resume_key = str(item.get("_resume_key") or "")
+            if resume_key in completed and resume_key not in duplicate_jobs:
                 skipped_count += 1
                 self._last_results.append({"url": url, "mode": mode, "status": "SKIP", "filename": item.get("filename", ""), "error": "Already completed"})
                 self._set_dot(idx - 1, "skip")
@@ -2343,13 +2447,14 @@ def _v46_worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_a
                     ai_mode=getattr(self, "_ai_mode", "auto_fallback"),
                 )
                 _raise_if_cancelled()
-                completed_urls.append(url)
+                if resume_key not in completed_jobs:
+                    completed_jobs.append(resume_key)
                 if item.get("_queue_id"):
                     self._active_run_success_ids.add(str(item["_queue_id"]))
                 self._last_results.append({"url": url, "mode": mode, "status": "OK", "filename": item.get("filename", ""), "error": ""})
                 self._set_dot(idx - 1, "done")
                 _record_history(url, item.get("filename", ""), mode, success=True)
-                save_resume_state(outdir, completed_urls, [f["url"] for f in failed_items])
+                save_resume_state(outdir, completed_jobs, [f["url"] for f in failed_items])
                 self._v46_enqueue_progress({"type": "job_completed", "failed_assets": 0, "time": time.monotonic()})
             except DownloadCancelledError:
                 cancelled = True
@@ -2363,17 +2468,26 @@ def _v46_worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_a
                 self._last_results.append({"url": url, "mode": mode, "status": "FAIL", "filename": item.get("filename", ""), "error": str(exc)})
                 self._set_dot(idx - 1, "error")
                 _record_history(url, item.get("filename", ""), mode, success=False)
-                save_resume_state(outdir, completed_urls, [f["url"] for f in failed_items])
+                save_resume_state(outdir, completed_jobs, [f["url"] for f in failed_items])
                 self._v46_enqueue_progress({"type": "job_failed", "error": str(exc), "time": time.monotonic()})
 
         write_failed_url_log(failed_items, outdir)
         succeeded = sum(1 for r in self._last_results if r.get("status") in {"OK", "SKIP"})
+        asset_failure_count = len(_v46_failure_details_snapshot(self))
         if cancelled or self._cancel_event.is_set():
             removed = _cleanup_recent_part_files(outdir, self._run_started_wall)
             logger.info(f"[Cancel] Cleaned {removed} partial file(s)")
             self._set_status(f"Cancelled — {succeeded}/{len(items)} completed")
-        elif failed_items:
-            self._set_status(f"Completed with warnings — {succeeded}/{len(items)} succeeded, {len(failed_items)} failed")
+        elif failed_items or asset_failure_count:
+            warning_parts = []
+            if failed_items:
+                warning_parts.append(f"{len(failed_items)} job(s) failed")
+            if asset_failure_count:
+                warning_parts.append(f"{asset_failure_count} asset(s) failed")
+            self._set_status(
+                f"Completed with warnings — {succeeded}/{len(items)} succeeded, "
+                + ", ".join(warning_parts)
+            )
         else:
             self._set_status(f"Completed — {succeeded}/{len(items)} succeeded")
             clear_resume_state(outdir)
@@ -2403,12 +2517,13 @@ def _v46_done(self) -> None:
     except Exception as exc: logger.debug(f"Cancel button reset failed: {exc}")
     status = self._status_var.get()
     failed = [r for r in self._last_results if r.get("status") == "FAIL"]
+    asset_failed = bool(_v46_failure_details_snapshot(self))
     cancelled = any(r.get("status") == "CANCELLED" for r in self._last_results) or self._cancel_event.is_set()
-    if failed:
+    if failed or asset_failed:
         self._v46_copy_error_btn.configure(state="normal")
     if cancelled:
         self._v46_enqueue_progress({"type": "job_cancelled", "time": time.monotonic()})
-    elif failed:
+    elif failed or asset_failed:
         self._v46_enqueue_progress({"type": "stage_changed", "state": DownloadState.COMPLETED_WITH_WARNINGS.value, "time": time.monotonic()})
     else:
         self._v46_enqueue_progress({"type": "stage_changed", "state": DownloadState.COMPLETED.value, "time": time.monotonic()})
@@ -2471,7 +2586,11 @@ def _v46_finish_close(self) -> None:
     self.root.destroy()
 
 def _v46_copy_error(self) -> None:
-    errors = [f"{r.get('url','')}\n{r.get('error','')}" for r in self._last_results if r.get("status") == "FAIL"]
+    errors = [
+        f"{r.get('url','')}\n{r.get('error','')}"
+        for r in _v24_result_rows(self)
+        if _v24_result_is_failed(r)
+    ]
     text = "\n\n".join(errors) or self._v46_telemetry.last_error
     if text:
         self.root.clipboard_clear(); self.root.clipboard_append(text)

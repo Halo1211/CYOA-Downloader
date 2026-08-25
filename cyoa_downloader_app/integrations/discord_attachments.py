@@ -315,12 +315,16 @@ class DiscordAttachmentClient:
                 if response.status != 200:
                     return DownloadAttempt(False, status=response.status, error=f"HTTP {response.status}")
                 content_length = response.headers.get("Content-Length")
+                expected_length: int | None = None
                 if content_length:
                     try:
-                        if int(content_length) > self.max_file_bytes:
+                        expected_length = int(content_length)
+                        if expected_length < 0:
+                            expected_length = None
+                        elif expected_length > self.max_file_bytes:
                             return DownloadAttempt(False, status=response.status, error="file exceeds max size")
                     except ValueError:
-                        pass
+                        expected_length = None
                 received = 0
                 with open(temporary_path, "wb") as output:
                     while True:
@@ -331,6 +335,12 @@ class DiscordAttachmentClient:
                         if received > self.max_file_bytes:
                             raise DiscordAttachmentError("file exceeds max size")
                         output.write(chunk)
+                if received <= 0:
+                    raise DiscordAttachmentError("downloaded attachment is empty")
+                if expected_length is not None and received != expected_length:
+                    raise DiscordAttachmentError(
+                        f"incomplete attachment: expected {expected_length} bytes, received {received}"
+                    )
                 os.replace(temporary_path, destination)
                 return DownloadAttempt(True, status=response.status)
         except HTTPError as error:

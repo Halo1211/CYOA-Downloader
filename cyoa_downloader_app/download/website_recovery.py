@@ -9,6 +9,7 @@ import re
 from dataclasses import dataclass
 from typing import Dict, List, Set, Tuple
 
+from ..core.atomic_io import atomic_write_text
 from .archive_policy import ArchivePolicy
 from .archive_runner import resume_existing_archive
 from .website import WebsiteDownloader
@@ -67,6 +68,44 @@ def _parse_failure_report(path: pathlib.Path) -> Tuple[str, List[str]]:
     return source, urls
 
 
+def _mark_recovered_backup_urls(path: pathlib.Path, recovered: Set[str]) -> int:
+    """Mark recovered backup-report rows so they are not retried forever.
+
+    ``backup_report.txt`` is also the archive manifest and should not be
+    deleted or replaced by the smaller failure log. Preserve its historical
+    content, but turn recovered failure rows into explicit recovery records so
+    ``_parse_failure_report`` no longer treats them as pending work.
+    """
+    if not recovered or path.name.lower() != "backup_report.txt":
+        return 0
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return 0
+
+    changed = 0
+    updated: List[str] = []
+    for line in lines:
+        stripped = line.strip()
+        failure_row = stripped.startswith(("✗", "×", "âœ—"))
+        match = _URL_RE.match(line) or (_FAILED_LINE_RE.search(line) if failure_row else None)
+        url = match.group(1).rstrip().rstrip(")") if match else ""
+        if url not in recovered:
+            updated.append(line)
+            continue
+        indent = line[: len(line) - len(line.lstrip())]
+        if _URL_RE.match(line):
+            updated.append(f"{indent}Recovered URL : {url}")
+        else:
+            updated.append(f"{indent}✓ RECOVERED {url}")
+        changed += 1
+
+    if changed:
+        atomic_write_text(str(path), "\n".join(updated).rstrip() + "\n")
+        logger.info("Marked %s recovered failure row(s) in %s", changed, path)
+    return changed
+
+
 def has_website_recovery_work(root: str) -> bool:
     base = pathlib.Path(root)
     if not base.is_dir():
@@ -123,6 +162,7 @@ def retry_website_assets(root: str, policy: ArchivePolicy | None = None) -> Webs
             continue
         downloader = WebsiteDownloader(source, str(folder), archive_strategy=policy.strategy)
         remaining: List[Dict[str, str]] = []
+        recovered_urls: Set[str] = set()
         try:
             for url in urls:
                 summary.discovered_assets += 1
@@ -135,13 +175,16 @@ def retry_website_assets(root: str, policy: ArchivePolicy | None = None) -> Webs
                     error = "retry failed"
                 if local:
                     summary.recovered_assets += 1
+                    recovered_urls.add(url)
                 else:
                     summary.failed_assets += 1
                     remaining.append({"url": url, "error": error})
-            if summary.recovered_assets:
+            if recovered_urls:
                 downloader.localize_existing_text_assets()
         finally:
             downloader.close()
+        for report in group.get("reports", []):
+            _mark_recovered_backup_urls(pathlib.Path(report), recovered_urls)
         failed_log = folder / "failed_assets.txt"
         if remaining:
             write_failed_assets_log(remaining, str(folder), source_url=source)

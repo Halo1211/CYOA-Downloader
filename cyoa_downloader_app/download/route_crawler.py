@@ -15,6 +15,8 @@ from .archive_policy import ArchivePolicy
 from .asset_scan import _safe_response_text
 from .package import clean_url_path_component
 from ..core.atomic_io import atomic_write_text
+from ..core.cancellation import _raise_if_cancelled
+from ..core.progress import DownloadCancelledError
 from ..logging_setup import logger
 from ..project.parse import try_decode_bytes
 
@@ -119,6 +121,7 @@ class RouteCrawler:
         return local
 
     def _fetch_html(self, url: str) -> Optional[str]:
+        _raise_if_cancelled()
         response = self.downloader._fetch(url)
         if response:
             try:
@@ -134,6 +137,8 @@ class RouteCrawler:
                 raw = _fetch_headless(url)
                 if raw:
                     return try_decode_bytes(raw)
+            except DownloadCancelledError:
+                raise
             except Exception as exc:
                 logger.debug("Headless route fetch failed for %s: %s", url, exc)
         return None
@@ -179,6 +184,7 @@ class RouteCrawler:
         queued: Set[str] = set(result.pages) | set(seeds)
 
         while queue and len(result.pages) < self.policy.max_pages:
+            _raise_if_cancelled()
             url, depth = queue.popleft()
             html = self._fetch_html(url)
             if not html:
@@ -187,6 +193,8 @@ class RouteCrawler:
             local = self._route_local_path(url)
             try:
                 self.downloader.download_html_page(url, local, html)
+            except DownloadCancelledError:
+                raise
             except Exception as exc:
                 result.failed.append({"url": url, "error": str(exc)})
                 continue
@@ -194,6 +202,7 @@ class RouteCrawler:
             if depth >= self.policy.max_depth:
                 continue
             for link in self._links_from(html, url):
+                _raise_if_cancelled()
                 if link not in queued:
                     queued.add(link)
                     result.discovered.append(link)
@@ -217,6 +226,7 @@ class RouteCrawler:
         route_map = {self._canonicalize(url): local for url, local in pages.items()}
         guard = """<script data-cyoa-offline-route-guard>document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a[data-cyoa-local-route]');if(a){e.preventDefault();e.stopImmediatePropagation();location.href=a.href;}},true);</script>"""
         for page_url, local in pages.items():
+            _raise_if_cancelled()
             try:
                 text = pathlib.Path(local).read_text(encoding="utf-8", errors="ignore")
                 soup = BeautifulSoup(text, "html.parser")
@@ -237,5 +247,7 @@ class RouteCrawler:
                     target.append(BeautifulSoup(guard, "html.parser"))
                 if changed:
                     atomic_write_text(local, str(soup))
+            except DownloadCancelledError:
+                raise
             except Exception as exc:
                 logger.warning("Could not rewrite route links in %s: %s", local, exc)

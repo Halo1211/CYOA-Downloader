@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Tuple
 
 from ..app_info import _APP_VERSION
+from ..core.atomic_io import atomic_write_text, interprocess_file_lock
 from ..logging_setup import logger
 from .secrets import (
     _REDACTED_PLACEHOLDER,
@@ -353,10 +354,10 @@ def _load_settings() -> Dict[str, Any]:
 def _save_settings(settings: Dict[str, Any]) -> None:
     try:
         os.makedirs(os.path.dirname(os.path.abspath(_SETTINGS_FILE)) or ".", exist_ok=True)
-        tmp = _SETTINGS_FILE + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            f.write(_format_settings_json(_normalize_loaded_settings(settings)))
-        os.replace(tmp, _SETTINGS_FILE)
+        atomic_write_text(
+            _SETTINGS_FILE,
+            _format_settings_json(_normalize_loaded_settings(settings)),
+        )
     except Exception as e:
         logger.warning(f"Could not save settings: {e}")
 
@@ -367,17 +368,19 @@ _SETTINGS_LOCK = threading.Lock()
 def _update_setting(key: str, value: Any) -> None:
     """Thread-safe single-key update that never drops a concurrent change."""
     with _SETTINGS_LOCK:
-        s = _load_settings()
-        s[key] = value
-        _save_settings(s)
+        with interprocess_file_lock(_SETTINGS_FILE):
+            s = _load_settings()
+            s[key] = value
+            _save_settings(s)
 
 
 def _update_settings(updates: Dict[str, Any]) -> None:
     """Thread-safe multi-key update under one lock acquisition."""
     with _SETTINGS_LOCK:
-        s = _load_settings()
-        s.update(updates)
-        _save_settings(s)
+        with interprocess_file_lock(_SETTINGS_FILE):
+            s = _load_settings()
+            s.update(updates)
+            _save_settings(s)
 
 
 _THEME_MODE_CANONICAL = {

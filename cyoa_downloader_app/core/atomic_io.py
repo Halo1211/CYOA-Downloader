@@ -4,9 +4,65 @@ from __future__ import annotations
 
 import os
 import threading
-from typing import Any, Optional
+import time
+from contextlib import contextmanager
+from typing import Any, Iterator, Optional
 
 from ..logging_setup import logger
+
+
+@contextmanager
+def interprocess_file_lock(path: str, timeout: float = 10.0) -> Iterator[None]:
+    """Serialize a short file transaction across processes.
+
+    The sibling ``.lock`` file is intentionally persistent: deleting a lock
+    file after release creates an inode race where a second process can lock a
+    newly-created file while a third still holds the old one.
+    """
+    target = os.path.abspath(path)
+    os.makedirs(os.path.dirname(target) or os.getcwd(), exist_ok=True)
+    lock_path = target + ".lock"
+    deadline = time.monotonic() + max(0.0, float(timeout or 0.0))
+    handle = open(lock_path, "a+b", buffering=0)
+    acquired = False
+    backend = ""
+    try:
+        if os.path.getsize(lock_path) == 0:
+            handle.write(b"\0")
+        while not acquired:
+            handle.seek(0)
+            try:
+                if os.name == "nt":
+                    import msvcrt
+
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                    backend = "msvcrt"
+                else:
+                    import fcntl
+
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    backend = "fcntl"
+                acquired = True
+            except (OSError, BlockingIOError):
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(f"Timed out waiting for file lock: {lock_path}")
+                time.sleep(0.05)
+        yield
+    finally:
+        if acquired:
+            try:
+                handle.seek(0)
+                if backend == "msvcrt":
+                    import msvcrt
+
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                elif backend == "fcntl":
+                    import fcntl
+
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            except OSError as exc:
+                logger.debug(f"Could not release file lock {lock_path}: {exc}")
+        handle.close()
 
 def atomic_write_bytes(path: str, data: bytes) -> str:
     """Write bytes to a sibling .part file, fsync, then atomically replace."""
@@ -60,4 +116,7 @@ def validate_response_content_length(response: Any, actual_length: int) -> Optio
     return expected
 
 
-__all__ = ['atomic_write_bytes', 'atomic_write_text', 'validate_response_content_length']
+__all__ = [
+    'atomic_write_bytes', 'atomic_write_text', 'interprocess_file_lock',
+    'validate_response_content_length',
+]

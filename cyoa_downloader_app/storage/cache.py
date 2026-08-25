@@ -11,13 +11,17 @@ import time as _time
 from typing import Dict, Optional
 
 from ..config.settings import _load_settings
-from ..core.atomic_io import atomic_write_bytes, atomic_write_text
+from ..core.atomic_io import atomic_write_bytes, atomic_write_text, interprocess_file_lock
 from ..logging_setup import logger
 
 _CACHE_DIR = pathlib.Path.home() / ".cyoa_downloader" / "image_cache"
 _CACHE_IDX = _CACHE_DIR / "index.json"
 _DEFAULT_CACHE_MAX_MB = 2048
 _cache_index: Dict[str, str] = {}
+_cache_dirty: Dict[str, str] = {}
+_cache_removed = set()
+_cache_replace_generation = 0
+_cache_flushed_replace_generation = 0
 _cache_lock = threading.Lock()
 _cache_loaded = False
 
@@ -47,6 +51,11 @@ def _cache_load() -> None:
             logger.debug(f"Image cache: {len(_cache_index)} entries loaded")
         except Exception as e:
             logger.debug(f"Image cache load failed: {e}")
+            # Treat a malformed/unavailable index as an empty loaded cache for
+            # this process. Re-parsing the same broken JSON on every image
+            # lookup creates repeated disk I/O; the next successful put/flush
+            # will atomically heal the index.
+            _cache_loaded = True
 
 
 def _cache_get(url: str) -> Optional[bytes]:
@@ -72,6 +81,9 @@ def _cache_get(url: str) -> Optional[bytes]:
             logger.debug("Ignored recoverable exception in _cache_get: %s", _ignored_exc)
     with _cache_lock:
         _cache_index.pop(url, None)
+        _cache_dirty.pop(url, None)
+        _cache_removed.add(url)
+    _v465_schedule_cache_save()
     return None
 
 
@@ -79,14 +91,16 @@ def _cache_stats() -> Dict[str, int]:
     _cache_load()
     with _cache_lock:
         digests = set(_cache_index.values())
-    size_bytes = sum(
-        ((_CACHE_DIR / h[:2] / h).stat().st_size
-         for h in digests
-         if (_CACHE_DIR / h[:2] / h).exists()),
-        0,
-    )
+        entry_count = len(_cache_index)
+    size_bytes = 0
+    for digest in digests:
+        try:
+            size_bytes += (_CACHE_DIR / digest[:2] / digest).stat().st_size
+        except OSError:
+            # Eviction/clear may remove a file between snapshot and stat.
+            continue
     return {
-        "entries": len(_cache_index),
+        "entries": entry_count,
         "size_mb": size_bytes // (1024 * 1024),
         "limit_mb": _cache_limit_mb(),
     }
@@ -143,6 +157,8 @@ def _enforce_cache_limit() -> int:
                 for url, digest in list(_cache_index.items()):
                     if digest in removed_digests:
                         _cache_index.pop(url, None)
+                        _cache_dirty.pop(url, None)
+                        _cache_removed.add(url)
         if removed:
             _v465_schedule_cache_save()
             logger.info("Image cache auto-cleaned: %s file(s) removed", removed)
@@ -153,28 +169,32 @@ def _enforce_cache_limit() -> int:
 
 def _clear_image_cache() -> int:
     """Remove all cached images. Returns number of files deleted."""
-    global _cache_index
+    global _cache_index, _cache_replace_generation
     count = 0
     try:
-        with _cache_lock:
-            if _CACHE_DIR.exists():
-                for item in _CACHE_DIR.iterdir():
-                    if item.is_dir():
-                        for f in item.iterdir():
+        with interprocess_file_lock(str(_CACHE_IDX)):
+            with _cache_lock:
+                if _CACHE_DIR.exists():
+                    for item in _CACHE_DIR.iterdir():
+                        if item.is_dir():
+                            for f in item.iterdir():
+                                try:
+                                    f.unlink()
+                                    count += 1
+                                except FileNotFoundError:
+                                    pass
+                                except OSError as _ignored_exc:
+                                    logger.debug("Ignored recoverable exception in _clear_image_cache: %s", _ignored_exc)
                             try:
-                                f.unlink()
-                                count += 1
-                            except FileNotFoundError:
-                                pass
+                                item.rmdir()
                             except OSError as _ignored_exc:
                                 logger.debug("Ignored recoverable exception in _clear_image_cache: %s", _ignored_exc)
-                        try:
-                            item.rmdir()
-                        except OSError as _ignored_exc:
-                            logger.debug("Ignored recoverable exception in _clear_image_cache: %s", _ignored_exc)
-                if _CACHE_IDX.exists():
-                    _CACHE_IDX.unlink()
-            _cache_index = {}
+                    if _CACHE_IDX.exists():
+                        _CACHE_IDX.unlink()
+                _cache_index = {}
+                _cache_dirty.clear()
+                _cache_removed.clear()
+                _cache_replace_generation += 1
         if "_v465_cache_save_event" in globals():
             _v465_cache_save_event.clear()
             _v465_flush_cache_index()
@@ -190,16 +210,57 @@ _v465_cache_writer_thread: Optional[threading.Thread] = None
 
 
 def _v465_flush_cache_index() -> None:
+    global _cache_flushed_replace_generation
     try:
-        if not _cache_loaded and not _cache_index:
-            return
         _CACHE_DIR.mkdir(parents=True, exist_ok=True)
         with _cache_lock:
             snapshot = dict(_cache_index)
-        atomic_write_text(
-            str(_CACHE_IDX),
-            _json_cache.dumps(snapshot, ensure_ascii=False, sort_keys=True),
-        )
+            dirty = dict(_cache_dirty)
+            removed = set(_cache_removed)
+            replace_generation = _cache_replace_generation
+            force_replace = replace_generation > _cache_flushed_replace_generation
+        if not dirty and not removed and not force_replace:
+            return
+
+        with interprocess_file_lock(str(_CACHE_IDX)):
+            merged: Dict[str, str] = {}
+            if not force_replace and _CACHE_IDX.exists():
+                try:
+                    with open(_CACHE_IDX, encoding="utf-8") as fh:
+                        disk_data = _json_cache.load(fh)
+                    if isinstance(disk_data, dict):
+                        merged.update({
+                            url: digest.lower()
+                            for url, digest in disk_data.items()
+                            if isinstance(url, str)
+                            and isinstance(digest, str)
+                            and len(digest) == 64
+                            and all(ch in "0123456789abcdefABCDEF" for ch in digest)
+                        })
+                except Exception as exc:
+                    logger.debug(f"Image cache disk index merge failed: {exc}")
+            if force_replace:
+                merged = snapshot
+            else:
+                merged.update(dirty)
+                for url in removed:
+                    merged.pop(url, None)
+            atomic_write_text(
+                str(_CACHE_IDX),
+                _json_cache.dumps(merged, ensure_ascii=False, sort_keys=True),
+            )
+
+        with _cache_lock:
+            for url, digest in dirty.items():
+                if _cache_dirty.get(url) == digest:
+                    _cache_dirty.pop(url, None)
+            for url in removed:
+                if url not in _cache_index:
+                    _cache_removed.discard(url)
+            _cache_flushed_replace_generation = max(
+                _cache_flushed_replace_generation,
+                replace_generation,
+            )
     except Exception as exc:
         logger.debug(f"Image cache index flush failed: {exc}")
 
@@ -242,6 +303,8 @@ def _cache_put(url: str, data: bytes) -> None:
             atomic_write_bytes(str(target), data)
         with _cache_lock:
             _cache_index[url] = digest
+            _cache_dirty[url] = digest
+            _cache_removed.discard(url)
         _v465_schedule_cache_save()
         _enforce_cache_limit()
     except Exception as exc:

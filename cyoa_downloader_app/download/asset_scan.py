@@ -16,6 +16,8 @@ import threading as _threading
 from typing import Dict, Optional, Set, Tuple
 from urllib.parse import urljoin, urlparse, urlunparse
 
+import requests
+
 from ..constants.assets import (
     IMAGE_EXTENSIONS, AUDIO_EXTENSIONS, AUDIO_FIELDS, BGMLIST_FIELDS,
     ICC_PLUS_IMAGE_KEYS, IMAGE_FIELDS, _SOUNDCLOUD_URL_RE,
@@ -273,6 +275,33 @@ def _scan_file_for_assets(
 
     inferred_dynamic_assets = _infer_dynamic_asset_paths(text)
 
+    # Compiled story formats often keep a bare filename in metadata (for
+    # example ``item.img = "card.jpg"``) and also emit the concrete runtime
+    # path elsewhere in the same document (``images/chapter/card.jpg``).
+    # Treating both as independent URLs creates a misleading root-level 404
+    # even though the concrete image was downloaded successfully. Only mark
+    # an ``img`` metadata value as an alias when an explicit path with the
+    # exact same basename is present; standalone bare image references remain
+    # valid candidates.
+    pathful_image_basenames = {
+        _re.split(r"[?#]", match.group("path"), maxsplit=1)[0].rsplit("/", 1)[-1].lower()
+        for match in _re.finditer(
+            r"(?P<path>(?:[A-Za-z0-9_.%+() -]+/)+"
+            r"[A-Za-z0-9_.%+() -]+\.(?:webp|avif|png|jpe?g|gif|svg|ico|bmp|tiff)"
+            r"(?:\?[^\s\"'`<>]*)?)",
+            text,
+            _re.IGNORECASE,
+        )
+    }
+
+    def _is_redundant_img_metadata_alias(raw: str, before: str) -> bool:
+        clean = _re.split(r"[?#]", raw, maxsplit=1)[0]
+        return (
+            "/" not in clean
+            and clean.lower() in pathful_image_basenames
+            and bool(_re.search(r"(?:\.\s*img|\bimg)\s*[:=]\s*$", before, _re.IGNORECASE))
+        )
+
     def _resolve(raw: str) -> Optional[str]:
         raw = raw.strip().lstrip()
         if not raw or len(raw) > 400:
@@ -400,6 +429,8 @@ def _scan_file_for_assets(
             continue
         after = text[m.end():m.end() + 48]
         before = text[max(0, m.start() - 48):m.start()]
+        if _is_redundant_img_metadata_alias(raw, before):
+            continue
         # Vite emits ``new URL(`asset-hash.webp`, import.meta.url)``.  This
         # path is relative to the JS bundle, while an ordinary JS string is
         # resolved from the viewer/document root.
@@ -482,6 +513,8 @@ def _scan_file_for_assets(
             continue
         after = text[m.end():m.end() + 48]
         before = text[max(0, m.start() - 48):m.start()]
+        if _is_redundant_img_metadata_alias(raw, before):
+            continue
         is_module_asset = False
         if file_ext in ('.js', '.mjs', '.cjs'):
             if _re.match(r'\s*:', after):
@@ -648,6 +681,7 @@ def _infer_dynamic_asset_paths(text: str) -> Dict[str, Set[str]]:
     import re as _re
 
     prefixes = []
+    directory_hints = []
     assignment = _re.compile(
         r'(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*["\']([^"\']+/)["\']',
         _re.IGNORECASE,
@@ -658,8 +692,46 @@ def _infer_dynamic_asset_paths(text: str) -> Dict[str, Set[str]]:
         prefix = match.group(2).strip()
         if prefix and not prefix.startswith(("http://", "https://", "//", "data:")):
             prefixes.append(prefix)
-    if not prefixes:
-        return {}
+
+    # Story compilers also use dotted globals rather than const/let/var, e.g.
+    # ``setup.WK_IMG_DIR = "images/07_Weakness/"``. Keep these as proximity
+    # hints for nearby ``img: "filename.jpg"`` metadata instead of combining
+    # every filename with every directory in a large application.
+    named_directory = _re.compile(
+        r'(?P<name>[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*=\s*'
+        r'["\'](?P<prefix>(?:[A-Za-z0-9_.%+() -]+/)+)["\']',
+        _re.IGNORECASE,
+    )
+    for match in named_directory.finditer(text or ""):
+        if not _re.search(r"(?:img|image|asset)", match.group("name"), _re.IGNORECASE):
+            continue
+        prefix = match.group("prefix").strip()
+        if prefix and not prefix.startswith(("http://", "https://", "//", "data:")):
+            directory_hints.append((match.start(), prefix))
+
+    # HTML-escaped templates can carry the concrete prefix directly:
+    # ``src=&quot;images/06_Anomalies/&#39; + row.img + ...``.
+    direct_img_concat = _re.compile(
+        r'(?P<prefix>(?:[A-Za-z0-9_.%+() -]+/)+)'
+        r'(?:["\'`]|&(?:quot|#0*39);)\s*\+\s*'
+        r'[A-Za-z_$][\w$]*(?:\[[^\]\r\n]+\])?\.img\b',
+        _re.IGNORECASE,
+    )
+    for match in direct_img_concat.finditer(text or ""):
+        prefix = match.group("prefix").strip()
+        if prefix and not prefix.startswith(("http://", "https://", "//", "data:")):
+            directory_hints.append((match.start(), prefix))
+
+    # Generated source frequently documents the shared directory beside the
+    # metadata table while placing the actual concatenation in a distant
+    # compiled passage. Common image/asset directory literals are therefore
+    # useful local hints as long as they remain close to the metadata value.
+    common_directory = _re.compile(
+        r'(?P<prefix>(?:images?|img|assets?)/(?:[A-Za-z0-9_.%+() -]+/)*)',
+        _re.IGNORECASE,
+    )
+    for match in common_directory.finditer(text or ""):
+        directory_hints.append((match.start(), match.group("prefix").strip()))
 
     image_literal = _re.compile(
         r'["\']([^"\'\n\r<>{}()|\\]{1,300}\.(?:webp|avif|png|jpe?g|gif|svg|ico|bmp|tiff)(?:\?[^"\']*)?)["\']',
@@ -681,6 +753,27 @@ def _infer_dynamic_asset_paths(text: str) -> Dict[str, Set[str]]:
                 if raw.startswith(prefix):
                     continue
                 inferred.setdefault(raw, set()).add(prefix.rstrip("/") + "/" + raw.lstrip("/"))
+
+    # Pair bare ``img`` metadata with only the nearest explicitly-authored
+    # directory hint. The distance cap prevents a directory from one story
+    # chapter leaking into unrelated metadata elsewhere in a large bundle.
+    metadata_image = _re.compile(
+        r'(?:\.\s*img\s*=|(?:\bimg\b|["\']img["\'])\s*:)\s*'
+        r'["\'](?P<raw>[A-Za-z0-9_.%+() -]+\.(?:webp|avif|png|jpe?g|gif|svg|ico|bmp|tiff)'
+        r'(?:\?[^"\']*)?)["\']',
+        _re.IGNORECASE,
+    )
+    for match in metadata_image.finditer(text or ""):
+        raw = match.group("raw").strip()
+        nearby = [
+            (abs(match.start() - position), prefix)
+            for position, prefix in directory_hints
+            if abs(match.start() - position) <= 16_384
+        ]
+        if not nearby:
+            continue
+        _, prefix = min(nearby, key=lambda item: item[0])
+        inferred.setdefault(raw, set()).add(prefix.rstrip("/") + "/" + raw.lstrip("/"))
     return inferred
 
 

@@ -28,12 +28,21 @@ def select_archive_root(output_dir: str) -> str:
     if (root / "index.html").is_file() or (root / "archive_manifest.json").is_file():
         return str(root)
     try:
-        candidates = [
-            child for child in root.iterdir()
-            if child.is_dir()
-            and (child / "index.html").is_file()
-            and (child / "archive_manifest.json").is_file()
-        ]
+        candidates = []
+        for child in root.iterdir():
+            try:
+                resolved = child.resolve()
+                contained = os.path.commonpath([str(root), str(resolved)]) == str(root)
+            except (OSError, ValueError):
+                contained = False
+            if (
+                contained
+                and not child.is_symlink()
+                and resolved.is_dir()
+                and (resolved / "index.html").is_file()
+                and (resolved / "archive_manifest.json").is_file()
+            ):
+                candidates.append(resolved)
     except OSError:
         return str(root)
     return str(candidates[0].resolve()) if len(candidates) == 1 else str(root)
@@ -42,6 +51,7 @@ def select_archive_root(output_dir: str) -> str:
 def resolve_archived_page(serve_dir: str, request_route: str) -> Optional[str]:
     """Map an original web route to the HTML file recorded in the manifest."""
     root = os.path.abspath(serve_dir)
+    root_real = os.path.realpath(root)
     manifest_path = os.path.join(root, "archive_manifest.json")
     try:
         manifest = json.loads(pathlib.Path(manifest_path).read_text(encoding="utf-8"))
@@ -54,9 +64,13 @@ def resolve_archived_page(serve_dir: str, request_route: str) -> Optional[str]:
             continue
         local = str(page.get("local") or "").replace("/", os.sep)
         candidate = os.path.abspath(os.path.join(root, local))
+        candidate_real = os.path.realpath(candidate)
         try:
-            if os.path.commonpath([root, candidate]) == root and os.path.isfile(candidate):
-                return candidate
+            if (
+                os.path.commonpath([root_real, candidate_real]) == root_real
+                and os.path.isfile(candidate_real)
+            ):
+                return candidate_real
         except ValueError:
             return None
     return None

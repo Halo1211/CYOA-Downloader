@@ -7,12 +7,13 @@ import io
 import os
 import re
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from ..constants.modes import (
     _BATCH_VALID_MODES, _PURE_MODES, _CYOAP_MODES, _WEBSITE_MODES, _FOLDER_MODES,
 )
 from ..core.url_utils import is_probable_url
+from ..core.progress import DownloadCancelledError
 from ..logging_setup import logger
 
 
@@ -236,6 +237,8 @@ def import_queue_items_from_source(source: str) -> List[Dict[str, str]]:
         if r is None:
             raise RuntimeError("request failed")
         text = _safe_response_text(r)
+    except DownloadCancelledError:
+        raise
     except Exception as e:
         logger.error(f"Failed to import remote list: {e}")
         return []
@@ -246,7 +249,17 @@ def import_queue_items_from_source(source: str) -> List[Dict[str, str]]:
             except Exception:
                 pass
 
-    rows = list(csv.reader(io.StringIO(text)))
+    # A remote source is untrusted input. Keep an accidental HTML dump or a
+    # giant generated sheet from freezing the GUI while materializing every
+    # row, and contain csv.Error instead of crashing the import callback.
+    if len(text.encode("utf-8", "replace")) > 32 * 1024 * 1024:
+        logger.error("Remote batch list exceeds the 32 MiB import limit")
+        return []
+    try:
+        rows = list(csv.reader(io.StringIO(text)))
+    except (csv.Error, UnicodeError) as exc:
+        logger.error(f"Failed parsing remote batch list: {exc}")
+        return []
     if not rows:
         return []
 

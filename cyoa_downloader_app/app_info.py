@@ -1,8 +1,8 @@
 """Application metadata and stable defaults."""
 
 _APP_DISPLAY_NAME = "CYOA Downloader"
-_APP_VERSION = "1.0.7"
-_STABILIZATION_PATCH_ID = "CYOA-v1.0.7"
+_APP_VERSION = "1.0.8"
+_STABILIZATION_PATCH_ID = "CYOA-v1.0.8"
 _GITHUB_RELEASE_API = ""
 
 DEFAULT_WAIT_TIME = 60

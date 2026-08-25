@@ -12,7 +12,8 @@ import pathlib
 import re
 from typing import Dict, Optional
 
-from ...core.atomic_io import atomic_write_bytes
+from ...core.archive import validate_zip_archive
+from ...core.atomic_io import atomic_write_bytes, atomic_write_text
 from ...core.paths import _copytree_merge_safe, _safe_archive_join
 from ...logging_setup import logger
 from ...project.parse import extract_balanced_brace_block
@@ -23,7 +24,12 @@ from .iccplus import (
     _inject_into_head,
     _unique_folder,
 )
-from .registry import _ICC_MARKER_RE, _VIEWERS_DIR
+from .registry import (
+    _ICC_MARKER_RE,
+    _VIEWERS_DIR,
+    _safe_viewer_archive_name,
+    _safe_viewer_relative_path,
+)
 
 def _apply_offline_viewer(
     output_dir: str,
@@ -56,9 +62,14 @@ def _apply_offline_viewer(
     """
     import zipfile as _zf, shutil
 
-    zip_filename = viewer_meta.get("zip_filename", "")
-    zip_path     = os.path.join(_VIEWERS_DIR, zip_filename)
-    entry_point  = viewer_meta.get("entry_point", "index.html")
+    zip_filename = _safe_viewer_archive_name(viewer_meta.get("zip_filename", ""))
+    entry_point = _safe_viewer_relative_path(
+        viewer_meta.get("entry_point"), default="index.html"
+    )
+    if not zip_filename or not entry_point:
+        logger.error("Offline viewer metadata contains an unsafe archive or entry path")
+        return None
+    zip_path = os.path.join(_VIEWERS_DIR, zip_filename)
     is_rar       = zip_path.lower().endswith(".rar")
 
     if is_rar:
@@ -72,6 +83,14 @@ def _apply_offline_viewer(
         logger.error(f"Offline viewer ZIP not found: {zip_path}")
         return None
 
+    try:
+        parsed_project = json.loads(project_json_str) if project_json_str.strip().startswith("{") else {}
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        logger.error(f"Cannot inject invalid project JSON: {exc}")
+        return None
+    if not isinstance(parsed_project, dict):
+        parsed_project = {}
+
     # â”€â”€ Extract viewer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     site_folder = _unique_folder(os.path.join(output_dir, file_name + "_offline"))
     os.makedirs(site_folder, exist_ok=True)
@@ -80,10 +99,22 @@ def _apply_offline_viewer(
         if is_rar:
             arc = _rf.RarFile(zip_path)
         else:
+            # Revalidate at use time. A registered archive can be replaced on
+            # disk later, so registration-time validation alone is not a safe
+            # decompression boundary.
+            validate_zip_archive(
+                zip_path,
+                max_members=10000,
+                max_member_size=1024 * 1024 * 1024,
+                max_total_size=4 * 1024 * 1024 * 1024,
+                max_ratio=250.0,
+            )
             arc = _zf.ZipFile(zip_path)
 
         with arc:
             members = arc.namelist()
+            if len(members) > 10000:
+                raise ValueError("Viewer archive contains too many members")
             # Detect if all files are under a single root folder (e.g. "Viewer 1.8/")
             roots = set(m.split("/")[0] for m in members if m.strip("/"))
             strip_prefix = ""
@@ -133,7 +164,7 @@ def _apply_offline_viewer(
         return None
 
     # â”€â”€ Read index.html â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    index_path = os.path.join(site_folder, entry_point)
+    index_path = _safe_archive_join(site_folder, entry_point)
     if not os.path.exists(index_path):
         # Try one level deep
         for root, _, files in os.walk(site_folder):
@@ -143,18 +174,20 @@ def _apply_offline_viewer(
 
     if not os.path.exists(index_path):
         logger.error(f"entry_point '{entry_point}' not found in extracted viewer")
+        shutil.rmtree(site_folder, ignore_errors=True)
         return None
 
     try:
         html = pathlib.Path(index_path).read_text(encoding="utf-8", errors="replace")
     except Exception as e:
         logger.error(f"Cannot read index.html: {e}")
+        shutil.rmtree(site_folder, ignore_errors=True)
         return None
 
     # Parse metadata from project JSON
     size_bytes = len(project_json_str.encode("utf-8"))
     try:
-        proj_obj = json.loads(project_json_str)
+        proj_obj = parsed_project
         proj_title = (
             proj_obj.get("app", proj_obj).get("title") or
             proj_obj.get("app", proj_obj).get("name") or
@@ -163,10 +196,7 @@ def _apply_offline_viewer(
     except Exception:
         proj_title = file_name
 
-    data_js = json.dumps(
-        json.loads(project_json_str) if project_json_str.strip().startswith("{") else {},
-        ensure_ascii=False, separators=(",", ":")
-    )
+    data_js = json.dumps(parsed_project, ensure_ascii=False, separators=(",", ":"))
     # data_js is embedded in inline <script> blocks below.
     # The HTML parser ends a script element at the first "</script" â€” even
     # inside a JS string â€” so any project whose text contains "</script>"
@@ -199,9 +229,10 @@ def _apply_offline_viewer(
         # RESOLVED index (which may sit one level deep in multi-root viewer
         # ZIPs); writing to site_folder root broke relative fetch("project.json").
         # Also write physical project.json for fallback
-        with open(os.path.join(os.path.dirname(index_path), "project.json"), "w",
-                  encoding="utf-8") as f:
-            f.write(project_json_str)
+        atomic_write_text(
+            os.path.join(os.path.dirname(index_path), "project.json"),
+            project_json_str,
+        )
 
     # â”€â”€ Strategy B: ICC Plus marker injection (version-agnostic) â”€â”€â”€â”€â”€â”€
     # ICC Plus has a documented injection point in app.js:
@@ -235,7 +266,7 @@ def _apply_offline_viewer(
                 f"({os.path.basename(icc_marker_file)})"
             )
             try:
-                _proj = json.loads(project_json_str)
+                _proj = parsed_project
                 # ICC Plus marker injection point receives the full project state:
                 # - v1.18 (app.c533aa25.js): state.app = full flat JSON
                 # - v2 (app.B6d7tc9y.js):   state.app = full flat JSON
@@ -277,7 +308,7 @@ def _apply_offline_viewer(
                             + _app_js
                             + icc_marker_js[_abs_end:]
                         )
-                        pathlib.Path(icc_marker_file).write_text(_patched_js, encoding="utf-8")
+                        atomic_write_text(icc_marker_file, _patched_js)
                         logger.info(
                             f"  Marker inject OK: {len(_app_js):,} chars -> "
                             f"{os.path.basename(icc_marker_file)} "
@@ -293,9 +324,10 @@ def _apply_offline_viewer(
         if not icc_marker_file:
             logger.info("Offline inject: Strategy C - fetch() patch in app.js")
 
-            with open(os.path.join(os.path.dirname(index_path), "project.json"), "w",
-                      encoding="utf-8") as f:
-                f.write(project_json_str)
+            atomic_write_text(
+                os.path.join(os.path.dirname(index_path), "project.json"),
+                project_json_str,
+            )
 
             _fetch_patterns = [
                 re.compile(r'fetch\("project\.json"\)'),
@@ -326,7 +358,7 @@ def _apply_offline_viewer(
                         _pj = _jt
                         for _p in _fetch_patterns:
                             _pj = _p.sub(_inline, _pj)
-                        pathlib.Path(_fp).write_text(_preamble + _pj, encoding="utf-8")
+                        atomic_write_text(_fp, _preamble + _pj)
                         _patched_any = True
                         logger.info(f"  fetch() patched: {os.path.relpath(_fp, site_folder)}")
                     except Exception as _e:
@@ -538,7 +570,7 @@ setTimeout(function(){clearInterval(t);},30000);
                 )
 
     try:
-        pathlib.Path(index_path).write_text(html, encoding="utf-8")
+        atomic_write_text(index_path, html)
         logger.info(
             f"OK Offline viewer ready -> {os.path.relpath(index_path, output_dir)} "
             f"({size_bytes/1024/1024:.1f} MB data, viewer: '{viewer_meta.get('name','')}') "
@@ -547,6 +579,7 @@ setTimeout(function(){clearInterval(t);},30000);
         return index_path
     except Exception as e:
         logger.error(f"Cannot write patched index.html: {e}")
+        shutil.rmtree(site_folder, ignore_errors=True)
         return None
 
 

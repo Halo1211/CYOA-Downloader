@@ -15,6 +15,7 @@ from .archive_runner import run_archive_extensions
 from .cyoa_cafe_static import download_cyoa_cafe_static_record
 from ..app_info import DEFAULT_MAX_WORKERS
 from ..runtime.state import _RUN_DOWNLOAD_LOCK
+from ..core.output import output_directory_lease
 from ..core.url_utils import canonicalize_url
 from ..gui.final_behaviors import (
     _v462_resolve_pure_download_url,
@@ -153,13 +154,18 @@ def _base_run_download(
     _RUN_DOWNLOAD_LOCK.acquire()
     original_dir = os.getcwd()
     tmp = None  # pre-bind so finally cleanup is NameError-safe
+    output_lease = None
+    output_lease_active = False
     try:
         if output_dir:
             output_dir = os.path.abspath(output_dir)
             os.makedirs(output_dir, exist_ok=True)
-            os.chdir(output_dir)
         else:
             output_dir = os.getcwd()
+        output_lease = output_directory_lease(output_dir)
+        output_lease.__enter__()
+        output_lease_active = True
+        os.chdir(output_dir)
 
         # CYOA.CAFE records with cyoa_pages are authoritative static galleries,
         # not failed iframe resolutions. Export their PocketBase files directly
@@ -740,7 +746,11 @@ def _base_run_download(
         try:
             os.chdir(original_dir)
         finally:
-            _RUN_DOWNLOAD_LOCK.release()
+            try:
+                if output_lease_active and output_lease is not None:
+                    output_lease.__exit__(None, None, None)
+            finally:
+                _RUN_DOWNLOAD_LOCK.release()
 
     logger.info("Download successful.")
 

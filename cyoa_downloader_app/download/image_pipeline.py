@@ -39,7 +39,7 @@ from .audio_reports import (
 )
 from .audio_download import _make_ytdlp_hook, _download_youtube_audio
 from .headers import get_headers_for_url
-from ..core.cancellation import _cancel_requested, _raise_if_cancelled
+from ..core.cancellation import _cancel_requested, _emit_progress_event, _raise_if_cancelled
 from ..core.progress import DownloadCancelledError
 from ..integrations.discord_attachments import (
     DiscordAttachmentClient,
@@ -1062,6 +1062,94 @@ def _deep_scan_and_download_assets(
             rel_path = f"{root}_{digest}{ext}"
         return rel_path
 
+    failed_keys: Set[Tuple[str, str]] = set()
+
+    def _placeholder_bytes(rel_path: str) -> Optional[bytes]:
+        """Create a real image matching the missing asset's file format."""
+        extension = os.path.splitext(rel_path)[1].lower()
+        if extension == ".svg":
+            return _make_placeholder_svg(os.path.basename(rel_path))
+        formats = {
+            ".jpg": "JPEG", ".jpeg": "JPEG", ".png": "PNG",
+            ".webp": "WEBP", ".gif": "GIF", ".bmp": "BMP",
+            ".tif": "TIFF", ".tiff": "TIFF", ".ico": "ICO",
+        }
+        image_format = formats.get(extension)
+        if not image_format:
+            return None
+        try:
+            import io
+            from PIL import Image, ImageDraw
+
+            image = Image.new("RGB", (640, 400), "#292929")
+            draw = ImageDraw.Draw(image)
+            draw.rectangle((210, 85, 430, 275), outline="#777777", width=5)
+            draw.line((245, 120, 395, 240), fill="#999999", width=8)
+            draw.line((395, 120, 245, 240), fill="#999999", width=8)
+            label = os.path.basename(rel_path)
+            if len(label) > 64:
+                label = label[:61] + "..."
+            draw.text((24, 340), f"Missing upstream image: {label}", fill="#dddddd")
+            buffer = io.BytesIO()
+            save_kwargs = {"quality": 85} if image_format == "JPEG" else {}
+            image.save(buffer, format=image_format, **save_kwargs)
+            return buffer.getvalue()
+        except Exception as exc:
+            logger.debug("Unable to render placeholder for %s: %s", rel_path, exc)
+            return None
+
+    def _write_missing_image_placeholder(url: str, rel_path: str) -> bool:
+        parsed = urlparse(url)
+        base = urlparse(base_url)
+        if (
+            parsed.scheme.lower() not in {"http", "https"}
+            or parsed.netloc.lower() != base.netloc.lower()
+            or os.path.splitext(rel_path)[1].lower() not in _DEEP_SCAN_IMAGE_EXTENSIONS
+        ):
+            return False
+        content = _placeholder_bytes(rel_path)
+        if not content:
+            return False
+        try:
+            local_path = _safe_join(folder, rel_path)
+            if os.path.exists(local_path):
+                return False
+            os.makedirs(os.path.dirname(local_path), exist_ok=True)
+            atomic_write_bytes(local_path, content)
+            _disk_files.add(rel_path.replace("\\", "/"))
+            logger.warning("  [placeholder] missing upstream image: %s", rel_path)
+            return True
+        except Exception as exc:
+            logger.debug("Unable to save placeholder for %s: %s", rel_path, exc)
+            return False
+
+    def _record_deep_failure(
+        url: str,
+        rel_path: Optional[str],
+        error: str,
+        *,
+        placeholder: bool = False,
+    ) -> None:
+        rel = rel_path or _url_to_local(url)
+        key = (url, error)
+        if key in failed_keys:
+            return
+        failed_keys.add(key)
+        placeholder_written = bool(placeholder and rel and _write_missing_image_placeholder(url, rel))
+        display_error = error + ("; local placeholder created" if placeholder_written else "")
+        failed_deep_assets.append({
+            "url": url,
+            "path": rel,
+            "error": display_error,
+            "kind": "deep-scan",
+        })
+        _emit_progress_event(
+            "file_failed",
+            name=os.path.basename(rel or urlparse(url).path) or url,
+            url=url,
+            error=display_error,
+        )
+
     def _deep_scan_rel_for_content(url: str, content: bytes) -> Optional[str]:
         """Validate a deep-scan response before choosing its local path.
 
@@ -1074,12 +1162,12 @@ def _deep_scan_and_download_assets(
         """
         if _asset_is_error_document("", content):
             rel_hint = _url_to_local(url)
-            failed_deep_assets.append({
-                "url": url,
-                "path": rel_hint,
-                "error": "response was an HTML/error document, not a binary asset",
-                "kind": "deep-scan",
-            })
+            _record_deep_failure(
+                url,
+                rel_hint,
+                "response was an HTML/error document, not a binary asset",
+                placeholder=True,
+            )
             logger.warning(f"  [deep rejected] HTML/error document: {url}")
             return None
         return _url_to_local(url, content) or os.path.basename(urlparse(url).path) or "asset"
@@ -1274,6 +1362,7 @@ def _deep_scan_and_download_assets(
             # ── Step 3: single-pass parallel GET (replaces HEAD+GET) ──────
             new_this_round = 0
             vite_retry: List[str] = []
+            vite_origins: Dict[str, Tuple[str, int]] = {}
 
             for url, content, status in _fetch_many(to_download):
                     _raise_if_cancelled()
@@ -1290,7 +1379,7 @@ def _deep_scan_and_download_assets(
                             new_this_round += 1
                             logger.info(f"  [deep ✓] {rel}")
                         except Exception as e:
-                            failed_deep_assets.append({"url": url, "path": rel, "error": f"save failed: {e}", "kind": "deep-scan"})
+                            _record_deep_failure(url, rel, f"save failed: {e}")
                             logger.debug(f"[deep scan] save {rel}: {e}")
                     elif status != 200:
                         fallback_url = _css_root_fallback(url)
@@ -1347,7 +1436,6 @@ def _deep_scan_and_download_assets(
                                     continue
                                 except Exception as e:
                                     logger.debug(f"[deep scan] route fallback save {route_rel}: {e}")
-                        failed_deep_assets.append({"url": url, "path": _url_to_local(url), "error": f"HTTP {status or 'request failed'}", "kind": "deep-scan"})
                         # Vite correction: if root-level JS 404'd, try /assets/
                         p = urlparse(url).path
                         if p.count('/') == 1 and p.lower().endswith(('.js', '.mjs')):
@@ -1356,7 +1444,15 @@ def _deep_scan_and_download_assets(
                             alt = _canonical_scan_url(alt)
                             if alt not in known_urls:
                                 vite_retry.append(alt)
+                                vite_origins[alt] = (url, status)
                                 known_urls.add(alt)
+                                continue
+                        _record_deep_failure(
+                            url,
+                            _url_to_local(url),
+                            f"HTTP {status or 'request failed'}",
+                            placeholder=True,
+                        )
 
             # ── Vite /assets/ retry for root-level 404s ───────────────────
             if vite_retry:
@@ -1375,8 +1471,17 @@ def _deep_scan_and_download_assets(
                                 new_this_round += 1
                                 logger.info(f"  [deep ✓ Vite] {rel}")
                             except Exception as e:
-                                failed_deep_assets.append({"url": url, "path": rel, "error": f"save failed: {e}", "kind": "deep-scan"})
+                                _record_deep_failure(url, rel, f"save failed: {e}")
                                 logger.debug(f"[deep scan] save {rel}: {e}")
+                        elif status != 200:
+                            original_url, original_status = vite_origins.get(
+                                url, (url, status)
+                            )
+                            _record_deep_failure(
+                                original_url,
+                                _url_to_local(original_url),
+                                f"HTTP {original_status or status or 'request failed'}",
+                            )
                 logger.debug(f"[deep scan] Vite /assets/ correction: "
                              f"{len(vite_retry)} tried")
 

@@ -17,7 +17,7 @@ import time as _time
 import uuid
 import zipfile
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import unquote, urlparse
 
 try:
@@ -91,11 +91,28 @@ def _hash_file_sha256(path: str) -> Optional[str]:
 
 
 def _walk_package_files(root: str) -> List[str]:
-    """Return absolute paths of every file under root (sorted, deterministic)."""
+    """Return contained, non-linked files under root (sorted, deterministic)."""
     out: List[str] = []
-    for dirpath, _dirnames, filenames in os.walk(root):
+    root_real = os.path.realpath(os.path.abspath(root))
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        safe_dirs = []
+        for dirname in dirnames:
+            candidate = os.path.join(dirpath, dirname)
+            try:
+                contained = os.path.commonpath([root_real, os.path.realpath(candidate)]) == root_real
+            except (OSError, ValueError):
+                contained = False
+            if not os.path.islink(candidate) and contained:
+                safe_dirs.append(dirname)
+        dirnames[:] = safe_dirs
         for fn in filenames:
-            out.append(os.path.join(dirpath, fn))
+            candidate = os.path.join(dirpath, fn)
+            try:
+                contained = os.path.commonpath([root_real, os.path.realpath(candidate)]) == root_real
+            except (OSError, ValueError):
+                contained = False
+            if not os.path.islink(candidate) and contained:
+                out.append(candidate)
     out.sort()
     return out
 
@@ -115,7 +132,10 @@ def write_package_manifest(folder: str) -> Tuple[bool, str]:
     entries: Dict[str, Dict[str, Any]] = {}
     skipped = 0
     for p in _walk_package_files(root):
-        if os.path.basename(p) == _MANIFEST_NAME:
+        # Exclude only the root sidecar itself. A website may legitimately
+        # contain a nested asset also named ``cyoa_manifest.json`` and that
+        # file must still be checksummed.
+        if os.path.abspath(p) == os.path.abspath(manifest_path):
             continue
         rel = os.path.relpath(p, root).replace(os.sep, "/")
         digest = _hash_file_sha256(p)
@@ -165,6 +185,28 @@ def _load_package_manifest(root: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _count_failure_log_entries(text: str) -> int:
+    """Count report entries instead of counting headers and detail lines."""
+    total = re.search(r"(?im)^\s*Total\s*:\s*(\d+)\s*$", text or "")
+    if total:
+        return int(total.group(1))
+
+    # Append-style failed_images/failed_urls logs use one URL per data row;
+    # comments and batch headers begin with '#'. Keep URL uniqueness scoped to
+    # the file so repeated retry sections do not inflate the verification note.
+    urls = {
+        match.group(1).rstrip(".,;)")
+        for match in re.finditer(r"(?im)^\s*(https?://\S+)", text or "")
+    }
+    if urls:
+        return len(urls)
+
+    return sum(
+        1 for line in (text or "").splitlines()
+        if line.strip().startswith(("✗", "FAILED "))
+    )
+
+
 def verify_output_package(folder: str) -> Tuple[bool, str]:
     """Validate a downloaded CYOA output folder.
 
@@ -191,9 +233,30 @@ def verify_output_package(folder: str) -> Tuple[bool, str]:
 
     root = os.path.abspath(folder)
     all_files: List[str] = []
-    for dirpath, _dirnames, filenames in os.walk(root):
+    root_real = os.path.realpath(root)
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        safe_dirs = []
+        for dirname in dirnames:
+            candidate = os.path.join(dirpath, dirname)
+            try:
+                contained = os.path.commonpath([root_real, os.path.realpath(candidate)]) == root_real
+            except (OSError, ValueError):
+                contained = False
+            if os.path.islink(candidate) or not contained:
+                issues.append(f"linked/outside directory in package: {os.path.relpath(candidate, root)}")
+            else:
+                safe_dirs.append(dirname)
+        dirnames[:] = safe_dirs
         for fn in filenames:
-            all_files.append(os.path.join(dirpath, fn))
+            candidate = os.path.join(dirpath, fn)
+            try:
+                contained = os.path.commonpath([root_real, os.path.realpath(candidate)]) == root_real
+            except (OSError, ValueError):
+                contained = False
+            if os.path.islink(candidate) or not contained:
+                issues.append(f"linked/outside file in package: {os.path.relpath(candidate, root)}")
+            else:
+                all_files.append(candidate)
     if not all_files:
         return False, "\n".join(lines + ["", "FAIL  folder is empty"])
 
@@ -242,21 +305,78 @@ def verify_output_package(folder: str) -> Tuple[bool, str]:
     manifest = _load_package_manifest(root)
     if manifest is not None:
         recorded = manifest.get("files", {})
-        present_rel = {rel(p).replace(os.sep, "/") for p in all_files
-                       if os.path.basename(p) != _MANIFEST_NAME}
-        recorded_rel = set(recorded.keys())
+        present_rel = {
+            rel(p).replace(os.sep, "/") for p in all_files
+            if os.path.abspath(p) != os.path.abspath(manifest_path)
+        }
+        manifest_errors = 0
+        if manifest.get("manifest_version") != 1:
+            issues.append("unsupported or missing manifest_version")
+            manifest_errors += 1
+        declared_count = manifest.get("file_count")
+        if (
+            isinstance(declared_count, bool)
+            or not isinstance(declared_count, int)
+            or declared_count != len(recorded)
+        ):
+            issues.append(
+                f"manifest file_count mismatch: declared {declared_count!r}, actual {len(recorded)}"
+            )
+            manifest_errors += 1
+        safe_recorded: Dict[str, Any] = {}
+        for raw_relpath, entry in recorded.items():
+            try:
+                safe_relpath = _safe_archive_rel_path(raw_relpath)
+            except ValueError:
+                issues.append(f"unsafe path in manifest: {raw_relpath}")
+                manifest_errors += 1
+                continue
+            if safe_relpath != raw_relpath.replace("\\", "/"):
+                issues.append(f"non-canonical path in manifest: {raw_relpath}")
+                manifest_errors += 1
+                continue
+            safe_recorded[safe_relpath] = entry
+        recorded_rel = set(safe_recorded.keys())
         corrupted = []
+        size_mismatches = []
         missing_from_disk = sorted(recorded_rel - present_rel)
         extra_on_disk = sorted(present_rel - recorded_rel)
         for relpath in sorted(recorded_rel & present_rel):
-            entry = recorded[relpath]
+            entry = safe_recorded[relpath]
             if not isinstance(entry, dict):
                 issues.append(f"invalid manifest entry (expected object): {relpath}")
+                manifest_errors += 1
                 continue
             want = entry.get("sha256")
-            got = _hash_file_sha256(os.path.join(root, relpath))
-            if want and got and want != got:
+            expected_size = entry.get("size")
+            if (
+                not isinstance(want, str)
+                or not re.fullmatch(r"[0-9a-fA-F]{64}", want)
+            ):
+                issues.append(f"invalid manifest checksum: {relpath}")
+                manifest_errors += 1
+                continue
+            if (
+                isinstance(expected_size, bool)
+                or not isinstance(expected_size, int)
+                or expected_size < 0
+            ):
+                issues.append(f"invalid manifest size: {relpath}")
+                manifest_errors += 1
+                continue
+            got = _hash_file_sha256(os.path.join(root, *relpath.split("/")))
+            if got is None:
+                issues.append(f"unreadable checksummed file: {relpath}")
+                manifest_errors += 1
+                continue
+            if want.lower() != got.lower():
                 corrupted.append(relpath)
+            try:
+                actual_size = os.path.getsize(os.path.join(root, *relpath.split("/")))
+            except OSError:
+                actual_size = -1
+            if expected_size != actual_size:
+                size_mismatches.append(relpath)
         lines.append(f"OK    manifest found ({manifest.get('file_count', len(recorded))} "
                      f"recorded checksum(s), created {manifest.get('created_utc', '?')})")
         if corrupted:
@@ -264,6 +384,11 @@ def verify_output_package(folder: str) -> Tuple[bool, str]:
                 issues.append(f"checksum mismatch (corrupt/modified): {c}")
             if len(corrupted) > 25:
                 issues.append(f"... and {len(corrupted) - 25} more checksum mismatch(es)")
+        if size_mismatches:
+            for path in size_mismatches[:25]:
+                issues.append(f"size mismatch (corrupt/modified): {path}")
+            if len(size_mismatches) > 25:
+                issues.append(f"... and {len(size_mismatches) - 25} more size mismatch(es)")
         if missing_from_disk:
             for mfd in missing_from_disk[:25]:
                 issues.append(f"file in manifest but missing on disk: {mfd}")
@@ -272,7 +397,7 @@ def verify_output_package(folder: str) -> Tuple[bool, str]:
         if extra_on_disk:
             notes.append(f"{len(extra_on_disk)} file(s) on disk not in manifest "
                          f"(added after manifest was written)")
-        if not corrupted and not missing_from_disk:
+        if not corrupted and not size_mismatches and not missing_from_disk and not manifest_errors:
             lines.append(f"OK    all {len(recorded_rel & present_rel)} checksummed file(s) intact")
     elif os.path.isfile(manifest_path):
         issues.append(f"invalid or unreadable {_MANIFEST_NAME} sidecar")
@@ -281,13 +406,19 @@ def verify_output_package(folder: str) -> Tuple[bool, str]:
                      "checksum verification")
 
     # ── 3. local asset reference resolution ──────────────────────
-    # Build a set of present files (relative, forward-slash, lowercased) for
-    # tolerant matching against references.
-    present = set()
+    # Keep exact relative paths separate from basenames. A basename-only
+    # fallback is useful for legacy bare references ("hero.png"), but must not
+    # let "other/hero.png" satisfy a reference to "images/hero.png".
+    present_paths: Set[str] = set()
+    present_basenames: Set[str] = set()
+    folded_paths: Set[str] = set()
+    folded_basenames: Set[str] = set()
     for p in all_files:
         r = rel(p).replace(os.sep, "/")
-        present.add(r.lower())
-        present.add(os.path.basename(r).lower())   # basename fallback
+        present_paths.add(r)
+        present_basenames.add(os.path.basename(r))
+        folded_paths.add(r.casefold())
+        folded_basenames.add(os.path.basename(r).casefold())
 
     missing_refs = {}   # ref -> source file
     checked_refs = 0
@@ -300,9 +431,23 @@ def verify_output_package(folder: str) -> Tuple[bool, str]:
         for match in _VERIFY_JSON_PATH_RE.finditer(project_text):
             ref = match.group(1)
             checked_refs += 1
-            norm = ref.split("?")[0].split("#")[0].lstrip("./").replace("\\", "/").lower()
-            if norm and norm not in present and os.path.basename(norm) not in present:
-                missing_refs.setdefault(ref, "project.json")
+            raw_norm = ref.split("?")[0].split("#")[0].replace("\\", "/")
+            while raw_norm.startswith("./"):
+                raw_norm = raw_norm[2:]
+            try:
+                norm = _safe_archive_rel_path(raw_norm)
+            except ValueError:
+                issues.append(f"unsafe local asset reference: {ref}  (referenced by project.json)")
+                continue
+            basename_match = "/" not in norm and norm in present_basenames
+            if norm not in present_paths and not basename_match:
+                folded_basename_match = "/" not in norm and norm.casefold() in folded_basenames
+                if norm.casefold() in folded_paths or folded_basename_match:
+                    issues.append(
+                        f"asset reference case mismatch: {ref}  (referenced by project.json)"
+                    )
+                else:
+                    missing_refs.setdefault(ref, "project.json")
 
     # Reuse the website downloader's context-aware dependency validator. It
     # parses HTML attributes and reachable CSS, and only accepts executable URL
@@ -338,7 +483,7 @@ def verify_output_package(folder: str) -> Tuple[bool, str]:
         if os.path.isfile(lp):
             try:
                 with open(lp, encoding="utf-8", errors="ignore") as f:
-                    n = sum(1 for ln in f if ln.strip())
+                    n = _count_failure_log_entries(f.read())
                 if n:
                     notes.append(f"{logname} lists {n} prior failure(s) from the original download")
             except OSError:

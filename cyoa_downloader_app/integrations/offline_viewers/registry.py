@@ -6,14 +6,16 @@ the old manifest format and bundled-viewer discovery behavior.
 
 from __future__ import annotations
 
-import io
 import json
 import os
 import re
+import threading
 from typing import Dict, List, Optional
 
 from ...logging_setup import logger
-from ...core.atomic_io import atomic_write_bytes
+from ...core.archive import validate_zip_archive
+from ...core.atomic_io import atomic_write_bytes, atomic_write_text, interprocess_file_lock
+from ...core.paths import _safe_archive_rel_path
 
 def _public_script_dir() -> str:
     return os.path.abspath(
@@ -33,6 +35,7 @@ def _public_script_dir() -> str:
 
 _VIEWERS_DIR      = os.path.join(os.path.expanduser("~"), ".cyoa_downloader", "offline_viewers")
 _VIEWERS_MANIFEST = os.path.join(_VIEWERS_DIR, "viewers.json")
+_VIEWERS_LOCK = threading.RLock()
 
 # Viewer type tags — used to match a CYOA site to the right viewer
 # Detected from: script names, meta tags, HTML patterns in the CYOA site
@@ -61,6 +64,32 @@ _ICC_MARKER_RE = re.compile(
 )
 
 
+def _safe_viewer_archive_name(value: object) -> str:
+    """Return a registry-safe ZIP/RAR basename, or an empty string."""
+    text = str(value or "").strip()
+    if (
+        not text
+        or text in {".", ".."}
+        or "/" in text
+        or "\\" in text
+        or re.match(r"^[A-Za-z]:", text)
+        or not text.lower().endswith((".zip", ".rar"))
+    ):
+        return ""
+    return text
+
+
+def _safe_viewer_relative_path(value: object, *, default: str = "") -> str:
+    """Validate a path stored inside a viewer archive manifest."""
+    text = str(value or default).strip()
+    if not text:
+        return ""
+    try:
+        return _safe_archive_rel_path(text)
+    except ValueError:
+        return ""
+
+
 def _load_viewers_manifest() -> Dict[str, Dict]:
     """Load offline viewer registry. Returns {viewer_id: {...metadata}}."""
     try:
@@ -84,6 +113,26 @@ def _load_viewers_manifest() -> Dict[str, Dict]:
                     for key, fallback in defaults.items():
                         if not isinstance(normalized.get(key), str):
                             normalized[key] = fallback
+                    zip_filename = normalized.get("zip_filename", "")
+                    if zip_filename and not _safe_viewer_archive_name(zip_filename):
+                        logger.warning("Ignoring offline viewer with unsafe archive path: %s", viewer_id)
+                        continue
+                    entry_point = _safe_viewer_relative_path(
+                        normalized.get("entry_point"), default="index.html"
+                    )
+                    if not entry_point:
+                        logger.warning("Ignoring offline viewer with unsafe entry point: %s", viewer_id)
+                        continue
+                    project_json_path = normalized.get("project_json_path", "")
+                    if project_json_path:
+                        project_json_path = _safe_viewer_relative_path(project_json_path)
+                        if not project_json_path:
+                            logger.warning(
+                                "Ignoring offline viewer with unsafe project path: %s", viewer_id
+                            )
+                            continue
+                    normalized["entry_point"] = entry_point
+                    normalized["project_json_path"] = project_json_path
                     cleaned[viewer_id] = normalized
                 return cleaned
     except Exception as _ignored_exc:
@@ -95,10 +144,10 @@ def _save_viewers_manifest(manifest: Dict[str, Dict]) -> None:
     """Atomically save offline viewer registry."""
     try:
         os.makedirs(_VIEWERS_DIR, exist_ok=True)
-        tmp = _VIEWERS_MANIFEST + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(manifest, f, indent=2, ensure_ascii=False)
-        os.replace(tmp, _VIEWERS_MANIFEST)
+        atomic_write_text(
+            _VIEWERS_MANIFEST,
+            json.dumps(manifest, indent=2, ensure_ascii=False),
+        )
     except Exception as e:
         logger.warning(f"Could not save viewers manifest: {e}")
 
@@ -124,6 +173,17 @@ def register_offline_viewer(
 
     is_rar = zip_path.lower().endswith(".rar")
 
+    entry_point = _safe_viewer_relative_path(entry_point, default="index.html")
+    raw_project_json_path = str(project_json_path or "").strip()
+    project_json_path = (
+        _safe_viewer_relative_path(raw_project_json_path)
+        if raw_project_json_path
+        else ""
+    )
+    if not entry_point or (raw_project_json_path and not project_json_path):
+        logger.error("Unsafe offline viewer entry/project path")
+        return None
+
     # Validate archive
     try:
         if is_rar:
@@ -134,10 +194,22 @@ def register_offline_viewer(
             # branch below already did this correctly).
             with _rf.RarFile(zip_path) as arc:
                 names = arc.namelist()
+                if len(names) > 10000:
+                    raise ValueError("Viewer archive contains too many members")
+                for member in names:
+                    if not str(member).endswith(("/", "\\")):
+                        _safe_archive_rel_path(member)
         else:
             if not _zf.is_zipfile(zip_path):
                 logger.error(f"Not a valid ZIP: {zip_path}")
                 return None
+            validate_zip_archive(
+                zip_path,
+                max_members=10000,
+                max_member_size=1024 * 1024 * 1024,
+                max_total_size=4 * 1024 * 1024 * 1024,
+                max_ratio=250.0,
+            )
             with _zf.ZipFile(zip_path) as arc:
                 names = arc.namelist()
     except Exception as e:
@@ -161,20 +233,31 @@ def register_offline_viewer(
     os.makedirs(_VIEWERS_DIR, exist_ok=True)
     viewer_id = os.path.splitext(os.path.basename(zip_path))[0]
     dest      = os.path.join(_VIEWERS_DIR, os.path.basename(zip_path))
-    if os.path.abspath(dest) != os.path.abspath(zip_path):
-        shutil.copy2(zip_path, dest)
+    with _VIEWERS_LOCK:
+        with interprocess_file_lock(_VIEWERS_MANIFEST):
+            if os.path.abspath(dest) != os.path.abspath(zip_path):
+                part = dest + f".{os.getpid()}.{threading.get_ident()}.part"
+                try:
+                    shutil.copy2(zip_path, part)
+                    os.replace(part, dest)
+                finally:
+                    try:
+                        if os.path.exists(part):
+                            os.remove(part)
+                    except OSError as exc:
+                        logger.debug(f"Could not remove partial viewer archive {part}: {exc}")
 
-    manifest = _load_viewers_manifest()
-    manifest[viewer_id] = {
-        "name":              name or viewer_id,
-        "zip_filename":      os.path.basename(zip_path),
-        "viewer_type":       detected_type,
-        "description":       description,
-        "entry_point":       entry_point or "index.html",
-        "project_json_path": project_json_path,
-        "registered_at":     __import__("datetime").datetime.now().isoformat(),
-    }
-    _save_viewers_manifest(manifest)
+            manifest = _load_viewers_manifest()
+            manifest[viewer_id] = {
+                "name":              name or viewer_id,
+                "zip_filename":      os.path.basename(zip_path),
+                "viewer_type":       detected_type,
+                "description":       description,
+                "entry_point":       entry_point or "index.html",
+                "project_json_path": project_json_path,
+                "registered_at":     __import__("datetime").datetime.now().isoformat(),
+            }
+            _save_viewers_manifest(manifest)
     logger.info(f"Offline viewer registered: '{viewer_id}' (type: {detected_type})")
     return viewer_id
 
@@ -249,6 +332,13 @@ def _extract_iccplus_subviewers(iccplus_zip_path: str) -> None:
         return ""
 
     try:
+        validate_zip_archive(
+            iccplus_zip_path,
+            max_members=10000,
+            max_member_size=1024 * 1024 * 1024,
+            max_total_size=4 * 1024 * 1024 * 1024,
+            max_ratio=250.0,
+        )
         with _zf.ZipFile(iccplus_zip_path) as main_zf:
             all_names = [n for n in main_zf.namelist() if not n.endswith('/')]
             root = _detect_root(all_names)
@@ -295,18 +385,23 @@ def _extract_iccplus_subviewers(iccplus_zip_path: str) -> None:
 
 def unregister_offline_viewer(viewer_id: str, delete_zip: bool = False) -> bool:
     """Remove a viewer from the registry, optionally delete the ZIP."""
-    manifest = _load_viewers_manifest()
-    if viewer_id not in manifest:
-        return False
-    entry = manifest.pop(viewer_id)
-    if delete_zip:
-        zip_path = os.path.join(_VIEWERS_DIR, entry.get("zip_filename", ""))
-        try:
-            if os.path.exists(zip_path):
-                os.remove(zip_path)
-        except Exception as e:
-            logger.warning(f"Could not delete viewer ZIP: {e}")
-    _save_viewers_manifest(manifest)
+    with _VIEWERS_LOCK:
+        with interprocess_file_lock(_VIEWERS_MANIFEST):
+            manifest = _load_viewers_manifest()
+            if viewer_id not in manifest:
+                return False
+            entry = manifest.pop(viewer_id)
+            if delete_zip:
+                zip_filename = _safe_viewer_archive_name(entry.get("zip_filename", ""))
+                zip_path = os.path.join(_VIEWERS_DIR, zip_filename) if zip_filename else ""
+                try:
+                    if zip_path and os.path.exists(zip_path):
+                        os.remove(zip_path)
+                    elif not zip_filename:
+                        logger.warning("Refusing to delete unsafe offline viewer archive path")
+                except Exception as e:
+                    logger.warning(f"Could not delete viewer ZIP: {e}")
+            _save_viewers_manifest(manifest)
     logger.info(f"Offline viewer removed: {viewer_id!r}")
     return True
 

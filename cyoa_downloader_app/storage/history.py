@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 
 from ..logging_setup import logger
+from ..core.atomic_io import atomic_write_text, interprocess_file_lock
 
 _HISTORY_FILE = os.path.join(
     os.path.expanduser("~"), ".cyoa_downloader", "download_history.json"
@@ -34,10 +35,10 @@ def _load_history() -> Dict[str, Dict]:
 def _save_history(history: Dict[str, Dict]) -> None:
     try:
         os.makedirs(os.path.dirname(_HISTORY_FILE), exist_ok=True)
-        tmp = _HISTORY_FILE + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(history, f, indent=2, ensure_ascii=False)
-        os.replace(tmp, _HISTORY_FILE)
+        atomic_write_text(
+            _HISTORY_FILE,
+            json.dumps(history, indent=2, ensure_ascii=False),
+        )
     except Exception as e:
         logger.debug(f"History save failed: {e}")
 
@@ -86,7 +87,12 @@ def _record_history(url: str, file_name: str, mode: str, success: bool) -> None:
                     match.group(1) if match else response.headers.get("Content-Length", "")
                 )
         except DownloadCancelledError:
-            raise
+            # The actual download has already completed before history is
+            # recorded. Cancellation during this optional one-byte metadata
+            # probe must not relabel that completed job as CANCELLED or append
+            # a second contradictory Results row. The worker will observe the
+            # still-set cancellation event before starting the next job.
+            logger.debug("History metadata probe cancelled after completed download: %s", url)
         except Exception as exc:
             logger.debug(f"History metadata probe failed for {url}: {exc}")
         finally:
@@ -95,11 +101,18 @@ def _record_history(url: str, file_name: str, mode: str, success: bool) -> None:
                     response.close()
                 except Exception as exc:
                     logger.debug(f"History response close failed for {url}: {exc}")
-    with _v465_history_lock:
-        history = _load_history()
-        history[url] = entry
-        if len(history) > 1000:
-            oldest = sorted(history, key=lambda item: history[item].get("last_downloaded", ""))
-            for old_url in oldest[: len(history) - 1000]:
-                history.pop(old_url, None)
-        _save_history(history)
+    try:
+        with _v465_history_lock:
+            with interprocess_file_lock(_HISTORY_FILE):
+                history = _load_history()
+                history[url] = entry
+                if len(history) > 1000:
+                    oldest = sorted(history, key=lambda item: history[item].get("last_downloaded", ""))
+                    for old_url in oldest[: len(history) - 1000]:
+                        history.pop(old_url, None)
+                _save_history(history)
+    except Exception as exc:
+        # History is auxiliary state. Lock contention, permissions, or a
+        # damaged history directory must never turn an otherwise successful
+        # download into a failed batch job (nor abort processing later rows).
+        logger.warning("Could not record download history for %s: %s", url, exc)

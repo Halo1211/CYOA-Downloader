@@ -4,9 +4,42 @@ from __future__ import annotations
 
 import os
 import re
+import hashlib
+from contextlib import contextmanager
 from datetime import datetime
+from typing import Iterator, Optional
 
+from .atomic_io import interprocess_file_lock
 from ..logging_setup import logger
+
+
+@contextmanager
+def output_directory_lease(
+    output_dir: str,
+    *,
+    timeout: float = 0.25,
+    lock_root: Optional[str] = None,
+) -> Iterator[str]:
+    """Exclusively lease one canonical output root across app processes."""
+    canonical = os.path.realpath(os.path.abspath(output_dir or os.getcwd()))
+    lock_identity = os.path.normcase(canonical)
+    digest = hashlib.sha256(os.fsencode(lock_identity)).hexdigest()
+    lease_root = lock_root or os.path.join(
+        os.path.expanduser("~"), ".cyoa_downloader", "run_locks"
+    )
+    lease_path = os.path.join(os.path.abspath(lease_root), digest + ".lease")
+    guard = interprocess_file_lock(lease_path, timeout=timeout)
+    try:
+        guard.__enter__()
+    except TimeoutError as exc:
+        raise RuntimeError(
+            "Output directory is already in use by another CYOA Downloader "
+            f"process: {canonical}"
+        ) from exc
+    try:
+        yield canonical
+    finally:
+        guard.__exit__(None, None, None)
 
 
 def prepare_clean_output_folder(folder: str) -> None:
@@ -52,4 +85,8 @@ def _cleanup_recent_part_files(root: str, since: float) -> int:
     return removed
 
 
-__all__ = ["prepare_clean_output_folder", "_cleanup_recent_part_files"]
+__all__ = [
+    "output_directory_lease",
+    "prepare_clean_output_folder",
+    "_cleanup_recent_part_files",
+]

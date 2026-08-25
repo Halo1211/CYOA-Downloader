@@ -7,37 +7,32 @@ small runtime proxies so global legacy state and patch ordering remain intact.
 
 from __future__ import annotations
 
+import base64
+import binascii
+import hashlib
 import os
 import pathlib
 import re
 import threading
-import hashlib
 from typing import Dict, List, Optional, Set
-from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse, unquote
+from urllib.parse import parse_qsl, unquote, urlencode, urljoin, urlparse, urlunparse
 
 import requests
 
-from ._bridge import legacy
-from .asset_scan import _infer_dynamic_asset_paths, _safe_response_text
-from .headers import get_headers_for_url
-from .package import (
-    atomic_stream_response_to_file,
-    clean_url_path_component,
-    get_first_subdomain,
-)
+from ..config.settings import _load_settings
 from ..constants.assets import (
+    _YOUTUBE_URL_RE,
     AUDIO_EXTENSIONS,
     FONT_EXTENSIONS,
     IMAGE_EXTENSIONS,
     SCRIPT_EXTENSIONS,
     STYLE_EXTENSIONS,
     VIDEO_EXTENSIONS,
-    _YOUTUBE_URL_RE,
 )
 from ..core.atomic_io import atomic_write_text
-from ..core.cancellation import _raise_if_cancelled
-from ..core.progress import DownloadCancelledError
+from ..core.cancellation import _emit_progress_event, _raise_if_cancelled
 from ..core.paths import _safe_join
+from ..core.progress import DownloadCancelledError
 from ..core.url_utils import _directory_base_url, canonicalize_url
 from ..diagnostics.reports import format_backup_report_text
 from ..integrations.ai_core import (
@@ -47,11 +42,23 @@ from ..integrations.ai_core import (
     _normalize_ai_provider,
     _ssrf_block_cross_origin,
 )
-from ..config.settings import _load_settings
 from ..logging_setup import logger
 from ..network.browser import BrowserFetchSession
-from ..project.discover import get_source, url_file_exists, get_first_folder_from_url, strip_document_from_url
+from ..project.discover import (
+    get_first_folder_from_url,
+    get_source,
+    strip_document_from_url,
+    url_file_exists,
+)
 from ..project.parse import is_zip_bytes
+from ._bridge import legacy
+from .asset_scan import _infer_dynamic_asset_paths, _safe_response_text
+from .headers import get_headers_for_url
+from .package import (
+    atomic_stream_response_to_file,
+    clean_url_path_component,
+    get_first_subdomain,
+)
 
 try:
     from bs4 import BeautifulSoup  # type: ignore
@@ -85,6 +92,70 @@ def _auto_profile_uses_project_data(value) -> bool:
         return str(value.get("detected_engine") or "").lower() == "project_json"
     return str(getattr(value, "detected_engine", "") or "").lower() == "project_json"
 
+
+_MAX_INLINE_DOCUMENT_B64_CHARS = 64 * 1024 * 1024
+_ATOB_VARIABLE_RE = re.compile(
+    r"\batob\s*\(\s*(?P<name>[A-Za-z_$][\w$]*)\s*\)",
+    re.IGNORECASE,
+)
+
+
+def _decode_inline_document_payload(html_text: str) -> str:
+    """Unwrap a static Base64 HTML document written by a bootstrap script.
+
+    Some single-file sites hide their complete document in a JavaScript string,
+    decode it with ``atob()``, and replace the current page via
+    ``document.write()``. Static asset scanners otherwise see only the tiny
+    bootstrap while runtime capture sees only resources reached by the current
+    interaction state.
+
+    This deliberately does not execute JavaScript. It accepts only a Base64
+    literal assigned to the exact identifier passed to ``atob()``, requires a
+    document-writing bootstrap, bounds the payload size, and validates that the
+    decoded UTF-8 value is a complete HTML document.
+    """
+    if not html_text or "atob" not in html_text or "document.write" not in html_text:
+        return html_text
+
+    variable_names = list(dict.fromkeys(
+        match.group("name") for match in _ATOB_VARIABLE_RE.finditer(html_text)
+    ))
+    for variable_name in variable_names:
+        assignment_re = re.compile(
+            rf"\b(?:var|let|const)\s+{re.escape(variable_name)}\s*=\s*"
+            r"(?P<quote>[\"'])(?P<data>[A-Za-z0-9+/=\r\n\t ]+)(?P=quote)\s*;",
+            re.IGNORECASE,
+        )
+        match = assignment_re.search(html_text)
+        if match is None:
+            continue
+        encoded = "".join(match.group("data").split())
+        if not encoded or len(encoded) > _MAX_INLINE_DOCUMENT_B64_CHARS:
+            if encoded:
+                logger.warning(
+                    "Inline HTML payload is too large to decode safely: %d Base64 characters",
+                    len(encoded),
+                )
+            continue
+        try:
+            decoded = base64.b64decode(encoded, validate=True).decode("utf-8-sig")
+        except (binascii.Error, UnicodeDecodeError, ValueError):
+            continue
+
+        probe = decoded.lstrip()[:2048].lower()
+        if not probe.startswith(("<!doctype html", "<html")):
+            continue
+        if "</html>" not in decoded.lower():
+            continue
+        logger.info(
+            "  Decoded inline Base64 HTML bootstrap: %d -> %d characters",
+            len(encoded),
+            len(decoded),
+        )
+        return decoded
+
+    return html_text
+
 class WebsiteDownloader:
     """
     Download a viewer into a clean offline package like:
@@ -117,6 +188,7 @@ class WebsiteDownloader:
         r'@import\s+(?:url\()?["\']?([^"\')\s]+)["\']?\)?',
         re.IGNORECASE,
     )
+    _css_comment_re = re.compile(r'/\*.*?\*/', re.DOTALL)
     _telemetry_hosts = {
         "www.googletagmanager.com", "googletagmanager.com",
         "www.google-analytics.com", "google-analytics.com",
@@ -216,6 +288,8 @@ class WebsiteDownloader:
             self._browser_transport_preferred = True
             logger.info("  [Browser transport] %s -> %d bytes", url, len(fetched.content))
             return response
+        except DownloadCancelledError:
+            raise
         except Exception as exc:
             logger.debug("Browser transport unavailable for %s: %s", url, exc)
             return None
@@ -239,6 +313,8 @@ class WebsiteDownloader:
 
                 auto_profile = profile_archive_target(self)
                 self.archive_auto_profile = auto_profile
+            except DownloadCancelledError:
+                raise
             except Exception as exc:
                 # Profiling is an optimization. Falling back to deep scan is
                 # safer than silently reducing archive coverage.
@@ -358,6 +434,34 @@ class WebsiteDownloader:
                 return os.path.normpath(os.path.join(self.output_folder, clean.lstrip("/\\")))
             return os.path.normpath(os.path.join(os.path.dirname(owner), clean))
 
+        directory_entries: Dict[str, Set[str]] = {}
+
+        def _exists_with_exact_case(candidate: str) -> bool:
+            """Check portable path casing even on case-insensitive Windows."""
+            root_abs = os.path.abspath(self.output_folder)
+            candidate_abs = os.path.abspath(candidate)
+            try:
+                if os.path.commonpath([root_abs, candidate_abs]) != root_abs:
+                    return False
+                relative = os.path.relpath(candidate_abs, root_abs)
+            except (OSError, ValueError):
+                return False
+            current = root_abs
+            if relative == ".":
+                return os.path.exists(current)
+            for part in pathlib.Path(relative).parts:
+                entries = directory_entries.get(current)
+                if entries is None:
+                    try:
+                        entries = set(os.listdir(current))
+                    except OSError:
+                        return False
+                    directory_entries[current] = entries
+                if part not in entries:
+                    return False
+                current = os.path.join(current, part)
+            return os.path.exists(current)
+
         # A runtime observer may retain an extra stylesheet that no archived
         # page actually links. Missing dependencies in such an orphan must not
         # make the usable archive fail integrity. Follow stylesheet imports
@@ -381,6 +485,7 @@ class WebsiteDownloader:
             css_path = style_queue.pop()
             try:
                 css_text = pathlib.Path(css_path).read_text(encoding="utf-8", errors="ignore")
+                css_text = self._css_comment_re.sub("", css_text)
                 for match in self._css_import_re.finditer(css_text):
                     ref = match.group(1).strip().strip("'\"")
                     if _is_local(ref):
@@ -430,13 +535,16 @@ class WebsiteDownloader:
                                 _record(refs, href)
 
                         for style_tag in soup.find_all("style"):
-                            css = style_tag.get_text(" ", strip=False)
+                            css = self._css_comment_re.sub(
+                                "", style_tag.get_text(" ", strip=False)
+                            )
                             for match in self._css_url_re.finditer(css):
                                 _record(refs, match.group(1))
                             for match in self._css_import_re.finditer(css):
                                 _record(refs, match.group(1))
 
                     elif ext == ".css":
+                        text = self._css_comment_re.sub("", text)
                         for pattern in (self._css_url_re, self._css_import_re):
                             for match in pattern.finditer(text):
                                 _record(refs, match.group(1))
@@ -486,7 +594,7 @@ class WebsiteDownloader:
                         )
 
                         label = f"{source_rel} → {ref}"
-                        if any(os.path.exists(path) for path in (
+                        if any(_exists_with_exact_case(path) for path in (
                             abs_ref, decoded_abs_ref, root_abs_ref, decoded_root_abs_ref,
                             public_root_abs_ref, decoded_public_root_abs_ref,
                         )):
@@ -858,9 +966,17 @@ class WebsiteDownloader:
         # cross-origin internal host; block it unless same-origin as the page
         # being mirrored (self.start_url) or --allow-internal-hosts is set.
         if _ssrf_block_cross_origin(full, getattr(self, "start_url", "")):
+            error = "blocked: cross-origin internal host"
             logger.warning(f"  [SSRF blocked] cross-origin internal host: {full}")
             with self._lock:
                 self._downloaded[full] = None
+                self._failed_items.append({"url": full, "error": error})
+            _emit_progress_event(
+                "file_failed",
+                name=os.path.basename(urlparse(full).path) or full,
+                url=full,
+                error=error,
+            )
             return None
 
         with self._lock:
@@ -971,6 +1087,19 @@ class WebsiteDownloader:
                         full = alt
 
         if not r:
+            failure = next(
+                (item for item in reversed(self._failed_items) if item.get("url") == full),
+                None,
+            )
+            if failure is None:
+                failure = {"url": full, "error": "request failed"}
+                self._failed_items.append(failure)
+            _emit_progress_event(
+                "file_failed",
+                name=os.path.basename(urlparse(full).path) or full,
+                url=full,
+                error=str(failure.get("error") or "request failed"),
+            )
             return None
 
         content_type = r.headers.get("Content-Type", "").split(";")[0].strip().lower()
@@ -979,6 +1108,12 @@ class WebsiteDownloader:
             error = f"Content-Type mismatch for binary asset: {content_type or 'unknown'}"
             logger.warning(f"  {error}: {full}")
             self._failed_items.append({"url": full, "error": error})
+            _emit_progress_event(
+                "file_failed",
+                name=os.path.basename(urlparse(full).path) or full,
+                url=full,
+                error=error,
+            )
             try:
                 r.close()
             except Exception as exc:
@@ -1366,10 +1501,23 @@ class WebsiteDownloader:
                 return m.group(0)
             return f'url("{self._rel(css_local, local)}")'
 
-        css = self._css_import_re.sub(repl_import, css)
-        css = self._css_url_re.sub(repl_url, css)
-        css = self._rewrite_direct_urls(css, css_url, css_local)
-        return css
+        def rewrite_code(code: str) -> str:
+            code = self._css_import_re.sub(repl_import, code)
+            code = self._css_url_re.sub(repl_url, code)
+            return self._rewrite_direct_urls(code, css_url, css_local)
+
+        # Comments often discuss CSS syntax (for example ``@import is``).
+        # Treating that prose as executable CSS caused bogus requests such as
+        # ``/is`` and matching false integrity failures. Preserve comments
+        # byte-for-byte and rewrite only executable CSS segments.
+        pieces: List[str] = []
+        cursor = 0
+        for comment in self._css_comment_re.finditer(css):
+            pieces.append(rewrite_code(css[cursor:comment.start()]))
+            pieces.append(comment.group(0))
+            cursor = comment.end()
+        pieces.append(rewrite_code(css[cursor:]))
+        return "".join(pieces)
 
     # Patterns that identify webpack/Vite application bundles.
     # These files must NOT have their internal paths rewritten —
@@ -1645,6 +1793,8 @@ class WebsiteDownloader:
                         r.close()
                     except Exception:
                         pass
+
+        html_text = _decode_inline_document_payload(html_text)
 
         soup = BeautifulSoup(html_text, "html.parser")
         _raise_if_cancelled()

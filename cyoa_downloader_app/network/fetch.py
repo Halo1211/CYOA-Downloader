@@ -30,19 +30,30 @@ def fetch_response(
         return_error_response=return_error_response,
         stream=stream,
     )
-    l._raise_if_cancelled()
-    if response is not None:
-        raw_length = response.headers.get("Content-Length")
-        try:
-            length = int(raw_length) if raw_length not in (None, "") else None
-        except (TypeError, ValueError):
-            length = None
-        if as_bytes:
-            l.validate_response_content_length(response, len(response.content))
-        l._emit_progress_event(
-            "response_meta",
-            url=str(getattr(response, "url", None) or url),
-            status=int(getattr(response, "status_code", 0) or 0),
-            content_length=length,
-        )
+    try:
+        l._raise_if_cancelled()
+        if response is not None:
+            raw_length = response.headers.get("Content-Length")
+            try:
+                length = int(raw_length) if raw_length not in (None, "") else None
+            except (TypeError, ValueError):
+                length = None
+            if as_bytes:
+                l.validate_response_content_length(response, len(response.content))
+            l._emit_progress_event(
+                "response_meta",
+                url=str(getattr(response, "url", None) or url),
+                status=int(getattr(response, "status_code", 0) or 0),
+                content_length=length,
+            )
+    except BaseException:
+        # When cancellation or body validation fires after the blocking
+        # request returns, ownership never reaches the caller. Close here so
+        # the pooled connection is not leaked.
+        if response is not None:
+            try:
+                response.close()
+            except Exception:
+                pass
+        raise
     return response

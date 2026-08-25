@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pathlib
-import posixpath
 import re
 from typing import List, Optional, Set, Tuple
 from urllib.parse import quote, unquote, urljoin, urlparse, urlunparse
@@ -12,7 +11,14 @@ from .paths import _safe_join
 
 
 def is_probable_url(value: str) -> bool:
-    return bool(re.match(r"^https?://", str(value).strip(), re.IGNORECASE))
+    text = str(value or "").strip()
+    if not re.match(r"^https?://", text, re.IGNORECASE):
+        return False
+    try:
+        canonicalize_url(text)
+    except (TypeError, ValueError):
+        return False
+    return True
 
 
 def _cyoap_local_path(output_folder: str, remote_url: str) -> str:
@@ -119,6 +125,12 @@ def truncate_display_url(url: str, max_length: int = 72) -> str:
 def canonicalize_url(url: str) -> str:
     """Canonicalize HTTP(S) URLs for deterministic deduplication/cache keys."""
     text = str(url or "").strip()
+    # Do not silently reinterpret malformed authorities such as
+    # ``https://exa mple.com``.  Besides producing a confusing late failure in
+    # requests, whitespace/control stripping differs between URL parsers and
+    # can make validation and the eventual network target disagree.
+    if re.search(r"[\x00-\x20\x7f]", text):
+        raise ValueError("URL must not contain whitespace or control characters")
     # People commonly paste a host/path without a protocol into the GUI or a
     # batch file.  Treat a syntactically host-like value as HTTPS while still
     # rejecting relative paths and explicit unsafe schemes (file:, ftp:,
@@ -150,12 +162,21 @@ def canonicalize_url(url: str) -> str:
     if port and not ((scheme == "http" and port == 80) or (scheme == "https" and port == 443)):
         netloc = f"{display_host}:{port}"
     path = parsed.path or "/"
-    trailing = path.endswith("/")
-    path = posixpath.normpath(path)
-    if not path.startswith("/"):
-        path = "/" + path
-    if trailing and path != "/":
-        path += "/"
+    # RFC 3986 dot-segment removal must preserve empty path segments.  Using
+    # posixpath.normpath() collapsed ``/a//b`` to ``/a/b`` and therefore
+    # changed the actual request target for servers (and signed URLs) where
+    # repeated slashes are significant. Prefixing a sentinel keeps a leading
+    # ``//`` in the path from being interpreted as a network location by
+    # urljoin while still applying its RFC-style dot-segment handling.
+    marker = "/.__cyoa_url_root__"
+    normalized_path = urlparse(
+        urljoin("https://canonical.invalid/", marker + path)
+    ).path
+    path = (
+        normalized_path[len(marker):]
+        if normalized_path.startswith(marker)
+        else normalized_path
+    ) or "/"
     return urlunparse((scheme, netloc, path, "", parsed.query, ""))
 
 

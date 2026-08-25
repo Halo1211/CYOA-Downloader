@@ -603,31 +603,690 @@ class CYOADownloaderGUI:
                              justify="left", wraplength=312).pack(
                                  fill="x", padx=4, pady=(1, 2))
 
-    def _settings_dashboard_panel(self) -> None:
-        """Modern, categorized Settings dashboard.
-
-        Keep settings in one window but separate unrelated concerns into
-        compact tabs. Existing callbacks and settings keys remain unchanged.
-        """
+    def _settings_inline_ai(self, parent, row: int, p: dict, is_en: bool,
+                            status_var, settings_win) -> int:
+        """Render the complete AI Assist form inside the Settings page."""
+        import threading
         import customtkinter as ctk
 
-        p = self._p()
+        st = _load_settings()
+        provider_var = ctk.StringVar(
+            value=_normalize_ai_provider(st.get("ai_provider", "anthropic"))
+        )
+        model_var = ctk.StringVar(
+            value=str(st.get("ai_model") or _get_ai_model(provider_var.get()))
+        )
+        enabled_var = ctk.BooleanVar(value=bool(st.get("ai_enabled", False)))
+        mode_var = ctk.StringVar(value=_normalize_ai_mode(st.get("ai_mode", "auto_fallback")))
+        storage_var = ctk.StringVar(
+            value=_normalize_ai_key_storage(st.get("ai_key_storage", "session"))
+        )
+        session_key_provider = provider_var.get()
+        initial_key = ""
+        if storage_var.get() == "session":
+            initial_key = getattr(self, "_ai_api_key", "")
+        elif storage_var.get() == "plain" and provider_var.get() != "ollama":
+            initial_key = _resolve_ai_api_key(
+                storage="plain", provider=provider_var.get(),
+            )
+        key_var = ctk.StringVar(value=initial_key)
+        ollama_var = ctk.StringVar(value=str(st.get("ollama_url", OLLAMA_DEFAULT_URL)))
+        custom_url_var = ctk.StringVar(value=str(st.get("ai_custom_base_url", "")))
+        local_status = ctk.StringVar(value=(
+            "Configure and save here—no additional Settings window is opened."
+            if is_en else
+            "Atur dan simpan di sini—tidak membuka jendela Settings tambahan."
+        ))
+
+        card = ctk.CTkFrame(
+            parent, fg_color=p["surface"], corner_radius=12,
+            border_width=1, border_color=p["border"],
+        )
+        card.grid(row=row, column=0, columnspan=2, sticky="ew", padx=6, pady=5)
+        card.grid_columnconfigure(0, weight=0, minsize=58)
+        card.grid_columnconfigure(1, weight=1, uniform="ai_setting")
+        card.grid_columnconfigure(2, weight=1, uniform="ai_setting")
+        card.grid_columnconfigure(3, weight=0)
+
+        ctk.CTkLabel(
+            card, text="AI", width=38, height=30,
+            font=ctk.CTkFont("Segoe UI", 9, "bold"), text_color="#ffffff",
+            fg_color="#7c3aed", corner_radius=8,
+        ).grid(row=0, column=0, rowspan=2, padx=(12, 10), pady=12, sticky="n")
+        ctk.CTkLabel(
+            card, text="AI Assist", font=ctk.CTkFont("Segoe UI", 13, "bold"),
+            text_color=p["fg"], anchor="w",
+        ).grid(row=0, column=1, columnspan=2, sticky="ew", pady=(11, 0))
+        ctk.CTkLabel(
+            card,
+            text=("Optional recovery provider, model, mode, credentials, and endpoints."
+                  if is_en else
+                  "Provider recovery opsional, model, mode, kredensial, dan endpoint."),
+            font=ctk.CTkFont("Segoe UI", 9), text_color=p["muted"], anchor="w",
+        ).grid(row=1, column=1, columnspan=2, sticky="ew", pady=(0, 8))
+        ctk.CTkSwitch(
+            card, text=("Enabled" if is_en else "Aktif"), variable=enabled_var,
+            progress_color="#8b5cf6", text_color=p["fg"],
+        ).grid(row=0, column=3, rowspan=2, padx=14, pady=12)
+
+        def _label(text: str, r: int, c: int) -> None:
+            ctk.CTkLabel(
+                card, text=text, font=ctk.CTkFont("Segoe UI", 9),
+                text_color=p["muted"], anchor="w",
+            ).grid(row=r, column=c, sticky="ew", padx=6, pady=(4, 2))
+
+        provider_values = [
+            "anthropic", "openai", "gemini", "ollama", "deepseek",
+            "qwen", "groq", "openrouter", "custom",
+        ]
+        _label("Provider", 2, 1)
+        _label("Model", 2, 2)
+        provider_menu = ctk.CTkOptionMenu(
+            card, variable=provider_var, values=provider_values, height=30,
+            fg_color=p["surface2"], button_color=p["surface"],
+            button_hover_color=p["surface2"], text_color=p["fg"],
+        )
+        provider_menu.grid(row=3, column=1, sticky="ew", padx=(6, 4), pady=(0, 8))
+        ctk.CTkEntry(
+            card, textvariable=model_var, height=30,
+            fg_color=p["input_bg"], text_color=p["input_fg"], border_color=p["border"],
+        ).grid(row=3, column=2, sticky="ew", padx=(4, 12), pady=(0, 8))
+        _label("AI mode" if is_en else "Mode AI", 4, 1)
+        _label("Key storage" if is_en else "Penyimpanan key", 4, 2)
+        ctk.CTkOptionMenu(
+            card, variable=mode_var,
+            values=["off", "diagnostics", "auto_fallback", "aggressive_recovery"],
+            height=30, fg_color=p["surface2"], button_color=p["surface"],
+            button_hover_color=p["surface2"], text_color=p["fg"],
+        ).grid(row=5, column=1, sticky="ew", padx=(6, 4), pady=(0, 8))
+        ctk.CTkOptionMenu(
+            card, variable=storage_var, values=["session", "env", "keyring", "plain"],
+            height=30, fg_color=p["surface2"], button_color=p["surface"],
+            button_hover_color=p["surface2"], text_color=p["fg"],
+        ).grid(row=5, column=2, sticky="ew", padx=(4, 12), pady=(0, 8))
+
+        _label("API key", 6, 1)
+        key_entry = ctk.CTkEntry(
+            card, textvariable=key_var, show="*", height=30,
+            placeholder_text="API key", fg_color=p["input_bg"],
+            text_color=p["input_fg"], border_color=p["border"],
+        )
+        key_entry.grid(row=7, column=1, columnspan=2, sticky="ew", padx=(6, 12), pady=(0, 8))
+        _label("Ollama URL", 8, 1)
+        ollama_entry = ctk.CTkEntry(
+            card, textvariable=ollama_var, height=30,
+            fg_color=p["input_bg"], text_color=p["input_fg"], border_color=p["border"],
+        )
+        ollama_entry.grid(row=9, column=1, sticky="ew", padx=(6, 4), pady=(0, 8))
+        _label("Custom base URL", 8, 2)
+        custom_entry = ctk.CTkEntry(
+            card, textvariable=custom_url_var, height=30,
+            placeholder_text="https://endpoint.example/v1",
+            fg_color=p["input_bg"], text_color=p["input_fg"], border_color=p["border"],
+        )
+        custom_entry.grid(row=9, column=2, sticky="ew", padx=(4, 12), pady=(0, 8))
+
+        def _refresh_ai_fields(*_args) -> None:
+            provider = _normalize_ai_provider(provider_var.get())
+            storage = _normalize_ai_key_storage(storage_var.get())
+            key_entry.configure(state=("disabled" if provider == "ollama" or storage == "env" else "normal"))
+            ollama_entry.configure(state=("normal" if provider == "ollama" else "disabled"))
+            custom_entry.configure(state=("normal" if provider == "custom" else "disabled"))
+            if provider != "ollama" and not model_var.get().strip():
+                model_var.set(_default_ai_model(provider))
+
+        provider_state = {"value": provider_var.get()}
+        storage_state = {"value": storage_var.get()}
+
+        def _provider_changed(*_args) -> None:
+            provider = _normalize_ai_provider(provider_var.get())
+            if provider != provider_state["value"]:
+                options = _ai_model_options(provider)
+                if model_var.get().strip() not in options:
+                    model_var.set(_default_ai_model(provider))
+                storage = _normalize_ai_key_storage(storage_var.get())
+                if storage == "plain" and provider != "ollama":
+                    key_var.set(_resolve_ai_api_key(storage="plain", provider=provider))
+                else:
+                    # Credentials are provider-specific; never carry one provider's
+                    # session/keyring value into another provider's form.
+                    key_var.set("")
+                provider_state["value"] = provider
+            _refresh_ai_fields()
+
+        def _storage_changed(*_args) -> None:
+            storage = _normalize_ai_key_storage(storage_var.get())
+            if storage != storage_state["value"]:
+                provider = _normalize_ai_provider(provider_var.get())
+                if storage == "plain" and provider != "ollama":
+                    key_var.set(_resolve_ai_api_key(storage="plain", provider=provider))
+                elif storage == "session" and provider == session_key_provider:
+                    key_var.set(getattr(self, "_ai_api_key", ""))
+                else:
+                    key_var.set("")
+                storage_state["value"] = storage
+            _refresh_ai_fields()
+
+        def _save_ai(show_status: bool = True) -> bool:
+            try:
+                provider = _normalize_ai_provider(provider_var.get())
+                storage = _normalize_ai_key_storage(storage_var.get())
+                mode = _normalize_ai_mode(mode_var.get())
+                custom_url = custom_url_var.get().strip().rstrip("/")
+                key = key_var.get().strip()
+                if storage == "plain" and provider != "ollama" and not key:
+                    # A blank untouched field must not silently delete an existing
+                    # provider-specific plaintext key during an unrelated save.
+                    key = _resolve_ai_api_key(storage="plain", provider=provider)
+                if provider == "custom" and not custom_url:
+                    raise ValueError(
+                        "Custom provider requires a base URL."
+                        if is_en else "Provider custom membutuhkan base URL."
+                    )
+                updates = {
+                    "ai_enabled": bool(enabled_var.get()),
+                    "ai_provider": provider,
+                    "ai_model": model_var.get().strip() or _default_ai_model(provider),
+                    "ai_mode": mode,
+                    "ai_key_storage": storage,
+                    "ollama_url": ollama_var.get().strip() or OLLAMA_DEFAULT_URL,
+                    "ai_custom_base_url": custom_url,
+                }
+                updates = _clear_ai_plain_keys(updates, None)
+                if storage == "plain" and key and provider != "ollama":
+                    updates[_plain_ai_key_setting(provider)] = key
+                _update_settings(updates)
+                if storage == "session" and provider != "ollama":
+                    self._ai_api_key = key
+                elif storage == "keyring" and key and provider != "ollama":
+                    if not _write_ai_key_to_keyring(key, provider):
+                        raise RuntimeError("Could not save key to the OS credential store.")
+                    self._ai_api_key = ""
+                elif storage in {"env", "plain"}:
+                    self._ai_api_key = ""
+                self._ai_enabled = bool(enabled_var.get())
+                self._ai_provider = provider
+                self._ai_model = updates["ai_model"]
+                self._ai_mode = mode
+                self._ai_key_storage = storage
+                if show_status:
+                    local_status.set("Saved." if is_en else "Tersimpan.")
+                    status_var.set("AI Assist settings saved." if is_en else "Pengaturan AI Assist tersimpan.")
+                return True
+            except Exception as exc:
+                local_status.set(("Could not save: " if is_en else "Tidak dapat menyimpan: ") + str(exc))
+                return False
+
+        def _test_ai() -> None:
+            if not _save_ai(False):
+                return
+            provider = _normalize_ai_provider(provider_var.get())
+            key = _resolve_ai_api_key(
+                session_key=key_var.get(), storage=storage_var.get(), provider=provider,
+            )
+            if provider != "ollama" and not key:
+                local_status.set("No API key is available." if is_en else "API key belum tersedia.")
+                return
+            ai_test_button.configure(state="disabled")
+            local_status.set("Testing provider…" if is_en else "Menguji provider…")
+
+            def _worker() -> None:
+                try:
+                    result = _ai_call(
+                        key, "Reply exactly: OK", max_tokens=16,
+                        label="AI provider test", model=model_var.get(), provider=provider,
+                    )
+                    message = ("Provider test succeeded." if result and is_en else
+                               "Tes provider berhasil." if result else
+                               "Provider test failed." if is_en else "Tes provider gagal.")
+                except Exception as exc:
+                    message = ("Test failed: " if is_en else "Tes gagal: ") + str(exc)
+                self.root.after(0, lambda: (
+                    ai_test_button.configure(state="normal"), local_status.set(message)
+                ))
+
+            threading.Thread(target=_worker, daemon=True).start()
+
+        def _clear_ai_key() -> None:
+            try:
+                _clear_ai_api_key_storage(storage_var.get(), provider_var.get(), clear_all=False)
+                key_var.set("")
+                self._ai_api_key = ""
+                local_status.set("Key cleared." if is_en else "Key dibersihkan.")
+            except Exception as exc:
+                local_status.set(str(exc))
+
+        action_row = ctk.CTkFrame(card, fg_color="transparent")
+        action_row.grid(row=10, column=1, columnspan=3, sticky="ew", padx=(6, 12), pady=(2, 10))
+        action_row.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            action_row, textvariable=local_status, font=ctk.CTkFont("Segoe UI", 9),
+            text_color=p["muted"], anchor="w", justify="left",
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        ctk.CTkButton(
+            action_row, text=("Clear key" if is_en else "Bersihkan key"), width=92, height=28,
+            command=_clear_ai_key, fg_color=p["surface2"], hover_color=p["surface"],
+            text_color=p["muted"],
+        ).grid(row=0, column=1, padx=4)
+        ai_test_button = ctk.CTkButton(
+            action_row, text=("Test" if is_en else "Tes"), width=66, height=28,
+            command=_test_ai, fg_color=p["surface2"], hover_color=p["surface"],
+            text_color=p["fg"],
+        )
+        ai_test_button.grid(row=0, column=2, padx=4)
+        ctk.CTkButton(
+            action_row, text=("Save" if is_en else "Simpan"), width=74, height=28,
+            command=lambda: _save_ai(True), fg_color="#7c3aed", hover_color="#6d28d9",
+        ).grid(row=0, column=3, padx=(4, 0))
+
+        provider_var.trace_add("write", _provider_changed)
+        storage_var.trace_add("write", _storage_changed)
+        _refresh_ai_fields()
+        return row + 1
+
+    def _settings_inline_cloudflare(self, parent, row: int, p: dict, is_en: bool,
+                                    status_var) -> int:
+        """Render Cloudflare/FlareSolverr controls inside Integrations."""
+        import threading
+        import customtkinter as ctk
+
+        st = _load_settings()
+        mode_var = ctk.StringVar(value=_display_cloudflare_mode(st.get("cloudflare_mode", _CLOUDFLARE_MODE)))
+        priority_var = ctk.StringVar(value=_display_cloudflare_priority(st.get("cloudflare_priority", "flaresolverr_first")))
+        session_var = ctk.StringVar(value=str(st.get("flaresolverr_session_policy", _FLARESOLVERR_SESSION_POLICY)))
+        url_var = ctk.StringVar(value=str(st.get("flaresolverr_url", _FLARESOLVERR_URL)))
+        timeout_var = ctk.StringVar(value=str(st.get("flaresolverr_timeout", _FLARESOLVERR_TIMEOUT)))
+        wait_var = ctk.StringVar(value=str(st.get("flaresolverr_wait_after", _FLARESOLVERR_WAIT_AFTER)))
+        proxy_var = ctk.StringVar(value=str(st.get("flaresolverr_proxy_mode", _FLARESOLVERR_PROXY_MODE)))
+        local_status = ctk.StringVar(value="")
+
+        card = ctk.CTkFrame(parent, fg_color=p["surface"], corner_radius=12,
+                            border_width=1, border_color=p["border"])
+        card.grid(row=row, column=0, columnspan=2, sticky="ew", padx=6, pady=5)
+        card.grid_columnconfigure(0, weight=0, minsize=58)
+        card.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(card, text="CF", width=38, height=30,
+                     font=ctk.CTkFont("Segoe UI", 9, "bold"), text_color="#ffffff",
+                     fg_color="#2563eb", corner_radius=8).grid(
+                         row=0, column=0, padx=(12, 8), pady=(12, 4), sticky="w")
+        ctk.CTkLabel(card, text="Cloudflare / FlareSolverr",
+                     font=ctk.CTkFont("Segoe UI", 13, "bold"), text_color=p["fg"],
+                     anchor="w").grid(row=0, column=1, sticky="ew", pady=(11, 4))
+
+        form = ctk.CTkFrame(card, fg_color="transparent")
+        form.grid(row=1, column=0, columnspan=2, sticky="ew", padx=8, pady=(0, 2))
+        form.grid_columnconfigure(0, weight=1, uniform="cf_setting")
+        form.grid_columnconfigure(1, weight=1, uniform="cf_setting")
+
+        def _field(label: str, variable, values, r: int, c: int, span: int = 1) -> None:
+            ctk.CTkLabel(form, text=label, font=ctk.CTkFont("Segoe UI", 9),
+                         text_color=p["muted"], anchor="w").grid(
+                             row=r, column=c, columnspan=span, sticky="ew", padx=8, pady=(4, 2))
+            if values:
+                widget = ctk.CTkOptionMenu(
+                    form, variable=variable, values=values, height=30,
+                    fg_color=p["surface2"], button_color=p["surface"],
+                    button_hover_color=p["surface2"], text_color=p["fg"],
+                )
+            else:
+                widget = ctk.CTkEntry(
+                    form, textvariable=variable, height=30,
+                    fg_color=p["input_bg"], text_color=p["input_fg"],
+                    border_color=p["border"],
+                )
+            widget.grid(row=r + 1, column=c, columnspan=span, sticky="ew", padx=8, pady=(0, 7))
+
+        _field("Mode", mode_var, ["Off", "Auto", "cloudscraper", "FlareSolverr"], 0, 0)
+        _field("Auto priority" if is_en else "Prioritas Auto", priority_var,
+               ["FlareSolverr first", "cloudscraper first"], 0, 1)
+        _field("Session", session_var, ["temporary", "reuse-domain", "manual"], 2, 0)
+        _field("Proxy", proxy_var, ["inherit", "none"], 2, 1)
+        _field("FlareSolverr API URL", url_var, None, 4, 0, 2)
+        _field("Timeout (s)", timeout_var, None, 6, 0)
+        _field("Wait after solve (s)" if is_en else "Tunggu setelah solve (s)", wait_var, None, 6, 1)
+
+        def _apply_cf(show_status: bool = True) -> bool:
+            try:
+                timeout = max(1, int(timeout_var.get() or 60))
+                wait_after = max(0, int(wait_var.get() or 3))
+                _set_cloudflare_config(
+                    mode_var.get(), priority=_normalize_cloudflare_priority(priority_var.get()),
+                    flaresolverr_url=url_var.get().strip(), session_policy=session_var.get(),
+                    timeout=timeout, wait_after=wait_after, proxy_mode=proxy_var.get(),
+                    persist=True,
+                )
+                try:
+                    self._cf_mode_var.set(_display_cloudflare_mode(mode_var.get()))
+                except Exception:
+                    pass
+                if show_status:
+                    local_status.set("Saved." if is_en else "Tersimpan.")
+                    status_var.set("Cloudflare settings saved." if is_en else "Pengaturan Cloudflare tersimpan.")
+                return True
+            except Exception as exc:
+                local_status.set(str(exc))
+                return False
+
+        def _test_cf() -> None:
+            if not _apply_cf(False):
+                return
+            cf_test_button.configure(state="disabled")
+            local_status.set("Testing FlareSolverr…" if is_en else "Menguji FlareSolverr…")
+
+            def _worker() -> None:
+                ok, message = flaresolverr_test_connection()
+                self.root.after(0, lambda: (
+                    cf_test_button.configure(state="normal"),
+                    local_status.set(("OK: " if ok else "Error: ") + message),
+                ))
+
+            threading.Thread(target=_worker, daemon=True).start()
+
+        def _clear_sessions() -> None:
+            local_status.set("Clearing sessions…" if is_en else "Membersihkan sesi…")
+
+            def _worker() -> None:
+                count = flaresolverr_destroy_sessions()
+                self.root.after(0, lambda: local_status.set(
+                    f"Cleared {count} session(s)." if is_en else f"{count} sesi dibersihkan."
+                ))
+
+            threading.Thread(target=_worker, daemon=True).start()
+
+        actions = ctk.CTkFrame(card, fg_color="transparent")
+        actions.grid(row=2, column=0, columnspan=2, sticky="ew", padx=12, pady=(2, 10))
+        actions.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(actions, textvariable=local_status, font=ctk.CTkFont("Segoe UI", 9),
+                     text_color=p["muted"], anchor="w").grid(row=0, column=0, sticky="ew")
+        ctk.CTkButton(actions, text=("Clear sessions" if is_en else "Bersihkan sesi"),
+                      width=106, height=28, command=_clear_sessions,
+                      fg_color=p["surface2"], hover_color=p["surface"], text_color=p["muted"]).grid(row=0, column=1, padx=4)
+        cf_test_button = ctk.CTkButton(actions, text=("Test" if is_en else "Tes"),
+                                       width=64, height=28, command=_test_cf,
+                                       fg_color=p["surface2"], hover_color=p["surface"], text_color=p["fg"])
+        cf_test_button.grid(row=0, column=2, padx=4)
+        ctk.CTkButton(actions, text=("Save" if is_en else "Simpan"), width=72, height=28,
+                      command=lambda: _apply_cf(True), fg_color="#2563eb", hover_color="#1d4ed8").grid(row=0, column=3, padx=(4, 0))
+        return row + 1
+
+    def _settings_inline_cache(self, parent, row: int, p: dict, is_en: bool,
+                               status_var, settings_win) -> int:
+        """Render image-cache controls directly in Maintenance."""
+        import math
+        import customtkinter as ctk
+        from tkinter import messagebox
+
+        card = ctk.CTkFrame(parent, fg_color=p["surface"], corner_radius=12,
+                            border_width=1, border_color=p["border"])
+        card.grid(row=row, column=0, columnspan=2, sticky="ew", padx=6, pady=5)
+        card.grid_columnconfigure(1, weight=1)
+        cache_limit_var = ctk.StringVar(value="2")
+        cache_stats_var = ctk.StringVar(value="")
+        cache_status_var = ctk.StringVar(value="")
+        ctk.CTkLabel(card, text="IMG", width=38, height=30,
+                     font=ctk.CTkFont("Segoe UI", 8, "bold"), text_color="#ffffff",
+                     fg_color="#9f1239", corner_radius=8).grid(
+                         row=0, column=0, rowspan=2, padx=(12, 10), pady=12, sticky="n")
+        ctk.CTkLabel(card, text=("Image cache" if is_en else "Cache gambar"),
+                     font=ctk.CTkFont("Segoe UI", 13, "bold"), text_color=p["fg"],
+                     anchor="w").grid(row=0, column=1, sticky="ew", pady=(11, 0))
+        ctk.CTkLabel(card, textvariable=cache_stats_var,
+                     font=ctk.CTkFont("Segoe UI", 9), text_color=p["muted"],
+                     anchor="w").grid(row=1, column=1, sticky="ew", pady=(0, 8))
+
+        def _refresh_cache() -> None:
+            try:
+                stats = _cache_stats()
+                cache_limit_var.set(f"{stats['limit_mb'] / 1024:g}")
+                cache_stats_var.set(
+                    (f"{stats['entries']} files · {stats['size_mb']} MB used"
+                     if is_en else f"{stats['entries']} file · {stats['size_mb']} MB terpakai")
+                )
+            except Exception as exc:
+                cache_stats_var.set(str(exc))
+
+        def _save_cache_limit() -> None:
+            try:
+                gb = float(cache_limit_var.get().strip())
+                if not math.isfinite(gb) or gb <= 0:
+                    raise ValueError
+                mb = max(1, min(1024 * 1024, int(round(gb * 1024))))
+                _update_setting("image_cache_max_mb", mb)
+                _enforce_cache_limit()
+                cache_status_var.set(
+                    f"Limit saved: {mb / 1024:g} GB" if is_en else f"Batas tersimpan: {mb / 1024:g} GB"
+                )
+                _refresh_cache()
+            except (TypeError, ValueError, OverflowError):
+                cache_status_var.set("Enter a positive GB value." if is_en else "Masukkan nilai GB positif.")
+
+        def _clear_cache() -> None:
+            if not messagebox.askyesno(
+                "Clear image cache" if is_en else "Bersihkan cache gambar",
+                ("Remove cached images? Completed downloads are not touched."
+                 if is_en else "Hapus cache gambar? Download selesai tidak disentuh."),
+                parent=settings_win,
+            ):
+                return
+            try:
+                count = _clear_image_cache()
+                cache_status_var.set(
+                    f"Cleared {count} file(s)." if is_en else f"{count} file dibersihkan."
+                )
+                _refresh_cache()
+            except Exception as exc:
+                cache_status_var.set(str(exc))
+
+        controls = ctk.CTkFrame(card, fg_color="transparent")
+        controls.grid(row=2, column=1, sticky="ew", padx=(0, 12), pady=(0, 8))
+        # Keep the complete cache action group left-aligned; any spare width
+        # belongs after the buttons, not between the label and its value.
+        controls.grid_columnconfigure(5, weight=1)
+        ctk.CTkLabel(controls, text=("Maximum size (GB)" if is_en else "Ukuran maksimal (GB)"),
+                     font=ctk.CTkFont("Segoe UI", 10), text_color=p["muted"],
+                     anchor="w").grid(row=0, column=0, sticky="w", padx=(0, 10))
+        ctk.CTkEntry(controls, textvariable=cache_limit_var, width=80, height=28,
+                     fg_color=p["input_bg"], text_color=p["input_fg"],
+                     border_color=p["border"], justify="center").grid(row=0, column=1, padx=4)
+        ctk.CTkButton(controls, text=("Save limit" if is_en else "Simpan batas"), width=90,
+                      height=28, command=_save_cache_limit, fg_color="#2563eb",
+                      hover_color="#1d4ed8").grid(row=0, column=2, padx=4)
+        ctk.CTkButton(controls, text=("Show folder" if is_en else "Lihat folder"), width=92,
+                      height=28, command=self._open_image_cache_folder,
+                      fg_color=p["surface2"], hover_color=p["surface"], text_color=p["fg"]).grid(row=0, column=3, padx=4)
+        ctk.CTkButton(controls, text=("Clear cache" if is_en else "Bersihkan"), width=88,
+                      height=28, command=_clear_cache, fg_color=p["danger_bg"],
+                      hover_color=p["danger_hv"], text_color=p["danger_fg"]).grid(row=0, column=4, padx=(4, 0))
+        ctk.CTkLabel(card, textvariable=cache_status_var, font=ctk.CTkFont("Segoe UI", 9),
+                     text_color=p["muted"], anchor="w").grid(
+                         row=3, column=1, sticky="ew", padx=(0, 12), pady=(0, 10))
+        _refresh_cache()
+        return row + 1
+
+    def _settings_inline_viewers(self, parent, row: int, p: dict, is_en: bool,
+                                 status_var, settings_win) -> int:
+        """Render offline-viewer registry and add/remove controls inline."""
+        import os
+        import customtkinter as ctk
+        from tkinter import filedialog, messagebox
+
+        card = ctk.CTkFrame(parent, fg_color=p["surface"], corner_radius=12,
+                            border_width=1, border_color=p["border"])
+        card.grid(row=row, column=0, columnspan=2, sticky="ew", padx=6, pady=5)
+        card.grid_columnconfigure(1, weight=1)
+        path_var = ctk.StringVar(value="")
+        name_var = ctk.StringVar(value="")
+        type_var = ctk.StringVar(value="icc_plus")
+        local_status = ctk.StringVar(value="")
+        ctk.CTkLabel(card, text="VW", width=38, height=30,
+                     font=ctk.CTkFont("Segoe UI", 8, "bold"), text_color="#ffffff",
+                     fg_color="#0f766e", corner_radius=8).grid(
+                         row=0, column=0, rowspan=2, padx=(12, 10), pady=12, sticky="n")
+        ctk.CTkLabel(card, text=("Offline viewers" if is_en else "Viewer offline"),
+                     font=ctk.CTkFont("Segoe UI", 13, "bold"), text_color=p["fg"],
+                     anchor="w").grid(row=0, column=1, sticky="ew", pady=(11, 0))
+        ctk.CTkLabel(card,
+                     text=("Register and manage local viewer archives here."
+                           if is_en else "Daftarkan dan kelola arsip viewer lokal di sini."),
+                     font=ctk.CTkFont("Segoe UI", 9), text_color=p["muted"],
+                     anchor="w").grid(row=1, column=1, sticky="ew", pady=(0, 8))
+        ctk.CTkButton(card, text=("Viewer folder" if is_en else "Folder viewer"),
+                      width=104, height=28, command=lambda: self._open_path_in_os(_VIEWERS_DIR),
+                      fg_color=p["surface2"], hover_color=p["surface"], text_color=p["fg"]).grid(
+                          row=0, column=2, rowspan=2, padx=12, pady=12)
+
+        add = ctk.CTkFrame(card, fg_color=p["panel"], corner_radius=8,
+                           border_width=1, border_color=p["border"])
+        add.grid(row=2, column=0, columnspan=3, sticky="ew", padx=12, pady=(0, 8))
+        add.grid_columnconfigure(0, weight=2)
+        add.grid_columnconfigure(1, weight=1)
+
+        def _browse_viewer() -> None:
+            chosen = filedialog.askopenfilename(
+                parent=settings_win,
+                title=("Select viewer archive" if is_en else "Pilih arsip viewer"),
+                filetypes=[("Viewer archives", "*.zip *.rar"), ("All files", "*.*")],
+            )
+            if chosen:
+                path_var.set(chosen)
+                if not name_var.get().strip():
+                    name_var.set(os.path.splitext(os.path.basename(chosen))[0])
+
+        ctk.CTkEntry(add, textvariable=path_var, height=30,
+                     placeholder_text=("Viewer ZIP/RAR path" if is_en else "Path ZIP/RAR viewer"),
+                     fg_color=p["input_bg"], text_color=p["input_fg"],
+                     border_color=p["border"]).grid(row=0, column=0, sticky="ew", padx=(8, 4), pady=8)
+        ctk.CTkButton(add, text=("Browse…" if is_en else "Pilih…"), width=76, height=30,
+                      command=_browse_viewer, fg_color=p["surface2"], hover_color=p["surface"],
+                      text_color=p["fg"]).grid(row=0, column=1, padx=4, pady=8)
+        ctk.CTkEntry(add, textvariable=name_var, height=30,
+                     placeholder_text=("Display name" if is_en else "Nama tampilan"),
+                     fg_color=p["input_bg"], text_color=p["input_fg"],
+                     border_color=p["border"]).grid(row=0, column=2, sticky="ew", padx=4, pady=8)
+        ctk.CTkOptionMenu(add, variable=type_var,
+                          values=["icc_plus", "icc", "cyoap_vue", "custom"], width=116,
+                          height=30, fg_color=p["surface2"], button_color=p["surface"],
+                          button_hover_color=p["surface2"], text_color=p["fg"]).grid(
+                              row=0, column=3, padx=4, pady=8)
+
+        viewer_list = ctk.CTkFrame(card, fg_color="transparent")
+        viewer_list.grid(row=3, column=0, columnspan=3, sticky="ew", padx=12, pady=(0, 4))
+        viewer_list.grid_columnconfigure(0, weight=1)
+
+        def _remove_viewer(viewer_id: str) -> None:
+            if not messagebox.askyesno(
+                "Remove viewer" if is_en else "Hapus viewer",
+                (f"Remove '{viewer_id}' from the registry? The archive remains on disk."
+                 if is_en else f"Hapus '{viewer_id}' dari registry? Arsip tetap di disk."),
+                parent=settings_win,
+            ):
+                return
+            unregister_offline_viewer(viewer_id, delete_zip=False)
+            local_status.set(f"Removed: {viewer_id}" if is_en else f"Dihapus: {viewer_id}")
+            _refresh_viewers()
+
+        def _refresh_viewers() -> None:
+            for child in viewer_list.winfo_children():
+                child.destroy()
+            manifest = _load_viewers_manifest()
+            if not manifest:
+                ctk.CTkLabel(viewer_list,
+                             text=("No offline viewers registered."
+                                   if is_en else "Belum ada viewer offline terdaftar."),
+                             text_color=p["muted"], anchor="w").grid(
+                                 row=0, column=0, sticky="ew", padx=4, pady=10)
+                return
+            for index, (viewer_id, meta) in enumerate(manifest.items()):
+                item = ctk.CTkFrame(viewer_list, fg_color=p["panel"], corner_radius=8)
+                item.grid(row=index, column=0, sticky="ew", pady=3)
+                item.grid_columnconfigure(0, weight=1)
+                title = str(meta.get("name", viewer_id))
+                detail = f"{meta.get('viewer_type', 'custom')} · {meta.get('zip_filename', '')}"
+                ctk.CTkLabel(item, text=title, font=ctk.CTkFont("Segoe UI", 10, "bold"),
+                             text_color=p["fg"], anchor="w").grid(
+                                 row=0, column=0, sticky="ew", padx=10, pady=(7, 0))
+                ctk.CTkLabel(item, text=detail, font=ctk.CTkFont("Segoe UI", 8),
+                             text_color=p["muted"], anchor="w").grid(
+                                 row=1, column=0, sticky="ew", padx=10, pady=(0, 7))
+                ctk.CTkButton(item, text=("Inject…" if is_en else "Inject…"), width=72,
+                              height=26, command=lambda m=dict(meta, id=viewer_id):
+                              _v25_inject_into_viewer(self, m, parent_win=settings_win),
+                              fg_color="#1d4ed8", hover_color="#2563eb").grid(
+                                  row=0, column=1, rowspan=2, padx=4, pady=6)
+                ctk.CTkButton(item, text=("Remove" if is_en else "Hapus"), width=72,
+                              height=26, command=lambda v=viewer_id: _remove_viewer(v),
+                              fg_color=p["danger_bg"], hover_color=p["danger_hv"],
+                              text_color=p["danger_fg"]).grid(
+                                  row=0, column=2, rowspan=2, padx=(4, 8), pady=6)
+
+        def _register_viewer() -> None:
+            path = path_var.get().strip()
+            if not path:
+                local_status.set("Choose an archive first." if is_en else "Pilih arsip terlebih dahulu.")
+                return
+            try:
+                viewer_id = register_offline_viewer(
+                    path, name=name_var.get().strip() or os.path.basename(path),
+                    viewer_type=type_var.get(), description="",
+                )
+                if not viewer_id:
+                    raise RuntimeError("Registration failed")
+                path_var.set("")
+                name_var.set("")
+                local_status.set(f"Registered: {viewer_id}" if is_en else f"Terdaftar: {viewer_id}")
+                _refresh_viewers()
+            except Exception as exc:
+                local_status.set(str(exc))
+
+        ctk.CTkButton(add, text=("Register" if is_en else "Daftarkan"), width=86,
+                      height=30, command=_register_viewer, fg_color="#0f766e",
+                      hover_color="#0d9488").grid(row=0, column=4, padx=(4, 8), pady=8)
+        ctk.CTkLabel(card, textvariable=local_status, font=ctk.CTkFont("Segoe UI", 9),
+                     text_color=p["muted"], anchor="w").grid(
+                         row=4, column=0, columnspan=3, sticky="ew", padx=12, pady=(0, 9))
+        _refresh_viewers()
+        return row + 1
+
+    def _settings_dashboard_panel(self) -> None:
+        """Modern, categorized Settings dashboard with persistent navigation.
+
+        The left navigation follows desktop settings conventions: categories
+        stay visible while only the selected page scrolls.  Common settings
+        remain inline; focused maintenance workflows keep their existing
+        callbacks so no behavior or persisted setting key changes.
+        """
+        import os
+        import threading
+        import customtkinter as ctk
+        from ..integrations.discord_attachments import (
+            DiscordAttachmentClient,
+            resolve_discord_bot_token,
+        )
+
+        p = dict(self._p())
+        # Settings contains dense forms; use readable secondary text locally
+        # instead of the extra-dim log/sidebar color used by the main window.
+        if getattr(self, "_is_dark", True):
+            p["muted"] = "#94a3b8"
+            p["muted2"] = "#64748b"
+        else:
+            p["muted"] = "#64748b"
+            p["muted2"] = "#94a3b8"
         is_en = getattr(self, "_language", "id") == "en"
         win = self._make_singleton_window("settings_maintenance")
         if win is None:
             return
-        win.title("Settings" if is_en else "Pengaturan")
+        win.title("Settings / Maintenance" if is_en else "Pengaturan / Pemeliharaan")
         try:
             sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
-            w, h = min(980, max(820, sw - 180)), min(720, max(620, sh - 160))
+            w, h = min(1080, max(860, sw - 160)), min(760, max(620, sh - 140))
             win.geometry(f"{w}x{h}+{max(24, (sw - w) // 2)}+{max(24, (sh - h) // 2)}")
         except Exception:
-            win.geometry("900x680")
-        win.minsize(760, 560)
+            win.geometry("980x700")
+        win.minsize(820, 580)
         win.configure(fg_color=p["bg"])
         try:
             win.transient(self.root)
-            win.grab_set()
         except Exception as exc:
             logger.debug("Settings window setup failed: %s", exc)
 
@@ -636,43 +1295,112 @@ class CYOADownloaderGUI:
         root.grid_rowconfigure(1, weight=1)
         root.grid_columnconfigure(0, weight=1)
 
-        header = ctk.CTkFrame(root, fg_color=p["panel"], corner_radius=0, height=76)
+        header = ctk.CTkFrame(root, fg_color=p["panel"], corner_radius=0, height=68)
         header.grid(row=0, column=0, sticky="ew")
         header.grid_propagate(False)
         header.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(
-            header, text=("Settings" if is_en else "Pengaturan"),
-            font=ctk.CTkFont("Segoe UI", 19, "bold"), text_color=p["fg"], anchor="w",
-        ).grid(row=0, column=0, padx=20, pady=(13, 0), sticky="w")
+            header, text=("Settings / Maintenance" if is_en else "Pengaturan / Pemeliharaan"),
+            font=ctk.CTkFont("Segoe UI", 18, "bold"), text_color=p["fg"], anchor="w",
+        ).grid(row=0, column=0, padx=20, pady=(10, 0), sticky="w")
         ctk.CTkLabel(
             header,
             text=("Download behavior, integrations, and maintenance in one place."
                   if is_en else
                   "Perilaku download, integrasi, dan pemeliharaan dalam satu tempat."),
-            font=ctk.CTkFont("Segoe UI", 10), text_color=p["muted"], anchor="w",
-        ).grid(row=1, column=0, padx=20, pady=(0, 10), sticky="w")
+            font=ctk.CTkFont("Segoe UI", 10),
+            text_color=("#94a3b8" if getattr(self, "_is_dark", True) else "#64748b"),
+            anchor="w",
+        ).grid(row=1, column=0, padx=20, pady=(0, 8), sticky="w")
         ctk.CTkLabel(
             header, text=("CONFIGURATION" if is_en else "KONFIGURASI"),
             font=ctk.CTkFont("Segoe UI", 9, "bold"), text_color=p["accent"],
         ).grid(row=0, column=1, rowspan=2, padx=20, sticky="e")
 
-        tabs = ctk.CTkTabview(
-            root, fg_color=p["bg"], segmented_button_fg_color=p["surface"],
-            segmented_button_selected_color=p["accent"],
-            segmented_button_selected_hover_color="#2563eb",
-            segmented_button_unselected_color=p["surface2"],
-            segmented_button_unselected_hover_color=p["surface"],
-            text_color=p["fg"], corner_radius=0,
-        )
-        tabs.grid(row=1, column=0, sticky="nsew", padx=10, pady=(8, 4))
+        shell = ctk.CTkFrame(root, fg_color=p["bg"], corner_radius=0)
+        shell.grid(row=1, column=0, sticky="nsew")
+        shell.grid_rowconfigure(0, weight=1)
+        shell.grid_columnconfigure(1, weight=1)
+
         tab_names = [
-            ("General" if is_en else "Umum"),
-            ("Archive" if is_en else "Arsip"),
-            ("Features" if is_en else "Fitur"),
-            ("Tools" if is_en else "Tools"),
+            ("Download" if is_en else "Download"),
+            ("Integrations" if is_en else "Integrasi"),
+            ("Maintenance" if is_en else "Pemeliharaan"),
         ]
-        for name in tab_names:
-            tabs.add(name)
+
+        sidebar = ctk.CTkFrame(
+            shell, width=218, fg_color=p["panel"], corner_radius=0,
+            border_width=0,
+        )
+        sidebar.grid(row=0, column=0, sticky="nsw")
+        sidebar.grid_propagate(False)
+        sidebar.grid_columnconfigure(0, weight=1)
+        sidebar.grid_rowconfigure(9, weight=1)
+
+        ctk.CTkLabel(
+            sidebar, text=("FIND A SETTING" if is_en else "CARI PENGATURAN"),
+            font=ctk.CTkFont("Segoe UI", 9, "bold"), text_color=p["accent"], anchor="w",
+        ).grid(row=0, column=0, sticky="ew", padx=16, pady=(16, 5))
+        search_entry = ctk.CTkEntry(
+            sidebar, height=32,
+            placeholder_text=("Search settings" if is_en else "Cari pengaturan"),
+            fg_color=p["input_bg"], text_color=p["input_fg"],
+            border_color=p["border"], corner_radius=8,
+        )
+        search_entry.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 14))
+
+        ctk.CTkLabel(
+            sidebar, text=("CATEGORIES" if is_en else "KATEGORI"),
+            font=ctk.CTkFont("Segoe UI", 9, "bold"), text_color=p["muted"], anchor="w",
+        ).grid(row=2, column=0, sticky="ew", padx=16, pady=(0, 6))
+
+        page_host = ctk.CTkFrame(shell, fg_color=p["bg"], corner_radius=0)
+        page_host.grid(row=0, column=1, sticky="nsew")
+        page_host.grid_rowconfigure(0, weight=1)
+        page_host.grid_columnconfigure(0, weight=1)
+
+        pages = {}
+        nav_buttons = {}
+        page_keywords = {
+            tab_names[0]: "general auto output folder zip youtube cookie features deep scan selenium preview cheat gallery itch archive javascript policy pages depth runtime scroll click umum fitur arsip download",
+            tab_names[1]: "integrations ai cloudflare flaresolverr discord provider integrasi",
+            tab_names[2]: "maintenance settings file folder export import cache viewer tools pemeliharaan",
+        }
+
+        def _show_page(name: str) -> None:
+            for page_name, page in pages.items():
+                if page_name == name:
+                    page.grid()
+                else:
+                    page.grid_remove()
+            for page_name, button in nav_buttons.items():
+                selected = page_name == name
+                button.configure(
+                    fg_color=(p["surface2"] if selected else "transparent"),
+                    text_color=(p["fg"] if selected else
+                                ("#94a3b8" if getattr(self, "_is_dark", True) else "#64748b")),
+                    border_width=(1 if selected else 0),
+                    border_color=(p["border"] if selected else p["panel"]),
+                )
+
+        nav_labels = [
+            (tab_names[0], "↓"), (tab_names[1], "↔"), (tab_names[2], "⚙"),
+        ]
+        for nav_row, (name, icon) in enumerate(nav_labels, start=3):
+            button = ctk.CTkButton(
+                sidebar, text=f"{icon}   {name}", height=38, anchor="w",
+                font=ctk.CTkFont("Segoe UI", 11, "bold"), corner_radius=8,
+                fg_color="transparent", hover_color=p["surface"], text_color=p["muted"],
+                command=lambda selected=name: _show_page(selected),
+            )
+            button.grid(row=nav_row, column=0, sticky="ew", padx=10, pady=2)
+            nav_buttons[name] = button
+
+        ctk.CTkButton(
+            sidebar, text=("?   Open Guide" if is_en else "?   Buka Panduan"),
+            height=36, anchor="w", fg_color="transparent", hover_color=p["surface"],
+            text_color=p["muted"], command=lambda: self._show_feature_guide("settings"),
+        ).grid(row=10, column=0, sticky="ew", padx=10, pady=(4, 14))
 
         st = _load_settings()
         status_var = ctk.StringVar(value=(
@@ -682,13 +1410,15 @@ class CYOADownloaderGUI:
         ))
 
         def _page(name: str):
-            page = tabs.tab(name)
+            page = ctk.CTkFrame(page_host, fg_color=p["bg"], corner_radius=0)
+            page.grid(row=0, column=0, sticky="nsew")
             page.grid_rowconfigure(0, weight=1)
             page.grid_columnconfigure(0, weight=1)
+            pages[name] = page
             scroll = ctk.CTkScrollableFrame(
                 page, fg_color=p["bg"], scrollbar_button_color=p["surface2"],
             )
-            scroll.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
+            scroll.grid(row=0, column=0, sticky="nsew", padx=14, pady=12)
             scroll.grid_columnconfigure(0, weight=1)
             scroll.grid_columnconfigure(1, weight=1)
             return scroll
@@ -705,7 +1435,8 @@ class CYOADownloaderGUI:
             return row + 2
 
         def _card(parent, row: int, col: int, label: str, desc: str, icon: str, cmd,
-                  *, color: str = "surface2", hover: str = "surface") -> None:
+                  *, color: str = "surface2", hover: str = "surface",
+                  button_text: str | None = None) -> None:
             card = ctk.CTkFrame(parent, fg_color=p["surface"], corner_radius=10,
                                 border_width=1, border_color=p["border"], height=72)
             card.grid(row=row, column=col, sticky="nsew", padx=6, pady=4)
@@ -719,18 +1450,26 @@ class CYOADownloaderGUI:
                          text_color=p["fg"], anchor="w").grid(row=0, column=1, sticky="ew", padx=(0, 6), pady=(10, 0))
             ctk.CTkLabel(card, text=desc, font=ctk.CTkFont("Segoe UI", 9),
                          text_color=p["muted"], anchor="w").grid(row=1, column=1, sticky="ew", padx=(0, 6), pady=(0, 9))
-            ctk.CTkButton(card, text=("Open" if is_en else "Buka"), width=68, height=27,
+            ctk.CTkButton(card, text=(button_text or ("Open" if is_en else "Buka")),
+                          width=82, height=27,
                           fg_color=p.get(color, color), hover_color=p.get(hover, hover),
                           text_color="#ffffff", command=cmd).grid(row=0, column=2, rowspan=2, padx=(3, 10))
 
-        # General tab -----------------------------------------------------
+        # Download page: general, feature, and archive settings together. --
         general = _page(tab_names[0])
-        r = _title(general, 0, "General" if is_en else "Umum",
-                   "Choose the default output and YouTube authentication behavior." if is_en else
-                   "Atur output default dan autentikasi YouTube.")
+        r = _title(general, 0, "Download" if is_en else "Download",
+                   "Output, authentication, feature helpers, and archive behavior." if is_en else
+                   "Output, autentikasi, helper fitur, dan perilaku arsip.")
+        # Keep the page ordered by frequency and complexity: the common output
+        # and feature controls come first, credentials follow, and the advanced
+        # archive policy stays at the bottom.
+        auto_row = r
+        features_title_row = auto_row + 2
+        features_card_row = features_title_row + 2
+        credentials_title_row = features_card_row + 4
         auto_card = ctk.CTkFrame(general, fg_color=p["surface"], corner_radius=12,
                                  border_width=1, border_color="#3b82f6")
-        auto_card.grid(row=r, column=0, columnspan=2, sticky="ew", padx=6, pady=5)
+        auto_card.grid(row=auto_row, column=0, columnspan=2, sticky="ew", padx=6, pady=5)
         auto_card.grid_columnconfigure(1, weight=1)
         current = _normalize_auto_detect_output(st.get("auto_detect_output", "folder"))
         auto_var = ctk.StringVar(value="ZIP" if current == "zip" else "Folder")
@@ -764,11 +1503,18 @@ class CYOADownloaderGUI:
             width=170, height=32, fg_color=p["surface2"], selected_color="#3b82f6",
             selected_hover_color="#2563eb", text_color="#ffffff",
         ).grid(row=0, column=2, rowspan=2, padx=(8, 14), pady=14)
-        r += 1
+
+        credentials_card_row = _title(
+            general, credentials_title_row,
+            "Access & Credentials" if is_en else "Akses & Kredensial",
+            ("Optional authentication used by download services."
+             if is_en else "Autentikasi opsional yang digunakan layanan download."),
+        )
+        archive_title_row = credentials_card_row + 3
 
         cookie = ctk.CTkFrame(general, fg_color=p["surface"], corner_radius=10,
                               border_width=1, border_color=p["border"])
-        cookie.grid(row=r, column=0, columnspan=2, sticky="ew", padx=6, pady=5)
+        cookie.grid(row=credentials_card_row, column=0, columnspan=2, sticky="ew", padx=6, pady=5)
         cookie.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(cookie, text="YT", width=34, height=28, font=ctk.CTkFont("Segoe UI", 9, "bold"),
                      text_color="#ffffff", fg_color="#b91c1c", corner_radius=8).grid(row=0, column=0, rowspan=2, padx=(10, 8), pady=10)
@@ -785,16 +1531,17 @@ class CYOADownloaderGUI:
                       command=lambda: self._save_ytdlp_cookie_setting(show_error=True),
                       fg_color="#b91c1c", hover_color="#991b1b").grid(row=1, column=3, padx=(0, 10), pady=(3, 10))
 
-        # Archive tab -----------------------------------------------------
-        archive = _page(tab_names[1])
-        r = _title(archive, 0, "JavaScript Archive" if is_en else "Arsip JavaScript",
-                   "Bounded discovery settings for dynamic websites." if is_en else
-                   "Pengaturan discovery terbatas untuk website dinamis.")
+        # Archive section -------------------------------------------------
+        archive = general
+        r = _title(archive, archive_title_row,
+                   "JavaScript Archive Policy" if is_en else "Kebijakan Arsip JavaScript",
+                   "Advanced, bounded discovery settings for dynamic websites." if is_en else
+                   "Pengaturan discovery lanjutan dan terbatas untuk website dinamis.")
         archive_card = ctk.CTkFrame(archive, fg_color=p["surface"], corner_radius=10,
                                     border_width=1, border_color="#0891b2")
         archive_card.grid(row=r, column=0, columnspan=2, sticky="ew", padx=6, pady=5)
-        for col in range(3):
-            archive_card.grid_columnconfigure(col, weight=1)
+        for col in range(2):
+            archive_card.grid_columnconfigure(col, weight=1, uniform="archive_setting")
         archive_values = {
             "strategy": ctk.StringVar(value=str(st.get("archive_strategy", "auto") or "auto").lower()),
             "interaction": ctk.StringVar(value=str(st.get("archive_interaction_policy", "safe") or "safe").lower()),
@@ -807,26 +1554,53 @@ class CYOADownloaderGUI:
             "stale": ctk.StringVar(value=str(st.get("archive_no_progress_rounds", 2))),
         }
 
-        def _field(row: int, col: int, label: str, variable, values=None) -> None:
+        def _group_label(grid_row: int, text: str) -> None:
+            ctk.CTkLabel(
+                archive_card, text=text.upper(), font=ctk.CTkFont("Segoe UI", 9, "bold"),
+                text_color="#22d3ee", anchor="w",
+            ).grid(row=grid_row, column=0, columnspan=2, sticky="ew",
+                   padx=12, pady=(12, 3))
+
+        def _field(grid_row: int, col: int, label: str, variable,
+                   values=None, span: int = 1) -> None:
             ctk.CTkLabel(archive_card, text=label, font=ctk.CTkFont("Segoe UI", 9),
-                         text_color=p["muted"], anchor="w").grid(row=row * 2, column=col, sticky="ew", padx=10, pady=(10, 2))
+                         text_color=p["muted"], anchor="w").grid(
+                             row=grid_row, column=col, columnspan=span,
+                             sticky="ew", padx=12, pady=(5, 2))
             if values:
                 widget = ctk.CTkOptionMenu(archive_card, values=values, variable=variable, height=30,
                                            fg_color="#0891b2", button_color="#0e7490", button_hover_color="#155e75")
             else:
                 widget = ctk.CTkEntry(archive_card, textvariable=variable, height=30,
                                       fg_color=p["input_bg"], text_color=p["input_fg"], border_color=p["border"])
-            widget.grid(row=row * 2 + 1, column=col, sticky="ew", padx=10, pady=(0, 5))
+            widget.grid(row=grid_row + 1, column=col, columnspan=span,
+                        sticky="ew", padx=12, pady=(0, 5))
 
-        _field(0, 0, "Strategy" if is_en else "Strategi", archive_values["strategy"], ["auto", "classic", "smart", "browser"])
-        _field(0, 1, "Safe interaction" if is_en else "Interaksi aman", archive_values["interaction"], ["safe", "off"])
-        _field(0, 2, "Max pages" if is_en else "Maks. halaman", archive_values["pages"])
-        _field(1, 0, "Max depth" if is_en else "Maks. kedalaman", archive_values["depth"])
-        _field(1, 1, "Runtime pages" if is_en else "Halaman runtime", archive_values["runtime_pages"])
-        _field(1, 2, "Settle time ms", archive_values["settle"])
-        _field(2, 0, "Scroll steps" if is_en else "Langkah scroll", archive_values["scroll"])
-        _field(2, 1, "Max safe clicks" if is_en else "Maks. klik aman", archive_values["clicks"])
-        _field(2, 2, "No-progress rounds" if is_en else "Putaran tanpa progres", archive_values["stale"])
+        _group_label(0, "Archive behavior" if is_en else "Perilaku arsip")
+        _field(1, 0, "Strategy" if is_en else "Strategi", archive_values["strategy"],
+               ["auto", "classic", "smart", "browser"])
+        _field(1, 1, "Safe interaction" if is_en else "Interaksi aman",
+               archive_values["interaction"], ["safe", "off"])
+        _group_label(3, "Discovery limits" if is_en else "Batas discovery")
+        _field(4, 0, "Max pages" if is_en else "Maks. halaman", archive_values["pages"])
+        _field(4, 1, "Max depth" if is_en else "Maks. kedalaman", archive_values["depth"])
+        _group_label(6, "Browser runtime limits" if is_en else "Batas runtime browser")
+        _field(7, 0, "Runtime pages" if is_en else "Halaman runtime", archive_values["runtime_pages"])
+        _field(7, 1, "Settle time ms", archive_values["settle"])
+        _field(9, 0, "Scroll steps" if is_en else "Langkah scroll", archive_values["scroll"])
+        _field(9, 1, "Max safe clicks" if is_en else "Maks. klik aman", archive_values["clicks"])
+        _field(11, 0, "No-progress rounds" if is_en else "Putaran tanpa progres",
+               archive_values["stale"])
+        ctk.CTkLabel(
+            archive_card,
+            text=("Stops browser discovery after repeated rounds find no new assets."
+                  if is_en else
+                  "Menghentikan discovery browser setelah beberapa putaran tidak menemukan aset baru."),
+            font=ctk.CTkFont("Segoe UI", 9), text_color=p["muted"],
+            fg_color=p["panel"], corner_radius=8, anchor="w", justify="left",
+            wraplength=360,
+        ).grid(row=11, column=1, rowspan=2, sticky="nsew",
+               padx=12, pady=(5, 5), ipadx=10, ipady=6)
         archive_status = ctk.StringVar(value="")
 
         def _save_archive() -> None:
@@ -853,14 +1627,16 @@ class CYOADownloaderGUI:
             status_var.set("Archive settings saved." if is_en else "Pengaturan arsip tersimpan.")
 
         ctk.CTkLabel(archive_card, textvariable=archive_status, font=ctk.CTkFont("Segoe UI", 9),
-                     text_color="#22d3ee", anchor="w").grid(row=6, column=0, columnspan=2, padx=10, pady=(4, 10), sticky="w")
+                     text_color="#22d3ee", anchor="w").grid(
+                         row=13, column=0, padx=12, pady=(6, 12), sticky="w")
         ctk.CTkButton(archive_card, text=("Save archive policy" if is_en else "Simpan kebijakan arsip"),
                       width=150, height=30, command=_save_archive, fg_color="#0891b2", hover_color="#0e7490").grid(
-                          row=6, column=2, padx=10, pady=(4, 10), sticky="e")
+                          row=13, column=1, padx=12, pady=(6, 12), sticky="e")
 
-        # Features tab ---------------------------------------------------
-        features = _page(tab_names[2])
-        r = _title(features, 0, "Download Features" if is_en else "Fitur Download",
+        # Features section ------------------------------------------------
+        features = general
+        r = _title(features, features_title_row,
+                   "Download Features" if is_en else "Fitur Download",
                    "Optional helpers are applied immediately to the current session." if is_en else
                    "Helper opsional langsung diterapkan ke sesi saat ini.")
 
@@ -909,7 +1685,8 @@ class CYOADownloaderGUI:
         r += 1
         key_card = ctk.CTkFrame(features, fg_color=p["surface"], corner_radius=10,
                                 border_width=1, border_color=p["border"])
-        key_card.grid(row=r, column=0, columnspan=2, sticky="ew", padx=6, pady=5)
+        key_card.grid(row=credentials_card_row + 1, column=0, columnspan=2,
+                      sticky="ew", padx=6, pady=5)
         key_card.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(key_card, text="KEY", width=34, height=28, font=ctk.CTkFont("Segoe UI", 8, "bold"),
                      text_color="#ffffff", fg_color="#2563eb", corner_radius=8).grid(row=0, column=0, rowspan=2, padx=(10, 8), pady=10)
@@ -942,22 +1719,148 @@ class CYOADownloaderGUI:
         ctk.CTkButton(key_card, text=("Save" if is_en else "Simpan"), width=70, height=28,
                       command=_save_key, fg_color="#2563eb", hover_color="#1d4ed8").grid(row=0, column=3, rowspan=2, padx=(0, 10), pady=10)
 
-        # Tools tab ------------------------------------------------------
-        tools = _page(tab_names[3])
+        # Integrations page ----------------------------------------------
+        integrations = _page(tab_names[1])
+        r = _title(
+            integrations, 0,
+            "Integrations" if is_en else "Integrasi",
+            ("Configure credentials and network helpers directly on this page."
+             if is_en else
+             "Atur kredensial dan helper jaringan langsung di halaman ini."),
+        )
+        r = self._settings_inline_ai(integrations, r, p, is_en, status_var, win)
+        r = self._settings_inline_cloudflare(integrations, r, p, is_en, status_var)
+        _card(integrations, r, 0, "gallery-dl config", "Open or create gallery-dl config.json.",
+              "GD", self._open_gallery_dl_config, color="#0f766e", hover="#0d9488",
+              button_text=("Edit JSON" if is_en else "Edit JSON"))
+        r += 1
+
+        discord_card = ctk.CTkFrame(
+            integrations, fg_color=p["surface"], corner_radius=10,
+            border_width=1, border_color=p["border"],
+        )
+        discord_card.grid(row=r, column=0, columnspan=2, sticky="ew", padx=6, pady=5)
+        discord_card.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(
+            discord_card, text="DC", width=34, height=28,
+            font=ctk.CTkFont("Segoe UI", 9, "bold"), text_color="#ffffff",
+            fg_color="#5865F2", corner_radius=8,
+        ).grid(row=0, column=0, rowspan=3, padx=(10, 8), pady=10, sticky="n")
+        ctk.CTkLabel(
+            discord_card, text=("Discord Bot Token" if is_en else "Bot Token Discord"),
+            font=ctk.CTkFont("Segoe UI", 11, "bold"), text_color=p["fg"], anchor="w",
+        ).grid(row=0, column=1, columnspan=4, sticky="ew", pady=(9, 0))
+        ctk.CTkLabel(
+            discord_card,
+            text=("Used only to refresh expired Discord attachment URLs."
+                  if is_en else "Dipakai hanya untuk memperbarui URL attachment Discord kedaluwarsa."),
+            font=ctk.CTkFont("Segoe UI", 9), text_color=p["muted"], anchor="w",
+        ).grid(row=1, column=1, columnspan=4, sticky="ew", pady=(0, 6))
+        discord_entry = ctk.CTkEntry(
+            discord_card, show="*", height=30, placeholder_text="Discord Bot Token",
+            fg_color=p["input_bg"], text_color=p["input_fg"], border_color=p["border"],
+        )
+        discord_entry.grid(row=2, column=1, sticky="ew", padx=(0, 6), pady=(0, 6))
+        discord_status = ctk.StringVar(value="")
+        try:
+            loaded_discord_token = resolve_discord_bot_token()
+            if loaded_discord_token:
+                discord_entry.insert(0, loaded_discord_token)
+                discord_status.set("Token loaded and hidden." if is_en else "Token dimuat dan disembunyikan.")
+        except Exception as exc:
+            logger.debug("Could not load Discord token: %s", exc)
+
+        def _save_discord() -> None:
+            token = discord_entry.get().strip()
+            if not token:
+                discord_status.set("Enter a token first." if is_en else "Masukkan token terlebih dahulu.")
+                return
+            os.environ["CYOA_DISCORD_BOT_TOKEN"] = token
+            _update_setting("discord_bot_token", token)
+            discord_status.set("Saved." if is_en else "Tersimpan.")
+
+        def _test_discord() -> None:
+            token = discord_entry.get().strip() or resolve_discord_bot_token()
+            if not token:
+                discord_status.set("Enter or save a token first." if is_en else "Masukkan atau simpan token dahulu.")
+                return
+            discord_test.configure(state="disabled")
+            discord_status.set("Testing…" if is_en else "Menguji…")
+
+            def _worker() -> None:
+                try:
+                    account = DiscordAttachmentClient(token).validate_token()
+                    name = account.get("username") or account.get("global_name") or "bot"
+                    result = f"OK: {name}"
+                except Exception as exc:
+                    result = f"Error: {exc}"
+                self.root.after(0, lambda: (
+                    discord_test.configure(state="normal"), discord_status.set(result)
+                ))
+
+            threading.Thread(target=_worker, daemon=True).start()
+
+        ctk.CTkButton(
+            discord_card, text=("Save" if is_en else "Simpan"), width=66, height=30,
+            command=_save_discord, fg_color="#5865F2", hover_color="#4752C4",
+        ).grid(row=2, column=2, padx=(0, 6), pady=(0, 6))
+        discord_test = ctk.CTkButton(
+            discord_card, text=("Test" if is_en else "Tes"), width=58, height=30,
+            command=_test_discord, fg_color=p["surface2"], hover_color=p["surface"],
+            text_color=p["fg"],
+        )
+        discord_test.grid(row=2, column=3, padx=(0, 10), pady=(0, 6))
+        ctk.CTkLabel(
+            discord_card, textvariable=discord_status, font=ctk.CTkFont("Segoe UI", 9),
+            text_color=p["muted"], anchor="w",
+        ).grid(row=3, column=1, columnspan=3, sticky="ew", padx=(0, 10), pady=(0, 9))
+
+        # Maintenance page -----------------------------------------------
+        tools = _page(tab_names[2])
         r = _title(tools, 0, "Tools & Maintenance" if is_en else "Tools & Pemeliharaan",
-                   "Open configuration files and runtime helper panels." if is_en else
-                   "Buka file konfigurasi dan panel helper runtime.")
-        _card(tools, r, 0, "Settings file", "Open settings.json in an editor.", "CFG", self._open_settings_json, color="#2563eb", hover="#1d4ed8")
-        _card(tools, r, 1, "Settings folder", "Open the local settings/history folder.", "DIR", self._open_settings_folder, color="#2563eb", hover="#1d4ed8")
+                   "Manage storage and portable settings without another app window." if is_en else
+                   "Kelola penyimpanan dan settings portabel tanpa jendela aplikasi tambahan.")
+        _card(tools, r, 0, "Settings file", "Edit the active settings.json.", "CFG",
+              self._open_settings_json, color="#2563eb", hover="#1d4ed8",
+              button_text=("Edit JSON" if is_en else "Edit JSON"))
+        _card(tools, r, 1, "Settings folder", "Show the local settings/history folder.", "DIR",
+              self._open_settings_folder, color="#2563eb", hover="#1d4ed8",
+              button_text=("Show" if is_en else "Lihat"))
         r += 1
-        _card(tools, r, 0, "Export settings", "Create a portable secret-safe export.", "OUT", self._export_settings_dialog, color="#065f46", hover="#047857")
-        _card(tools, r, 1, "Import settings", "Merge a previous portable export.", "IN", self._import_settings_dialog, color="#1d4ed8", hover="#2563eb")
+        _card(tools, r, 0, "Export settings", "Create a portable secret-safe export.", "OUT",
+              self._export_settings_dialog, color="#065f46", hover="#047857",
+              button_text=("Export…" if is_en else "Ekspor…"))
+        _card(tools, r, 1, "Import settings", "Merge a previous portable export.", "IN",
+              self._import_settings_dialog, color="#1d4ed8", hover="#2563eb",
+              button_text=("Import…" if is_en else "Impor…"))
         r += 1
-        _card(tools, r, 0, "AI Assist", "Provider and recovery configuration.", "AI", self._ai_settings_panel, color="#7c3aed", hover="#6d28d9")
-        _card(tools, r, 1, "gallery-dl config", "Open or create gallery-dl config.json.", "GD", self._open_gallery_dl_config, color="#0f766e", hover="#0d9488")
-        r += 1
-        _card(tools, r, 0, "Cloudflare / FlareSolverr", "Challenge, proxy, DNS, and HTTP/2.", "CF", self._cloudflare_panel)
-        _card(tools, r, 1, "Offline viewers", "Manage offline viewer ZIP packages.", "VW", self._manage_offline_viewers)
+        r = self._settings_inline_cache(tools, r, p, is_en, status_var, win)
+        r = self._settings_inline_viewers(tools, r, p, is_en, status_var, win)
+
+        def _search_settings(_event=None) -> None:
+            query = search_entry.get().strip().lower()
+            if not query:
+                _show_page(tab_names[0])
+                status_var.set("" if is_en else "")
+                return
+            matches = [name for name, keywords in page_keywords.items()
+                       if query in keywords.lower() or query in name.lower()]
+            if matches:
+                _show_page(matches[0])
+                status_var.set(
+                    (f"Showing {matches[0]} for ‘{query}’." if is_en else
+                     f"Menampilkan {matches[0]} untuk ‘{query}’.")
+                )
+            else:
+                status_var.set(
+                    (f"No setting matched ‘{query}’." if is_en else
+                     f"Tidak ada pengaturan yang cocok dengan ‘{query}’.")
+                )
+
+        search_entry.bind("<Return>", _search_settings)
+        search_entry.bind("<KP_Enter>", _search_settings)
+        search_entry.bind("<KeyRelease>", _search_settings)
+        _show_page(tab_names[0])
 
         footer = ctk.CTkFrame(root, fg_color=p["panel"], corner_radius=0, height=46)
         footer.grid(row=2, column=0, sticky="ew")
@@ -1185,6 +2088,12 @@ class CYOADownloaderGUI:
         shown first because it affects Auto mode, imported batch rows with
         mode=auto, and CLI batch rows with mode=auto.
         """
+        # Route every Settings entry point to the categorized single-window
+        # dashboard.  The legacy implementation below remains temporarily as
+        # a compatibility reference for downstream source-inspection tests and
+        # older patch modules, but is intentionally unreachable.
+        return self._settings_dashboard_panel()
+
         import os
         import threading
         import customtkinter as ctk

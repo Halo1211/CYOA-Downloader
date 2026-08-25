@@ -13,6 +13,8 @@ from ..constants.assets import (
     STYLE_EXTENSIONS, VIDEO_EXTENSIONS,
 )
 from ..logging_setup import logger
+from ..core.cancellation import _raise_if_cancelled
+from ..core.progress import DownloadCancelledError
 
 
 _RUNTIME_ASSET_EXTENSIONS = (
@@ -88,6 +90,7 @@ def _is_safe_interaction_label(
 
 def _incremental_scroll(page, settle_time_ms: int, max_steps: int) -> int:
     """Sweep through each viewport so IntersectionObserver lazy loads fire."""
+    _raise_if_cancelled()
     steps = 0
     delay = max(80, min(300, int(settle_time_ms) // 6))
     try:
@@ -95,6 +98,7 @@ def _incremental_scroll(page, settle_time_ms: int, max_steps: int) -> int:
     except Exception:
         return 0
     while steps < max(1, int(max_steps)):
+        _raise_if_cancelled()
         try:
             state = page.evaluate(
                 """() => { const s=document.scrollingElement||document.documentElement; return {
@@ -108,6 +112,8 @@ def _incremental_scroll(page, settle_time_ms: int, max_steps: int) -> int:
             page.evaluate("step => window.scrollBy(0, step)", max(240, int(viewport * 0.8)))
             steps += 1
             page.wait_for_timeout(delay)
+        except DownloadCancelledError:
+            raise
         except Exception:
             break
     try:
@@ -166,6 +172,7 @@ def _run_safe_interactions(
     stale_rounds = 0
     stop_reason = "no_safe_candidates"
     while attempted < max_interactions and stale_rounds < no_progress_rounds:
+        _raise_if_cancelled()
         candidates = [
             item for item in _candidate_snapshot(page)
             if _is_safe_interaction_label(
@@ -181,6 +188,7 @@ def _run_safe_interactions(
         interaction_state["active"] = True
         try:
             for item in candidates[: min(5, max_interactions - attempted)]:
+                _raise_if_cancelled()
                 locator = page.locator(f'[data-cyoa-auto-id="{item["id"]}"]')
                 if locator.count() != 1:
                     continue
@@ -190,6 +198,8 @@ def _run_safe_interactions(
                     attempted += 1
                     clicked_this_round += 1
                     page.wait_for_timeout(max(120, min(500, settle_time_ms // 4)))
+                except DownloadCancelledError:
+                    raise
                 except Exception:
                     continue
         finally:
@@ -219,6 +229,7 @@ def capture_runtime_assets(
     no_progress_rounds: int = 2,
 ) -> RuntimeCaptureResult:
     """Render routes and feed observed asset responses into the normal mirror."""
+    _raise_if_cancelled()
     result = RuntimeCaptureResult()
     observed: Dict[str, str] = {}
     try:
@@ -287,6 +298,7 @@ def capture_runtime_assets(
 
                 page.on("response", on_response)
                 for url in urls:
+                    _raise_if_cancelled()
                     try:
                         page.goto(url, wait_until="domcontentloaded", timeout=45_000)
                         interaction_state["page_url"] = page.url
@@ -309,16 +321,21 @@ def capture_runtime_assets(
                                 result.scroll_steps += _incremental_scroll(
                                     page, settle_time_ms, max_scroll_steps,
                                 )
+                    except DownloadCancelledError:
+                        raise
                     except Exception as exc:
                         logger.warning("Runtime capture page failed (%s): %s", url, exc)
             finally:
                 browser.close()
+    except DownloadCancelledError:
+        raise
     except Exception as exc:
         logger.warning("Runtime browser capture unavailable: %s", exc)
         return result
 
     result.discovered = list(observed)
     for url, content_type in observed.items():
+        _raise_if_cancelled()
         kind = downloader._kind_from(url, content_type=content_type)
         local = downloader.download_asset(url, preferred_kind=kind)
         if local:

@@ -181,6 +181,12 @@ class DownloadTelemetry:
 
     def __init__(self) -> None:
         self.speed_history = deque(maxlen=120)
+        # Keep bounded, run-level failure details for the Reports Center.  The
+        # numeric asset counters alone are not enough: a job may finish with
+        # warnings (and therefore be recorded as OK) while individual images
+        # failed.  Those failures must remain inspectable after the progress
+        # queue has been drained.
+        self.failure_details = deque(maxlen=500)
         self._known_urls: Set[str] = set()
         self.reset(0)
 
@@ -217,6 +223,7 @@ class DownloadTelemetry:
         self.job_progress = 0.0
         self.last_error = ""
         self.speed_history.clear()
+        self.failure_details.clear()
         self._known_urls.clear()
 
     def set_state(self, state: Any) -> None:
@@ -331,7 +338,18 @@ class DownloadTelemetry:
         elif typ == "file_failed":
             self.assets_finished += 1
             self.assets_failed += 1
-            self.last_error = str(event.get("error") or self.last_error)
+            name = str(event.get("name") or "").strip()
+            url = str(event.get("url") or "").strip()
+            error = str(event.get("error") or "Asset download failed").strip()
+            self.last_error = error
+            self.failure_details.append({
+                "name": name,
+                "url": url,
+                "error": error,
+                "source_url": self.source_url,
+                "mode": self.mode,
+                "job_index": self.current_job,
+            })
             self.set_state(DownloadState.DOWNLOADING)
         elif typ == "file_skipped":
             self.assets_finished += 1
@@ -417,6 +435,7 @@ class DownloadTelemetry:
             "elapsed": elapsed,
             "eta": eta,
             "last_error": self.last_error,
+            "failure_details": list(self.failure_details),
             "speed_history": list(self.speed_history),
         }
 

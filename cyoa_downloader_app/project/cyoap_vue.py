@@ -14,7 +14,7 @@ import re
 import shutil
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 from urllib.parse import urljoin, urlparse
 
 try:

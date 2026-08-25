@@ -574,6 +574,7 @@ def try_project_candidate(
 def get_project_source(url: str, depth: int = 0, ai_api_key: str = "",
                        ai_provider: str = "", ai_mode: str = "auto_fallback",
                        ai_budget: Optional[AIUsageBudget] = None) -> Tuple[Optional[str], str]:
+    _raise_if_cancelled()
     if depth > 4:
         logger.warning(f"Max recursion depth at {url}")
         return None, ""
@@ -590,6 +591,8 @@ def get_project_source(url: str, depth: int = 0, ai_api_key: str = "",
         for _resolve_attempt in range(3):
             try:
                 resolved = get_iframe_url_from_cyoa_cafe(url)
+            except DownloadCancelledError:
+                raise
             except Exception as e:
                 logger.error(f"cyoa.cafe resolve error: {e}")
                 return None, ""
@@ -633,6 +636,8 @@ def get_project_source(url: str, depth: int = 0, ai_api_key: str = "",
             _game_url = url.rstrip('/') + '/game/'
             logger.info(f"cyoa.cafe React shell detected → redirect to {_game_url}")
             url = _game_url
+    except DownloadCancelledError:
+        raise
     except Exception as _se:
         logger.debug(f"cyoa.cafe shell check failed: {_se}")
     finally:
@@ -781,6 +786,8 @@ def get_project_source(url: str, depth: int = 0, ai_api_key: str = "",
                 if txt.strip()[:1] in ("{", "["):
                     logger.info(f"  AI candidate confirmed: {ai_candidate}")
                     return txt, ai_candidate
+            except DownloadCancelledError:
+                raise
             except Exception as e:
                 logger.debug(f"  AI candidate failed: {e}")
             finally:
@@ -880,7 +887,7 @@ def _parallel_head_check(
             _raise_if_cancelled()
             future.result()
     except BaseException:
-        ex.shutdown(wait=False, cancel_futures=True)
+        ex.shutdown(wait=True, cancel_futures=True)
         raise
     else:
         ex.shutdown(wait=False, cancel_futures=True)
@@ -932,6 +939,8 @@ def auto_detect_mode(url: str, timeout: int = 6) -> str:
                     detected_mode,
                 )
                 return detected_mode
+        except DownloadCancelledError:
+            raise
         except Exception as exc:
             logger.debug("CYOA.CAFE static record probe skipped: %s", exc)
 
@@ -942,6 +951,8 @@ def auto_detect_mode(url: str, timeout: int = 6) -> str:
                 probe_url = canonicalize_url(resolved)
                 if probe_url != source_url:
                     logger.info(f"[Auto-detect] Resolved cyoa.cafe target → {probe_url}")
+        except DownloadCancelledError:
+            raise
         except Exception as exc:
             logger.warning(f"[Auto-detect] cyoa.cafe resolver unavailable: {exc}")
             if is_cafe_metadata:
@@ -984,6 +995,10 @@ def auto_detect_modes_batch(
     progress_cb=None,
 ) -> List[Dict]:
     """Run auto_detect_mode for every item in the batch that has mode == 'auto'."""
+    try:
+        safe_workers = max(1, min(32, int(max_workers or 1)))
+    except (TypeError, ValueError, OverflowError):
+        safe_workers = 4
     to_probe = [i for i in items if i.get("mode", "embed") == "auto"]
     total = len(to_probe)
     done = {"n": 0}
@@ -1006,14 +1021,17 @@ def auto_detect_modes_batch(
 
     if to_probe:
         logger.info(f"[Auto-detect] Probing {total} URL(s) in parallel (workers={max_workers})…")
-        ex = ThreadPoolExecutor(max_workers=max(1, int(max_workers or 1)))
+        ex = ThreadPoolExecutor(max_workers=safe_workers)
         futures = [ex.submit(probe_one, item) for item in to_probe]
         try:
             for future in as_completed(futures):
                 _raise_if_cancelled()
                 future.result()
         except BaseException:
-            ex.shutdown(wait=False, cancel_futures=True)
+            # Do not clear the process cancellation bridge while probe workers
+            # are still alive. Running requests observe the active event and
+            # close their responses before this function unwinds.
+            ex.shutdown(wait=True, cancel_futures=True)
             raise
         else:
             ex.shutdown(wait=False, cancel_futures=True)

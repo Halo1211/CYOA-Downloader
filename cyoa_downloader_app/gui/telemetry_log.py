@@ -15,7 +15,11 @@ from ..logging_setup import logger
 class _V46TelemetryLogHandler(logging.Handler):
     """Translate stable legacy log messages into progress events without touching Tk."""
 
-    _COUNT_RE = re.compile(r"\[(\d+)\s*/\s*(\d+)\]\s*(?:✓|✗|FAILED|OK)?\s*(.*)")
+    _COUNT_RE = re.compile(
+        r"\[(\d+)\s*/\s*(\d+)\]\s*"
+        r"(?:(✓|✗|FAILED\b|OK\b)\s*)?(.*)",
+        re.IGNORECASE,
+    )
 
     def __init__(self, gui: Any) -> None:
         super().__init__(level=logging.INFO)
@@ -48,9 +52,27 @@ class _V46TelemetryLogHandler(logging.Handler):
                 event = {"type": "file_completed", "name": name}
             match = self._COUNT_RE.search(msg)
             if match:
-                done, total, name = int(match.group(1)), int(match.group(2)), match.group(3).strip()
+                done = int(match.group(1))
+                total = int(match.group(2))
+                marker = str(match.group(3) or "").strip().upper()
+                name = match.group(4).strip()
+                # When the optional marker consumed only the leading cross,
+                # the capture still began with "FAILED".  Strip any remaining
+                # status token so Reports shows the actual asset name.
+                name = re.sub(r"^(?:✓|✗|FAILED\b|OK\b)\s*", "", name, flags=re.IGNORECASE).strip()
+                # Determine failure from the explicit status marker, never
+                # from the asset name.  A successfully downloaded file such as
+                # ``failed_banner.png`` must remain a success.
+                failed = marker in {"✗", "FAILED"}
                 gui._v46_enqueue_progress({"type": "asset_discovered", "total": total, "time": time.monotonic()})
-                event = {"type": "file_completed" if "failed" not in low and "✗" not in msg else "file_failed", "name": name, "error": msg if "failed" in low else ""}
+                event = {
+                    "type": "file_failed" if failed else "file_completed",
+                    "name": name,
+                    # A cross-only legacy line used to create a failed counter
+                    # with an empty explanation.  Preserve the full log line as
+                    # the minimum useful diagnostic for every failure.
+                    "error": msg if failed else "",
+                }
                 # Correct cumulative count if log numbering jumped.
                 event["absolute_finished"] = done
             if event:

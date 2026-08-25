@@ -145,7 +145,11 @@ def download_cyoa_cafe_static_record(
                 failures.append({"kind": kind, "source_name": remote_name, "error": str(exc)})
                 logger.warning("cyoa.cafe static file failed (%s): %s", remote_name, exc)
     except BaseException:
-        executor.shutdown(wait=False, cancel_futures=True)
+        # Keep the active cancellation event installed until running workers
+        # have observed it and closed their response/partial files. Returning
+        # early allowed the GUI to clear the global event while worker threads
+        # were still writing into a cancelled output folder.
+        executor.shutdown(wait=True, cancel_futures=True)
         raise
     else:
         executor.shutdown(wait=False, cancel_futures=True)
