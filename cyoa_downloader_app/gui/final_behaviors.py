@@ -2263,7 +2263,16 @@ def _v46_start(self) -> None:
     # Snapshot the output identity together with the URL. Queue rows remain
     # editable/reorderable while a run is active; the worker must never derive
     # a later folder name from mutable UI state.
-    default_mode_snapshot = str(self._mode_var.get() or "auto")
+    # The sidebar stores its selected mode as a plain string.  Older GUI
+    # variants used a Tk StringVar, so accept both representations.  Calling
+    # .get() unconditionally here aborts the button callback before the worker
+    # thread is created; the last visible log line then misleadingly mentions
+    # the YouTube cookie preparation performed immediately above.
+    mode_state = getattr(self, "_mode_var", "auto")
+    mode_getter = getattr(mode_state, "get", None)
+    default_mode_snapshot = str(
+        (mode_getter() if callable(mode_getter) else mode_state) or "auto"
+    ).strip() or "auto"
     from ..storage.resume import resume_job_key
     for item in run_items:
         requested_name = str(item.get("filename") or "").strip()

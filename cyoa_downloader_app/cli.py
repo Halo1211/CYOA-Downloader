@@ -110,6 +110,41 @@ def _sync_runtime_globals_to_legacy() -> None:
 
 _sync_legacy_globals()
 
+
+def _batch_website_zip_output(mode: str, default_zip_output: bool) -> bool:
+    """Return the folder/ZIP choice for one CLI batch row.
+
+    ``auto`` means the row inherits the CLI mode selected for the batch.  It is
+    not an explicit website-ZIP request.  Treating every non-empty mode as an
+    override made exported GUI queues (which write ``mode=auto``) silently
+    ignore ``--icc-folder`` and delete each completed folder after zipping it.
+    """
+    normalized = (mode or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if not normalized or normalized == "auto":
+        return bool(default_zip_output)
+    return bool(_derive_mode_flags(normalized)["website_zip"])
+
+
+def _configured_ytdlp_cookie_path(explicit: str = "", saved: str = "") -> str:
+    """Resolve a valid CLI yt-dlp cookie file without exposing its contents.
+
+    The GUI activates the saved ``ytdlp_cookies`` setting before a download,
+    but the CLI historically considered only ``--ytdlp-cookies``.  Batch runs
+    launched from an exported queue therefore ignored a valid saved Netscape
+    cookie file and fell back to browser-cookie decryption, which commonly
+    fails with Chromium DPAPI/App-Bound Encryption on Windows.
+    """
+    raw = str(explicit or saved or "").strip()
+    if not raw:
+        return ""
+    path = os.path.abspath(os.path.expanduser(raw))
+    if os.path.isfile(path):
+        return path
+    if explicit:
+        raise FileNotFoundError(path)
+    logger.warning("Saved yt-dlp cookie file was not found; continuing without it")
+    return ""
+
 def main() -> None:
     # Auto-register bundled offline viewers (no-op if already registered)
     try:
@@ -268,10 +303,14 @@ def main() -> None:
     if args.no_discord_refresh:
         os.environ["CYOA_DISABLE_DISCORD_REFRESH"] = "1"
 
-    if args.ytdlp_cookies:
-        cookie_path = os.path.abspath(os.path.expanduser(args.ytdlp_cookies))
-        if not os.path.isfile(cookie_path):
-            parser.error(f"yt-dlp cookie file not found: {cookie_path}")
+    try:
+        cookie_path = _configured_ytdlp_cookie_path(
+            args.ytdlp_cookies,
+            _cli_saved_settings.get("ytdlp_cookies", ""),
+        )
+    except FileNotFoundError as exc:
+        parser.error(f"yt-dlp cookie file not found: {exc}")
+    if cookie_path:
         # Pass only the path through the process environment; the cookie
         # contents must never enter settings, logs, or command output.
         os.environ["CYOA_YTDLP_COOKIES"] = cookie_path
@@ -502,10 +541,9 @@ def main() -> None:
                 website_i = website_mode or _mf["website"]
                 # website_zip default follows global flags unless this row names
                 # an explicit folder/zip mode (helper decides per-row).
-                if mode_i:
-                    website_zip_i = _mf["website_zip"]
-                else:
-                    website_zip_i = website_zip_output
+                website_zip_i = _batch_website_zip_output(
+                    mode_i, website_zip_output
+                )
                 # Preserve the global --cyoap-vue "auto" probe branch.
                 if _mf["engine"] == "cyoap_vue" or args.cyoap_vue_website or args.cyoap_vue_folder:
                     engine_mode = "cyoap_vue"

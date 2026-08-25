@@ -27,6 +27,7 @@ from ..project.cyoa_cafe import classify_cyoa_cafe_record, fetch_cyoa_cafe_recor
 
 _PROTECTED = {
     "_sync_legacy_globals", "_set_last_preview_folder", "_base_run_download",
+    "_recover_captured_project_assets",
     "run_download", "_v462_resolve_pure_download_url", "_v462_run_download",
     "_v466_run_download", "_RUN_DOWNLOAD_LOCK", "_LAST_PREVIEW_FOLDER",
 }
@@ -50,6 +51,84 @@ def _set_last_preview_folder(value):
         _legacy()._LAST_PREVIEW_FOLDER = value
     except Exception:
         pass
+
+
+def _recover_captured_project_assets(
+    site_folder: str,
+    base_url: str,
+    *,
+    output_dir: str,
+    max_workers: int,
+    wait_seconds: int,
+) -> bool:
+    """Localize assets from a project payload captured by Pure Website Auto.
+
+    Pure Website deliberately skips project discovery, but the Auto/browser
+    archive can still capture a root ``project.json`` requested by the viewer.
+    Runtime scrolling only observes assets rendered in the current UI state;
+    choices farther down an unvisited/virtualized branch can therefore remain
+    missing even though their paths are authoritative in the captured payload.
+    Reuse the normal project asset pipeline opportunistically when that payload
+    is already on disk.  No extra project probing is introduced for genuine
+    custom viewers.
+    """
+    from ..core.atomic_io import atomic_write_text
+    from ..core.paths import _copytree_merge_safe
+    from ..project.discover import strip_document_from_url
+    from ..project.parse import normalize_project_payload_text
+    from .image_pipeline import process_images
+    from .package import create_random_temp_folder, delete_temp_folder
+
+    project_path = os.path.join(site_folder, "project.json")
+    if not os.path.isfile(project_path):
+        return False
+    try:
+        with open(project_path, "r", encoding="utf-8") as handle:
+            original = handle.read()
+    except (OSError, UnicodeError) as exc:
+        logger.warning("Captured project.json could not be read: %s", exc)
+        return False
+    normalized = normalize_project_payload_text(original)
+    if not normalized:
+        logger.debug("Captured project.json is not a recognized project payload")
+        return False
+
+    logger.info(
+        "Pure Website Auto captured project.json; recovering all referenced "
+        "project assets."
+    )
+    temp_folder = create_random_temp_folder()
+    try:
+        _, localized, _resolved_urls = process_images(
+            normalized,
+            strip_document_from_url(base_url),
+            embed=False,
+            download=True,
+            temp_folder=temp_folder,
+            wait_time=wait_seconds,
+            max_workers=max_workers,
+            output_dir=output_dir,
+            source_url=base_url,
+            site_folder=site_folder,
+        )
+        for asset_folder in ("images", "audio"):
+            source = os.path.join(temp_folder, asset_folder)
+            if not os.path.isdir(source):
+                continue
+            destination = os.path.join(site_folder, asset_folder)
+            copied = _copytree_merge_safe(
+                source, destination, label=f"captured project {asset_folder}"
+            )
+            logger.info("Recovered %s captured-project file(s) in %s/", copied, asset_folder)
+
+        if localized != normalized:
+            original_path = os.path.join(site_folder, "project_original.json")
+            if not os.path.exists(original_path):
+                atomic_write_text(original_path, original)
+            atomic_write_text(project_path, localized)
+        return True
+    finally:
+        delete_temp_folder(temp_folder)
 
 
 def _base_run_download(
@@ -195,6 +274,14 @@ def _base_run_download(
             viewer = WebsiteDownloader(url, site_folder, max_workers=max_workers, ai_api_key=ai_api_key, ai_provider=ai_provider, ai_mode=ai_mode, ai_budget=ai_budget, archive_strategy=archive_policy.strategy)
             viewer.download()
             run_archive_extensions(viewer, archive_policy)
+            if archive_policy.strategy == "auto":
+                _recover_captured_project_assets(
+                    site_folder,
+                    url,
+                    output_dir=output_dir,
+                    max_workers=max_workers,
+                    wait_seconds=wait_time,
+                )
             viewer.localize_existing_text_assets()
             # Pure Website used to finish without any asset diagnostics.  Keep
             # the same output shape while adding the standard failure report

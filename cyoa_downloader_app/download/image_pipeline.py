@@ -274,6 +274,22 @@ def process_images(
         to_remove = {p for p in s if data_uri_re.match(p)}
         s -= to_remove
 
+    # The structured scan can discover the same YouTube/SoundCloud reference
+    # twice when a malformed project stores it in an image-like field: once as
+    # media audio and once as an image candidate. Without disjoint sets the
+    # track is successfully downloaded by yt-dlp and then fetched again as an
+    # image, causing repeated HTML/content-type retries and a several-minute
+    # headless-browser timeout per track.
+    for media_set in (image_paths, audio_paths):
+        for candidate in list(media_set):
+            value = str(candidate or "").strip()
+            if _YOUTUBE_URL_RE.search(value) or _SOUNDCLOUD_URL_RE.search(value):
+                youtube_paths.add(value)
+                media_set.discard(candidate)
+            elif _YOUTUBE_ID_RE.fullmatch(value):
+                youtube_paths.add(f"https://www.youtube.com/watch?v={value}")
+                media_set.discard(candidate)
+
     if not image_paths and not audio_paths and not youtube_paths:
         logger.info("No external images or audio found.")
         return input_str, input_str, set()
@@ -393,6 +409,9 @@ def process_images(
     discord_client = None
     discord_refresh_lock = threading.Lock()
     discord_refreshed_urls: Dict[str, str] = {}
+    transport_headless_lock = threading.Lock()
+    transport_headless_events: Dict[str, threading.Event] = {}
+    transport_headless_failed_domains: Set[str] = set()
     if discord_urls and discord_recovery_enabled():
         discord_token = resolve_discord_bot_token()
         if discord_token:
@@ -453,16 +472,63 @@ def process_images(
             logger.info(f"  [CACHE HIT] {asset_url.split('/')[-1]} ({len(cached)//1024}KB)")
             return asset_path, cached, mime, asset_url, ""
 
+        asset_host = (urlparse(asset_url).hostname or "").lower()
+        if asset_path in image_paths and asset_host:
+            with transport_headless_lock:
+                transport_domain_failed = (
+                    asset_host in transport_headless_failed_domains
+                )
+            if transport_domain_failed:
+                logger.info(
+                    f"  [Transport] Skipped after domain recovery failed: {asset_host}"
+                )
+                return (
+                    asset_path,
+                    None,
+                    "",
+                    asset_url,
+                    "transport and browser recovery failed for domain",
+                )
+
+        # A gallery post URL is an extractor input, not a direct image URL.
+        # Trying it four times with requests first wastes up to several
+        # minutes on HTML/auth/timeouts and cannot yield the intended media.
+        # Give recognized gallery hosts to gallery-dl before the HTTP loop;
+        # headless remains the fallback below when extraction fails.
+        gdl_site = ""
+        gdl_pretried = False
+        if asset_path in image_paths:
+            gdl_site = gdl_site or _is_gallery_dl_site(asset_url)
+            if gdl_site and not gdl_pretried:
+                gdl_pretried = True
+                logger.info(f"  [gallery-dl] Trying ({gdl_site}): {asset_url}")
+                gdl_data = _fetch_via_gallery_dl(asset_url)
+                if gdl_data:
+                    mime = mimetypes.guess_type(asset_url)[0] or "image/jpeg"
+                    _cache_put(asset_url, gdl_data)
+                    return asset_path, gdl_data, mime, asset_url, ""
+
         # ── C: CDN-specific headers ───────────────────────────────────
         _domain_throttle(asset_url)  # D: also checks domain backoff
         headers = get_headers_for_url(asset_url) or {}
 
         last_err = ""
         permanent_http_failure = False
+        transport_exhausted = False
         _cookie_session_tried = False
         _discord_refresh_tried = False
 
-        for attempt in range(4):  # 4 attempts: 3 normal + 1 cookie
+        asset_url_ext = os.path.splitext(urlparse(asset_url).path)[1].lower()
+        page_like_image = (
+            asset_path in image_paths
+            and asset_url_ext not in _DEEP_SCAN_IMAGE_EXTENSIONS
+        )
+        direct_attempts = 0 if gdl_pretried else (1 if page_like_image else 4)
+        for attempt in range(direct_attempts):
+            # Direct file URLs get 3 normal + 1 cookie attempt. Recognized
+            # gallery post URLs were already handed to gallery-dl above, and
+            # extensionless HTML/page candidates get one request before the
+            # browser fallback instead of repeating long connection timeouts.
             r = None
             try:
                 # ── B: Cookie session on 3rd attempt for auth-protected content
@@ -510,12 +576,14 @@ def process_images(
                         retry_after = int(backoff)
                     sleep_s = max(backoff, retry_after, wait_time)
                     logger.warning(f"429 — backoff {sleep_s:.1f}s: {asset_url}")
-                    _cancel_aware_sleep(sleep_s)
+                    if attempt + 1 < direct_attempts:
+                        _cancel_aware_sleep(sleep_s)
                     continue
                 if r.status_code in (500, 502, 503, 504):
                     backoff = _domain_record_failure(asset_url, r.status_code)
                     logger.warning(f"{r.status_code} — backoff {backoff:.1f}s: {asset_url}")
-                    _cancel_aware_sleep(backoff)
+                    if attempt + 1 < direct_attempts:
+                        _cancel_aware_sleep(backoff)
                     continue
 
                 if (
@@ -538,6 +606,17 @@ def process_images(
                         f"Permanent HTTP {r.status_code}; skipping retries and browser fallback: {asset_url}"
                     )
                     break
+
+                # Authentication failures are not transient network errors.
+                # Retry immediately until the cookie-session attempt has run,
+                # then hand the URL to gallery-dl below. Sleeping 10/20/30
+                # seconds for every protected gallery page only stalls batches.
+                if r.status_code in (401, 403):
+                    last_err = f"HTTP {r.status_code}: authentication required"
+                    logger.warning(f"{last_err}: {asset_url}")
+                    if _cookie_session_tried:
+                        break
+                    continue
 
                 r.raise_for_status()
                 mime = r.headers.get("Content-Type", "").split(";")[0].strip()
@@ -565,12 +644,21 @@ def process_images(
                     if "connection reset" in err_s or "econnreset" in err_s else str(e)
                 logger.warning(f"  {last_err}: {asset_url}")
                 _domain_record_failure(asset_url)
-                if attempt < 3: _cancel_aware_sleep(min(10 * (attempt + 1), 30))
+                if attempt + 1 < direct_attempts:
+                    _cancel_aware_sleep(min(10 * (attempt + 1), 30))
             except requests.RequestException as e:
                 last_err = str(e)
                 logger.warning(f"Attempt {attempt + 1} failed for {asset_url}: {e}")
                 _domain_record_failure(asset_url)
-                if attempt < 3: _cancel_aware_sleep(min(10 * (attempt + 1), 30))
+                # fetch_response already applies its own transport retries.
+                # A None result means those retries were exhausted; repeating
+                # the same request four more times here multiplies DNS/connect
+                # failures into multi-minute stalls before headless fallback.
+                if "fetch_response returned None" in last_err:
+                    transport_exhausted = True
+                    break
+                if attempt + 1 < direct_attempts:
+                    _cancel_aware_sleep(min(10 * (attempt + 1), 30))
             finally:
                 # fetch_response returns a live requests response. Always
                 # release it after reading the bytes, including retry/HTTP
@@ -581,28 +669,66 @@ def process_images(
                     except Exception:
                         pass
 
-        # ── A: Headless fallback (images only) ───────────────────────
+        # ── A: Specialized/browser fallbacks (images only) ─────────────
         if asset_path in image_paths:
-            # Selenium/headless gated independently so gallery-dl (below) still runs
-            headless_data = None
-            if _SELENIUM_ENABLED and not permanent_http_failure:
-                logger.info(f"  [Headless] Trying browser fetch: {asset_url}")
-                headless_data = _fetch_headless(asset_url, reject_error_documents=True)
-            if headless_data:
-                mime = mimetypes.guess_type(asset_url)[0] or "image/jpeg"
-                _cache_put(asset_url, headless_data)
-                logger.info(f"  [Headless] ✓ {asset_url.split('/')[-1]} ({len(headless_data)//1024}KB)")
-                return asset_path, headless_data, mime, asset_url, ""
-
-            # ── F: gallery-dl (Pixiv, booru, DeviantArt auth) ────────
-            gdl_site = _is_gallery_dl_site(asset_url)
-            if gdl_site:
+            # Gallery pages are purpose-built gallery-dl inputs. Try that before
+            # loading a full browser, while retaining headless as a fallback.
+            gdl_site = gdl_site or _is_gallery_dl_site(asset_url)
+            if gdl_site and not gdl_pretried:
                 logger.info(f"  [gallery-dl] Trying ({gdl_site}): {asset_url}")
                 gdl_data = _fetch_via_gallery_dl(asset_url)
                 if gdl_data:
                     mime = mimetypes.guess_type(asset_url)[0] or "image/jpeg"
                     _cache_put(asset_url, gdl_data)
                     return asset_path, gdl_data, mime, asset_url, ""
+
+            # Selenium/headless remains independently gated.
+            headless_data = None
+            allow_headless = _SELENIUM_ENABLED and not permanent_http_failure
+            headless_domain = (urlparse(asset_url).hostname or "").lower()
+            headless_event = None
+            headless_leader = False
+            if allow_headless and transport_exhausted and headless_domain:
+                with transport_headless_lock:
+                    if headless_domain in transport_headless_failed_domains:
+                        allow_headless = False
+                    else:
+                        headless_event = transport_headless_events.get(headless_domain)
+                        if headless_event is None:
+                            headless_event = threading.Event()
+                            transport_headless_events[headless_domain] = headless_event
+                            headless_leader = True
+                if allow_headless and not headless_leader and headless_event is not None:
+                    # One browser probe per transport-failed domain. Followers
+                    # wait for that result instead of opening serial browser
+                    # timeouts for every dead CDN URL.
+                    completed = headless_event.wait(timeout=75)
+                    with transport_headless_lock:
+                        allow_headless = (
+                            completed
+                            and headless_domain not in transport_headless_failed_domains
+                        )
+
+            if allow_headless:
+                try:
+                    logger.info(f"  [Headless] Trying browser fetch: {asset_url}")
+                    headless_data = _fetch_headless(asset_url, reject_error_documents=True)
+                finally:
+                    if headless_leader and headless_event is not None:
+                        with transport_headless_lock:
+                            if not headless_data:
+                                transport_headless_failed_domains.add(headless_domain)
+                            transport_headless_events.pop(headless_domain, None)
+                            headless_event.set()
+            elif transport_exhausted and headless_domain:
+                logger.info(
+                    f"  [Headless] Skipped after domain probe failed: {headless_domain}"
+                )
+            if headless_data:
+                mime = mimetypes.guess_type(asset_url)[0] or "image/jpeg"
+                _cache_put(asset_url, headless_data)
+                logger.info(f"  [Headless] ✓ {asset_url.split('/')[-1]} ({len(headless_data)//1024}KB)")
+                return asset_path, headless_data, mime, asset_url, ""
 
         logger.error(f"All retries failed: {asset_url}")
         return asset_path, None, "", asset_url, last_err

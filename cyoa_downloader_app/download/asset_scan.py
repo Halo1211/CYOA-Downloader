@@ -678,6 +678,7 @@ def _infer_dynamic_asset_paths(text: str) -> Dict[str, Set[str]]:
     application bundle produces nonsense combinations from UI suffixes and
     template fragments.
     """
+    import bisect as _bisect
     import re as _re
 
     prefixes = []
@@ -697,29 +698,52 @@ def _infer_dynamic_asset_paths(text: str) -> Dict[str, Set[str]]:
     # ``setup.WK_IMG_DIR = "images/07_Weakness/"``. Keep these as proximity
     # hints for nearby ``img: "filename.jpg"`` metadata instead of combining
     # every filename with every directory in a large application.
-    named_directory = _re.compile(
-        r'(?P<name>[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*=\s*'
-        r'["\'](?P<prefix>(?:[A-Za-z0-9_.%+() -]+/)+)["\']',
+    valid_path_segment = _re.compile(r'^[A-Za-z0-9_.%+() -]+$')
+    quoted_directory_assignment = _re.compile(
+        r'=\s*(?P<quote>["\'])(?P<prefix>[^"\'\r\n]{1,1024}/)(?P=quote)',
         _re.IGNORECASE,
     )
-    for match in named_directory.finditer(text or ""):
-        if not _re.search(r"(?:img|image|asset)", match.group("name"), _re.IGNORECASE):
+    assignment_name = _re.compile(
+        r'(?P<name>[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*$'
+    )
+    for match in quoted_directory_assignment.finditer(text or ""):
+        left_context = (text or "")[max(0, match.start() - 256):match.start()]
+        name_match = assignment_name.search(left_context)
+        if not name_match or not _re.search(
+            r"(?:img|image|asset)", name_match.group("name"), _re.IGNORECASE
+        ):
             continue
         prefix = match.group("prefix").strip()
-        if prefix and not prefix.startswith(("http://", "https://", "//", "data:")):
+        segments = prefix.rstrip("/").split("/")
+        if (
+            prefix
+            and not prefix.startswith(("http://", "https://", "//", "data:"))
+            and segments
+            and all(valid_path_segment.fullmatch(segment) for segment in segments)
+        ):
             directory_hints.append((match.start(), prefix))
 
     # HTML-escaped templates can carry the concrete prefix directly:
     # ``src=&quot;images/06_Anomalies/&#39; + row.img + ...``.
+    # Keep the path expression unambiguous: ``(segment+/)+`` caused severe
+    # regex backtracking on large generated HTML when no later ``row.img``
+    # suffix matched.
     direct_img_concat = _re.compile(
-        r'(?P<prefix>(?:[A-Za-z0-9_.%+() -]+/)+)'
+        r'(?:["\'`]|&(?:quot|#0*39);)'
+        r'(?P<prefix>[^"\'`<>&\r\n]{1,1024}/)'
         r'(?:["\'`]|&(?:quot|#0*39);)\s*\+\s*'
         r'[A-Za-z_$][\w$]*(?:\[[^\]\r\n]+\])?\.img\b',
         _re.IGNORECASE,
     )
     for match in direct_img_concat.finditer(text or ""):
         prefix = match.group("prefix").strip()
-        if prefix and not prefix.startswith(("http://", "https://", "//", "data:")):
+        segments = prefix.rstrip("/").split("/")
+        if (
+            prefix
+            and not prefix.startswith(("http://", "https://", "//", "data:"))
+            and segments
+            and all(valid_path_segment.fullmatch(segment) for segment in segments)
+        ):
             directory_hints.append((match.start(), prefix))
 
     # Generated source frequently documents the shared directory beside the
@@ -757,6 +781,37 @@ def _infer_dynamic_asset_paths(text: str) -> Dict[str, Set[str]]:
     # Pair bare ``img`` metadata with only the nearest explicitly-authored
     # directory hint. The distance cap prevents a directory from one story
     # chapter leaking into unrelated metadata elsewhere in a large bundle.
+    #
+    # The hints are collected by three separate regex passes, so their list is
+    # not position-sorted.  Comparing every image to every hint used to make
+    # this O(images * hints).  A generated multi-megabyte index.html can carry
+    # thousands of both and hold the worker's GIL long enough for Windows to
+    # mark the Tk application "Not Responding" during final integrity checks.
+    # Collapse hints at the same source offset, sort once, and inspect only the
+    # neighbours around each image offset.
+    best_hint_at: Dict[int, tuple[int, str]] = {}
+    for order, (position, prefix) in enumerate(directory_hints):
+        current = best_hint_at.get(position)
+        if current is None or order < current[0]:
+            best_hint_at[position] = (order, prefix)
+    hint_positions = sorted(best_hint_at)
+
+    def _nearest_hint(image_position: int) -> str:
+        if not hint_positions:
+            return ""
+        insertion = _bisect.bisect_left(hint_positions, image_position)
+        candidates = []
+        if insertion < len(hint_positions):
+            position = hint_positions[insertion]
+            order, prefix = best_hint_at[position]
+            candidates.append((abs(image_position - position), order, prefix))
+        if insertion:
+            position = hint_positions[insertion - 1]
+            order, prefix = best_hint_at[position]
+            candidates.append((abs(image_position - position), order, prefix))
+        distance, _order, prefix = min(candidates)
+        return prefix if distance <= 16_384 else ""
+
     metadata_image = _re.compile(
         r'(?:\.\s*img\s*=|(?:\bimg\b|["\']img["\'])\s*:)\s*'
         r'["\'](?P<raw>[A-Za-z0-9_.%+() -]+\.(?:webp|avif|png|jpe?g|gif|svg|ico|bmp|tiff)'
@@ -765,14 +820,9 @@ def _infer_dynamic_asset_paths(text: str) -> Dict[str, Set[str]]:
     )
     for match in metadata_image.finditer(text or ""):
         raw = match.group("raw").strip()
-        nearby = [
-            (abs(match.start() - position), prefix)
-            for position, prefix in directory_hints
-            if abs(match.start() - position) <= 16_384
-        ]
-        if not nearby:
+        prefix = _nearest_hint(match.start())
+        if not prefix:
             continue
-        _, prefix = min(nearby, key=lambda item: item[0])
         inferred.setdefault(raw, set()).add(prefix.rstrip("/") + "/" + raw.lstrip("/"))
     return inferred
 

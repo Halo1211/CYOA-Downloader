@@ -508,6 +508,7 @@ class WebsiteDownloader:
                 try:
                     text = pathlib.Path(local_path).read_text(encoding="utf-8", errors="ignore")
                     refs: Set[str] = set()
+                    optional_font_fallbacks: Set[str] = set()
 
                     if ext in {".html", ".htm"}:
                         soup = BeautifulSoup(text, "html.parser")
@@ -545,6 +546,30 @@ class WebsiteDownloader:
 
                     elif ext == ".css":
                         text = self._css_comment_re.sub("", text)
+                        # A single @font-face commonly lists EOT, WOFF2, WOFF,
+                        # and TTF alternatives. Modern deployments may publish
+                        # only WOFF2 while retaining legacy fallback URLs in
+                        # generated CSS. If at least one source in the same
+                        # declaration exists, absent alternatives are not a
+                        # broken runtime dependency.
+                        for font_face in re.finditer(
+                            r"@font-face\s*\{(?P<body>[^{}]*)\}",
+                            text,
+                            flags=re.IGNORECASE | re.DOTALL,
+                        ):
+                            font_refs = [
+                                match.group(1).strip().strip("'\"")
+                                for match in self._css_url_re.finditer(font_face.group("body"))
+                            ]
+                            local_font_refs = [ref for ref in font_refs if _is_local(ref)]
+                            if any(
+                                _exists_with_exact_case(_local_candidate(local_path, ref))
+                                for ref in local_font_refs
+                            ):
+                                optional_font_fallbacks.update(
+                                    ref for ref in local_font_refs
+                                    if not _exists_with_exact_case(_local_candidate(local_path, ref))
+                                )
                         for pattern in (self._css_url_re, self._css_import_re):
                             for match in pattern.finditer(text):
                                 _record(refs, match.group(1))
@@ -599,6 +624,13 @@ class WebsiteDownloader:
                             public_root_abs_ref, decoded_public_root_abs_ref,
                         )):
                             ok_refs.add(label)
+                        elif ref in optional_font_fallbacks:
+                            logger.debug(
+                                "Optional @font-face fallback absent but another "
+                                "declared format exists: %s → %s",
+                                source_rel,
+                                ref,
+                            )
                         else:
                             missing_refs.add(label)
                 except Exception as _ignored_exc:

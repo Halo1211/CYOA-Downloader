@@ -261,21 +261,42 @@ def _patch_youtube_refs_in_json(
     try:
         obj = json.loads(project_str)
         patched_count = 0
+        text_patch_count = 0
 
         def _replace_embedded_youtube(value: str) -> str:
-            """Patch custom ``playVideo('ID')`` text to local audio paths."""
+            """Patch YouTube links and custom ``playVideo('ID')`` text."""
+            nonlocal text_patch_count
             result = value
             for yt_url, local_path in yt_map.items():
+                # Projects also put soundtrack URLs inside rich-text anchors
+                # instead of bgmId. Those tracks were downloaded but the
+                # offline project still linked back to YouTube. Match both the
+                # literal and HTML-escaped query-string forms.
+                import html as _html
+                raw_url = str(yt_url).strip()
+                variants = {
+                    raw_url,
+                    _html.unescape(raw_url),
+                    _html.escape(_html.unescape(raw_url), quote=True),
+                }
+                for variant in sorted(variants, key=len, reverse=True):
+                    if variant:
+                        occurrences = result.count(variant)
+                        if occurrences:
+                            result = result.replace(variant, local_path)
+                            text_patch_count += occurrences
+
                 vm = _re.search(r'(?:v=|youtu\.be/)([A-Za-z0-9_-]{11})', yt_url)
                 if not vm:
                     continue
                 video_id = vm.group(1)
-                result = _re.sub(
+                result, replacements = _re.subn(
                     rf"(playVideo\s*\(\s*['\"]){_re.escape(video_id)}(['\"]\s*\))",
                     rf"\g<1>{local_path}\g<2>",
                     result,
                     flags=_re.IGNORECASE,
                 )
+                text_patch_count += replacements
             return result
 
         def _walk(node) -> None:
@@ -326,6 +347,7 @@ def _patch_youtube_refs_in_json(
         result = json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
         logger.info(
             f"YouTube patch: {patched_count} bgmId(s) → local MP3, "
+            f"{text_patch_count} rich-text reference(s), "
             f"useAudioURL:true set per-object + root"
         )
         return result

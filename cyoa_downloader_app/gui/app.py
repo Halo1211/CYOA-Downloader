@@ -4923,12 +4923,23 @@ class CYOADownloaderGUI:
         if path:
             self._ytdlp_cookies_var.set(os.path.abspath(path))
 
-    def _save_ytdlp_cookie_setting(self, show_error: bool = True) -> bool:
-        """Validate the selected file and persist only its path."""
+    def _save_ytdlp_cookie_setting(
+        self,
+        show_error: bool = True,
+        *,
+        persist: bool = True,
+    ) -> bool:
+        """Validate and activate the selected cookie path.
+
+        Settings buttons persist the path.  Starting a download only activates
+        the already selected value, avoiding a misleading "cookie path saved"
+        log entry every time Download All is clicked.
+        """
         from tkinter import messagebox
         raw = self._ytdlp_cookies_var.get().strip()
         if not raw:
-            _update_setting("ytdlp_cookies", "")
+            if persist:
+                _update_setting("ytdlp_cookies", "")
             os.environ.pop("CYOA_YTDLP_COOKIES", None)
             return True
         path = os.path.abspath(os.path.expanduser(raw))
@@ -4942,9 +4953,11 @@ class CYOADownloaderGUI:
                 )
             return False
         self._ytdlp_cookies_var.set(path)
-        _update_setting("ytdlp_cookies", path)
+        if persist:
+            _update_setting("ytdlp_cookies", path)
         os.environ["CYOA_YTDLP_COOKIES"] = path
-        logger.info("yt-dlp: GUI cookie path saved")
+        if persist:
+            logger.info("yt-dlp: GUI cookie path saved")
         return True
 
     def _clear_ytdlp_cookies(self) -> None:
@@ -4955,7 +4968,7 @@ class CYOADownloaderGUI:
 
     def _prepare_ytdlp_cookies(self) -> bool:
         """Validate and activate the GUI-selected cookie path for this run."""
-        return self._save_ytdlp_cookie_setting(show_error=True)
+        return self._save_ytdlp_cookie_setting(show_error=True, persist=False)
 
     def _open_path_in_os(self, path: str) -> None:
         """Open a file/folder with the platform default handler."""
@@ -5530,7 +5543,26 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
         ).start()
 
     def _start(self) -> None:
-        return self._dispatch_gui_patch("_v46_start", fallback=self._start_base)
+        try:
+            return self._dispatch_gui_patch("_v46_start", fallback=self._start_base)
+        except Exception as exc:
+            # Tkinter otherwise prints callback exceptions only to stderr.  A
+            # pythonw build has no console, leaving Download All apparently
+            # inert.  Restore the controls and surface a useful error instead.
+            logger.exception("Download All failed before the worker started")
+            self._is_running = False
+            try:
+                self._dl_btn.configure(state="normal")
+                self._pause_btn.configure(state="disabled", text="⏸ Pause")
+                self._status_var.set(f"Download could not start: {exc}")
+            except Exception as reset_exc:
+                logger.debug("Could not reset GUI after start failure: %s", reset_exc)
+            from tkinter import messagebox
+            messagebox.showerror(
+                "Download All",
+                f"Download tidak dapat dimulai:\n\n{exc}",
+            )
+            return None
 
     def _preview_queue(self) -> None:
         """Feature 2: Probe all URLs in queue and show estimated outcomes before download."""

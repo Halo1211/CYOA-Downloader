@@ -28,6 +28,7 @@ _GALLERY_DL_HOSTS: Dict[str, str] = {
     "e621.net": "e621", "e926.net": "e621",
     "gelbooru.com": "gelbooru", "hypnohub.net": "hypnohub",
     "rule34.xxx": "rule34", "sankaku.app": "sankaku",
+    "zerochan.net": "zerochan", "www.zerochan.net": "zerochan",
     "chan.sankakucomplex.com": "sankaku",
     "x.com": "twitter", "twitter.com": "twitter", "www.twitter.com": "twitter",
 }

@@ -181,6 +181,25 @@ def _yt_dlp_runtime_options() -> Dict[str, object]:
     return options
 
 
+def _yt_dlp_public_client_fallback_options() -> Dict[str, object]:
+    """Use public YouTube clients that can expose a non-PO-token fallback.
+
+    Current YouTube web clients can return only SABR/PO-token-bound formats or
+    a bot challenge even when the video is public. yt-dlp's documented
+    ``player_client`` extractor argument permits the TV and mobile-web clients;
+    together with incomplete formats this can still provide a conventional
+    media URL. Authentication/cookie retries remain the next fallback.
+    """
+    return {
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["tv", "mweb"],
+                "formats": ["incomplete"],
+            }
+        }
+    }
+
+
 def _ytdlp_cookie_files(output_dir: str, log_dir: str) -> List[str]:
     """Find explicitly supplied Netscape cookie files without exposing them."""
     candidates = [
@@ -425,11 +444,28 @@ def _download_youtube_audio(
             import yt_dlp
 
             # ── First attempt (no cookies) ─────────────────────────────
+            # Current YouTube web clients commonly spend several minutes
+            # exhausting retries before returning the same bot/age gate. The
+            # documented TV/mobile clients are the reliable anonymous path,
+            # so use them first.
             opts = {k: v for k, v in ydl_opts.items() if k != "cookiesfrombrowser"}
-            ok1, err1 = _try_ytdlp(opts)
+            logger.info("  yt-dlp: trying public TV/mobile clients")
+            ok1, err1 = _try_ytdlp({
+                **opts,
+                **_yt_dlp_public_client_fallback_options(),
+            })
 
             found_file = _any_audio_exists()
             last_error = err1
+
+            # Another anonymous client cannot repair an authentication error;
+            # proceed directly to cookie sources in that case. Retain the
+            # standard-client fallback for unrelated format/extractor errors.
+            if not found_file and not _is_bot_error(err1):
+                logger.info("  yt-dlp: public clients failed; trying default clients")
+                _ok_alt, err_alt = _try_ytdlp(opts)
+                last_error = err_alt or last_error
+                found_file = _any_audio_exists()
 
             manual_cookie_files = _ytdlp_cookie_files(output_dir, log_dir)
             if not found_file:
