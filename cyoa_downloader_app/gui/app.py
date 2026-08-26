@@ -670,18 +670,27 @@ class CYOADownloaderGUI:
             progress_color="#8b5cf6", text_color=p["fg"],
         ).grid(row=0, column=3, rowspan=2, padx=14, pady=12)
 
-        def _label(text: str, r: int, c: int) -> None:
+        def _label(text: str, hint: str, r: int, c: int) -> None:
+            header = ctk.CTkFrame(card, fg_color="transparent")
+            header.grid(row=r, column=c, sticky="ew", padx=6, pady=(4, 2))
+            header.grid_columnconfigure(0, weight=1)
             ctk.CTkLabel(
-                card, text=text, font=ctk.CTkFont("Segoe UI", 9),
+                header, text=text, font=ctk.CTkFont("Segoe UI", 9),
                 text_color=p["muted"], anchor="w",
-            ).grid(row=r, column=c, sticky="ew", padx=6, pady=(4, 2))
+            ).grid(row=0, column=0, sticky="ew")
+            ctk.CTkLabel(
+                header, text=hint, font=ctk.CTkFont("Segoe UI", 8),
+                text_color=p["muted2"], anchor="w", justify="left", wraplength=300,
+            ).grid(row=1, column=0, sticky="ew")
 
         provider_values = [
             "anthropic", "openai", "gemini", "ollama", "deepseek",
             "qwen", "groq", "openrouter", "custom",
         ]
-        _label("Provider", 2, 1)
-        _label("Model", 2, 2)
+        _label("Provider", "Service that handles AI requests." if is_en else
+               "Layanan yang memproses permintaan AI.", 2, 1)
+        _label("Model", "Provider model identifier." if is_en else
+               "Nama model pada provider.", 2, 2)
         provider_menu = ctk.CTkOptionMenu(
             card, variable=provider_var, values=provider_values, height=30,
             fg_color=p["surface2"], button_color=p["surface"],
@@ -692,8 +701,12 @@ class CYOADownloaderGUI:
             card, textvariable=model_var, height=30,
             fg_color=p["input_bg"], text_color=p["input_fg"], border_color=p["border"],
         ).grid(row=3, column=2, sticky="ew", padx=(4, 12), pady=(0, 8))
-        _label("AI mode" if is_en else "Mode AI", 4, 1)
-        _label("Key storage" if is_en else "Penyimpanan key", 4, 2)
+        _label("AI mode" if is_en else "Mode AI",
+               "Controls when AI recovery may run." if is_en else
+               "Menentukan kapan recovery AI boleh berjalan.", 4, 1)
+        _label("Key storage" if is_en else "Penyimpanan key",
+               "Keyring is safest; session is temporary." if is_en else
+               "Keyring paling aman; session hanya sementara.", 4, 2)
         ctk.CTkOptionMenu(
             card, variable=mode_var,
             values=["off", "diagnostics", "auto_fallback", "aggressive_recovery"],
@@ -706,20 +719,23 @@ class CYOADownloaderGUI:
             button_hover_color=p["surface2"], text_color=p["fg"],
         ).grid(row=5, column=2, sticky="ew", padx=(4, 12), pady=(0, 8))
 
-        _label("API key", 6, 1)
+        _label("API key", "Provider credential; Ollama does not need one." if is_en else
+               "Kredensial provider; Ollama tidak memerlukannya.", 6, 1)
         key_entry = ctk.CTkEntry(
             card, textvariable=key_var, show="*", height=30,
             placeholder_text="API key", fg_color=p["input_bg"],
             text_color=p["input_fg"], border_color=p["border"],
         )
         key_entry.grid(row=7, column=1, columnspan=2, sticky="ew", padx=(6, 12), pady=(0, 8))
-        _label("Ollama URL", 8, 1)
+        _label("Ollama URL", "Address of the local Ollama server." if is_en else
+               "Alamat server Ollama lokal.", 8, 1)
         ollama_entry = ctk.CTkEntry(
             card, textvariable=ollama_var, height=30,
             fg_color=p["input_bg"], text_color=p["input_fg"], border_color=p["border"],
         )
         ollama_entry.grid(row=9, column=1, sticky="ew", padx=(6, 4), pady=(0, 8))
-        _label("Custom base URL", 8, 2)
+        _label("Custom base URL", "OpenAI-compatible custom endpoint." if is_en else
+               "Endpoint custom yang kompatibel dengan OpenAI.", 8, 2)
         custom_entry = ctk.CTkEntry(
             card, textvariable=custom_url_var, height=30,
             placeholder_text="https://endpoint.example/v1",
@@ -913,16 +929,29 @@ class CYOADownloaderGUI:
         ctk.CTkLabel(card, text="Cloudflare / FlareSolverr",
                      font=ctk.CTkFont("Segoe UI", 13, "bold"), text_color=p["fg"],
                      anchor="w").grid(row=0, column=1, sticky="ew", pady=(11, 4))
+        ctk.CTkLabel(
+            card,
+            text=("Challenge-solving behavior for protected websites."
+                  if is_en else "Perilaku penyelesaian challenge untuk website terlindungi."),
+            font=ctk.CTkFont("Segoe UI", 9), text_color=p["muted"], anchor="w",
+        ).grid(row=1, column=1, sticky="ew", pady=(0, 6))
 
         form = ctk.CTkFrame(card, fg_color="transparent")
-        form.grid(row=1, column=0, columnspan=2, sticky="ew", padx=8, pady=(0, 2))
+        form.grid(row=2, column=0, columnspan=2, sticky="ew", padx=8, pady=(0, 2))
         form.grid_columnconfigure(0, weight=1, uniform="cf_setting")
         form.grid_columnconfigure(1, weight=1, uniform="cf_setting")
 
-        def _field(label: str, variable, values, r: int, c: int, span: int = 1) -> None:
-            ctk.CTkLabel(form, text=label, font=ctk.CTkFont("Segoe UI", 9),
-                         text_color=p["muted"], anchor="w").grid(
-                             row=r, column=c, columnspan=span, sticky="ew", padx=8, pady=(4, 2))
+        def _field(label: str, hint: str, variable, values, r: int, c: int,
+                   span: int = 1) -> None:
+            header = ctk.CTkFrame(form, fg_color="transparent")
+            header.grid(row=r, column=c, columnspan=span, sticky="ew", padx=8, pady=(4, 2))
+            header.grid_columnconfigure(0, weight=1)
+            ctk.CTkLabel(header, text=label, font=ctk.CTkFont("Segoe UI", 9),
+                         text_color=p["muted"], anchor="w").grid(row=0, column=0, sticky="ew")
+            ctk.CTkLabel(header, text=hint, font=ctk.CTkFont("Segoe UI", 8),
+                         text_color=p["muted2"], anchor="w", justify="left",
+                         wraplength=(620 if span == 2 else 300)).grid(
+                             row=1, column=0, sticky="ew")
             if values:
                 widget = ctk.CTkOptionMenu(
                     form, variable=variable, values=values, height=30,
@@ -937,14 +966,26 @@ class CYOADownloaderGUI:
                 )
             widget.grid(row=r + 1, column=c, columnspan=span, sticky="ew", padx=8, pady=(0, 7))
 
-        _field("Mode", mode_var, ["Off", "Auto", "cloudscraper", "FlareSolverr"], 0, 0)
-        _field("Auto priority" if is_en else "Prioritas Auto", priority_var,
+        _field("Mode", "Auto selects a solver only when challenged." if is_en else
+               "Auto memilih solver hanya saat ada challenge.",
+               mode_var, ["Off", "Auto", "cloudscraper", "FlareSolverr"], 0, 0)
+        _field("Auto priority" if is_en else "Prioritas Auto",
+               "Solver attempted first in Auto mode." if is_en else
+               "Solver yang dicoba pertama dalam mode Auto.", priority_var,
                ["FlareSolverr first", "cloudscraper first"], 0, 1)
-        _field("Session", session_var, ["temporary", "reuse-domain", "manual"], 2, 0)
-        _field("Proxy", proxy_var, ["inherit", "none"], 2, 1)
-        _field("FlareSolverr API URL", url_var, None, 4, 0, 2)
-        _field("Timeout (s)", timeout_var, None, 6, 0)
-        _field("Wait after solve (s)" if is_en else "Tunggu setelah solve (s)", wait_var, None, 6, 1)
+        _field("Session", "Controls challenge-cookie reuse." if is_en else
+               "Mengatur pemakaian ulang cookie challenge.",
+               session_var, ["temporary", "reuse-domain", "manual"], 2, 0)
+        _field("Proxy", "Inherit uses the proxy from the main form." if is_en else
+               "Inherit memakai proxy dari form utama.",
+               proxy_var, ["inherit", "none"], 2, 1)
+        _field("FlareSolverr API URL", "Address of the running FlareSolverr service." if is_en else
+               "Alamat service FlareSolverr yang sedang berjalan.", url_var, None, 4, 0, 2)
+        _field("Timeout (s)", "Maximum time allowed to solve a challenge." if is_en else
+               "Waktu maksimum untuk menyelesaikan challenge.", timeout_var, None, 6, 0)
+        _field("Wait after solve (s)" if is_en else "Tunggu setelah solve (s)",
+               "Extra delay for the solved page to stabilize." if is_en else
+               "Jeda tambahan agar halaman stabil setelah solve.", wait_var, None, 6, 1)
 
         def _apply_cf(show_status: bool = True) -> bool:
             try:
@@ -1034,6 +1075,13 @@ class CYOADownloaderGUI:
         ctk.CTkLabel(card, textvariable=cache_stats_var,
                      font=ctk.CTkFont("Segoe UI", 9), text_color=p["muted"],
                      anchor="w").grid(row=1, column=1, sticky="ew", pady=(0, 8))
+        ctk.CTkLabel(
+            card,
+            text=("Speeds up repeated downloads; clearing it does not remove completed output."
+                  if is_en else
+                  "Mempercepat download ulang; membersihkannya tidak menghapus hasil yang sudah selesai."),
+            font=ctk.CTkFont("Segoe UI", 8), text_color=p["muted2"], anchor="w",
+        ).grid(row=2, column=1, sticky="ew", pady=(0, 8))
 
         def _refresh_cache() -> None:
             try:
@@ -1079,7 +1127,7 @@ class CYOADownloaderGUI:
                 cache_status_var.set(str(exc))
 
         controls = ctk.CTkFrame(card, fg_color="transparent")
-        controls.grid(row=2, column=1, sticky="ew", padx=(0, 12), pady=(0, 8))
+        controls.grid(row=3, column=1, sticky="ew", padx=(0, 12), pady=(0, 8))
         # Keep the complete cache action group left-aligned; any spare width
         # belongs after the buttons, not between the label and its value.
         controls.grid_columnconfigure(5, weight=1)
@@ -1100,7 +1148,7 @@ class CYOADownloaderGUI:
                       hover_color=p["danger_hv"], text_color=p["danger_fg"]).grid(row=0, column=4, padx=(4, 0))
         ctk.CTkLabel(card, textvariable=cache_status_var, font=ctk.CTkFont("Segoe UI", 9),
                      text_color=p["muted"], anchor="w").grid(
-                         row=3, column=1, sticky="ew", padx=(0, 12), pady=(0, 10))
+                          row=4, column=1, sticky="ew", padx=(0, 12), pady=(0, 10))
         _refresh_cache()
         return row + 1
 
@@ -1476,7 +1524,7 @@ class CYOADownloaderGUI:
         auto_var = ctk.StringVar(value="ZIP" if current == "zip" else "Folder")
         ctk.CTkLabel(auto_card, text="AUTO", width=42, height=28,
                      font=ctk.CTkFont("Segoe UI", 9, "bold"), text_color="#ffffff",
-                     fg_color="#2563eb", corner_radius=8).grid(row=0, column=0, rowspan=2, padx=(12, 10), pady=12)
+                     fg_color="#2563eb", corner_radius=8).grid(row=0, column=0, rowspan=3, padx=(12, 10), pady=12)
         auto_status = ctk.StringVar(value=(
             "Currently: ZIP output" if current == "zip" and is_en else
             "Currently: folder output" if is_en else
@@ -1485,8 +1533,14 @@ class CYOADownloaderGUI:
         ctk.CTkLabel(auto_card, text=("Default Auto Output" if is_en else "Output Auto Default"),
                      font=ctk.CTkFont("Segoe UI", 12, "bold"), text_color=p["fg"], anchor="w").grid(
                          row=0, column=1, sticky="ew", pady=(11, 0))
+        ctk.CTkLabel(
+            auto_card,
+            text=("Chooses Folder or ZIP whenever output mode is Auto."
+                  if is_en else "Memilih Folder atau ZIP setiap kali mode output memakai Auto."),
+            font=ctk.CTkFont("Segoe UI", 9), text_color=p["muted"], anchor="w",
+        ).grid(row=1, column=1, sticky="ew")
         ctk.CTkLabel(auto_card, textvariable=auto_status, font=ctk.CTkFont("Segoe UI", 9),
-                     text_color=p["muted"], anchor="w").grid(row=1, column=1, sticky="ew", pady=(0, 11))
+                     text_color=p["muted2"], anchor="w").grid(row=2, column=1, sticky="ew", pady=(0, 11))
 
         def _save_auto(choice: str) -> None:
             pref = "zip" if str(choice).lower() == "zip" else "folder"
@@ -1503,7 +1557,7 @@ class CYOADownloaderGUI:
             auto_card, values=["Folder", "ZIP"], variable=auto_var, command=_save_auto,
             width=170, height=32, fg_color=p["surface2"], selected_color="#3b82f6",
             selected_hover_color="#2563eb", text_color="#ffffff",
-        ).grid(row=0, column=2, rowspan=2, padx=(8, 14), pady=14)
+        ).grid(row=0, column=2, rowspan=3, padx=(8, 14), pady=14)
 
         credentials_card_row = _title(
             general, credentials_title_row,
@@ -1518,26 +1572,33 @@ class CYOADownloaderGUI:
         cookie.grid(row=credentials_card_row, column=0, columnspan=2, sticky="ew", padx=6, pady=5)
         cookie.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(cookie, text="YT", width=34, height=28, font=ctk.CTkFont("Segoe UI", 9, "bold"),
-                     text_color="#ffffff", fg_color="#b91c1c", corner_radius=8).grid(row=0, column=0, rowspan=2, padx=(10, 8), pady=10)
+                     text_color="#ffffff", fg_color="#b91c1c", corner_radius=8).grid(row=0, column=0, rowspan=3, padx=(10, 8), pady=10)
         ctk.CTkLabel(cookie, text=("YouTube cookies" if is_en else "Cookie YouTube"),
                      font=ctk.CTkFont("Segoe UI", 11, "bold"), text_color=p["fg"], anchor="w").grid(row=0, column=1, columnspan=3, sticky="ew", pady=(9, 0))
+        ctk.CTkLabel(
+            cookie,
+            text=("Used by yt-dlp for login or age-restricted media; the file remains local."
+                  if is_en else "Dipakai yt-dlp untuk media berlogin atau berbatas umur; file tetap lokal."),
+            font=ctk.CTkFont("Segoe UI", 9), text_color=p["muted"], anchor="w",
+        ).grid(row=1, column=1, columnspan=3, sticky="ew", pady=(0, 4))
         cookie_entry = ctk.CTkEntry(cookie, textvariable=self._ytdlp_cookies_var, height=30,
                                     placeholder_text="Netscape cookies.txt (optional)",
                                     fg_color=p["input_bg"], text_color=p["input_fg"], border_color=p["border"])
-        cookie_entry.grid(row=1, column=1, sticky="ew", pady=(3, 10))
+        cookie_entry.grid(row=2, column=1, sticky="ew", pady=(3, 10))
         ctk.CTkButton(cookie, text=("Browse" if is_en else "Pilih"), width=70, height=28,
                       command=self._browse_ytdlp_cookies, fg_color=p["surface2"], hover_color=p["surface"],
-                      text_color=p["fg"]).grid(row=1, column=2, padx=5, pady=(3, 10))
+                      text_color=p["fg"]).grid(row=2, column=2, padx=5, pady=(3, 10))
         ctk.CTkButton(cookie, text=("Save" if is_en else "Simpan"), width=70, height=28,
                       command=lambda: self._save_ytdlp_cookie_setting(show_error=True),
-                      fg_color="#b91c1c", hover_color="#991b1b").grid(row=1, column=3, padx=(0, 10), pady=(3, 10))
+                      fg_color="#b91c1c", hover_color="#991b1b").grid(row=2, column=3, padx=(0, 10), pady=(3, 10))
 
         # Archive section -------------------------------------------------
         archive = general
         r = _title(archive, archive_title_row,
                    "JavaScript Archive Policy" if is_en else "Kebijakan Arsip JavaScript",
-                   "Advanced, bounded discovery settings for dynamic websites." if is_en else
-                   "Pengaturan discovery lanjutan dan terbatas untuk website dinamis.")
+                   ("Auto + Safe is recommended. These are safety caps for dynamic website discovery."
+                    if is_en else
+                    "Auto + Safe direkomendasikan. Semua angka adalah batas pengaman discovery website dinamis."))
         archive_card = ctk.CTkFrame(archive, fg_color=p["surface"], corner_radius=10,
                                     border_width=1, border_color="#0891b2")
         archive_card.grid(row=r, column=0, columnspan=2, sticky="ew", padx=6, pady=5)
@@ -1562,12 +1623,18 @@ class CYOADownloaderGUI:
             ).grid(row=grid_row, column=0, columnspan=2, sticky="ew",
                    padx=12, pady=(12, 3))
 
-        def _field(grid_row: int, col: int, label: str, variable,
+        def _field(grid_row: int, col: int, label: str, hint: str, variable,
                    values=None, span: int = 1) -> None:
-            ctk.CTkLabel(archive_card, text=label, font=ctk.CTkFont("Segoe UI", 9),
-                         text_color=p["muted"], anchor="w").grid(
-                             row=grid_row, column=col, columnspan=span,
-                             sticky="ew", padx=12, pady=(5, 2))
+            header = ctk.CTkFrame(archive_card, fg_color="transparent")
+            header.grid(row=grid_row, column=col, columnspan=span,
+                        sticky="ew", padx=12, pady=(5, 2))
+            header.grid_columnconfigure(0, weight=1)
+            ctk.CTkLabel(header, text=label, font=ctk.CTkFont("Segoe UI", 9),
+                         text_color=p["muted"], anchor="w").grid(row=0, column=0, sticky="ew")
+            ctk.CTkLabel(header, text=hint, font=ctk.CTkFont("Segoe UI", 8),
+                         text_color=p["muted2"], anchor="w", justify="left",
+                         wraplength=(720 if span == 2 else 350)).grid(
+                             row=1, column=0, sticky="ew")
             if values:
                 widget = ctk.CTkOptionMenu(archive_card, values=values, variable=variable, height=30,
                                            fg_color="#0891b2", button_color="#0e7490", button_hover_color="#155e75")
@@ -1578,25 +1645,42 @@ class CYOADownloaderGUI:
                         sticky="ew", padx=12, pady=(0, 5))
 
         _group_label(0, "Archive behavior" if is_en else "Perilaku arsip")
-        _field(1, 0, "Strategy" if is_en else "Strategi", archive_values["strategy"],
+        _field(1, 0, "Strategy" if is_en else "Strategi",
+               "Auto selects the lightest complete pipeline." if is_en else
+               "Auto memilih pipeline lengkap yang paling ringan.", archive_values["strategy"],
                ["auto", "classic", "smart", "browser"])
         _field(1, 1, "Safe interaction" if is_en else "Interaksi aman",
+               "Safe permits guarded scroll/click; Off never clicks." if is_en else
+               "Safe mengizinkan scroll/klik terjaga; Off tidak pernah klik.",
                archive_values["interaction"], ["safe", "off"])
         _group_label(3, "Discovery limits" if is_en else "Batas discovery")
-        _field(4, 0, "Max pages" if is_en else "Maks. halaman", archive_values["pages"])
-        _field(4, 1, "Max depth" if is_en else "Maks. kedalaman", archive_values["depth"])
+        _field(4, 0, "Max pages (1–5000)" if is_en else "Maks. halaman (1–5000)",
+               "Hard cap for same-origin story routes." if is_en else
+               "Batas keras rute cerita dalam origin yang sama.", archive_values["pages"])
+        _field(4, 1, "Max depth (0–100)" if is_en else "Maks. kedalaman (0–100)",
+               "Route hops from entry; 0 means entry only." if is_en else
+               "Jumlah lompatan rute; 0 berarti halaman awal saja.", archive_values["depth"])
         _group_label(6, "Browser runtime limits" if is_en else "Batas runtime browser")
-        _field(7, 0, "Runtime pages" if is_en else "Halaman runtime", archive_values["runtime_pages"])
-        _field(7, 1, "Settle time ms", archive_values["settle"])
-        _field(9, 0, "Scroll steps" if is_en else "Langkah scroll", archive_values["scroll"])
-        _field(9, 1, "Max safe clicks" if is_en else "Maks. klik aman", archive_values["clicks"])
-        _field(11, 0, "No-progress rounds" if is_en else "Putaran tanpa progres",
-               archive_values["stale"])
+        _field(7, 0, "Runtime pages (1–100)" if is_en else "Halaman runtime (1–100)",
+               "Maximum pages rendered by the browser engine." if is_en else
+               "Maksimum halaman yang dirender mesin browser.", archive_values["runtime_pages"])
+        _field(7, 1, "Settle time ms (250–15000)" if is_en else "Waktu tunggu ms (250–15000)",
+               "Wait after load/action for late assets." if is_en else
+               "Jeda setelah load/aksi untuk aset terlambat.", archive_values["settle"])
+        _field(9, 0, "Scroll steps (1–1000)" if is_en else "Langkah scroll (1–1000)",
+               "Maximum incremental lazy-load scrolls." if is_en else
+               "Maksimum scroll bertahap untuk lazy-load.", archive_values["scroll"])
+        _field(9, 1, "Max safe clicks (0–100)" if is_en else "Maks. klik aman (0–100)",
+               "Maximum allowlisted clicks per runtime page." if is_en else
+               "Maksimum klik allowlist per halaman runtime.", archive_values["clicks"])
+        _field(11, 0, "No-progress rounds (1–10)" if is_en else "Putaran tanpa progres (1–10)",
+               "Stop after this many rounds find nothing new." if is_en else
+               "Berhenti setelah sejumlah putaran tanpa temuan baru.", archive_values["stale"])
         ctk.CTkLabel(
             archive_card,
-            text=("Stops browser discovery after repeated rounds find no new assets."
+            text=("Every number is a safety cap, not a download target. Keep the defaults unless a site is incomplete."
                   if is_en else
-                  "Menghentikan discovery browser setelah beberapa putaran tidak menemukan aset baru."),
+                  "Semua angka adalah batas pengaman, bukan target download. Pertahankan default kecuali hasil website belum lengkap."),
             font=ctk.CTkFont("Segoe UI", 9), text_color=p["muted"],
             fg_color=p["panel"], corner_radius=8, anchor="w", justify="left",
             wraplength=360,
@@ -3097,10 +3181,12 @@ class CYOADownloaderGUI:
         self._input_row = input_row
         self._input_header_actions = header_actions
 
-        # Options row
-        # ── Options: 2-row compact layout ───────────────────────────
-        # Row 1: numeric inputs + Import/Help buttons (right-aligned)
+        # Options rows. List actions have their own row so they cannot be
+        # clipped by the numeric/network controls in a restored (non-maximized)
+        # window.
+        # Row 1: numeric and network inputs
         # Row 2: toggleable checkboxes
+        # Row 3: Import/Export actions (right-aligned, always visible)
         opt_wrap = T(ctk.CTkFrame(inp, fg_color="transparent"), fg_color="bg")
         opt_wrap.grid(row=2, column=0, columnspan=5, sticky="ew",
                       padx=14, pady=(0, 6))
@@ -3264,9 +3350,13 @@ class CYOADownloaderGUI:
         if _saved_dns:
             _set_active_dns(_saved_dns)
 
-        # Right side: Import/export. Help lives in the Input header so it stays
-        # visible even when the options row is crowded.
-        self._export_button = T(ctk.CTkButton(row1, text="Export List…", height=26,
+        # Import/export use a dedicated full-width row. Keeping them in row1
+        # allowed the left-side DNS/proxy controls to cover Import until the
+        # window was maximized.
+        list_actions = T(ctk.CTkFrame(opt_wrap, fg_color="transparent"), fg_color="bg")
+        list_actions.grid(row=3, column=0, sticky="ew", pady=(3, 0))
+        self._list_actions = list_actions
+        self._export_button = T(ctk.CTkButton(list_actions, text="Export List…", height=26,
                          font=ctk.CTkFont("Segoe UI", 10),
                          fg_color=p["surface2"], hover_color=p["surface"],
                          text_color=p["muted"], border_width=1,
@@ -3275,7 +3365,7 @@ class CYOADownloaderGUI:
            fg_color="surface2", hover_color="surface", text_color="muted",
            border_color="surface2")
         self._export_button.pack(side="right", padx=(4, 0))
-        self._import_button = T(ctk.CTkButton(row1, text="Import List…", height=26,
+        self._import_button = T(ctk.CTkButton(list_actions, text="Import List…", height=26,
                         font=ctk.CTkFont("Segoe UI", 10),
                         fg_color=p["surface2"], hover_color=p["surface"],
                         text_color=p["muted"], border_width=1,
