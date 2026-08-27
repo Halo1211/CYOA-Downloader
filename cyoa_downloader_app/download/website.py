@@ -44,6 +44,7 @@ from ..integrations.ai_core import (
 )
 from ..logging_setup import logger
 from ..network.browser import BrowserFetchSession
+from ..network.runtime_capture import _is_archive_noise_url
 from ..project.discover import (
     get_first_folder_from_url,
     get_source,
@@ -881,7 +882,19 @@ class WebsiteDownloader:
                 # Extensionless content is common behind framework endpoints.
                 # Give it the browser-appropriate extension before localization.
                 rel_root, rel_ext = os.path.splitext(rel_parts)
-                if not rel_ext:
+                forced_ext = {
+                    "css": ".css",
+                    "js": ".js",
+                }.get(kind, "")
+                if forced_ext and rel_ext.lower() not in (
+                    STYLE_EXTENSIONS if kind == "css" else SCRIPT_EXTENSIONS
+                ):
+                    # A script endpoint can legitimately end in .html (the
+                    # archived vue-select proxy on cyoa.cafe does). Saving it
+                    # with that suffix makes later passes parse JavaScript as
+                    # HTML and escape && / => into &amp;&amp; / =&gt;.
+                    rel_parts = rel_root + forced_ext
+                elif not rel_ext:
                     rel_ext = {
                         "images": ".jpg" if "jpeg" in content_type.lower() else ".png",
                         "css": ".css", "js": ".js", "fonts": ".woff2",
@@ -924,6 +937,11 @@ class WebsiteDownloader:
             "media": ".bin",
         }.get(kind, "")
         filename = self._safe_filename(url, fallback=kind[:-1] if kind.endswith("s") else kind, ext_hint=ext_hint)
+        filename_root, filename_ext = os.path.splitext(filename)
+        if kind == "js" and filename_ext.lower() not in SCRIPT_EXTENSIONS:
+            filename = filename_root + ".js"
+        elif kind == "css" and filename_ext.lower() not in STYLE_EXTENSIONS:
+            filename = filename_root + ".css"
         normalized_query = urlparse(self._normalize_cache_key(url)).query
         if normalized_query:
             root, ext = os.path.splitext(filename)
@@ -984,12 +1002,23 @@ class WebsiteDownloader:
         full = self._normalize_remote_url(url, referrer_url)
         if not full:
             return None
+        # Keep the originally resolved URL even when one of the recovery
+        # branches below succeeds from a different location.  The original
+        # cache entry is installed as an in-progress sentinel; leaving that
+        # sentinel behind makes every later reference to the same asset look
+        # like a permanent failure despite the successful fallback download.
+        requested_full = full
+        requested_cache_key = self._normalize_cache_key(full)
 
         # Analytics, feedback widgets, and telemetry are not part of an
         # offline story. Their bootstrap scripts recursively reference
         # generated endpoints and can dominate a mirror with retries/404s.
         host = (urlparse(full).hostname or "").lower()
-        if host in self._telemetry_hosts or host.endswith((".sentry.io", ".posthog.com")):
+        if (
+            _is_archive_noise_url(full)
+            or host in self._telemetry_hosts
+            or host.endswith((".sentry.io", ".posthog.com"))
+        ):
             logger.debug("  Telemetry skipped: %s", full)
             return None
 
@@ -1069,7 +1098,11 @@ class WebsiteDownloader:
                     # Check cache first — same raw string may appear multiple times in data.js
                     with self._lock:
                         if alt in self._downloaded:
-                            return self._downloaded[alt]
+                            cached = self._downloaded[alt]
+                            if cached:
+                                self._downloaded[requested_full] = cached
+                                self._downloaded[requested_cache_key] = cached
+                            return cached
                     r_alt = self._fetch(alt)
                     _raise_if_cancelled()
                     if r_alt:
@@ -1106,7 +1139,11 @@ class WebsiteDownloader:
                 if alt != full:
                     with self._lock:
                         if alt in self._downloaded:
-                            return self._downloaded[alt]
+                            cached = self._downloaded[alt]
+                            if cached:
+                                self._downloaded[requested_full] = cached
+                                self._downloaded[requested_cache_key] = cached
+                            return cached
                     r_alt = self._fetch(alt)
                     _raise_if_cancelled()
                     if r_alt:
@@ -1135,6 +1172,9 @@ class WebsiteDownloader:
             return None
 
         content_type = r.headers.get("Content-Type", "").split(";")[0].strip().lower()
+        effective_kind = self._kind_from(
+            full, content_type=content_type, preferred_kind=preferred_kind,
+        )
         requested_ext = os.path.splitext(urlparse(full).path.lower())[1]
         if content_type.startswith("text/html") and requested_ext in (IMAGE_EXTENSIONS | AUDIO_EXTENSIONS | VIDEO_EXTENSIONS | FONT_EXTENSIONS):
             error = f"Content-Type mismatch for binary asset: {content_type or 'unknown'}"
@@ -1151,24 +1191,37 @@ class WebsiteDownloader:
             except Exception as exc:
                 logger.debug(f"Response close failed for rejected asset {full}: {exc}")
             return None
+        if effective_kind in {"js", "css"} and content_type in {
+            "text/html", "application/xhtml+xml",
+        }:
+            prefix = bytes(r.content or b"")[:512].lstrip().lower()
+            if prefix.startswith((b"<!doctype html", b"<html", b"<head", b"<body")):
+                error = f"Content-Type mismatch for {effective_kind} asset: HTML document"
+                logger.warning("  %s: %s", error, full)
+                self._failed_items.append({"url": full, "error": error})
+                try:
+                    r.close()
+                except Exception as exc:
+                    logger.debug("Response close failed for rejected asset %s: %s", full, exc)
+                return None
         local = self._allocate_local_path(full, content_type=content_type, preferred_kind=preferred_kind)
         abs_local = os.path.abspath(local)
         os.makedirs(os.path.dirname(local), exist_ok=True)
 
         try:
-            if "text/css" in content_type or local.lower().endswith(".css"):
+            if effective_kind == "css":
                 raw_text = _safe_response_text(r)
                 _raise_if_cancelled()
                 _throttle_bandwidth(len(r.content))
                 content = self._process_css(raw_text, full, local)
                 atomic_write_text(local, content)
-            elif "javascript" in content_type or local.lower().endswith((".js", ".mjs")):
+            elif effective_kind == "js":
                 raw_text = _safe_response_text(r)
                 _raise_if_cancelled()
                 _throttle_bandwidth(len(r.content))
                 content = self._process_js(raw_text, full, local)
                 atomic_write_text(local, content)
-            elif "text/html" in content_type or local.lower().endswith((".html", ".htm")):
+            elif effective_kind == "html":
                 html_text = _safe_response_text(r)
                 _raise_if_cancelled()
                 _throttle_bandwidth(len(r.content))
@@ -1185,8 +1238,8 @@ class WebsiteDownloader:
             self._downloaded[full] = local
             # Also register path-only key so query-string variants hit cache
             ck = self._normalize_cache_key(full)
-            if ck != full:
-                self._downloaded[ck] = local
+            for alias in {ck, requested_full, requested_cache_key}:
+                self._downloaded[alias] = local
             self._source_for_local[abs_local] = full
 
         self._success_items.append({
@@ -1656,10 +1709,10 @@ class WebsiteDownloader:
             return m.group(0)
         return f'url("{self._rel(css_local, local)}")'
 
-    def _set_attr_local(self, tag, attr: str, page_url: str, local_html: str, preferred_kind: str = "") -> None:
+    def _set_attr_local(self, tag, attr: str, page_url: str, local_html: str, preferred_kind: str = "") -> bool:
         value = tag.get(attr)
         if not value:
-            return
+            return False
         if attr in {"srcset", "imagesrcset", "data-srcset"}:
             # data: URIs commonly contain commas (inline SVG,
             # base64). A naive value.split(",") shreds them into garbage pieces,
@@ -1717,7 +1770,7 @@ class WebsiteDownloader:
                     remote = self._normalize_remote_url(asset, page_url)
                     parts.append((remote or asset) + suffix)
             tag[attr] = ", ".join(parts)
-            return
+            return bool(parts)
 
         local = self._download_asset(value, preferred_kind=preferred_kind, referrer_url=page_url)
         if not local:
@@ -1734,6 +1787,13 @@ class WebsiteDownloader:
                         break
         if local:
             tag[attr] = self._rel(local_html, local)
+            # Subresource Integrity hashes describe the original response
+            # bytes. CSS and JavaScript are intentionally rewritten during
+            # localization, so retaining the remote hash can make the browser
+            # reject an otherwise-valid local asset.
+            if tag.has_attr("integrity"):
+                del tag["integrity"]
+            return True
         else:
             # The failure is recorded in backup_report/manifest. Keeping an
             # absolute URL here accurately marks it as an unresolved external
@@ -1741,6 +1801,7 @@ class WebsiteDownloader:
             remote = self._normalize_remote_url(value, page_url)
             if remote:
                 tag[attr] = remote
+            return False
 
     def _patch_local_audio_scripts(self) -> None:
         """Teach custom YouTube button scripts to play patched local audio."""
@@ -1832,6 +1893,34 @@ class WebsiteDownloader:
         _raise_if_cancelled()
         os.makedirs(os.path.dirname(local_html), exist_ok=True)
 
+        # Hosting providers append analytics/challenge bootstraps to otherwise
+        # valid source HTML. They are not part of the CYOA and become actively
+        # harmful offline (hidden iframe creation, localhost POST attempts,
+        # noisy console errors). Remove only provider-identifiable scripts;
+        # application scripts remain untouched.
+        removed_host_scripts = 0
+        for script_tag in list(soup.find_all("script")):
+            src = str(script_tag.get("src") or "").strip()
+            resolved_src = self._normalize_remote_url(src, url) if src else ""
+            inline = script_tag.string or script_tag.get_text() or ""
+            is_cloudflare_inline = (
+                "__CF$cv$params" in inline
+                and "challenge-platform" in inline
+                and "createElement('iframe')" in inline
+            )
+            if (
+                script_tag.has_attr("data-cf-beacon")
+                or (resolved_src and _is_archive_noise_url(resolved_src))
+                or is_cloudflare_inline
+            ):
+                script_tag.decompose()
+                removed_host_scripts += 1
+        if removed_host_scripts:
+            logger.info(
+                "  Removed %d hosting telemetry/challenge script(s) from archived HTML",
+                removed_host_scripts,
+            )
+
         # HTML's <base href> changes how every relative URL is resolved.  The
         # mirror writes localized references relative to the output file, so
         # retaining a remote base would make otherwise-correct local paths
@@ -1886,13 +1975,14 @@ class WebsiteDownloader:
             if not href or href.startswith(("data:", "javascript:", "#", "mailto:")):
                 continue
 
-            # Resolve absolute-path hrefs (e.g. /favicon.ico) against page origin
-            # so they download from correct domain even when we're in a subpath
+            # Resolve absolute-path hrefs (e.g. /favicon.ico) against the
+            # document base. When <base href> changes origin, HTML semantics
+            # use that origin rather than the URL that served this document.
             if href.startswith("/") and not href.startswith("//"):
-                parsed_page = urlparse(url)
-                href_resolved = f"{parsed_page.scheme}://{parsed_page.netloc}{href}"
-                tag["href"] = href_resolved
-                href = href_resolved
+                href_resolved = self._normalize_remote_url(href, asset_page_url)
+                if href_resolved:
+                    tag["href"] = href_resolved
+                    href = href_resolved
 
             href_lower = href.lower().split("?")[0]  # strip query string for ext check
 
@@ -1902,7 +1992,22 @@ class WebsiteDownloader:
             elif rel_values & {"icon", "button control", "apple-touch-icon",
                                "apple-touch-icon-precomposed", "mask-icon",
                                "image_src"}:
-                self._set_attr_local(tag, "href", asset_page_url, local_html, preferred_kind="images")
+                localized = self._set_attr_local(
+                    tag, "href", asset_page_url, local_html, preferred_kind="images",
+                )
+                if not localized:
+                    # Icons are optional presentation metadata. A missing
+                    # favicon must not survive as a broken online dependency
+                    # or be rediscovered later as a placeholder-worthy image.
+                    failed_url = self._normalize_remote_url(href, asset_page_url)
+                    if failed_url:
+                        self._failed_items = [
+                            item for item in self._failed_items
+                            if item.get("url") != failed_url
+                        ]
+                    tag.decompose()
+                    logger.debug("  Optional icon unavailable; removed from archive: %s", href)
+                    continue
 
             elif "manifest" in rel_values:
                 # PWA manifest.json — download as json asset
@@ -1924,7 +2029,9 @@ class WebsiteDownloader:
                     self._set_attr_local(tag, "href", asset_page_url, local_html, preferred_kind="css")
 
             elif href_lower.endswith("project.json"):
-                self._set_attr_local(tag, "href", url, local_html, preferred_kind="json")
+                self._set_attr_local(
+                    tag, "href", asset_page_url, local_html, preferred_kind="json",
+                )
 
             else:
                 # Catch-all: any <link href="..."> where href looks like a downloadable asset

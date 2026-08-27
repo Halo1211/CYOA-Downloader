@@ -412,6 +412,11 @@ def process_images(
     transport_headless_lock = threading.Lock()
     transport_headless_events: Dict[str, threading.Event] = {}
     transport_headless_failed_domains: Set[str] = set()
+    # Assets occupying the executor's initial worker slots are a single
+    # concurrent probe cohort.  Mark them before submission so a very fast
+    # failure in one worker cannot make another initial worker skip its first
+    # direct HTTP attempt merely because that thread started a moment later.
+    transport_initial_probe_assets: Set[str] = set()
     if discord_urls and discord_recovery_enabled():
         discord_token = resolve_discord_bot_token()
         if discord_token:
@@ -473,7 +478,11 @@ def process_images(
             return asset_path, cached, mime, asset_url, ""
 
         asset_host = (urlparse(asset_url).hostname or "").lower()
-        if asset_path in image_paths and asset_host:
+        if (
+            asset_path in image_paths
+            and asset_host
+            and asset_path not in transport_initial_probe_assets
+        ):
             with transport_headless_lock:
                 transport_domain_failed = (
                     asset_host in transport_headless_failed_domains
@@ -755,6 +764,9 @@ def process_images(
             fetch_groups: Dict[str, List[str]] = {}
             for asset_path in all_downloadable:
                 fetch_groups.setdefault(_fetch_identity(asset_path), []).append(asset_path)
+            transport_initial_probe_assets.update(
+                paths[0] for paths in list(fetch_groups.values())[:safe_workers]
+            )
             futures = {
                 ex.submit(fetch_one, paths[0]): paths
                 for paths in fetch_groups.values()

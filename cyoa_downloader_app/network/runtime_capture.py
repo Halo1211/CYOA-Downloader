@@ -26,6 +26,34 @@ _RUNTIME_CONTENT_TYPES = {
     "application/wasm", "application/font-woff", "application/font-woff2",
 }
 
+_ARCHIVE_NOISE_HOSTS = {
+    "www.googletagmanager.com", "googletagmanager.com",
+    "www.google-analytics.com", "google-analytics.com",
+    "stats.g.doubleclick.net", "cct.google", "vercel.live",
+    "www.clarity.ms", "clarity.ms", "browser.sentry-cdn.com",
+    "static.cloudflareinsights.com",
+}
+
+
+def _is_archive_noise_url(url: str) -> bool:
+    """Return whether a runtime URL is telemetry/challenge infrastructure.
+
+    These resources are injected by hosting/analytics providers, not required
+    by the archived story. Keeping Cloudflare challenge scripts in particular
+    creates hidden iframes and POST errors when the mirror runs on localhost.
+    """
+    try:
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").lower()
+        path = parsed.path.lower()
+    except (TypeError, ValueError):
+        return False
+    return (
+        host in _ARCHIVE_NOISE_HOSTS
+        or host.endswith((".sentry.io", ".posthog.com"))
+        or path.startswith("/cdn-cgi/challenge-platform/")
+    )
+
 
 def _is_runtime_asset_response(url: str, content_type: str, status: int = 200) -> bool:
     try:
@@ -33,6 +61,8 @@ def _is_runtime_asset_response(url: str, content_type: str, status: int = 200) -
     except (TypeError, ValueError, OverflowError):
         normalized_status = 0
     if normalized_status < 200 or normalized_status >= 400:
+        return False
+    if _is_archive_noise_url(url):
         return False
     normalized = (content_type or "").split(";", 1)[0].strip().lower()
     if normalized.startswith(("image/", "audio/", "video/", "font/")):

@@ -184,6 +184,42 @@ def base_fetch_response(
                     pass
             return None
 
+    def _recover_source_after_flaresolverr(value):
+        """Replace FlareSolverr's rendered DOM with the origin response.
+
+        ``request.get`` is still useful because it solves the challenge and
+        copies its cookies/user-agent into our shared sessions.  Its response
+        string is not suitable for mirroring, however: JavaScript frameworks
+        have already expanded their root node and injected runtime styles.
+        Retry through requests after the solution is applied so callers see
+        the server bytes they would have received with a valid browser session.
+
+        If the solved cookies are insufficient, return the normal transport's
+        failure sentinel instead of silently archiving a mutated DOM.
+        """
+        if not isinstance(value, requests.Response) or not getattr(
+            value, "_cyoa_flaresolverr_rendered_dom", False
+        ):
+            return value
+
+        raw_result = _do_request(use_cf_session=False, verify_ssl=True)
+        try:
+            value.close()
+        except Exception:
+            pass
+        if isinstance(raw_result, requests.Response):
+            l.logger.info(
+                "[FlareSolverr] Challenge session established; preserving raw source: %s",
+                url,
+            )
+        else:
+            l.logger.warning(
+                "[FlareSolverr] Refusing rendered DOM snapshot because raw source "
+                "could not be recovered: %s",
+                url,
+            )
+        return raw_result
+
     cf_mode = _normalize_cloudflare_mode(l._CLOUDFLARE_MODE)
     attempts: List[Tuple[str, bool]] = []
     if cf_mode == "cloudscraper":
@@ -200,6 +236,7 @@ def base_fetch_response(
     for label, use_cf_session in attempts:
         if label == "flaresolverr":
             result = fetch_via_flaresolverr(url, extra_headers=headers, timeout=timeout)
+            result = _recover_source_after_flaresolverr(result)
         else:
             result = _do_request(use_cf_session=use_cf_session, verify_ssl=True)
         if result == "CF_CHALLENGE":
@@ -225,6 +262,7 @@ def base_fetch_response(
                 l.logger.info("[Cloudflare] Auto mode: trying %s fallback...", label)
                 if label == "flaresolverr":
                     result = fetch_via_flaresolverr(url, extra_headers=headers, timeout=timeout)
+                    result = _recover_source_after_flaresolverr(result)
                 else:
                     result = _do_request(use_cf_session=True, verify_ssl=True)
                 result = _accept_backend_result(result)
@@ -245,6 +283,7 @@ def base_fetch_response(
             return result
         l.logger.info("[Cloudflare] Auto mode: trying FlareSolverr fallback…")
         result = fetch_via_flaresolverr(url, extra_headers=headers, timeout=timeout)
+        result = _recover_source_after_flaresolverr(result)
         result = _accept_backend_result(result)
         if result is not None and result not in {"SSL_ERROR", "CF_CHALLENGE"}:
             return result

@@ -59,6 +59,7 @@ class RouteCrawler:
         self.origin = (parsed.scheme.lower(), parsed.netloc.lower())
         self.scope_path = self._scope_for(parsed.path)
         self._local_route_owners: Dict[str, str] = {}
+        self._page_link_bases: Dict[str, str] = {}
 
     @staticmethod
     def _scope_for(path: str) -> str:
@@ -107,6 +108,8 @@ class RouteCrawler:
             suffix = "root"
         parts = [part for part in suffix.split("/") if part and part not in {".", ".."}]
         safe_parts = [clean_url_path_component(part) or "route" for part in parts]
+        if not safe_parts:
+            safe_parts = ["route"]
         if p.query:
             safe_parts[-1] += "_" + hashlib.sha1(p.query.encode("utf-8")).hexdigest()[:8]
         local = os.path.join(self.downloader.output_folder, "routes", *safe_parts, "index.html")
@@ -156,6 +159,7 @@ class RouteCrawler:
                     link_base = resolved_base
             except (TypeError, ValueError):
                 pass
+        self._page_link_bases[self._canonicalize(page_url)] = link_base
         links: List[str] = []
         for tag in soup.find_all("a", href=True):
             href = str(tag.get("href") or "").strip()
@@ -231,15 +235,30 @@ class RouteCrawler:
                 text = pathlib.Path(local).read_text(encoding="utf-8", errors="ignore")
                 soup = BeautifulSoup(text, "html.parser")
                 changed = False
+                link_base = self._page_link_bases.get(
+                    self._canonicalize(page_url), page_url,
+                )
                 for tag in soup.find_all("a", href=True):
+                    raw_href = str(tag.get("href") or "").strip()
+                    # A fragment-only link is already valid in the localized
+                    # page and must not be replaced with a route filename.
+                    if not raw_href or raw_href.startswith("#"):
+                        continue
                     try:
-                        target = self._canonicalize(urljoin(page_url, str(tag.get("href") or "")))
+                        joined = urljoin(link_base, raw_href)
+                        target = self._canonicalize(joined)
+                        fragment = urlparse(joined).fragment
                     except (TypeError, ValueError):
                         continue
                     target_local = route_map.get(target)
                     if not target_local:
                         continue
-                    tag["href"] = os.path.relpath(target_local, os.path.dirname(local)).replace("\\", "/")
+                    localized = os.path.relpath(
+                        target_local, os.path.dirname(local),
+                    ).replace("\\", "/")
+                    if fragment:
+                        localized += "#" + fragment
+                    tag["href"] = localized
                     tag["data-cyoa-local-route"] = "1"
                     changed = True
                 if changed and not soup.find(attrs={"data-cyoa-offline-route-guard": True}):

@@ -21,13 +21,34 @@ def is_cloudflare_challenge(response) -> bool:
     cf_ray = response.headers.get("CF-RAY", "")
     if not cf_ray and "cloudflare" not in server:
         return False
-    text_sample = response.text[:2000] if hasattr(response, "text") else ""
-    cf_markers = [
-        "cf-browser-verification", "challenge-platform", "jschl_vc",
-        "jschl-answer", "cf_clearance", "Checking your browser",
-        "Enable JavaScript and cookies", "cf-turnstile", "DDoS protection",
-    ]
-    return any(m in text_sample for m in cf_markers)
+    text_sample = (response.text[:8192] if hasattr(response, "text") else "").lower()
+
+    # Do not treat a bare ``challenge-platform`` URL as a challenge page.
+    # Cloudflare also appends that loader to otherwise valid HTML responses
+    # (including cyoa.cafe viewers).  Classifying the loader itself as an
+    # interstitial sent those healthy pages through FlareSolverr, whose
+    # ``solution.response`` is a serialized, already-rendered DOM rather than
+    # the server's source document.
+    legacy_markers = (
+        "cf-browser-verification",
+        "jschl_vc",
+        "jschl-answer",
+        "checking your browser",
+        "enable javascript and cookies to continue",
+        "ddos protection by cloudflare",
+    )
+    managed_challenge_markers = (
+        "_cf_chl_opt",
+        "cf-chl-",
+        "cf_chl_",
+        "challenge-running",
+        "challenge-form",
+        "<title>just a moment",
+        "/challenge-platform/h/g/orchestrate/",
+    )
+    return any(marker in text_sample for marker in legacy_markers) or any(
+        marker in text_sample for marker in managed_challenge_markers
+    )
 
 
 def _normalize_cloudflare_mode(mode: str) -> str:
@@ -287,6 +308,12 @@ def _response_from_flaresolverr_solution(solution: Dict[str, Any], url: str) -> 
         pass
     if "Content-Type" not in resp.headers:
         resp.headers["Content-Type"] = "text/html; charset=utf-8"
+    # FlareSolverr serializes document.documentElement after JavaScript has
+    # run.  Mark that provenance so the network layer can use the solved
+    # cookies but replace this DOM snapshot with an ordinary byte response.
+    # This is an internal attribute rather than a synthetic HTTP header, so it
+    # can never leak into an archived page or downstream request.
+    resp._cyoa_flaresolverr_rendered_dom = True
     return resp
 
 

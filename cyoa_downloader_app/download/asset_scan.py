@@ -19,7 +19,8 @@ from urllib.parse import urljoin, urlparse, urlunparse
 import requests
 
 from ..constants.assets import (
-    IMAGE_EXTENSIONS, AUDIO_EXTENSIONS, AUDIO_FIELDS, BGMLIST_FIELDS,
+    IMAGE_EXTENSIONS, AUDIO_EXTENSIONS, VIDEO_EXTENSIONS, FONT_EXTENSIONS,
+    SCRIPT_EXTENSIONS, STYLE_EXTENSIONS, AUDIO_FIELDS, BGMLIST_FIELDS,
     ICC_PLUS_IMAGE_KEYS, IMAGE_FIELDS, _SOUNDCLOUD_URL_RE,
     _YOUTUBE_ID_RE, _YOUTUBE_URL_RE,
 )
@@ -39,6 +40,13 @@ _EMBEDDED_YOUTUBE_URL_RE = re.compile(
 _EMBEDDED_HTTP_URL_RE = re.compile(
     r"(?<![A-Za-z0-9])https?:/{1,2}[^\s\"'<>]+",
     re.IGNORECASE,
+)
+
+_LARGE_JSON_SCAN_THRESHOLD = 2 * 1024 * 1024
+_JSON_ASSET_EXTENSIONS = (
+    IMAGE_EXTENSIONS | AUDIO_EXTENSIONS | VIDEO_EXTENSIONS | FONT_EXTENSIONS |
+    SCRIPT_EXTENSIONS | STYLE_EXTENSIONS |
+    {".json", ".wasm", ".webmanifest"}
 )
 
 
@@ -119,6 +127,77 @@ def _extract_image_references(value: str, *, allow_bare_path: bool = False) -> S
     if allow_bare_path and not re.search(r"[<>]", text) and _is_image_reference(text):
         refs.add(text)
     return refs
+
+
+def _scan_large_json_for_assets(
+    text: str,
+    file_url: str,
+) -> Set[str]:
+    """Scan a large JSON document structurally in linear time.
+
+    Running every JavaScript/CSS-oriented regular expression over a multi-MB
+    ICC project is both unnecessary and extremely expensive, especially when
+    the JSON contains large inline Base64 images. Walking parsed string values
+    retains real asset discovery without treating encoded payload bytes as
+    source code.
+    """
+    try:
+        root = json.loads(text)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        # Malformed or JSON-like JavaScript still needs the general scanner.
+        return set()
+
+    found: Set[str] = set()
+    stack = [root]
+
+    def add_candidate(raw: str) -> None:
+        value = _normalize_embedded_http_url(raw)
+        if not value or value.startswith(("data:", "blob:", "javascript:", "#")):
+            return
+        try:
+            parsed = urlparse(value)
+            extension = os.path.splitext(parsed.path)[1].lower()
+        except (TypeError, ValueError):
+            return
+        if extension not in _JSON_ASSET_EXTENSIONS:
+            return
+        if value.startswith("//"):
+            scheme = urlparse(file_url).scheme or "https"
+            found.add(f"{scheme}:{value}")
+        else:
+            found.add(urljoin(file_url, value))
+
+    while stack:
+        value = stack.pop()
+        if isinstance(value, dict):
+            stack.extend(value.values())
+            continue
+        if isinstance(value, list):
+            stack.extend(value)
+            continue
+        if not isinstance(value, str):
+            continue
+        candidate = value.strip()
+        if not candidate or candidate.startswith("data:"):
+            continue
+
+        # Exact path/URL values are common in manifests and project fields.
+        if not any(char.isspace() for char in candidate):
+            add_candidate(candidate)
+
+        # Rich-text fields may contain image attributes or absolute asset URLs.
+        for image_ref in _extract_image_references(candidate):
+            add_candidate(image_ref)
+        for match in _EMBEDDED_HTTP_URL_RE.finditer(candidate):
+            add_candidate(match.group(0))
+        for match in re.finditer(
+            r"url\(\s*[\"']?([^\"')\s]+)[\"']?\s*\)",
+            candidate,
+            re.IGNORECASE,
+        ):
+            add_candidate(match.group(1))
+
+    return found
 
 # Raw CDN hosts used by the gallery-dl smart-mode classifier. Kept here as an
 # independent constant so this low-level scanner does not need to import the
@@ -241,6 +320,21 @@ def _scan_file_for_assets(
     # Quote chars — double, single, backtick
     Q = r'''["'`]'''
 
+    if (
+        str(file_ext or "").lower() == ".json"
+        and len(text) >= _LARGE_JSON_SCAN_THRESHOLD
+    ):
+        structured = _scan_large_json_for_assets(text, file_url)
+        if structured:
+            return structured
+        # A valid asset-free JSON document is also a complete result. Only
+        # malformed JSON should fall through to the permissive text scanner.
+        try:
+            json.loads(text)
+            return set()
+        except (TypeError, ValueError, json.JSONDecodeError):
+            pass
+
     found: Set[str] = set()
     file_base = file_url.rsplit('/', 1)[0] + '/'   # directory of this file
 
@@ -275,6 +369,21 @@ def _scan_file_for_assets(
 
     inferred_dynamic_assets = _infer_dynamic_asset_paths(text)
 
+    # Browserify embeds JSON modules inside the bundle and leaves their source
+    # identifiers in the dependency table, for example
+    # ``},{"./maps/entities.json":22}]``. They look like fetchable paths to a
+    # literal scanner but no network request exists at runtime.
+    bundled_module_ids: Set[str] = set()
+    if file_ext in ('.js', '.mjs', '.cjs'):
+        bundled_module_re = _re.compile(
+            Q + r'(?P<path>[^"\'`\n\r<>{}()|\\]{1,300}' + ASSET_EXTS + r')' +
+            Q + r'\s*:\s*\d+\b',
+            _re.IGNORECASE,
+        )
+        bundled_module_ids = {
+            match.group('path').strip() for match in bundled_module_re.finditer(text)
+        }
+
     # Compiled story formats often keep a bare filename in metadata (for
     # example ``item.img = "card.jpg"``) and also emit the concrete runtime
     # path elsewhere in the same document (``images/chapter/card.jpg``).
@@ -283,12 +392,17 @@ def _scan_file_for_assets(
     # an ``img`` metadata value as an alias when an explicit path with the
     # exact same basename is present; standalone bare image references remain
     # valid candidates.
+    # We only need the basename for alias comparison.  The old expression
+    # matched and repeatedly backtracked over the *entire* directory prefix.
+    # A large minified bundle containing long slash-separated payloads could
+    # therefore take minutes to scan.  Starting directly at the final slash
+    # is linear and still covers relative, root-relative, and absolute paths.
     pathful_image_basenames = {
-        _re.split(r"[?#]", match.group("path"), maxsplit=1)[0].rsplit("/", 1)[-1].lower()
+        match.group("basename").lower()
         for match in _re.finditer(
-            r"(?P<path>(?:[A-Za-z0-9_.%+() -]+/)+"
-            r"[A-Za-z0-9_.%+() -]+\.(?:webp|avif|png|jpe?g|gif|svg|ico|bmp|tiff)"
-            r"(?:\?[^\s\"'`<>]*)?)",
+            r"/(?P<basename>[A-Za-z0-9_.%+() -]+\."
+            r"(?:webp|avif|png|jpe?g|gif|svg|ico|bmp|tiff))"
+            r"(?:\?[^\s\"'`<>]*)?",
             text,
             _re.IGNORECASE,
         )
@@ -366,6 +480,18 @@ def _scan_file_for_assets(
             return urljoin(base_url.rstrip('/') + '/', raw)
         return _resolve(raw)
 
+    def _is_generated_output_filename(raw: str, before: str) -> bool:
+        """Reject filenames written by the page rather than fetched by it."""
+        if file_ext not in ('.js', '.mjs', '.cjs'):
+            return False
+        if _re.search(r'\.download\s*=\s*$', before, _re.IGNORECASE):
+            return True
+        # PostCSS's source-map generator uses this as a fallback output label;
+        # it is not a stylesheet dependency.
+        return raw.strip().lower() == 'to.css' and bool(
+            _re.search(r'relative\([^)]*opts\.from[^)]*\)\s*:\s*$', before, _re.IGNORECASE)
+        )
+
     # JavaScript galleries often keep a shared base path separately from a
     # large filename array: ``const imageSrc='image/'; imagesToLoad=['card/x.webp']``.
     # The browser concatenates both pieces, so scanning the array item alone
@@ -425,10 +551,18 @@ def _scan_file_for_assets(
             continue
         if raw in inferred_dynamic_assets:
             continue
+        if raw in bundled_module_ids:
+            continue
         if _re.match(r'^(?:application|text|image|audio|video|font)/', raw, _re.IGNORECASE) and ',' in raw:
             continue
         after = text[m.end():m.end() + 48]
         before = text[max(0, m.start() - 48):m.start()]
+        # ``anchor.download = "canvas.png"`` names a file generated by the
+        # page; it is not a network resource. Treating it as an input asset
+        # creates a bogus request and placeholder in every ICC viewer with an
+        # image-export button.
+        if _is_generated_output_filename(raw, before):
+            continue
         if _is_redundant_img_metadata_alias(raw, before):
             continue
         # Vite emits ``new URL(`asset-hash.webp`, import.meta.url)``.  This
@@ -443,7 +577,17 @@ def _scan_file_for_assets(
         # requests.  The hashed import on the value side is the real asset.
         if file_ext in ('.js', '.mjs', '.cjs') and _re.match(r'\s*:', after):
             continue
-        r = _resolve(raw) if is_module_asset else _resolve_js_literal(raw)
+        is_document_request = bool(
+            file_ext in ('.js', '.mjs', '.cjs')
+            and _re.search(
+                r'\.open\(\s*["\']GET["\']\s*,\s*$', before,
+                _re.IGNORECASE,
+            )
+        )
+        if is_document_request:
+            r = urljoin(base_url.rstrip('/') + '/', raw)
+        else:
+            r = _resolve(raw) if is_module_asset else _resolve_js_literal(raw)
         if r: found.add(r)
 
     # ── Static ES module imports: import{...}from"./foo.js" / import"./foo.js" ──
@@ -509,10 +653,14 @@ def _scan_file_for_assets(
         raw = m.group(1)
         if raw in inferred_dynamic_assets:
             continue
+        if raw in bundled_module_ids:
+            continue
         if _re.match(r'^(?:application|text|image|audio|video|font)/', raw, _re.IGNORECASE) and ',' in raw:
             continue
         after = text[m.end():m.end() + 48]
         before = text[max(0, m.start() - 48):m.start()]
+        if _is_generated_output_filename(raw, before):
+            continue
         if _is_redundant_img_metadata_alias(raw, before):
             continue
         is_module_asset = False
