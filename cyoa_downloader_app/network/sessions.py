@@ -16,7 +16,7 @@ from urllib3.util.retry import Retry
 from ..logging_setup import logger
 from ..runtime import state
 from ..runtime.compat import mirror_to_legacy
-from .proxy import _get_active_proxy
+from .proxy import _get_active_proxies
 
 
 def create_retry_session(use_cloudscraper: bool = False) -> requests.Session:
@@ -56,10 +56,10 @@ def create_retry_session(use_cloudscraper: bool = False) -> requests.Session:
         "Pragma": "no-cache",
     })
 
-    proxy_url = _get_active_proxy()
-    if proxy_url:
-        session.proxies = {"http": proxy_url, "https": proxy_url}
-        logger.debug(f"Session using proxy: {proxy_url}")
+    proxy_mapping = _get_active_proxies()
+    if proxy_mapping:
+        session.proxies.update(proxy_mapping)
+        logger.debug("Session using configured proxy profile")
     return session
 
 

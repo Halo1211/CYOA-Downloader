@@ -19,7 +19,7 @@ def test_phase62_runtime_state_reexport_identity():
 
     assert legacy._RUN_DOWNLOAD_LOCK is state._RUN_DOWNLOAD_LOCK
     assert isinstance(state._RUN_DOWNLOAD_LOCK, threading.RLock().__class__)
-    assert legacy.DNS_PRESETS["Cloudflare 1.1.1.1"] == "1.1.1.1"
+    assert legacy.DNS_PRESETS["Cloudflare 1.1.1.1 (UDP)"] == "1.1.1.1"
     assert legacy.BEBASDNS_DOH_VARIANTS["default"].startswith("https://")
     assert legacy._domain_backoff is state._domain_backoff
 

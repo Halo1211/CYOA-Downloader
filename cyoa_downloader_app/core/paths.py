@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shutil
@@ -9,6 +10,23 @@ from typing import List
 from urllib.parse import unquote
 
 from ..logging_setup import logger
+
+_MAX_SAFE_SEGMENT_BYTES = 140
+
+
+def _truncate_path_segment(name: str) -> str:
+    """Bound one sanitized path segment while preserving its extension."""
+    encoded = name.encode("utf-8", "replace")
+    if len(encoded) <= _MAX_SAFE_SEGMENT_BYTES:
+        return name
+    root, ext = os.path.splitext(name)
+    if len(ext.encode("utf-8", "replace")) > 16:
+        root, ext = name, ""
+    digest = hashlib.sha256(encoded).hexdigest()[:10]
+    ext_bytes = ext.encode("utf-8", "replace")
+    budget = max(1, _MAX_SAFE_SEGMENT_BYTES - len(ext_bytes) - 11)
+    root = root.encode("utf-8", "replace")[:budget].decode("utf-8", "ignore")
+    return f"{root}_{digest}{ext}"
 
 def _is_windows_reserved_basename(name: str) -> bool:
     """True if *name*'s base (before first dot) is a Windows reserved device
@@ -42,7 +60,7 @@ def _safe_rel_path(value: str, fallback: str = "asset") -> str:
         if part and _is_windows_reserved_basename(part):
             part = "_" + part
         if part:
-            parts.append(part)
+            parts.append(_truncate_path_segment(part))
     return "/".join(parts) or fallback
 
 def _safe_join(root: str, rel_path: str, fallback: str = "asset") -> str:

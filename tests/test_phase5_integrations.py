@@ -24,6 +24,10 @@ def test_phase5_facade_integration_names_still_match_modules():
     assert cyoa_downloader._apply_offline_viewer is injector._apply_offline_viewer
 
 
+def test_gallery_dl_recognizes_zerochan_post_pages():
+    assert gdl_mod._GALLERY_DL_HOSTS["www.zerochan.net"] == "zerochan"
+
+
 def test_phase5_ai_and_ssrf_smoke():
     assert ai_mod._normalize_ai_provider("Open AI") == "openai"
     assert ai_mod._default_ai_model("ollama")

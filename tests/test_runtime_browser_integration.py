@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
 import threading
@@ -61,15 +62,20 @@ def test_real_browser_scroll_and_safe_interaction_capture_runtime_assets():
     try:
         sink = _CaptureSink()
         url = f"http://127.0.0.1:{server.server_port}/"
-        result = capture_runtime_assets(
-            sink,
-            [url],
-            settle_time_ms=500,
-            capture_interactions=True,
-            max_scroll_steps=10,
-            max_interactions=3,
-            no_progress_rounds=1,
-        )
+
+        async def capture_from_running_loop():
+            return capture_runtime_assets(
+                sink,
+                [url],
+                settle_time_ms=500,
+                capture_interactions=True,
+                max_scroll_steps=10,
+                max_interactions=3,
+                no_progress_rounds=1,
+            )
+
+        # Reproduce GUI/embedded callers that already own an asyncio loop.
+        result = asyncio.run(capture_from_running_loop())
     finally:
         server.shutdown()
         server.server_close()

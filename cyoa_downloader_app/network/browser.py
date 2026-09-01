@@ -13,7 +13,9 @@ from typing import Optional
 import requests
 
 from ..logging_setup import logger
+from .proxy import _get_browser_proxy_config
 from .sessions import create_retry_session
+from .vpn import vpn_requirement_satisfied
 
 
 @dataclass(frozen=True)
@@ -34,15 +36,19 @@ class BrowserFetchSession:
         self._context = None
         self._page = None
 
-    def _ensure(self) -> None:
+    def _ensure(self, url: str) -> None:
         if self._page is not None:
             return
         from playwright.sync_api import sync_playwright
 
+        proxy_config = _get_browser_proxy_config(url)
+        if proxy_config is None:
+            raise RuntimeError("manual proxy transport is unsupported by browser fallback")
         self._playwright = sync_playwright().start()
-        self._browser = self._playwright.chromium.launch(
-            headless=True, args=["--no-sandbox"],
-        )
+        launch_kwargs = {"headless": True, "args": ["--no-sandbox"]}
+        if proxy_config:
+            launch_kwargs["proxy"] = proxy_config
+        self._browser = self._playwright.chromium.launch(**launch_kwargs)
         self._context = self._browser.new_context(
             user_agent=(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -54,8 +60,11 @@ class BrowserFetchSession:
 
     def fetch(self, url: str, *, timeout_ms: int = 45_000) -> Optional[BrowserFetchResult]:
         with self._lock:
+            if not vpn_requirement_satisfied():
+                logger.error("VPN guard blocked reusable browser fetch: %s", url)
+                return None
             try:
-                self._ensure()
+                self._ensure(url)
                 response = self._page.goto(
                     url, wait_until="domcontentloaded", timeout=timeout_ms,
                 )
@@ -180,11 +189,21 @@ def _fetch_headless(url: str, reject_error_documents: bool = False) -> Optional[
     Used when normal HTTP fetch fails or returns <1KB content for images.
     Returns raw bytes or None.
     """
+    if not vpn_requirement_satisfied():
+        logger.error("VPN guard blocked headless browser fetch: %s", url)
+        return None
+    proxy_config = _get_browser_proxy_config(url)
+    if proxy_config is None:
+        logger.error("Manual proxy transport is unsupported by browser fallback: %s", url)
+        return None
     # ── Try Playwright first ──────────────────────────────────────────
     try:
         from playwright.sync_api import sync_playwright
         with sync_playwright() as pw:
-            browser = pw.chromium.launch(headless=True, args=["--no-sandbox"])
+            launch_kwargs = {"headless": True, "args": ["--no-sandbox"]}
+            if proxy_config:
+                launch_kwargs["proxy"] = proxy_config
+            browser = pw.chromium.launch(**launch_kwargs)
             # try/finally so the launched Chromium process is
             # always closed. Previously, if page.goto()/resp.body() raised (the
             # common case that triggers this headless fallback in the first
@@ -234,6 +253,8 @@ def _fetch_headless(url: str, reject_error_documents: bool = False) -> Optional[
         opts.add_argument("--disable-gpu")
         opts.add_argument("--disable-dev-shm-usage")
         opts.add_argument("--log-level=3")
+        if proxy_config:
+            opts.add_argument(f"--proxy-server={proxy_config['server']}")
         import base64 as _b64
         drv = webdriver.Chrome(options=opts)
         try:

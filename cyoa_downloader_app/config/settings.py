@@ -54,8 +54,20 @@ _SETTINGS_DEFAULTS: Dict[str, Any] = {
     # settings.json. The GUI presents this value as GB.
     "image_cache_max_mb": 2048,
     "http2_enabled": False,
+    "proxy_mode": "inherit_env",
+    "proxy": "",
+    "proxy_http": "",
+    "proxy_https": "",
+    "proxy_no_proxy": "localhost,127.0.0.1,::1",
     "dns": "",
+    "dns_protocol": "system",
+    "dns_port": 0,
+    "dns_timeout": 5,
+    "dns_fallback_system": True,
+    "dns_ipv6": True,
     "bebasdns_variant": "",
+    "vpn_policy": "system",
+    "vpn_interface": "",
     "gallery_dl_mode": "off",
     "discord_bot_token": "",
     "auto_detect_output": "folder",
@@ -105,7 +117,10 @@ _SETTINGS_GROUPS = (
         "serve_enabled", "cheat_enabled",
     )),
     ("NETWORK & CLOUDFLARE / JARINGAN", (
-        "http2_enabled", "dns", "bebasdns_variant", "cloudflare_mode",
+        "http2_enabled", "proxy_mode", "proxy", "proxy_http", "proxy_https",
+        "proxy_no_proxy", "dns", "dns_protocol", "dns_port", "dns_timeout",
+        "dns_fallback_system", "dns_ipv6", "bebasdns_variant",
+        "vpn_policy", "vpn_interface", "cloudflare_mode",
         "cloudflare_priority",
         "flaresolverr_url", "flaresolverr_session_policy",
         "flaresolverr_timeout", "flaresolverr_wait_after", "flaresolverr_proxy_mode",
@@ -146,6 +161,9 @@ _SETTINGS_ENUMS = {
     "archive_interaction_policy": {"off", "safe"},
     "gallery_dl_mode": {"off", "smart", "force"},
     "cloudflare_mode": {"off", "auto", "cloudscraper", "flaresolverr"},
+    "proxy_mode": {"inherit_env", "manual", "disabled"},
+    "dns_protocol": {"system", "udp", "tcp", "doh", "dot"},
+    "vpn_policy": {"system", "require"},
     "cloudflare_priority": {"flaresolverr_first", "cloudscraper_first"},
     "flaresolverr_session_policy": {"temporary", "reuse-domain", "manual"},
     "flaresolverr_proxy_mode": {"inherit", "none"},
@@ -167,6 +185,8 @@ _SETTINGS_INT_RANGES = {
     "ai_max_html_chars": (1000, 2_000_000),
     "ai_max_js_chars": (1000, 2_000_000),
     "image_cache_max_mb": (1, 1024 * 1024),
+    "dns_port": (0, 65535),
+    "dns_timeout": (1, 60),
 }
 
 
@@ -182,6 +202,9 @@ def _settings_metadata() -> Dict[str, Any]:
             "discord_bot_token": "Saved directly in this file. Keep settings.json private.",
             "archive_strategy": "auto is recommended for modern JavaScript websites.",
             "archive_max_pages": "Maximum option routes downloaded for one story.",
+            "dns_protocol": "system, udp, tcp, doh (HTTPS), or dot (TLS)",
+            "vpn_policy": "system follows OS routing; require blocks downloads unless a VPN-like interface is active",
+            "proxy_mode": "inherit_env, manual, or disabled",
         },
         "archive_modes": {
             "classic": "Original single-page behavior",
@@ -239,6 +262,14 @@ def _normalize_loaded_settings(data: Dict[str, Any]) -> Dict[str, Any]:
     # available in Settings after this one-time default migration.
     if loaded_schema < 2 and str(clean.get("archive_strategy", "classic")).lower() == "classic":
         clean["archive_strategy"] = "auto"
+    # Schema 4 makes DNS transport and proxy inheritance explicit. Preserve
+    # the behavior of older files that stored only one endpoint string.
+    if clean.get("dns") and "dns_protocol" not in clean:
+        clean["dns_protocol"] = (
+            "doh" if str(clean["dns"]).strip().lower().startswith("https://") else "udp"
+        )
+    if clean.get("proxy") and "proxy_mode" not in clean:
+        clean["proxy_mode"] = "manual"
     merged = {**_SETTINGS_DEFAULTS, **clean}
 
     for key, default in _SETTINGS_DEFAULTS.items():

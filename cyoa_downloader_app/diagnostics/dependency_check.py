@@ -35,6 +35,7 @@ def dependency_check_report() -> str:
         ("customtkinter", "customtkinter", "required-for-gui", "Modern GUI widgets", "CLI remains usable; GUI cannot launch."),
         ("PIL", "pillow", "optional-gui-image", "GUI/image preview utilities", "GUI runs with reduced image utilities."),
         ("cloudscraper", "cloudscraper", "optional-network", "Cloudflare fallback", "Normal requests and FlareSolverr path remain."),
+        ("socks", "PySocks", "optional-network", "SOCKS4/5 and SOCKS5h proxy transport", "HTTP/HTTPS proxies remain available."),
         ("plyer", "plyer", "optional-gui", "Desktop notifications", "No desktop notification."),
         ("rarfile", "rarfile", "optional-viewer", ".rar offline viewer import", "ZIP import remains supported."),
         ("gallery_dl", "gallery-dl", "optional-fallback", "Gallery/post downloader fallback", "Core downloader remains active."),

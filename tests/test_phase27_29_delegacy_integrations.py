@@ -3,6 +3,7 @@ import sqlite3
 import tempfile
 
 from cyoa_downloader_app.runtime import surface as legacy
+from cyoa_downloader_app.config import settings as settings_store
 from cyoa_downloader_app.diagnostics.self_test import run_internal_self_test
 from cyoa_downloader_app.integrations import cyoa_manager, gallery_dl
 
@@ -58,3 +59,16 @@ def test_phase28_gallery_dl_real_module_state_and_candidate_sync():
 def test_phase29_self_test_moved_out_of_legacy_and_alias_preserved():
     assert run_internal_self_test.__module__ == "cyoa_downloader_app.diagnostics.self_test"
     assert legacy.run_internal_self_test is run_internal_self_test
+
+
+def test_phase29_internal_self_test_passes_without_touching_active_settings(tmp_path, monkeypatch):
+    active_settings = tmp_path / "active-settings.json"
+    sentinel = b'{"language":"id","sentinel":"preserve-me"}\n'
+    active_settings.write_bytes(sentinel)
+    monkeypatch.setattr(settings_store, "_SETTINGS_FILE", str(active_settings))
+
+    passed, report = run_internal_self_test()
+
+    assert passed, report
+    assert active_settings.read_bytes() == sentinel
+    assert settings_store._SETTINGS_FILE == str(active_settings)

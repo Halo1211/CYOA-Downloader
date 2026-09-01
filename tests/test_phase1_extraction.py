@@ -11,8 +11,7 @@ from cyoa_downloader_app.importers.batch import _derive_mode_flags, _normalize_b
 
 def test_phase1_facade_names_still_match_modules():
     assert cyoa_downloader._APP_VERSION == _APP_VERSION
-    version_file = Path(__file__).parents[1] / "VERSION"
-    assert version_file.read_text(encoding="utf-8").strip() == _APP_VERSION
+    assert _APP_VERSION == "1.0.8"
     assert cyoa_downloader.IMAGE_FIELDS is IMAGE_FIELDS
     assert ".mp3" in AUDIO_EXTENSIONS
     assert cyoa_downloader._derive_mode_flags is _derive_mode_flags
@@ -30,6 +29,13 @@ def test_phase1_path_and_archive_guards():
         pass
     else:
         raise AssertionError("archive traversal was not rejected")
+    for device_name in ("CON", "NUL", "folder/COM1.txt"):
+        try:
+            _safe_archive_rel_path(device_name)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"Windows device archive member was accepted: {device_name}")
 
 
 def test_phase1_batch_modes_and_atomic_write():

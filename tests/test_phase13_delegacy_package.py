@@ -1,10 +1,12 @@
 import ast
+import json
 import os
 import tempfile
 import zipfile
 from pathlib import Path
 
 import cyoa_downloader
+import pytest
 from cyoa_downloader_app.download import package as package_mod
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -74,3 +76,42 @@ def test_phase13_zip_temp_folder_uses_normalized_members():
         assert Path(out).exists()
         with zipfile.ZipFile(out) as zf:
             assert "images/a.png" in zf.namelist()
+
+
+def test_phase13_zip_temp_folder_skips_symlinked_files(tmp_path, monkeypatch):
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "real.txt").write_text("real", encoding="utf-8")
+    linked = src / "linked.txt"
+    outside = tmp_path / "outside.txt"
+    outside.write_text("outside", encoding="utf-8")
+    try:
+        linked.symlink_to(outside)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlink creation is unavailable on this Windows environment")
+
+    out = package_mod.zip_temp_folder(str(src), str(tmp_path / "linked_archive.zip"))
+    with zipfile.ZipFile(out) as zf:
+        assert zf.namelist() == ["real.txt"]
+
+
+def test_package_manifest_and_verifier_do_not_follow_symlinked_files(tmp_path):
+    root = tmp_path / "package"
+    root.mkdir()
+    (root / "real.txt").write_text("real", encoding="utf-8")
+    outside = tmp_path / "outside.txt"
+    outside.write_text("outside", encoding="utf-8")
+    linked = root / "linked.txt"
+    try:
+        linked.symlink_to(outside)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlink creation is unavailable on this Windows environment")
+
+    ok, _message = package_mod.write_package_manifest(str(root))
+    assert ok
+    manifest = json.loads((root / "cyoa_manifest.json").read_text(encoding="utf-8"))
+    assert set(manifest["files"]) == {"real.txt"}
+
+    verify_ok, report = package_mod.verify_output_package(str(root))
+    assert not verify_ok
+    assert "linked/outside file in package: linked.txt" in report

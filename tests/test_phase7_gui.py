@@ -26,6 +26,15 @@ def test_phase7_gui_class_is_already_patched_and_patch_hook_is_stable():
     assert hasattr(cls, "_safe_message")
 
 
+def test_low_resolution_initial_gui_geometry_stays_inside_screen():
+    safe_w, safe_h, min_w, min_h = gui_app._responsive_window_geometry(800, 600)
+
+    assert safe_w <= 768
+    assert safe_h <= 512
+    assert min_w <= safe_w
+    assert min_h <= safe_h
+
+
 def test_phase7_preview_token_helpers_round_trip():
     token = preview_server._new_preview_token()
     try:
@@ -34,4 +43,3 @@ def test_phase7_preview_token_helpers_round_trip():
         assert preview_server._preview_token_valid("wrong-token") is False
     finally:
         preview_server._clear_preview_token()
-

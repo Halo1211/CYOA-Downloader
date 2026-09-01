@@ -1,4 +1,6 @@
 import ast
+import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -62,9 +64,7 @@ def test_output_helpers_moved_out_of_legacy():
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp) / "out"
         root.mkdir()
-        # Only the downloader's atomic temporary-file shape is disposable.
-        # A plain ``x.part`` may be legitimate user content and must survive.
-        part = root / "x.bin.123.456.part"
+        part = root / "x.123.456.part"
         part.write_text("partial", encoding="utf-8")
         assert output._cleanup_recent_part_files(str(root), time.time() - 1) == 1
         assert not part.exists()
@@ -83,3 +83,33 @@ def test_content_length_validator_moved_out_of_legacy():
     with pytest.raises(IOError):
         atomic_io.validate_response_content_length(Resp(), 3)
     assert "validate_response_content_length" not in _legacy_defined_symbols()
+
+
+def test_output_directory_lease_rejects_second_process(tmp_path):
+    output_dir = tmp_path / "downloads"
+    lock_root = tmp_path / "locks"
+    marker = tmp_path / "child-result"
+    output_dir.mkdir()
+    code = (
+        "from pathlib import Path\n"
+        "from cyoa_downloader_app.core.output import output_directory_lease\n"
+        "try:\n"
+        f"    with output_directory_lease({str(output_dir)!r}, timeout=0.2, lock_root={str(lock_root)!r}):\n"
+        "        result = 'entered'\n"
+        "except RuntimeError as exc:\n"
+        "    result = str(exc)\n"
+        f"Path({str(marker)!r}).write_text(result, encoding='utf-8')\n"
+    )
+
+    with output.output_directory_lease(
+        str(output_dir), timeout=1, lock_root=str(lock_root)
+    ):
+        process = subprocess.Popen([sys.executable, "-c", code], cwd=ROOT)
+        process.wait(timeout=10)
+        assert process.returncode == 0
+        assert "already in use" in marker.read_text(encoding="utf-8")
+
+    with output.output_directory_lease(
+        str(output_dir), timeout=1, lock_root=str(lock_root)
+    ) as canonical:
+        assert canonical == str(output_dir.resolve())

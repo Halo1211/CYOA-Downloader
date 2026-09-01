@@ -1,13 +1,12 @@
-# Python bytecode/cache
+# Python caches and test artifacts
 __pycache__/
 *.py[cod]
-*.pyo
-*.pyd
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 .coverage
 htmlcov/
+.audit-pytest-tmp/
 
 # Virtual environments
 .venv/
@@ -15,25 +14,41 @@ venv/
 env/
 ENV/
 
-# Build / packaging
+# Build and packaging
 build/
 dist/
 *.egg-info/
 *.spec
 !CYOA-Downloader.spec
 
-# Runtime output
+# Runtime output, logs, and partial files
 outputs/
 downloads/
 cyoa_output/
 *_offline/
 cyoa_downloader.log
+download_state.json
 failed_urls.txt
 failed_assets.txt
 failed_images.txt
 backup_report.txt
 *.part
 *.tmp
+
+# Local audit/reproduction output
+audit_*/
+live_test_*/
+test_download_*/
+gui-repro-*/
+.stress_queue_*/
+.tmp_*/
+.workspace_archive_*/
+old/
+
+# Completed local downloads (user data, not source)
+game_strange-bedfellows-fan-expansion/
+hypnosis-arena/
+hypnosis-arena_1/
 
 # Archives generated locally
 *.zip
@@ -46,7 +61,7 @@ settings.json
 .env.*
 !.env.example
 
-# OS / editor
+# OS and editor files
 .DS_Store
 Thumbs.db
 .vscode/

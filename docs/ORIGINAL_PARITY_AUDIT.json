@@ -1,0 +1,11 @@
+{
+  "original": "/mnt/data/cyoa_downloader(3).py",
+  "refactored": "/mnt/data/audit_phase69/cyoa_downloader.py",
+  "checked_callable_names": 363,
+  "missing_count": 0,
+  "missing": [],
+  "signature_diff_count": 0,
+  "signature_diffs": [],
+  "constant_diff_count": 0,
+  "constant_diffs": []
+}

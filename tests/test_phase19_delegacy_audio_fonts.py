@@ -89,6 +89,36 @@ def test_patch_audio_refs_matches_bare_youtube_id_and_direct_media_url():
     assert all(obj["useAudioURL"] is True for obj in objs)
 
 
+def test_patch_youtube_refs_updates_custom_playvideo_text():
+    project = {
+        "rows": [
+            {"titleText": "<button onclick=\"playVideo('q2G8nsYTGQg')\">Music</button>"}
+        ]
+    }
+    patched = audio_reports._patch_youtube_refs_in_json(
+        json.dumps(project),
+        {"https://www.youtube.com/watch?v=q2G8nsYTGQg": "audio/q2G8nsYTGQg.mp3"},
+    )
+    data = json.loads(patched)
+    assert "playVideo('audio/q2G8nsYTGQg.mp3')" in data["rows"][0]["titleText"]
+
+
+def test_patch_youtube_refs_updates_html_escaped_rich_text_link():
+    url = "https://www.youtube.com/watch?v=QJoIdrLqxLU&amp;rco=1"
+    project = {
+        "rows": [{"title": f'<a href="{url}">Soundtrack</a>'}],
+    }
+
+    patched = audio_reports._patch_youtube_refs_in_json(
+        json.dumps(project),
+        {url: "audio/QJoIdrLqxLU.mp3"},
+    )
+
+    title = json.loads(patched)["rows"][0]["title"]
+    assert 'href="audio/QJoIdrLqxLU.mp3"' in title
+    assert "youtube.com" not in title
+
+
 def test_font_helpers_are_real_module_functions():
     for name in ["_find_font_urls", "analyse_fonts", "_download_fonts_into_folder"]:
         fn = getattr(fonts, name)

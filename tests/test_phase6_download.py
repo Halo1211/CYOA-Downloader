@@ -42,3 +42,30 @@ def test_phase6_package_manifest_round_trip():
         assert isinstance(verify_ok, bool)
         assert isinstance(report, str)
         assert "package verification" in report
+
+
+def test_failure_log_counter_uses_report_total_not_nonempty_line_count():
+    report = """Broken Asset Report
+===================
+Generated : now
+Total     : 2
+
+[1] deep-scan
+  URL  : https://example.test/a.jpg
+  Err  : HTTP 404
+
+[2] deep-scan
+  URL  : https://example.test/b.jpg
+  Err  : HTTP 404
+"""
+    assert package_mod._count_failure_log_entries(report) == 2
+
+
+def test_failure_log_counter_counts_unique_append_style_urls():
+    report = """# Failed image downloads
+# Count : 3
+https://example.test/a.jpg\tHTTP 404
+https://example.test/b.jpg\ttimeout
+https://example.test/a.jpg\tHTTP 404
+"""
+    assert package_mod._count_failure_log_entries(report) == 2

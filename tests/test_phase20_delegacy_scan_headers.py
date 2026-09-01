@@ -33,6 +33,53 @@ def test_deep_scan_project_assets_detects_image_audio_and_youtube():
     assert any("dQw4w9WgXcQ" in y for y in youtube)
 
 
+def test_deep_scan_project_assets_detects_embedded_playvideo_ids():
+    project = {
+        "rows": [
+            {"titleText": "<button onclick=\"playVideo('q2G8nsYTGQg')\">Music</button>"}
+        ]
+    }
+    _, _, youtube = asset_scan._deep_scan_project_assets(
+        __import__("json").dumps(project),
+        "https://example.com/Bandori/",
+    )
+    assert youtube == {"https://www.youtube.com/watch?v=q2G8nsYTGQg"}
+
+
+def test_deep_scan_does_not_enqueue_rich_text_as_one_image_url():
+    project = {
+        "image": (
+            '<p>Intro <a href="https:/example.com/about">author</a></p>'
+            '<img src="https:/cdn.example/hero.jpg?rev=1" alt="background">'
+        )
+    }
+    images, _audio, _youtube = asset_scan._deep_scan_project_assets(
+        __import__("json").dumps(project),
+        "https://viewer.example/story/",
+    )
+    assert images == {"https://cdn.example/hero.jpg?rev=1"}
+    assert not any("<p>" in value or "/about" in value for value in images)
+
+
+def test_deep_scan_extracts_labeled_malformed_cdn_url():
+    project = {"image": "Twilight animation https:/cdn.example/twilight.gif"}
+    images, _audio, _youtube = asset_scan._deep_scan_project_assets(
+        __import__("json").dumps(project),
+        "https://viewer.example/story/",
+    )
+    assert images == {"https://cdn.example/twilight.gif"}
+
+
+def test_deep_scan_does_not_enqueue_labelled_cdn_image_as_one_path():
+    project = {"description": "Pinky bouncing 3D gif https:/cdn.example/pinky.gif"}
+    images, _audio, _youtube = asset_scan._deep_scan_project_assets(
+        __import__("json").dumps(project),
+        "https://viewer.example/story/",
+    )
+
+    assert images == {"https://cdn.example/pinky.gif"}
+
+
 def test_get_headers_for_url_is_real_domain_module_function():
     assert inspect.getmodule(headers.get_headers_for_url).__name__ == "cyoa_downloader_app.download.headers"
     assert website.get_headers_for_url is headers.get_headers_for_url

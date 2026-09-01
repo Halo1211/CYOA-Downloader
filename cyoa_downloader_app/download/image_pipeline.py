@@ -41,6 +41,7 @@ from .audio_download import _make_ytdlp_hook, _download_youtube_audio
 from .headers import get_headers_for_url
 from ..core.cancellation import _cancel_requested, _emit_progress_event, _raise_if_cancelled
 from ..core.progress import DownloadCancelledError
+from ..network.vpn import vpn_requirement_satisfied
 from ..integrations.discord_attachments import (
     DiscordAttachmentClient,
     REFRESHABLE_HTTP_STATUSES,
@@ -453,6 +454,11 @@ def process_images(
             if asset_path.startswith(("http://", "https://"))
             else urljoin(base_url.rstrip("/") + "/", asset_path)
         )
+        if not vpn_requirement_satisfied():
+            return (
+                asset_path, None, "", asset_url,
+                "VPN guard blocked asset request: required interface not detected",
+            )
         # Repair URLs extracted from hand-authored HTML such as https:/cdn/… .
         asset_url = re.sub(
             r"^(https?):/(?!/)", r"\1://", asset_url, flags=re.IGNORECASE
@@ -1202,90 +1208,27 @@ def _deep_scan_and_download_assets(
 
     failed_keys: Set[Tuple[str, str]] = set()
 
-    def _placeholder_bytes(rel_path: str) -> Optional[bytes]:
-        """Create a real image matching the missing asset's file format."""
-        extension = os.path.splitext(rel_path)[1].lower()
-        if extension == ".svg":
-            return _make_placeholder_svg(os.path.basename(rel_path))
-        formats = {
-            ".jpg": "JPEG", ".jpeg": "JPEG", ".png": "PNG",
-            ".webp": "WEBP", ".gif": "GIF", ".bmp": "BMP",
-            ".tif": "TIFF", ".tiff": "TIFF", ".ico": "ICO",
-        }
-        image_format = formats.get(extension)
-        if not image_format:
-            return None
-        try:
-            import io
-            from PIL import Image, ImageDraw
-
-            image = Image.new("RGB", (640, 400), "#292929")
-            draw = ImageDraw.Draw(image)
-            draw.rectangle((210, 85, 430, 275), outline="#777777", width=5)
-            draw.line((245, 120, 395, 240), fill="#999999", width=8)
-            draw.line((395, 120, 245, 240), fill="#999999", width=8)
-            label = os.path.basename(rel_path)
-            if len(label) > 64:
-                label = label[:61] + "..."
-            draw.text((24, 340), f"Missing upstream image: {label}", fill="#dddddd")
-            buffer = io.BytesIO()
-            save_kwargs = {"quality": 85} if image_format == "JPEG" else {}
-            image.save(buffer, format=image_format, **save_kwargs)
-            return buffer.getvalue()
-        except Exception as exc:
-            logger.debug("Unable to render placeholder for %s: %s", rel_path, exc)
-            return None
-
-    def _write_missing_image_placeholder(url: str, rel_path: str) -> bool:
-        parsed = urlparse(url)
-        base = urlparse(base_url)
-        if (
-            parsed.scheme.lower() not in {"http", "https"}
-            or parsed.netloc.lower() != base.netloc.lower()
-            or os.path.splitext(rel_path)[1].lower() not in _DEEP_SCAN_IMAGE_EXTENSIONS
-        ):
-            return False
-        content = _placeholder_bytes(rel_path)
-        if not content:
-            return False
-        try:
-            local_path = _safe_join(folder, rel_path)
-            if os.path.exists(local_path):
-                return False
-            os.makedirs(os.path.dirname(local_path), exist_ok=True)
-            atomic_write_bytes(local_path, content)
-            _disk_files.add(rel_path.replace("\\", "/"))
-            logger.warning("  [placeholder] missing upstream image: %s", rel_path)
-            return True
-        except Exception as exc:
-            logger.debug("Unable to save placeholder for %s: %s", rel_path, exc)
-            return False
-
     def _record_deep_failure(
         url: str,
         rel_path: Optional[str],
         error: str,
-        *,
-        placeholder: bool = False,
     ) -> None:
         rel = rel_path or _url_to_local(url)
         key = (url, error)
         if key in failed_keys:
             return
         failed_keys.add(key)
-        placeholder_written = bool(placeholder and rel and _write_missing_image_placeholder(url, rel))
-        display_error = error + ("; local placeholder created" if placeholder_written else "")
         failed_deep_assets.append({
             "url": url,
             "path": rel,
-            "error": display_error,
+            "error": error,
             "kind": "deep-scan",
         })
         _emit_progress_event(
             "file_failed",
             name=os.path.basename(rel or urlparse(url).path) or url,
             url=url,
-            error=display_error,
+            error=error,
         )
 
     def _deep_scan_rel_for_content(url: str, content: bytes) -> Optional[str]:
@@ -1304,7 +1247,6 @@ def _deep_scan_and_download_assets(
                 url,
                 rel_hint,
                 "response was an HTML/error document, not a binary asset",
-                placeholder=True,
             )
             logger.warning(f"  [deep rejected] HTML/error document: {url}")
             return None
@@ -1350,38 +1292,30 @@ def _deep_scan_and_download_assets(
             return None
         return urlunparse(parsed._replace(path=route_prefix + parsed.path))
 
-    # ── Reusable session with connection pooling ──────────────────────
-    # Keeps TCP connections alive across requests to the same host,
-    # avoiding repeated TLS handshakes (saves ~100-200ms per request).
-    _session = requests.Session()
-    _session.headers.update({"User-Agent": "Mozilla/5.0"})
-    _adapter = requests.adapters.HTTPAdapter(
-        pool_connections=16, pool_maxsize=32, max_retries=1)
-    _session.mount("https://", _adapter)
-    _session.mount("http://", _adapter)
-    _proxy = _get_active_proxy()
-    if _proxy:
-        _session.proxies.update({"http": _proxy, "https": _proxy})
-
     _http2_client = None
     if getattr(_legacy(), "_HTTP2_ENABLED", False):
         try:
             import httpx  # type: ignore
-            _http2_kwargs = dict(
-                http2=True,
-                follow_redirects=False,
-                timeout=20,
-                headers={"User-Agent": "Mozilla/5.0"},
+            _proxy_mode_current = str(
+                getattr(_legacy(), "_proxy_mode", "inherit_env")
             )
-            if _proxy:
-                # httpx changed proxy keyword behavior across versions. Try modern
-                # proxy= first, then fall back to proxies= for older releases.
-                try:
-                    _http2_client = httpx.Client(proxy=_proxy, **_http2_kwargs)
-                except TypeError:
-                    _http2_client = httpx.Client(proxies={"http://": _proxy, "https://": _proxy}, **_http2_kwargs)
-                logger.info("[deep scan] HTTP/2 enabled via httpx with proxy")
+            # Advanced manual proxy routing (per-scheme endpoints and
+            # NO_PROXY) is enforced by the shared requests pipeline. A single
+            # httpx.Client proxy cannot preserve that full profile, so keep
+            # correctness and fall back instead of bypassing/misrouting it.
+            if _proxy_mode_current == "manual":
+                logger.info(
+                    "[deep scan] HTTP/2 deferred: manual advanced proxy profile "
+                    "uses the shared requests pipeline"
+                )
             else:
+                _http2_kwargs = dict(
+                    http2=True,
+                    follow_redirects=False,
+                    timeout=20,
+                    headers={"User-Agent": "Mozilla/5.0"},
+                    trust_env=(_proxy_mode_current == "inherit_env"),
+                )
                 _http2_client = httpx.Client(**_http2_kwargs)
                 logger.info("[deep scan] HTTP/2 enabled via httpx")
         except Exception as e:
@@ -1395,6 +1329,11 @@ def _deep_scan_and_download_assets(
         Cloudflare/FlareSolverr, proxy, DNS, and retry policy remain consistent.
         """
         _raise_if_cancelled()
+        if not vpn_requirement_satisfied():
+            logger.error(
+                "[deep scan] VPN guard blocked request; required interface not detected"
+            )
+            return url, None, 0
         # SSRF screen: a scanned JS/CSS/HTML/project file can
         # reference a cross-origin internal host. Block it unless same-origin as
         # the page (base_url) or --allow-internal-hosts is set.
@@ -1589,7 +1528,6 @@ def _deep_scan_and_download_assets(
                             url,
                             _url_to_local(url),
                             f"HTTP {status or 'request failed'}",
-                            placeholder=True,
                         )
 
             # ── Vite /assets/ retry for root-level 404s ───────────────────
@@ -1638,11 +1576,6 @@ def _deep_scan_and_download_assets(
                 _http2_client.close()
             except Exception as _ignored_exc:
                 logger.debug("Ignored close exc (_http2_client) in deep scan: %s", _ignored_exc)
-        try:
-            _session.close()
-        except Exception as _ignored_exc:
-            logger.debug("Ignored close exc (_session) in deep scan: %s", _ignored_exc)
-
     if all_downloaded:
         logger.info(f"[deep scan] Complete: {len(all_downloaded)} total asset(s) downloaded"
                     f" in {round_n} round(s)")

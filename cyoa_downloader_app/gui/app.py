@@ -1373,6 +1373,7 @@ class CYOADownloaderGUI:
 
         tab_names = [
             ("Download" if is_en else "Download"),
+            ("Network" if is_en else "Jaringan"),
             ("Integrations" if is_en else "Integrasi"),
             ("Maintenance" if is_en else "Pemeliharaan"),
         ]
@@ -1412,8 +1413,9 @@ class CYOADownloaderGUI:
         nav_buttons = {}
         page_keywords = {
             tab_names[0]: "general auto output folder zip youtube cookie features deep scan selenium preview cheat gallery itch archive javascript policy pages depth runtime scroll click umum fitur arsip download",
-            tab_names[1]: "integrations ai cloudflare flaresolverr discord provider integrasi",
-            tab_names[2]: "maintenance settings file folder export import cache viewer tools pemeliharaan",
+            tab_names[1]: "network proxy http https socks vpn dns udp tcp doh dot tls resolver fallback ipv6 jaringan",
+            tab_names[2]: "integrations ai cloudflare flaresolverr discord provider integrasi",
+            tab_names[3]: "maintenance settings file folder export import cache viewer tools pemeliharaan",
         }
 
         def _show_page(name: str) -> None:
@@ -1433,7 +1435,8 @@ class CYOADownloaderGUI:
                 )
 
         nav_labels = [
-            (tab_names[0], "↓"), (tab_names[1], "↔"), (tab_names[2], "⚙"),
+            (tab_names[0], "↓"), (tab_names[1], "NET"),
+            (tab_names[2], "↔"), (tab_names[3], "⚙"),
         ]
         for nav_row, (name, icon) in enumerate(nav_labels, start=3):
             button = ctk.CTkButton(
@@ -1804,8 +1807,263 @@ class CYOADownloaderGUI:
         ctk.CTkButton(key_card, text=("Save" if is_en else "Simpan"), width=70, height=28,
                       command=_save_key, fg_color="#2563eb", hover_color="#1d4ed8").grid(row=0, column=3, rowspan=2, padx=(0, 10), pady=10)
 
+        # Network page ---------------------------------------------------
+        network = _page(tab_names[1])
+        r = _title(
+            network, 0,
+            "Network" if is_en else "Jaringan",
+            ("DNS transport, proxy routing, and a fail-closed VPN guard."
+             if is_en else
+             "Transport DNS, routing proxy, dan VPN guard fail-closed."),
+        )
+
+        network_card = ctk.CTkFrame(
+            network, fg_color=p["surface"], corner_radius=10,
+            border_width=1, border_color=p["border"],
+        )
+        network_card.grid(row=r, column=0, columnspan=2, sticky="ew", padx=6, pady=5)
+        for column in range(4):
+            network_card.grid_columnconfigure(column, weight=1)
+
+        proxy_mode_var = ctk.StringVar(value=str(st.get("proxy_mode", "inherit_env")))
+        proxy_var = ctk.StringVar(value=str(st.get("proxy", "")))
+        proxy_http_var = ctk.StringVar(value=str(st.get("proxy_http", "")))
+        proxy_https_var = ctk.StringVar(value=str(st.get("proxy_https", "")))
+        proxy_bypass_var = ctk.StringVar(value=str(
+            st.get("proxy_no_proxy", "localhost,127.0.0.1,::1")
+        ))
+        dns_protocol_var = ctk.StringVar(value=str(st.get("dns_protocol", "system")))
+        dns_server_var = ctk.StringVar(value=str(st.get("dns", "")))
+        dns_preset_var = ctk.StringVar(value=next(
+            (name for name, endpoint in DNS_PRESETS.items()
+             if endpoint == str(st.get("dns", "")) and endpoint != "__custom__"),
+            "Custom…" if st.get("dns") else "System (default)",
+        ))
+        dns_port_var = ctk.StringVar(value=str(st.get("dns_port", 0)))
+        dns_timeout_var = ctk.StringVar(value=str(st.get("dns_timeout", 5)))
+        dns_fallback_var = ctk.BooleanVar(value=bool(st.get("dns_fallback_system", True)))
+        dns_ipv6_var = ctk.BooleanVar(value=bool(st.get("dns_ipv6", True)))
+        vpn_policy_var = ctk.StringVar(value=str(st.get("vpn_policy", "system")))
+        vpn_interface_var = ctk.StringVar(value=str(st.get("vpn_interface", "")))
+        network_status = ctk.StringVar(value=(
+            "Not validated yet." if is_en else "Belum divalidasi."
+        ))
+
+        def _network_label(row: int, text: str, description: str) -> None:
+            ctk.CTkLabel(
+                network_card, text=text, font=ctk.CTkFont("Segoe UI", 11, "bold"),
+                text_color=p["fg"], anchor="w",
+            ).grid(row=row, column=0, columnspan=4, sticky="ew", padx=14, pady=(12, 1))
+            ctk.CTkLabel(
+                network_card, text=description, font=ctk.CTkFont("Segoe UI", 9),
+                text_color=p["muted"], anchor="w", justify="left", wraplength=700,
+            ).grid(row=row + 1, column=0, columnspan=4, sticky="ew", padx=14, pady=(0, 7))
+
+        def _network_field(row: int, column: int, label: str, variable, *, values=None,
+                           span: int = 1, placeholder: str = "", command=None):
+            field = ctk.CTkFrame(network_card, fg_color="transparent")
+            field.grid(row=row, column=column, columnspan=span, sticky="ew", padx=7, pady=4)
+            field.grid_columnconfigure(0, weight=1)
+            ctk.CTkLabel(
+                field, text=label, font=ctk.CTkFont("Segoe UI", 9),
+                text_color=p["muted"], anchor="w",
+            ).grid(row=0, column=0, sticky="ew", pady=(0, 2))
+            if values:
+                widget = ctk.CTkOptionMenu(
+                    field, variable=variable, values=values, height=30,
+                    fg_color=p["surface2"], button_color=p["panel"],
+                    button_hover_color=p["surface2"], command=command,
+                )
+            else:
+                widget = ctk.CTkEntry(
+                    field, textvariable=variable, height=30,
+                    placeholder_text=placeholder, fg_color=p["input_bg"],
+                    text_color=p["input_fg"], border_color=p["border"],
+                )
+            widget.grid(row=1, column=0, sticky="ew")
+            return widget
+
+        _network_label(
+            0, "Proxy",
+            ("HTTP, HTTPS, SOCKS4/5, and SOCKS5h are accepted. SOCKS5h resolves names through the proxy."
+             if is_en else
+             "Mendukung HTTP, HTTPS, SOCKS4/5, dan SOCKS5h. SOCKS5h meresolusi nama lewat proxy."),
+        )
+        _network_field(2, 0, "Mode", proxy_mode_var,
+                       values=["inherit_env", "manual", "disabled"])
+        _network_field(2, 1, "Common proxy", proxy_var, span=3,
+                       placeholder="socks5h://127.0.0.1:1080")
+        _network_field(3, 0, "HTTP override", proxy_http_var, span=2,
+                       placeholder="http://127.0.0.1:8080")
+        _network_field(3, 2, "HTTPS override", proxy_https_var, span=2,
+                       placeholder="http://127.0.0.1:8080")
+        _network_field(4, 0, "Bypass hosts / NO_PROXY", proxy_bypass_var, span=4,
+                       placeholder="localhost,127.0.0.1,::1,.local")
+
+        _network_label(
+            5, "DNS",
+            ("Choose system DNS, plain UDP/TCP, DNS-over-HTTPS (DoH), or DNS-over-TLS (DoT)."
+             if is_en else
+             "Pilih DNS sistem, UDP/TCP biasa, DNS-over-HTTPS (DoH), atau DNS-over-TLS (DoT)."),
+        )
+        def _select_dns_preset(label: str) -> None:
+            endpoint = DNS_PRESETS.get(label, "__custom__")
+            if endpoint == "__custom__":
+                try:
+                    dns_endpoint_widget.focus_set()
+                except Exception as exc:
+                    logger.debug("Could not focus custom DNS endpoint: %s", exc)
+                return
+            dns_server_var.set(endpoint)
+            dns_protocol_var.set(_infer_dns_protocol(endpoint))
+            dns_port_var.set("0")
+
+        _network_field(7, 0, "Preset", dns_preset_var,
+                       values=list(DNS_PRESETS.keys()), command=_select_dns_preset)
+        _network_field(7, 1, "Protocol", dns_protocol_var,
+                       values=["system", "udp", "tcp", "doh", "dot"])
+        dns_endpoint_widget = _network_field(
+            7, 2, "Resolver endpoint", dns_server_var, span=2,
+            placeholder="1.1.1.1 or https://cloudflare-dns.com/dns-query",
+        )
+        _network_field(8, 0, "Port (0 = default)", dns_port_var)
+        _network_field(8, 1, "Timeout (seconds)", dns_timeout_var)
+        ctk.CTkCheckBox(
+            network_card,
+            text=("Fall back to system DNS" if is_en else "Fallback ke DNS sistem"),
+            variable=dns_fallback_var, text_color=p["fg"],
+            fg_color=p["accent"], hover_color=p["accent"],
+        ).grid(row=8, column=2, sticky="w", padx=10, pady=(18, 4))
+        ctk.CTkCheckBox(
+            network_card, text=("Resolve IPv6 / AAAA" if is_en else "Resolusi IPv6 / AAAA"),
+            variable=dns_ipv6_var, text_color=p["fg"],
+            fg_color=p["accent"], hover_color=p["accent"],
+        ).grid(row=8, column=3, sticky="w", padx=10, pady=(18, 4))
+
+        _network_label(
+            9, "VPN guard",
+            ("System follows the OS route table. Require blocks downloader requests unless a VPN-like interface is active; it never starts or changes a VPN."
+             if is_en else
+             "System mengikuti route OS. Require memblokir request downloader jika interface VPN tidak aktif; aplikasi tidak pernah menyalakan atau mengubah VPN."),
+        )
+        _network_field(11, 0, "Policy", vpn_policy_var, values=["system", "require"])
+        _network_field(11, 1, "Interface name contains (optional)", vpn_interface_var, span=3,
+                       placeholder="WireGuard, Wintun, NordLynx, Tailscale…")
+
+        def _apply_network_settings() -> bool:
+            try:
+                dns_port = max(0, min(65535, int(dns_port_var.get().strip() or "0")))
+                dns_timeout = max(1, min(60, int(dns_timeout_var.get().strip() or "5")))
+                _set_proxy_config(
+                    mode=proxy_mode_var.get(), proxy=proxy_var.get(),
+                    http_proxy=proxy_http_var.get(), https_proxy=proxy_https_var.get(),
+                    no_proxy=proxy_bypass_var.get(),
+                )
+                _set_active_dns(
+                    dns_server_var.get(), protocol=dns_protocol_var.get(),
+                    port=dns_port, timeout=dns_timeout,
+                    fallback_system=bool(dns_fallback_var.get()),
+                    ipv6=bool(dns_ipv6_var.get()),
+                )
+                _set_vpn_config(vpn_policy_var.get(), vpn_interface_var.get())
+                updates = {
+                    "proxy_mode": proxy_mode_var.get(), "proxy": proxy_var.get().strip(),
+                    "proxy_http": proxy_http_var.get().strip(),
+                    "proxy_https": proxy_https_var.get().strip(),
+                    "proxy_no_proxy": proxy_bypass_var.get().strip(),
+                    "dns": dns_server_var.get().strip(),
+                    "dns_protocol": dns_protocol_var.get(), "dns_port": dns_port,
+                    "dns_timeout": dns_timeout,
+                    "dns_fallback_system": bool(dns_fallback_var.get()),
+                    "dns_ipv6": bool(dns_ipv6_var.get()),
+                    "vpn_policy": vpn_policy_var.get(),
+                    "vpn_interface": vpn_interface_var.get().strip(),
+                }
+                _update_settings(updates)
+                if hasattr(self, "_network_profile"):
+                    self._network_profile.update(updates)
+                if hasattr(self, "_proxy_var"):
+                    self._proxy_trace_suspended = True
+                    try:
+                        self._proxy_var.set(updates["proxy"])
+                    finally:
+                        self._proxy_trace_suspended = False
+                if hasattr(self, "_dns_var"):
+                    self._dns_trace_suspended = True
+                    try:
+                        self._dns_var.set(updates["dns"])
+                    finally:
+                        self._dns_trace_suspended = False
+                if hasattr(self, "_dns_preset_var"):
+                    preset_label = next(
+                        (name for name, endpoint in DNS_PRESETS.items()
+                         if endpoint == updates["dns"] and endpoint != "__custom__"),
+                        "Custom…" if updates["dns"] else "System (default)",
+                    )
+                    self._dns_preset_var.set(preset_label)
+                network_status.set(
+                    "Saved and applied to new requests." if is_en else
+                    "Tersimpan dan diterapkan ke request baru."
+                )
+                status_var.set(network_status.get())
+                return True
+            except (TypeError, ValueError) as exc:
+                network_status.set(f"Error: {exc}")
+                return False
+
+        def _test_network_settings() -> None:
+            if not _apply_network_settings():
+                return
+            # Deliberately offline: validate the effective in-process profile
+            # and inspect local interfaces only. A settings test must never
+            # generate traffic to cyoa.cafe or another third-party endpoint.
+            try:
+                vpn = get_vpn_status(refresh=True)
+                dns_config = _get_active_dns_config()
+                proxy_keys = sorted(
+                    key.upper() for key in _get_active_proxies()
+                    if key != "no_proxy"
+                )
+                if vpn.get("policy") == "require" and not vpn.get("available"):
+                    message = (
+                        "Valid config, but required VPN interface is not active. No external request sent."
+                        if is_en else
+                        "Konfigurasi valid, tetapi interface VPN wajib tidak aktif. Tidak ada request eksternal."
+                    )
+                else:
+                    dns_label = str(dns_config.get("protocol", "system")).upper()
+                    proxy_label = "/".join(proxy_keys) if proxy_keys else "direct/system"
+                    message = (
+                        f"Valid: DNS {dns_label}; proxy {proxy_label}. No external request sent."
+                        if is_en else
+                        f"Valid: DNS {dns_label}; proxy {proxy_label}. Tidak ada request eksternal."
+                    )
+            except Exception as exc:
+                message = f"Error: {exc}"
+            network_status.set(message)
+            status_var.set(message)
+
+        network_actions = ctk.CTkFrame(network_card, fg_color="transparent")
+        network_actions.grid(row=12, column=0, columnspan=4, sticky="ew", padx=14, pady=(8, 12))
+        network_actions.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            network_actions, textvariable=network_status,
+            font=ctk.CTkFont("Segoe UI", 9), text_color=p["muted"], anchor="w",
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        ctk.CTkButton(
+            network_actions, text=("Save & apply" if is_en else "Simpan & terapkan"),
+            width=116, height=30, command=_apply_network_settings,
+            fg_color=p["accent"], hover_color=p["accent"],
+        ).grid(row=0, column=1, padx=(0, 6))
+        network_test_button = ctk.CTkButton(
+            network_actions, text=("Validate offline" if is_en else "Validasi offline"),
+            width=96, height=30, command=_test_network_settings,
+            fg_color=p["surface2"], hover_color=p["surface"], text_color=p["fg"],
+        )
+        network_test_button.grid(row=0, column=2)
+
         # Integrations page ----------------------------------------------
-        integrations = _page(tab_names[1])
+        integrations = _page(tab_names[2])
         r = _title(
             integrations, 0,
             "Integrations" if is_en else "Integrasi",
@@ -1901,7 +2159,7 @@ class CYOADownloaderGUI:
         ).grid(row=3, column=1, columnspan=3, sticky="ew", padx=(0, 10), pady=(0, 9))
 
         # Maintenance page -----------------------------------------------
-        tools = _page(tab_names[2])
+        tools = _page(tab_names[3])
         r = _title(tools, 0, "Tools & Maintenance" if is_en else "Tools & Pemeliharaan",
                    "Manage storage and portable settings without another app window." if is_en else
                    "Kelola penyimpanan dan settings portabel tanpa jendela aplikasi tambahan.")
@@ -3225,9 +3483,49 @@ class CYOADownloaderGUI:
         self._bw_var = ctk.StringVar(value="0")
         _num_entry(row1, self._bw_var, 46).pack(side="left", padx=(3, 12))
 
+        # Apply the complete persisted network profile before constructing the
+        # compact controls.  Previously this toolbar only restored the legacy
+        # ``proxy`` and ``dns`` strings, silently discarding protocol, per-
+        # scheme proxy, DNS fallback, and VPN-guard settings.
+        _network_saved = _load_settings()
+        self._network_profile = _network_saved
+        try:
+            _set_proxy_config(
+                mode=str(_network_saved.get("proxy_mode", "inherit_env")),
+                proxy=str(_network_saved.get("proxy", "")),
+                http_proxy=str(_network_saved.get("proxy_http", "")),
+                https_proxy=str(_network_saved.get("proxy_https", "")),
+                no_proxy=str(_network_saved.get(
+                    "proxy_no_proxy", "localhost,127.0.0.1,::1"
+                )),
+            )
+        except (TypeError, ValueError) as exc:
+            logger.warning("Saved proxy profile is invalid; using environment mode: %s", exc)
+            _set_proxy_config(mode="inherit_env")
+        try:
+            _set_active_dns(
+                str(_network_saved.get("dns", "")),
+                protocol=str(_network_saved.get("dns_protocol", "system")),
+                port=int(_network_saved.get("dns_port", 0)),
+                timeout=int(_network_saved.get("dns_timeout", 5)),
+                fallback_system=bool(_network_saved.get("dns_fallback_system", True)),
+                ipv6=bool(_network_saved.get("dns_ipv6", True)),
+            )
+        except (TypeError, ValueError) as exc:
+            logger.warning("Saved DNS profile is invalid; using system DNS: %s", exc)
+            _set_active_dns("", protocol="system")
+        try:
+            _set_vpn_config(
+                str(_network_saved.get("vpn_policy", "system")),
+                str(_network_saved.get("vpn_interface", "")),
+            )
+        except (TypeError, ValueError) as exc:
+            logger.warning("Saved VPN guard is invalid; using system route: %s", exc)
+            _set_vpn_config("system", "")
+
         # Proxy field — compact, always visible
         _num_lbl(row1, "Proxy:").pack(side="left")
-        _proxy_init = _get_active_proxy() or ""
+        _proxy_init = str(_network_saved.get("proxy", ""))
         self._proxy_var = ctk.StringVar(value=_proxy_init)
         _proxy_entry = T(ctk.CTkEntry(
             row1, textvariable=self._proxy_var,
@@ -3238,21 +3536,44 @@ class CYOADownloaderGUI:
             fg_color="input_bg", border_color="border", text_color="input_fg")
         _proxy_entry.pack(side="left", padx=(3, 4))
 
-        def _on_proxy_set(*_):
+        self._proxy_trace_suspended = False
+        self._proxy_after_id = None
+
+        def _apply_compact_proxy() -> None:
             v = self._proxy_var.get().strip()
-            _set_active_proxy(v if v else None)
-            _update_setting("proxy", v)
+            http_proxy = str(_network_saved.get("proxy_http", "")).strip()
+            https_proxy = str(_network_saved.get("proxy_https", "")).strip()
+            mode = "manual" if any((v, http_proxy, https_proxy)) else "disabled"
+            try:
+                _set_proxy_config(
+                    mode=mode, proxy=v, http_proxy=http_proxy,
+                    https_proxy=https_proxy,
+                    no_proxy=str(_network_saved.get(
+                        "proxy_no_proxy", "localhost,127.0.0.1,::1"
+                    )),
+                )
+            except ValueError as exc:
+                logger.warning("Compact proxy value is not valid yet: %s", exc)
+                return
+            _network_saved.update({"proxy": v, "proxy_mode": mode})
+            _update_settings({"proxy": v, "proxy_mode": mode})
+
+        def _on_proxy_set(*_):
+            if getattr(self, "_proxy_trace_suspended", False):
+                return
+            try:
+                if self._proxy_after_id is not None:
+                    self.root.after_cancel(self._proxy_after_id)
+            except Exception as exc:
+                logger.debug("Could not cancel compact proxy debounce: %s", exc)
+            self._proxy_after_id = self.root.after(750, _apply_compact_proxy)
+
         self._proxy_var.trace_add("write", _on_proxy_set)
-        # Load from settings
-        _saved_proxy = _load_settings().get("proxy", "")
-        if _saved_proxy:
-            self._proxy_var.set(_saved_proxy)
-            _set_active_proxy(_saved_proxy)
 
         # DNS — preset dropdown + optional custom entry
         _num_lbl(row1, "DNS:").pack(side="left", padx=(8, 0))
 
-        _saved_dns  = _load_settings().get("dns", "")
+        _saved_dns = str(_network_saved.get("dns", ""))
         self._dns_var = ctk.StringVar(value=_saved_dns)
 
         # Find matching preset label (or "Custom…")
@@ -3284,11 +3605,23 @@ class CYOADownloaderGUI:
                     self._dns_var.set(ip)
                 finally:
                     self._dns_trace_suspended = False
-                _apply_dns(ip)
+                _apply_dns(ip, protocol=_infer_dns_protocol(ip))
 
-        def _apply_dns(ip: str) -> None:
-            _set_active_dns(ip)
-            _update_setting("dns", ip)
+        def _apply_dns(ip: str, *, protocol: str | None = None) -> None:
+            selected_protocol = protocol or str(
+                _network_saved.get("dns_protocol", "system")
+            )
+            if selected_protocol == "system" and ip:
+                selected_protocol = _infer_dns_protocol(ip)
+            _set_active_dns(
+                ip, protocol=selected_protocol,
+                port=int(_network_saved.get("dns_port", 0)),
+                timeout=int(_network_saved.get("dns_timeout", 5)),
+                fallback_system=bool(_network_saved.get("dns_fallback_system", True)),
+                ipv6=bool(_network_saved.get("dns_ipv6", True)),
+            )
+            _network_saved.update({"dns": ip, "dns_protocol": selected_protocol})
+            _update_settings({"dns": ip, "dns_protocol": selected_protocol})
 
         T(ctk.CTkOptionMenu(
             row1, variable=self._dns_preset_var,
@@ -3345,10 +3678,6 @@ class CYOADownloaderGUI:
                 _dns_custom_row.grid()
             except Exception as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _setup_ui (line 5719): %s", _ignored_exc)
-
-        # Apply saved DNS on startup
-        if _saved_dns:
-            _set_active_dns(_saved_dns)
 
         # Import/export use a dedicated full-width row. Keeping them in row1
         # allowed the left-side DNS/proxy controls to cover Import until the
@@ -9235,9 +9564,11 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             ],
             "network": [
                 ("🌐  Network Controls", "accent", [
-                    ("Proxy", "Applies HTTP, HTTPS, or SOCKS proxy settings to downloader requests."),
-                    ("DNS", "Uses system DNS, preset DNS, custom DNS, or BebasDNS DoH for process-local resolution. Custom DNS now opens on its own visible row, so the field is not hidden on normal window widths."),
+                    ("Advanced settings", "Open Settings → Network to configure the complete profile, save it, and test the actual HTTPS route."),
+                    ("Proxy", "Supports environment, disabled, and manual profiles; common or per-HTTP/HTTPS endpoints; HTTP(S), SOCKS4/5, SOCKS5h, and bypass hosts."),
+                    ("DNS", "Supports system DNS, UDP, TCP, DNS-over-HTTPS, and DNS-over-TLS with custom port, timeout, IPv6, and optional system fallback."),
                     ("BebasDNS", "Uses DNS-over-HTTPS presets without changing Windows, router, browser, or hosts-file settings."),
+                    ("VPN guard", "System follows OS routing. Require blocks downloader requests unless an active VPN-like or explicitly named interface is detected; it does not start a VPN."),
                     ("HTTP/2", "Uses httpx HTTP/2 for compatible deep-scan requests."),
                     ("Broken assets", "Writes failed asset details into backup_report.txt when available, otherwise into failed_assets.txt."),
                 ]),
@@ -9425,9 +9756,11 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             ],
             "network": [
                 ("🌐  Kontrol Jaringan", "accent", [
-                    ("Proxy", "Menerapkan proxy HTTP, HTTPS, atau SOCKS untuk request downloader."),
-                    ("DNS", "Memakai DNS sistem, preset DNS, DNS khusus, atau BebasDNS DoH untuk resolusi lokal proses. DNS khusus sekarang tampil di baris sendiri agar kolomnya tidak tersembunyi pada lebar window normal."),
+                    ("Setting lanjutan", "Buka Settings → Jaringan untuk mengatur profil lengkap, menyimpannya, dan menguji rute HTTPS yang benar-benar dipakai."),
+                    ("Proxy", "Mendukung mode environment, disabled, dan manual; endpoint umum atau per HTTP/HTTPS; HTTP(S), SOCKS4/5, SOCKS5h, serta bypass host."),
+                    ("DNS", "Mendukung DNS sistem, UDP, TCP, DNS-over-HTTPS, dan DNS-over-TLS dengan port, timeout, IPv6, serta fallback sistem opsional."),
                     ("BebasDNS", "Memakai preset DNS-over-HTTPS tanpa mengubah Windows, router, browser, atau hosts file."),
+                    ("VPN guard", "System mengikuti routing OS. Require memblokir request downloader bila interface VPN aktif atau nama yang diminta tidak terdeteksi; fitur ini tidak menyalakan VPN."),
                     ("HTTP/2", "Memakai HTTP/2 dari httpx untuk request deep scan yang kompatibel."),
                     ("Asset rusak", "Menulis detail asset gagal ke backup_report.txt jika tersedia, atau failed_assets.txt jika tidak ada backup report."),
                 ]),
@@ -9692,6 +10025,9 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 ("Policy", "API keys, tokens, cookies, passwords, and bearer credentials are not written to exports/reports/logs."),
             ]),
             ("🌐  Network / fallback flags", "muted", [
+                ("DNS", "Use --dns-protocol system|udp|tcp|doh|dot, --dns, --dns-port, --dns-timeout, --[no-]dns-fallback-system, and --[no-]dns-ipv6."),
+                ("Proxy", "Use --proxy-mode, --proxy, --proxy-http, --proxy-https, and --proxy-bypass."),
+                ("VPN guard", "Use --vpn-policy require and optional --vpn-interface NAME to fail closed when the expected tunnel is absent."),
                 ("Cloudflare", "Use --cf-bypass, --cf-mode, --flaresolverr-url, and --flaresolverr-test for Cloudflare-protected pages."),
                 ("Audio", "Use --no-ytdlp to disable yt-dlp audio recovery when needed."),
                 ("Scanners", "Use --no-deep-scan or --no-selenium only for troubleshooting; they reduce recovery coverage."),

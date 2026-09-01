@@ -20,6 +20,7 @@ from .cloudflare import (
 )
 from .sessions import _get_shared_session
 from .throttle import _domain_throttle
+from .vpn import vpn_requirement_satisfied
 from ..download.headers import get_headers_for_url
 from ..integrations.ai_core import _host_resolves_internal, _ssrf_block_cross_origin
 
@@ -55,6 +56,13 @@ def base_fetch_response(
     if _scheme not in ("http", "https"):
         if not quiet:
             l.logger.warning(f"Blocked non-http(s) URL scheme '{_scheme or '?'}': {url[:120]}")
+        return None
+    if not vpn_requirement_satisfied():
+        if not quiet:
+            l.logger.error(
+                "VPN guard blocked the request because no matching active VPN interface was found: %s",
+                url,
+            )
         return None
     _domain_throttle(url)
     headers = get_headers_for_url(url) or {"User-Agent": "Mozilla/5.0"}

@@ -1,0 +1,55 @@
+{
+  "source_original": "/mnt/data/cyoa_downloader(3).py",
+  "refactor_root": "/mnt/data/final_audit_phase73",
+  "original_sha256": "fc9711a725a72d1ab297db4afe7f49db1b24c93dc923150f560235f09131295e",
+  "entrypoint_sha256": "09b72506d74450ffd36f7c8c23b18756f3972860cd6f385274037e179df0b231",
+  "legacy_py_exists": false,
+  "python_files": 153,
+  "package_modules_imported": 110,
+  "package_modules_failed": 0,
+  "import_failures": [],
+  "ast_parse_failures": [],
+  "deleted_legacy_import_pattern_hits": [
+    {
+      "file": "tests/test_phase14_delegacy_parse.py",
+      "pattern": "from .. import legacy"
+    },
+    {
+      "file": "tests/test_phase15_delegacy_discover.py",
+      "pattern": "from .. import legacy"
+    },
+    {
+      "file": "tests/test_phase66_68_bridge_cleanup.py",
+      "pattern": "from .. import legacy"
+    },
+    {
+      "file": "tests/test_phase66_68_bridge_cleanup.py",
+      "pattern": "from ... import legacy"
+    },
+    {
+      "file": "tests/test_phase69_72_legacy_deleted.py",
+      "pattern": "cyoa_downloader_app.legacy"
+    },
+    {
+      "file": "tests/test_phase69_72_legacy_deleted.py",
+      "pattern": "from .. import legacy"
+    },
+    {
+      "file": "tests/test_phase69_72_legacy_deleted.py",
+      "pattern": "from ... import legacy"
+    }
+  ],
+  "runtime_surface_lines": 1110,
+  "runtime_surface_bytes": 47293,
+  "original_parity": {
+    "original": "/mnt/data/cyoa_downloader(3).py",
+    "refactored": "/mnt/data/final_audit_phase73/cyoa_downloader.py",
+    "checked_callable_names": 363,
+    "missing_count": 0,
+    "missing": [],
+    "signature_diff_count": 0,
+    "signature_diffs": [],
+    "constant_diff_count": 0,
+    "constant_diffs": []
+  }
+}

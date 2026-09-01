@@ -185,6 +185,7 @@ _PYTHON_DISTRIBUTIONS = {
     "yt_dlp_ejs": "yt-dlp-ejs",
     "gallery_dl": "gallery-dl",
     "dns": "dnspython",
+    "socks": "requests[socks]",
     "customtkinter": "customtkinter",
 }
 
@@ -245,7 +246,7 @@ def build_diagnostic_report(output_dir: str = "", check_network: bool = True,
     # Python dependencies
     deps = [
         ("requests", True), ("urllib3", True), ("bs4", True), ("customtkinter", True),
-        ("httpx", False), ("h2", False), ("dns", False),
+        ("httpx", False), ("h2", False), ("dns", False), ("socks", False),
         ("tldextract", False), ("PIL", False), ("pandas", False),
         ("openpyxl", False), ("xlrd", False),
         ("keyring", False), ("cloudscraper", False),

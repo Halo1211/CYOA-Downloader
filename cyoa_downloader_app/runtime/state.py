@@ -70,21 +70,34 @@ _ytdlp_gui_progress_cb = None
 # Proxy config.
 _active_proxy: Optional[str] = None
 _proxy_mode: str = "inherit_env"
+_proxy_http: Optional[str] = None
+_proxy_https: Optional[str] = None
+_proxy_no_proxy: str = "localhost,127.0.0.1,::1"
 
 # DNS config.
 _active_dns: Optional[str] = None
+_dns_protocol: str = "system"
+_dns_port: int = 0
+_dns_timeout: int = 5
+_dns_fallback_system: bool = True
+_dns_ipv6: bool = True
 _orig_getaddrinfo = _socket.getaddrinfo
 DNS_PRESETS: Dict[str, str] = {
     "System (default)": "",
+    "Cloudflare 1.1.1.1 (UDP)": "1.1.1.1",
+    "Cloudflare 1.0.0.1 (UDP)": "1.0.0.1",
+    "Cloudflare (DoH)": "https://cloudflare-dns.com/dns-query",
+    "Cloudflare (DoT)": "tls://one.one.one.one",
+    "Google 8.8.8.8 (UDP)": "8.8.8.8",
+    "Google 8.8.4.4 (UDP)": "8.8.4.4",
+    "Google (DoH)": "https://dns.google/dns-query",
+    "Quad9 9.9.9.9 (UDP)": "9.9.9.9",
+    "Quad9 (DoH)": "https://dns.quad9.net/dns-query",
+    "Quad9 (DoT)": "tls://dns.quad9.net",
     "BebasDNS Default (DoH)": "https://dns.bebasid.com/dns-query",
     "BebasDNS Security (DoH)": "https://security.dns.bebasid.com/dns-query",
     "BebasDNS Unfiltered (DoH)": "https://unfiltered.dns.bebasid.com/dns-query",
     "BebasDNS Family (DoH)": "https://family.dns.bebasid.com/dns-query",
-    "Cloudflare 1.1.1.1": "1.1.1.1",
-    "Cloudflare 1.0.0.1": "1.0.0.1",
-    "Google 8.8.8.8": "8.8.8.8",
-    "Google 8.8.4.4": "8.8.4.4",
-    "Quad9 9.9.9.9": "9.9.9.9",
     "OpenDNS 208.67.222": "208.67.222.222",
     "AdGuard 94.140.14": "94.140.14.14",
     "Custom…": "__custom__",
@@ -96,7 +109,13 @@ BEBASDNS_DOH_VARIANTS: Dict[str, str] = {
     "family": "https://family.dns.bebasid.com/dns-query",
 }
 _dns_bypass_local = _threading.local()
-_dns_cache: Dict[Tuple[str, str, int], Tuple[float, str]] = {}
+_dns_cache: Dict[Tuple[object, ...], Tuple[float, str]] = {}
 _DNS_CACHE_TTL_SECONDS = 300
+
+# VPN integration is deliberately a routing guard, not a tunnel manager. The
+# downloader follows the operating system route table; ``require`` fails
+# closed when no active VPN-like interface can be detected.
+_vpn_policy: str = "system"
+_vpn_interface: str = ""
 
 __all__ = [name for name in globals() if not (name.startswith("__") and name.endswith("__"))]

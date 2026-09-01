@@ -45,6 +45,7 @@ from ..integrations.ai_core import (
 from ..logging_setup import logger
 from ..network.browser import BrowserFetchSession
 from ..network.runtime_capture import _is_archive_noise_url
+from ..network.vpn import vpn_requirement_satisfied
 from ..project.discover import (
     get_first_folder_from_url,
     get_source,
@@ -69,6 +70,22 @@ except Exception:  # pragma: no cover - mirrors legacy fallback behavior
             "Missing dependency: beautifulsoup4 is required for HTML/ICC parsing. "
             "Install it with: pip install beautifulsoup4"
         )
+
+
+_ASSET_IN_PROGRESS = object()
+
+
+def _is_downloaded_local_file(value: object) -> bool:
+    """Return whether a cache value is a completed local asset path.
+
+    ``WebsiteDownloader._downloaded`` also stores ``None`` for failed assets
+    and an object sentinel while a recursive CSS/JS dependency is still being
+    processed.  Cache readers must never pass either marker to ``os.path``.
+    This became visible on CYOA.CAFE's Teen Titans viewer because
+    ``html-to-image.min.js`` contains an absolute URL to a script that is
+    already being rewritten on the same call stack.
+    """
+    return isinstance(value, (str, bytes, os.PathLike)) and os.path.isfile(value)
 
 
 def create_retry_session(*args, **kwargs):
@@ -218,7 +235,12 @@ class WebsiteDownloader:
         self.max_workers = max_workers
         self.session = create_retry_session()
         self._lock = threading.Lock()
-        self._downloaded: Dict[str, str] = {}
+        self._path_lock = threading.Lock()
+        # Values are local paths after success, None after failure, or the
+        # private in-progress sentinel while recursive text assets are parsed.
+        self._downloaded: Dict[str, object] = {}
+        self._download_events: Dict[str, threading.Event] = {}
+        self._download_owners: Dict[str, int] = {}
         self._source_for_local: Dict[str, str] = {}
         self._used_local_paths: Set[str] = set()
         parsed = urlparse(self.start_url)
@@ -699,6 +721,12 @@ class WebsiteDownloader:
         headers = self._headers_for(url)
         try:
             _raise_if_cancelled()
+            if not vpn_requirement_satisfied():
+                self._failed_items.append({
+                    "url": url,
+                    "error": "VPN guard blocked request: required interface not detected",
+                })
+                return None
             if self._browser_transport_preferred:
                 r = self._fetch_with_browser(url)
                 if r is None:
@@ -851,6 +879,50 @@ class WebsiteDownloader:
             return "html"
         return "assets"
 
+    @staticmethod
+    def _local_path_identity(path: str) -> str:
+        """Return a portable, case-insensitive identity for an output path."""
+        return os.path.normpath(os.path.abspath(path)).replace("\\", "/").casefold()
+
+    def _reserve_local_path(self, candidate: str, url: str, *, external: bool = False) -> str:
+        """Atomically reserve a collision-free path for one remote URL.
+
+        Windows treats differently-cased names as the same file, and asset
+        downloads may allocate paths concurrently.  A plain case-sensitive
+        set check allowed ``Logo.png`` and ``logo.png`` (or two simultaneous
+        cross-origin ``app.js`` files) to overwrite each other silently.
+        """
+        path_lock = getattr(self, "_path_lock", None)
+        if path_lock is None:  # supports lightweight __new__ test fixtures
+            path_lock = threading.Lock()
+            self._path_lock = path_lock
+        used = getattr(self, "_used_local_paths", None)
+        if used is None:
+            used = set()
+            self._used_local_paths = used
+
+        with path_lock:
+            local = candidate
+            root, ext = os.path.splitext(candidate)
+            counter = 1
+            while self._local_path_identity(local) in used:
+                local = f"{root}_{counter}{ext}"
+                counter += 1
+            used.add(self._local_path_identity(local))
+
+            if local != candidate:
+                label = "Path collision (external)" if external else "Path collision"
+                logger.warning(
+                    f"  {label}: {os.path.relpath(candidate, self.output_folder)} "
+                    f"already taken → renamed to {os.path.relpath(local, self.output_folder)}"
+                )
+                self._collision_log.append({
+                    "url": url,
+                    "original_path": os.path.relpath(candidate, self.output_folder).replace("\\", "/"),
+                    "saved_as": os.path.relpath(local, self.output_folder).replace("\\", "/"),
+                })
+            return local
+
     def _allocate_local_path(self, url: str, content_type: str = "", preferred_kind: str = "") -> str:
         kind = self._kind_from(url, content_type=content_type, preferred_kind=preferred_kind)
         if kind == "html":
@@ -908,24 +980,7 @@ class WebsiteDownloader:
                     rel_parts = f"{rel_root}_{digest}{rel_ext}"
                 local_candidate = _safe_join(self.output_folder, rel_parts)
                 os.makedirs(os.path.dirname(local_candidate), exist_ok=True)
-                local = local_candidate
-                root, ext = os.path.splitext(local)
-                counter = 1
-                while local in self._used_local_paths:
-                    local = f"{root}_{counter}{ext}"
-                    counter += 1
-                if local != local_candidate:
-                    logger.warning(
-                        f"  Path collision: {os.path.relpath(local_candidate, self.output_folder)} "
-                        f"already taken → renamed to {os.path.relpath(local, self.output_folder)}"
-                    )
-                    self._collision_log.append({
-                        "url": url,
-                        "original_path": os.path.relpath(local_candidate, self.output_folder).replace("\\", "/"),
-                        "saved_as":      os.path.relpath(local, self.output_folder).replace("\\", "/"),
-                    })
-                self._used_local_paths.add(local)
-                return local
+                return self._reserve_local_path(local_candidate, url)
 
         # ── Fallback: cross-domain URL — use type-based flat folder ──────────
         ext_hint = {
@@ -951,25 +1006,8 @@ class WebsiteDownloader:
         folder = _safe_join(self.output_folder, folder_name, fallback="assets")
         os.makedirs(folder, exist_ok=True)
 
-        local = _safe_join(folder, filename, fallback=kind or "asset")
-        root, ext = os.path.splitext(local)
-        counter = 1
-        while local in self._used_local_paths:
-            local = f"{root}_{counter}{ext}"
-            counter += 1
-        if counter > 1:
-            original_local = os.path.join(folder, filename)
-            logger.warning(
-                f"  Path collision (external): {os.path.relpath(original_local, self.output_folder)} "
-                f"already taken → renamed to {os.path.relpath(local, self.output_folder)}"
-            )
-            self._collision_log.append({
-                "url": url,
-                "original_path": os.path.relpath(original_local, self.output_folder).replace("\\", "/"),
-                "saved_as":      os.path.relpath(local, self.output_folder).replace("\\", "/"),
-            })
-        self._used_local_paths.add(local)
-        return local
+        local_candidate = _safe_join(folder, filename, fallback=kind or "asset")
+        return self._reserve_local_path(local_candidate, url, external=True)
 
     def _rel(self, from_file: str, to_file: str) -> str:
         return os.path.relpath(to_file, os.path.dirname(from_file)).replace("\\", "/")
@@ -996,6 +1034,24 @@ class WebsiteDownloader:
         except (OSError, ValueError):
             pass
         return relative
+
+    def _complete_asset_reservation(
+        self,
+        requested_full: str,
+        requested_cache_key: str,
+        local: Optional[str],
+    ) -> None:
+        """Publish one asset result and wake workers waiting for that URL."""
+        reservation_key = requested_cache_key or requested_full
+        event = None
+        with self._lock:
+            for key in {requested_full, requested_cache_key}:
+                if key and self._downloaded.get(key) is _ASSET_IN_PROGRESS:
+                    self._downloaded[key] = local
+            event = getattr(self, "_download_events", {}).pop(reservation_key, None)
+            getattr(self, "_download_owners", {}).pop(reservation_key, None)
+        if event is not None:
+            event.set()
 
     def _download_asset(self, url: str, preferred_kind: str = "", referrer_url: Optional[str] = None) -> Optional[str]:
         _raise_if_cancelled()
@@ -1040,20 +1096,61 @@ class WebsiteDownloader:
             )
             return None
 
+        wait_event = None
+        reservation_key = requested_cache_key or requested_full
+        current_thread = threading.get_ident()
         with self._lock:
-            # Check both full URL and path-only key (strips ?v=cache_buster)
-            cache_key = self._normalize_cache_key(full)
-            if full in self._downloaded:
-                return self._downloaded[full]
-            if cache_key != full and cache_key in self._downloaded:
-                cached = self._downloaded[cache_key]
-                self._downloaded[full] = cached   # alias
-                return cached
-            # ── Anti-recursion sentinel ────────────────────────────────────
-            self._downloaded[full] = None   # sentinel: in-progress
+            events = getattr(self, "_download_events", None)
+            if events is None:  # lightweight __new__ fixtures
+                events = {}
+                self._download_events = events
+            owners = getattr(self, "_download_owners", None)
+            if owners is None:
+                owners = {}
+                self._download_owners = owners
 
-        r = self._fetch(full)
-        _raise_if_cancelled()
+            existing_key = None
+            if full in self._downloaded:
+                existing_key = full
+            elif requested_cache_key != full and requested_cache_key in self._downloaded:
+                existing_key = requested_cache_key
+
+            if existing_key is not None:
+                cached = self._downloaded[existing_key]
+                if cached is not _ASSET_IN_PROGRESS:
+                    self._downloaded[full] = cached
+                    return cached
+                # Same-thread recursion is a CSS/JS import cycle. Other
+                # workers wait for the leader rather than localizing the
+                # temporary in-progress marker as a permanent failure.
+                if owners.get(reservation_key) == current_thread:
+                    return None
+                wait_event = events.get(reservation_key)
+            else:
+                event = threading.Event()
+                events[reservation_key] = event
+                owners[reservation_key] = current_thread
+                self._downloaded[full] = _ASSET_IN_PROGRESS
+                self._downloaded[requested_cache_key] = _ASSET_IN_PROGRESS
+
+        if wait_event is not None:
+            wait_event.wait(timeout=120)
+            with self._lock:
+                cached = self._downloaded.get(full)
+                if cached is _ASSET_IN_PROGRESS:
+                    cached = self._downloaded.get(requested_cache_key)
+                return None if cached is _ASSET_IN_PROGRESS else cached
+
+        try:
+            r = self._fetch(full)
+            _raise_if_cancelled()
+        except BaseException:
+            # Do not leave followers waiting on a reservation when a custom
+            # fetch hook, cancellation, or another unexpected error escapes.
+            self._complete_asset_reservation(
+                requested_full, requested_cache_key, None,
+            )
+            raise
 
         # ── JS root-relative fallback ──────────────────────────────
         # Paths in JS/data files like "images/headers/foo.avif" are
@@ -1099,12 +1196,23 @@ class WebsiteDownloader:
                     with self._lock:
                         if alt in self._downloaded:
                             cached = self._downloaded[alt]
-                            if cached:
+                            if cached and cached is not _ASSET_IN_PROGRESS:
                                 self._downloaded[requested_full] = cached
                                 self._downloaded[requested_cache_key] = cached
-                            return cached
-                    r_alt = self._fetch(alt)
-                    _raise_if_cancelled()
+                            if cached is not _ASSET_IN_PROGRESS:
+                                event = self._download_events.pop(reservation_key, None)
+                                self._download_owners.pop(reservation_key, None)
+                                if event is not None:
+                                    event.set()
+                                return cached
+                    try:
+                        r_alt = self._fetch(alt)
+                        _raise_if_cancelled()
+                    except BaseException:
+                        self._complete_asset_reservation(
+                            requested_full, requested_cache_key, None,
+                        )
+                        raise
                     if r_alt:
                         logger.info(f"  root-fallback: {url} → {alt}")
                         self._failed_items = [
@@ -1140,12 +1248,23 @@ class WebsiteDownloader:
                     with self._lock:
                         if alt in self._downloaded:
                             cached = self._downloaded[alt]
-                            if cached:
+                            if cached and cached is not _ASSET_IN_PROGRESS:
                                 self._downloaded[requested_full] = cached
                                 self._downloaded[requested_cache_key] = cached
-                            return cached
-                    r_alt = self._fetch(alt)
-                    _raise_if_cancelled()
+                            if cached is not _ASSET_IN_PROGRESS:
+                                event = self._download_events.pop(reservation_key, None)
+                                self._download_owners.pop(reservation_key, None)
+                                if event is not None:
+                                    event.set()
+                                return cached
+                    try:
+                        r_alt = self._fetch(alt)
+                        _raise_if_cancelled()
+                    except BaseException:
+                        self._complete_asset_reservation(
+                            requested_full, requested_cache_key, None,
+                        )
+                        raise
                     if r_alt:
                         logger.info(f"  route-fallback: {url} → {alt}")
                         self._failed_items = [
@@ -1169,6 +1288,9 @@ class WebsiteDownloader:
                 url=full,
                 error=str(failure.get("error") or "request failed"),
             )
+            self._complete_asset_reservation(
+                requested_full, requested_cache_key, None,
+            )
             return None
 
         content_type = r.headers.get("Content-Type", "").split(";")[0].strip().lower()
@@ -1190,6 +1312,9 @@ class WebsiteDownloader:
                 r.close()
             except Exception as exc:
                 logger.debug(f"Response close failed for rejected asset {full}: {exc}")
+            self._complete_asset_reservation(
+                requested_full, requested_cache_key, None,
+            )
             return None
         if effective_kind in {"js", "css"} and content_type in {
             "text/html", "application/xhtml+xml",
@@ -1203,6 +1328,9 @@ class WebsiteDownloader:
                     r.close()
                 except Exception as exc:
                     logger.debug("Response close failed for rejected asset %s: %s", full, exc)
+                self._complete_asset_reservation(
+                    requested_full, requested_cache_key, None,
+                )
                 return None
         local = self._allocate_local_path(full, content_type=content_type, preferred_kind=preferred_kind)
         abs_local = os.path.abspath(local)
@@ -1228,6 +1356,11 @@ class WebsiteDownloader:
                 self._download_html(full, local_html=local, html_text=html_text)
             else:
                 atomic_stream_response_to_file(r, local)
+        except BaseException:
+            self._complete_asset_reservation(
+                requested_full, requested_cache_key, None,
+            )
+            raise
         finally:
             try:
                 r.close()
@@ -1241,6 +1374,10 @@ class WebsiteDownloader:
             for alias in {ck, requested_full, requested_cache_key}:
                 self._downloaded[alias] = local
             self._source_for_local[abs_local] = full
+
+        self._complete_asset_reservation(
+            requested_full, requested_cache_key, local,
+        )
 
         self._success_items.append({
             "url": full,
@@ -1385,8 +1522,9 @@ class WebsiteDownloader:
             local = self._downloaded.get(normalized)
             if local is None:
                 local = self._downloaded.get(self._normalize_cache_key(normalized))
-            if not local or not os.path.isfile(local):
+            if not _is_downloaded_local_file(local):
                 return original
+            assert isinstance(local, (str, bytes, os.PathLike))
             return self._local_asset_reference(local_text_path, local)
 
         return embedded_url_re.sub(rewrite_embedded, rewritten)
@@ -1419,8 +1557,9 @@ class WebsiteDownloader:
             local = self._downloaded.get(full)
             if local is None:
                 local = self._downloaded.get(self._normalize_cache_key(full))
-            if not local or not os.path.isfile(local):
+            if not _is_downloaded_local_file(local):
                 return match.group(0)
+            assert isinstance(local, (str, bytes, os.PathLike))
             rel = self._local_asset_reference(local_text_path, local)
             return f'{match.group("quote")}{rel}{match.group("quote")}'
 
@@ -1440,8 +1579,9 @@ class WebsiteDownloader:
             local = self._downloaded.get(full)
             if local is None:
                 local = self._downloaded.get(self._normalize_cache_key(full))
-            if not local or not os.path.isfile(local):
+            if not _is_downloaded_local_file(local):
                 return original
+            assert isinstance(local, (str, bytes, os.PathLike))
             return self._local_asset_reference(local_text_path, local)
 
         return embedded_url_re.sub(rewrite_embedded, rewritten)
@@ -1774,17 +1914,45 @@ class WebsiteDownloader:
 
         local = self._download_asset(value, preferred_kind=preferred_kind, referrer_url=page_url)
         if not local:
-            # Fallback: maybe the same file was already downloaded from a different path
-            # (e.g. <link rel="preload" href="js/polyfills.js"> downloaded it, but
-            #  <script src="polyfills.js"> references it without the js/ prefix).
-            # Search _downloaded cache for any URL whose basename matches.
-            basename = value.rstrip("/").split("?")[0].split("/")[-1]
-            if basename:
+            # Narrow fallback for malformed same-site markup such as a preload
+            # at ``js/polyfills.js`` followed by a bare ``polyfills.js`` script.
+            # A global first-basename match can silently substitute an asset
+            # from another host or choose arbitrarily between two same-named
+            # files. Only a bare relative token with exactly one same-origin
+            # cached target is safe enough to reuse.
+            parsed_value = urlparse(str(value))
+            bare_relative = (
+                not parsed_value.scheme
+                and not parsed_value.netloc
+                and not str(value).startswith(("/", "./", "../"))
+                and "/" not in str(value).replace("\\", "/")
+            )
+            basename = str(value).split("?", 1)[0].split("#", 1)[0]
+            if bare_relative and basename:
+                page = urlparse(page_url)
+                candidates: Dict[str, str] = {}
                 for cached_url, cached_local in self._downloaded.items():
-                    if cached_local and cached_url.split("?")[0].split("/")[-1] == basename:
-                        local = cached_local
-                        logger.debug(f"  Basename fallback: {value!r} → {os.path.relpath(local, self.output_folder)}")
-                        break
+                    if not _is_downloaded_local_file(cached_local):
+                        continue
+                    assert isinstance(cached_local, (str, bytes, os.PathLike))
+                    try:
+                        cached = urlparse(cached_url)
+                    except ValueError:
+                        continue
+                    if (
+                        cached.scheme.lower() != page.scheme.lower()
+                        or cached.netloc.lower() != page.netloc.lower()
+                        or os.path.basename(cached.path) != basename
+                    ):
+                        continue
+                    identity = self._local_path_identity(cached_local)
+                    candidates[identity] = cached_local
+                if len(candidates) == 1:
+                    local = next(iter(candidates.values()))
+                    logger.debug(
+                        f"  Same-origin basename fallback: {value!r} → "
+                        f"{os.path.relpath(local, self.output_folder)}"
+                    )
         if local:
             tag[attr] = self._rel(local_html, local)
             # Subresource Integrity hashes describe the original response
@@ -1992,22 +2160,9 @@ class WebsiteDownloader:
             elif rel_values & {"icon", "button control", "apple-touch-icon",
                                "apple-touch-icon-precomposed", "mask-icon",
                                "image_src"}:
-                localized = self._set_attr_local(
+                self._set_attr_local(
                     tag, "href", asset_page_url, local_html, preferred_kind="images",
                 )
-                if not localized:
-                    # Icons are optional presentation metadata. A missing
-                    # favicon must not survive as a broken online dependency
-                    # or be rediscovered later as a placeholder-worthy image.
-                    failed_url = self._normalize_remote_url(href, asset_page_url)
-                    if failed_url:
-                        self._failed_items = [
-                            item for item in self._failed_items
-                            if item.get("url") != failed_url
-                        ]
-                    tag.decompose()
-                    logger.debug("  Optional icon unavailable; removed from archive: %s", href)
-                    continue
 
             elif "manifest" in rel_values:
                 # PWA manifest.json — download as json asset

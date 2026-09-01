@@ -1,7 +1,10 @@
 import ast
 from pathlib import Path
 
+import pytest
+
 import cyoa_downloader
+from cyoa_downloader_app.core.progress import DownloadCancelledError
 from cyoa_downloader_app.project import discover as discover_mod
 from cyoa_downloader_app.download import website as website_mod
 
@@ -86,3 +89,23 @@ def test_auto_detect_mode_selects_cyoap_or_standard_without_network(monkeypatch)
     monkeypatch.setattr(discover_mod, "build_default_project_candidates", lambda url: [url + "/project.json"])
     monkeypatch.setattr(discover_mod, "_parallel_head_check", lambda candidates, **kwargs: candidates)
     assert discover_mod.auto_detect_mode("https://example.test/game", timeout=1) == "website_zip"
+
+
+def test_cafe_discovery_helpers_never_swallow_cancellation(monkeypatch):
+    monkeypatch.setattr(discover_mod, "_raise_if_cancelled", lambda: None)
+    monkeypatch.setattr(
+        discover_mod,
+        "get_iframe_url_from_cyoa_cafe",
+        lambda _url: (_ for _ in ()).throw(DownloadCancelledError("cancelled resolver")),
+    )
+    with pytest.raises(DownloadCancelledError, match="cancelled resolver"):
+        discover_mod.get_project_source("https://cyoa.cafe/game/example")
+
+    class LegacyResolver:
+        @staticmethod
+        def get_iframe_url_from_cyoa_cafe(_url):
+            raise DownloadCancelledError("cancelled auto-detect")
+
+    monkeypatch.setattr(discover_mod, "_legacy", lambda: LegacyResolver())
+    with pytest.raises(DownloadCancelledError, match="cancelled auto-detect"):
+        discover_mod.auto_detect_mode("https://creator.cyoa.cafe/story")

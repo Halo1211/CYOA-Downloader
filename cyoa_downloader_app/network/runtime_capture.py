@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 import os
 import re
@@ -15,6 +17,8 @@ from ..constants.assets import (
 from ..logging_setup import logger
 from ..core.cancellation import _raise_if_cancelled
 from ..core.progress import DownloadCancelledError
+from .proxy import _get_browser_proxy_config
+from .vpn import vpn_requirement_satisfied
 
 
 _RUNTIME_ASSET_EXTENSIONS = (
@@ -258,9 +262,63 @@ def capture_runtime_assets(
     max_interactions: int = 20,
     no_progress_rounds: int = 2,
 ) -> RuntimeCaptureResult:
+    """Render runtime assets, safely bridging callers that run on asyncio.
+
+    Playwright's synchronous API refuses to start on a thread whose asyncio
+    loop is already running. The downloader API is intentionally synchronous,
+    so in that situation run the complete Playwright lifecycle and subsequent
+    asset localization in one dedicated worker thread. No Playwright object is
+    passed between threads.
+    """
+    urls = tuple(page_urls)
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return _capture_runtime_assets_sync(
+            downloader,
+            urls,
+            settle_time_ms,
+            capture_interactions=capture_interactions,
+            max_scroll_steps=max_scroll_steps,
+            max_interactions=max_interactions,
+            no_progress_rounds=no_progress_rounds,
+        )
+
+    logger.debug(
+        "Running synchronous Playwright capture on a worker thread because "
+        "the caller has an active asyncio loop."
+    )
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="cyoa-runtime-browser") as pool:
+        return pool.submit(
+            _capture_runtime_assets_sync,
+            downloader,
+            urls,
+            settle_time_ms,
+            capture_interactions=capture_interactions,
+            max_scroll_steps=max_scroll_steps,
+            max_interactions=max_interactions,
+            no_progress_rounds=no_progress_rounds,
+        ).result()
+
+
+def _capture_runtime_assets_sync(
+    downloader,
+    page_urls: Iterable[str],
+    settle_time_ms: int = 1800,
+    *,
+    capture_interactions: bool = False,
+    max_scroll_steps: int = 100,
+    max_interactions: int = 20,
+    no_progress_rounds: int = 2,
+) -> RuntimeCaptureResult:
     """Render routes and feed observed asset responses into the normal mirror."""
     _raise_if_cancelled()
     result = RuntimeCaptureResult()
+    if not vpn_requirement_satisfied():
+        logger.error(
+            "VPN guard blocked runtime browser capture; required interface not detected"
+        )
+        return result
     observed: Dict[str, str] = {}
     try:
         from playwright.sync_api import sync_playwright
@@ -269,9 +327,18 @@ def capture_runtime_assets(
         return result
 
     urls = list(dict.fromkeys(page_urls))
+    proxy_config = _get_browser_proxy_config(urls[0] if urls else "")
+    if proxy_config is None:
+        logger.error(
+            "Manual proxy transport is unsupported by runtime browser capture"
+        )
+        return result
     try:
         with sync_playwright() as pw:
-            browser = pw.chromium.launch(headless=True, args=["--no-sandbox"])
+            launch_kwargs = {"headless": True, "args": ["--no-sandbox"]}
+            if proxy_config:
+                launch_kwargs["proxy"] = proxy_config
+            browser = pw.chromium.launch(**launch_kwargs)
             try:
                 context = browser.new_context(
                     user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",

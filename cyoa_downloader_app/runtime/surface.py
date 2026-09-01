@@ -670,7 +670,10 @@ from ..download.asset_scan import _safe_response_text
 
 
 # â”€â”€ Global proxy config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-from ..runtime.state import _active_proxy, _proxy_mode
+from ..runtime.state import (
+    _active_proxy, _proxy_mode, _proxy_http, _proxy_https, _proxy_no_proxy,
+    _vpn_policy, _vpn_interface,
+)
 
 # [Phase 45-47] moved `_get_active_proxy` out of legacy.py
 
@@ -680,7 +683,8 @@ from ..runtime.state import _active_proxy, _proxy_mode
 # â”€â”€ Global DNS config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 from ..runtime.state import (
     _socket, _active_dns, _orig_getaddrinfo, DNS_PRESETS, BEBASDNS_DOH_VARIANTS,
-    _dns_bypass_local, _dns_cache, _DNS_CACHE_TTL_SECONDS,
+    _dns_bypass_local, _dns_cache, _DNS_CACHE_TTL_SECONDS, _dns_protocol,
+    _dns_port, _dns_timeout, _dns_fallback_system, _dns_ipv6,
 )
 
 # [Phase 45-47] moved `_build_dns_query_wire` out of legacy.py
@@ -958,10 +962,18 @@ _register_builtin_plugins()
 from ..network.sessions import (
     create_retry_session, _v465_reset_shared_sessions, _get_shared_session,
 )
-from ..network.proxy import _get_active_proxy, _set_active_proxy
+from ..network.proxy import (
+    _get_active_proxy, _get_active_proxies, _set_active_proxy, _set_proxy_config,
+    _normalize_proxy_url, _redact_proxy_url,
+)
 from ..network.dns import (
     _build_dns_query_wire, _parse_dns_address_response, _doh_resolve_via,
     _dns_resolve_via, _patched_getaddrinfo, _set_active_dns, _get_active_dns,
+    _get_active_dns_config, _infer_dns_protocol,
+)
+from ..network.vpn import (
+    _set_vpn_config, get_vpn_status, vpn_requirement_satisfied,
+    list_active_network_interfaces,
 )
 from ..network.throttle import (
     _set_http2_enabled, _throttle_bandwidth, _domain_record_success,

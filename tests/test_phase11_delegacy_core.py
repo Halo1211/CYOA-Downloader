@@ -1,11 +1,15 @@
 import ast
 import io
+import subprocess
+import sys
+import time
 import zipfile
 from pathlib import Path
 
 import cyoa_downloader
 from cyoa_downloader_app.core import progress, url_utils
 from cyoa_downloader_app.core.archive import validate_zip_archive
+from cyoa_downloader_app.core.atomic_io import interprocess_file_lock
 
 ROOT = Path(__file__).resolve().parents[1]
 LEGACY = ROOT / "cyoa_downloader_app" / "runtime" / "surface.py"
@@ -51,6 +55,14 @@ def test_url_helpers_moved_out_of_legacy():
     assert "truncate_display_url" not in names
 
 
+def test_probable_url_rejects_scheme_only_whitespace_and_invalid_ports():
+    assert url_utils.is_probable_url("https://example.test/path")
+    assert not url_utils.is_probable_url("https://")
+    assert not url_utils.is_probable_url("https://exa mple.test/path")
+    assert not url_utils.is_probable_url("https://example.test:not-a-port/path")
+    assert not url_utils.is_probable_url("javascript:alert(1)")
+
+
 def test_archive_validator_moved_out_of_legacy_and_rejects_traversal():
     assert cyoa_downloader.validate_zip_archive is validate_zip_archive
     good = io.BytesIO()
@@ -68,5 +80,36 @@ def test_archive_validator_moved_out_of_legacy_and_rejects_traversal():
     else:
         raise AssertionError("unsafe archive path was accepted")
 
+    many = io.BytesIO()
+    with zipfile.ZipFile(many, "w") as zf:
+        zf.writestr("one.txt", "1")
+        zf.writestr("two.txt", "2")
+    try:
+        validate_zip_archive(many.getvalue(), max_members=1)
+    except ValueError as exc:
+        assert "too many members" in str(exc)
+    else:
+        raise AssertionError("member limit was not enforced")
+
     names = _legacy_defined_symbols()
     assert "validate_zip_archive" not in names
+
+
+def test_interprocess_file_lock_blocks_another_python_process(tmp_path):
+    target = tmp_path / "state.json"
+    marker = tmp_path / "child-entered"
+    code = (
+        "from pathlib import Path\n"
+        "from cyoa_downloader_app.core.atomic_io import interprocess_file_lock\n"
+        f"with interprocess_file_lock({str(target)!r}, timeout=5):\n"
+        f"    Path({str(marker)!r}).write_text('entered', encoding='utf-8')\n"
+    )
+
+    with interprocess_file_lock(str(target), timeout=2):
+        process = subprocess.Popen([sys.executable, "-c", code], cwd=ROOT)
+        time.sleep(0.25)
+        assert not marker.exists()
+
+    stdout, stderr = process.communicate(timeout=10)
+    assert process.returncode == 0, (stdout, stderr)
+    assert marker.read_text(encoding="utf-8") == "entered"

@@ -208,9 +208,24 @@ def main() -> None:
                         help=f"Seconds to wait after 429 (default: {DEFAULT_WAIT_TIME}).")
     parser.add_argument("--proxy", default=None, help="Proxy URL, e.g. http://127.0.0.1:7890. Use --proxy-mode disabled to ignore environment proxies.")
     parser.add_argument("--proxy-mode", choices=["inherit_env", "manual", "disabled"], default=None, help="Proxy mode. Default preserves saved/runtime behavior; disabled ignores HTTP_PROXY/HTTPS_PROXY.")
-    parser.add_argument("--dns", default=None, help="Override DNS resolver for this process. Accepts plain DNS IP or DoH URL. Empty string restores system DNS.")
+    parser.add_argument("--proxy-http", default=None, help="Advanced HTTP proxy URL; overrides --proxy for HTTP requests.")
+    parser.add_argument("--proxy-https", default=None, help="Advanced HTTPS proxy URL; overrides --proxy for HTTPS requests.")
+    parser.add_argument("--proxy-bypass", default=None, help="Comma-separated hosts that bypass a manual proxy.")
+    parser.add_argument("--dns", default=None, help="DNS endpoint. Examples: 1.1.1.1, https://cloudflare-dns.com/dns-query, tls://1.1.1.1.")
+    parser.add_argument("--dns-protocol", choices=["system", "udp", "tcp", "doh", "dot"], default=None,
+                        help="DNS transport: system, UDP, TCP, DNS-over-HTTPS, or DNS-over-TLS.")
+    parser.add_argument("--dns-port", type=int, default=None, help="Custom DNS port (0 uses the protocol default).")
+    parser.add_argument("--dns-timeout", type=int, default=None, help="DNS query timeout in seconds (1-60).")
+    parser.add_argument("--dns-fallback-system", action=argparse.BooleanOptionalAction, default=None,
+                        help="Fall back to system DNS when the custom resolver fails.")
+    parser.add_argument("--dns-ipv6", action=argparse.BooleanOptionalAction, default=None,
+                        help="Allow AAAA queries through the selected custom resolver.")
     parser.add_argument("--bebasdns", choices=["default", "security", "unfiltered", "family"], default=None,
                         help="Use BebasDNS DoH resolver variant for this process.")
+    parser.add_argument("--vpn-policy", choices=["system", "require"], default=None,
+                        help="system follows OS routing; require blocks requests unless an active VPN interface is detected.")
+    parser.add_argument("--vpn-interface", default=None,
+                        help="Optional interface name/description substring for --vpn-policy require.")
     parser.add_argument("--cloudflare", choices=["off", "auto", "cloudscraper", "flaresolverr"],
                         default=_load_settings().get("cloudflare_mode", "auto"),
                         help="Cloudflare handling mode. Auto escalates only after a challenge is detected.")
@@ -407,14 +422,49 @@ def main() -> None:
         sys.exit(2)
     if args.bebasdns:
         args.dns = BEBASDNS_DOH_VARIANTS[args.bebasdns]
-    if args.proxy_mode == "disabled":
-        _set_active_proxy(None, mode="disabled")
-    elif args.proxy_mode == "inherit_env":
-        _set_active_proxy(None, mode="inherit_env")
-    elif args.proxy is not None:
-        _set_active_proxy(args.proxy or None, mode="manual" if args.proxy else "disabled")
-    if args.dns is not None:
-        _set_active_dns(args.dns or None)
+        args.dns_protocol = "doh"
+    try:
+        proxy_mode_eff = args.proxy_mode or str(_cli_saved_settings.get("proxy_mode", "inherit_env"))
+        proxy_common_eff = args.proxy if args.proxy is not None else str(_cli_saved_settings.get("proxy", ""))
+        proxy_http_eff = args.proxy_http if args.proxy_http is not None else str(_cli_saved_settings.get("proxy_http", ""))
+        proxy_https_eff = args.proxy_https if args.proxy_https is not None else str(_cli_saved_settings.get("proxy_https", ""))
+        proxy_bypass_eff = args.proxy_bypass if args.proxy_bypass is not None else str(
+            _cli_saved_settings.get("proxy_no_proxy", "localhost,127.0.0.1,::1")
+        )
+        if any(value is not None for value in (
+            args.proxy, args.proxy_http, args.proxy_https,
+        )) and args.proxy_mode is None:
+            proxy_mode_eff = (
+                "manual" if any((proxy_common_eff, proxy_http_eff, proxy_https_eff))
+                else "disabled"
+            )
+        _set_proxy_config(
+            mode=proxy_mode_eff, proxy=proxy_common_eff,
+            http_proxy=proxy_http_eff, https_proxy=proxy_https_eff,
+            no_proxy=proxy_bypass_eff,
+        )
+
+        dns_eff = args.dns if args.dns is not None else str(_cli_saved_settings.get("dns", ""))
+        dns_protocol_eff = args.dns_protocol or str(_cli_saved_settings.get("dns_protocol", "system"))
+        if args.dns is not None and args.dns_protocol is None:
+            dns_protocol_eff = _infer_dns_protocol(dns_eff)
+        _set_active_dns(
+            dns_eff or None, protocol=dns_protocol_eff,
+            port=args.dns_port if args.dns_port is not None else int(_cli_saved_settings.get("dns_port", 0)),
+            timeout=args.dns_timeout if args.dns_timeout is not None else int(_cli_saved_settings.get("dns_timeout", 5)),
+            fallback_system=(args.dns_fallback_system if args.dns_fallback_system is not None
+                             else bool(_cli_saved_settings.get("dns_fallback_system", True))),
+            ipv6=(args.dns_ipv6 if args.dns_ipv6 is not None
+                  else bool(_cli_saved_settings.get("dns_ipv6", True))),
+        )
+        _set_vpn_config(
+            args.vpn_policy or str(_cli_saved_settings.get("vpn_policy", "system")),
+            args.vpn_interface if args.vpn_interface is not None else str(
+                _cli_saved_settings.get("vpn_interface", "")
+            ),
+        )
+    except (TypeError, ValueError) as exc:
+        parser.error(f"Invalid network configuration: {exc}")
     _set_http2_enabled(bool(args.http2) if args.http2 is not None else bool(_cli_saved_settings.get("http2_enabled", False)))
     # ── v7.5.8: feature toggles (CLI flags override saved settings) ──
     _set_deep_scan_enabled(
@@ -481,10 +531,41 @@ def main() -> None:
         st["gallery_dl_config"] = args.gallery_dl_config; _net_changed = True
     if args.proxy is not None:
         st["proxy"] = args.proxy; _net_changed = True
+    if args.proxy_mode is not None:
+        st["proxy_mode"] = args.proxy_mode; _net_changed = True
+    if args.proxy_http is not None:
+        st["proxy_http"] = args.proxy_http; _net_changed = True
+    if args.proxy_https is not None:
+        st["proxy_https"] = args.proxy_https; _net_changed = True
+    if args.proxy_bypass is not None:
+        st["proxy_no_proxy"] = args.proxy_bypass; _net_changed = True
+    if (
+        args.proxy_mode is None
+        and any(value is not None for value in (
+            args.proxy, args.proxy_http, args.proxy_https,
+        ))
+    ):
+        st["proxy_mode"] = proxy_mode_eff; _net_changed = True
     if args.dns is not None:
         st["dns"] = args.dns or ""; _net_changed = True
+    if args.dns_protocol is not None:
+        st["dns_protocol"] = args.dns_protocol; _net_changed = True
+    elif args.dns is not None:
+        st["dns_protocol"] = dns_protocol_eff; _net_changed = True
+    if args.dns_port is not None:
+        st["dns_port"] = args.dns_port; _net_changed = True
+    if args.dns_timeout is not None:
+        st["dns_timeout"] = args.dns_timeout; _net_changed = True
+    if args.dns_fallback_system is not None:
+        st["dns_fallback_system"] = bool(args.dns_fallback_system); _net_changed = True
+    if args.dns_ipv6 is not None:
+        st["dns_ipv6"] = bool(args.dns_ipv6); _net_changed = True
     if args.bebasdns:
         st["bebasdns_variant"] = args.bebasdns; _net_changed = True
+    if args.vpn_policy is not None:
+        st["vpn_policy"] = args.vpn_policy; _net_changed = True
+    if args.vpn_interface is not None:
+        st["vpn_interface"] = args.vpn_interface; _net_changed = True
     if _net_changed:
         _save_settings(st)
 
@@ -608,8 +689,12 @@ def main() -> None:
     logger.info(f"Cloudflare   : {_display_cloudflare_mode(_CLOUDFLARE_MODE)}")
     if _CLOUDFLARE_MODE == "flaresolverr" or _CLOUDFLARE_MODE == "auto":
         logger.info(f"FlareSolverr : {_FLARESOLVERR_URL} | session={_FLARESOLVERR_SESSION_POLICY} | timeout={_FLARESOLVERR_TIMEOUT}s")
-    logger.info(f"Proxy        : {args.proxy if args.proxy is not None else '[saved/env/system]'}")
-    logger.info(f"DNS          : {args.dns or '[system]'}" + (f" (BebasDNS {args.bebasdns})" if args.bebasdns else ""))
+    logger.info("Proxy        : mode=%s", proxy_mode_eff)
+    logger.info("DNS          : %s | %s", dns_protocol_eff, dns_eff or "system")
+    _vpn_log_status = get_vpn_status()
+    logger.info("VPN guard    : %s%s", _vpn_log_status.get("policy", "system"),
+                (f" | interface={_vpn_log_status.get('requested_interface')}"
+                 if _vpn_log_status.get("requested_interface") else ""))
 
     engine_mode = "cyoap_vue" if (args.cyoap_vue_website or args.cyoap_vue_folder) else ("auto" if args.cyoap_vue else "standard")
     run_download(

@@ -7,6 +7,8 @@ from urllib.parse import urlparse
 
 import requests
 
+from .proxy import _get_active_proxies
+
 from ._bridge import legacy
 
 
@@ -172,12 +174,14 @@ def _set_cloudflare_config(
             l.logger.debug(f"Could not save Cloudflare settings: {e}")
 
 
-def _flaresolverr_payload_proxy() -> Optional[Dict[str, str]]:
+def _flaresolverr_payload_proxy(target_url: str = "") -> Optional[Dict[str, str]]:
     """Return FlareSolverr proxy object when proxy inheritance is enabled."""
     l = legacy()
     if l._FLARESOLVERR_PROXY_MODE != "inherit":
         return None
-    proxy = l._get_active_proxy()
+    target_scheme = urlparse(target_url).scheme.lower() or "https"
+    mapping = _get_active_proxies()
+    proxy = mapping.get(target_scheme) or l._get_active_proxy()
     if not proxy:
         return None
     return {"url": proxy}
@@ -192,7 +196,8 @@ def _flaresolverr_post(payload: Dict[str, Any], timeout: Optional[int] = None) -
         session = requests.Session()
         try:
             session.trust_env = (getattr(l, "_proxy_mode", "inherit_env") == "inherit_env")
-            proxy = l._get_active_proxy()
+            mapping = _get_active_proxies()
+            proxy = mapping.get(urlparse(api_url).scheme.lower()) or l._get_active_proxy()
             if proxy and l._FLARESOLVERR_PROXY_MODE == "inherit":
                 parsed = urlparse(api_url)
                 if (parsed.hostname or "").lower() not in {"localhost", "127.0.0.1", "::1"}:
@@ -227,7 +232,7 @@ def _flaresolverr_get_session(url: str) -> Optional[str]:
         if l._FLARESOLVERR_SESSION_POLICY == "manual":
             return key
         payload: Dict[str, Any] = {"cmd": "sessions.create", "session": key}
-        proxy_obj = _flaresolverr_payload_proxy()
+        proxy_obj = _flaresolverr_payload_proxy(url)
         if proxy_obj:
             payload["proxy"] = proxy_obj
         data = _flaresolverr_post(payload, timeout=10)
@@ -333,7 +338,7 @@ def fetch_via_flaresolverr(url: str, extra_headers: Optional[Dict[str, str]] = N
         payload["waitInSeconds"] = int(l._FLARESOLVERR_WAIT_AFTER)
     if extra_headers:
         payload["headers"] = dict(extra_headers)
-    proxy_obj = _flaresolverr_payload_proxy()
+    proxy_obj = _flaresolverr_payload_proxy(url)
     if proxy_obj:
         payload["proxy"] = proxy_obj
 
