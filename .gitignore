@@ -17,6 +17,7 @@ ENV/
 # Build and packaging
 build/
 dist/
+release/
 *.egg-info/
 *.spec
 !CYOA-Downloader.spec

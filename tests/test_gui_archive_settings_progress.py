@@ -204,6 +204,17 @@ def test_settings_dashboard_explains_advanced_and_common_controls():
     assert "clearing it does not remove completed output" in cache_source
 
 
+def test_embedded_help_documents_offline_network_validation_and_presets():
+    source = inspect.getsource(CYOADownloaderGUI._show_feature_guide)
+
+    assert "Advanced Network options" in source
+    assert "Cloudflare 1.1.1.1/1.0.0.1" in source
+    assert "DoH uses HTTPS" in source
+    assert "DoT uses port 853" in source
+    assert "It never downloads a favicon or probes CYOA.CAFE" in source
+    assert "test the actual HTTPS route" not in source
+
+
 def test_inline_forms_use_responsive_columns_without_large_middle_gaps():
     ai_source = inspect.getsource(CYOADownloaderGUI._settings_inline_ai)
     cloudflare_source = inspect.getsource(CYOADownloaderGUI._settings_inline_cloudflare)
