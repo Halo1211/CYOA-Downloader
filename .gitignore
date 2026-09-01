@@ -46,10 +46,6 @@ gui-repro-*/
 .workspace_archive_*/
 old/
 
-# Completed local downloads (user data, not source)
-game_strange-bedfellows-fan-expansion/
-hypnosis-arena/
-hypnosis-arena_1/
 
 # Archives generated locally
 *.zip
