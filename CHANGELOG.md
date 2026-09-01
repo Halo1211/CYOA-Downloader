@@ -6,6 +6,29 @@ This project uses a single changelog file. Older split release notes and patch r
 
 - No unreleased changes.
 
+## v1.0.8 — website reliability and advanced network profiles
+
+- Fixed the concurrent website-asset cache bug that could treat an in-progress
+  marker as a filesystem path and repeatedly break CYOA.CAFE downloads such as
+  Teen Titans.
+- Added synchronized advanced network settings for the main GUI, Settings
+  dashboard, CLI, Requests sessions, and browser fallbacks.
+- Added environment/manual/disabled proxy profiles, per-scheme HTTP/HTTPS
+  overrides, bypass hosts, credential redaction, SOCKS4/5, and `socks5h`.
+- Added system, UDP, TCP, DNS-over-HTTPS, and DNS-over-TLS transports with
+  Cloudflare, Google, Quad9, BebasDNS, and custom resolver presets.
+- Kept DoT certificate hostname verification enabled and added explicit DNS
+  fallback, timeout, port, and IPv6 controls.
+- Added an application-level fail-closed VPN interface guard without claiming
+  to create or manage an operating-system VPN tunnel.
+- Replaced the previous third-party favicon network test with offline settings
+  validation that checks formats and local interfaces only.
+- Updated the embedded Help/Guide and repository documentation in English,
+  including detailed proxy, DNS privacy, VPN routing, and offline-validation
+  explanations.
+- Expanded the offline regression suite to 430 passing tests with 7 optional
+  tests skipped when their runtime conditions are unavailable.
+
 ## v1.0.7 — release consistency and beginner-friendly workflow
 
 - Synchronized the runtime, `VERSION` file, documentation, tests, issue
