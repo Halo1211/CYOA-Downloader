@@ -1,60 +1,127 @@
-# CYOA Downloader v1.0.8
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.png">
+    <img alt="CYOA Downloader logo" src="assets/logo-light.png" width="170">
+  </picture>
+</p>
 
-CYOA Downloader menyimpan CYOA/ICC dan website interaktif sebagai JSON, ZIP,
-atau folder viewer offline. Untuk website yang membentuk halaman dan aset lewat
-JavaScript, program menyediakan empat strategi arsip tanpa mengubah alur lama.
+<h1 align="center">CYOA Downloader</h1>
 
-## Mulai cepat dari GUI
+<p align="center">
+  An ICC/CYOA backup utility with a GUI, CLI, JavaScript-aware website archiving,
+  batch queues, media recovery, advanced network routing, local previews, and
+  output verification.
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg"></a>
+  <img alt="Python" src="https://img.shields.io/badge/Python-3.10%2B-blue.svg">
+  <img alt="Release" src="https://img.shields.io/badge/Release-v1.0.8-orange.svg">
+</p>
+
+---
+
+## What it does
+
+CYOA Downloader saves interactive web projects for offline inspection. It can
+preserve an ICC-style project, archive a normal or JavaScript-driven website,
+recover images and media, package the result as a folder or ZIP, and verify
+that local references are complete.
+
+The downloader supports four website archive strategies:
+
+- **Classic** preserves the historical single-page workflow.
+- **Smart** adds a bounded same-origin story-route crawl.
+- **Browser** adds runtime capture for assets exposed only after JavaScript runs.
+- **Auto** profiles the target and selects the lightest complete strategy.
+
+Auto mode recognizes ICC project data, CYOA.CAFE records, route trees, and
+common runtime frameworks. Login, telemetry, comments, payments, mutations,
+and unrelated external domains are not treated as story routes.
+
+See the [JavaScript Archive Guide](docs/JAVASCRIPT_ARCHIVE_GUIDE.md) and
+[Auto Safe Archive notes](docs/AUTO_SAFE_ARCHIVE.md) for the complete behavior.
+
+## Start quickly
+
+### Windows executable
+
+Download `CYOA-Downloader-Windows-x64.zip` from the
+[GitHub Releases page](https://github.com/Halo1211/CYOA-Downloader/releases),
+extract it, and run `CYOA Downloader.exe`. The executable is unsigned, so
+Windows SmartScreen may require confirmation.
+
+Large or machine-specific helpers are detected separately instead of being
+silently bundled:
+
+- FFmpeg for media conversion and merging;
+- Deno plus `yt-dlp-ejs` for current YouTube extraction;
+- Chrome/Chromium and a driver for Selenium fallback;
+- Playwright Chromium for browser automation;
+- unrar or 7-Zip for RAR extraction.
+
+### Run from source
 
 ```powershell
+py -3 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+python cyoa_downloader.py --dependency-check
 python cyoa_downloader.py
 ```
 
-Untuk website seperti Faproulette, Hypnosis Arena, atau CYOA.CAFE:
+Optional recovery and batch packages can be installed with:
 
-1. Pilih **Pure Website Folder**.
-2. Klik **Settings**.
-3. Pada **Kebijakan Arsip JavaScript**, pilih **Auto**.
-4. Isi **Maks. halaman** dan **Maks. kedalaman**, lalu klik **Simpan kebijakan arsip**.
-5. Tambahkan URL ke antrean dan jalankan **Download All**.
-6. Buka hasil melalui tombol **Serve**; jangan mengandalkan `file://` untuk
-   aplikasi JavaScript modern.
+```powershell
+pip install -r requirements-optional.txt
+python -m playwright install chromium
+```
 
-Rekomendasi awal untuk cerita besar: 800 halaman dan kedalaman 30. Batas ini
-bukan target yang wajib dihabiskan; crawler berhenti ketika tidak ada rute baru.
+## GUI workflow
 
-## Strategi arsip website
+Run `python cyoa_downloader.py` without arguments to open the GUI. For a
+JavaScript-heavy project:
 
-- **Classic** — perilaku historis satu halaman; tersedia sebagai pilihan manual.
-- **Smart** — Classic ditambah crawl rute cerita same-origin yang dibatasi.
-- **Browser** — Smart ditambah capture aset yang baru terlihat ketika
-  JavaScript dijalankan.
-- **Auto** — mode default; mengenali project JSON, record CYOA.CAFE, route tree, dan runtime
-  framework lalu memilih pipeline paling ringan yang tetap lengkap.
+1. Choose **Pure Website Folder**.
+2. Open **Settings**.
+3. Set **JavaScript Archive Policy** to **Auto**.
+4. Configure the page and depth safety caps.
+5. Add the URL to the queue and select **Download All**.
+6. Open the result with **Serve**; modern JavaScript applications should not
+   rely on direct `file://` access.
 
-Mode Browser cocok untuk lazy loading, daftar gambar yang dirangkai JavaScript,
-SPA/Next.js, dan aset yang baru diminta setelah halaman dirender. Program tidak
-menganggap login, API autentikasi, telemetri, atau domain luar sebagai rute
-cerita.
+Large route-based stories can start with 800 pages and a depth of 30. These are
+safety caps, not targets: discovery stops when no new routes or assets appear.
 
-Panduan lengkap: [JavaScript Archive Guide](docs/JAVASCRIPT_ARCHIVE_GUIDE.md).
+Each queued URL keeps its own filename and output mode. Select a row's mode
+badge to change it without deleting and re-adding the URL. **Export List…**
+writes the queue to CSV or TXT for later import. See the
+[GUI Queue Guide](docs/GUI_QUEUE_GUIDE.md).
 
-## Jaringan lanjutan: proxy, DNS, dan VPN guard
+## Advanced network settings
 
-Buka **Settings → Jaringan** untuk memilih mode proxy, override HTTP/HTTPS,
-daftar bypass, transport DNS (`system`, UDP, TCP, DoH, atau DoT), timeout,
-fallback DNS sistem, IPv6, dan kebijakan VPN guard. Preset Cloudflare
-`1.1.1.1`, Google, Quad9, BebasDNS, DoH, dan DoT tersedia langsung di dropdown;
-resolver lain tetap dapat dimasukkan melalui **Custom…**. Tombol **Validasi offline**
-memeriksa format konfigurasi dan interface lokal tanpa mengirim request ke
-situs pihak lain. Kontrol Proxy/DNS ringkas di GUI utama tetap tersinkron.
+Open **Settings → Network** to configure:
 
-VPN guard tidak membuat atau menyalakan tunnel. Mode `system` mengikuti routing
-OS; mode `require` menghentikan request downloader bila interface VPN aktif
-yang cocok tidak terdeteksi. Untuk SOCKS, `socks5h://` disarankan bila nama host
-juga harus di-resolve lewat proxy.
+- environment, disabled, or manual proxy mode;
+- common and per-scheme HTTP/HTTPS proxies;
+- HTTP, HTTPS, SOCKS4, SOCKS5, and `socks5h` routing;
+- proxy bypass/`NO_PROXY` hosts;
+- system DNS, UDP, TCP, DNS-over-HTTPS, or DNS-over-TLS;
+- Cloudflare `1.1.1.1`, Google, Quad9, BebasDNS, DoH, and DoT presets;
+- DNS timeout, IPv6, system fallback, and custom ports;
+- a fail-closed, application-level VPN interface guard.
 
-Contoh CLI DoH + proxy SOCKS + VPN wajib:
+The compact Proxy and DNS controls in the main GUI remain synchronized with
+the advanced profile. **Validate offline** checks the configuration and local
+network interfaces without requesting a website or public test URL.
+
+The VPN guard does not create, start, or reconfigure a VPN tunnel. `system`
+uses the operating system route table. `require` blocks downloader traffic when
+the requested VPN-like interface is not active. For proxy-side hostname
+resolution, prefer `socks5h://`.
+
+Example DoH, SOCKS, and required VPN configuration:
 
 ```powershell
 python cyoa_downloader.py URL `
@@ -67,112 +134,112 @@ python cyoa_downloader.py URL `
   --vpn-interface WireGuard
 ```
 
-Panduan dan matriks opsi lengkap: [Network, DNS, Proxy & VPN Guide](docs/NETWORK_GUIDE.md).
+See the [Network, DNS, Proxy, and VPN Guard Guide](docs/NETWORK_GUIDE.md) for
+the transport matrix, privacy trade-offs, and troubleshooting steps.
 
-## Antrean GUI dan ekspor list (v1.0.8)
+## Discord attachment recovery
 
-Mode setiap URL dapat diubah langsung dari baris antrean. Klik badge mode seperti
-**auto**, lalu pilih mode baru; URL dan nama file tetap dipertahankan sehingga
-tidak perlu menghapus dan menambahkan ulang job.
+Discord attachment recovery is integrated into the normal download pipeline.
+When an attachment CDN URL has expired, the downloader can use Discord API v10
+to refresh it and then replace the project reference with the downloaded local
+asset.
 
-Tombol **Export List…** menyimpan seluruh antrean sebagai CSV atau TXT. Data
-yang disimpan adalah `url`, `filename`, dan `mode`, sehingga file tersebut dapat
-diimpor kembali melalui **Import List…** atau diedit sebelum dipakai di mesin
-lain. Panduan singkat tersedia di
-[GUI Queue Guide](docs/GUI_QUEUE_GUIDE.md).
-
-## CLI
+Set a bot token for one process with:
 
 ```powershell
-python cyoa_downloader.py "https://example.com/story/" `
-  --pure-website-folder `
-  --archive-strategy auto `
-  --archive-max-pages 800 `
-  --archive-max-depth 30 `
-  -o "hasil"
+$env:DISCORD_BOT_TOKEN = "YOUR_BOT_TOKEN"
+python cyoa_downloader.py "https://example.com/cyoa/" -o "output"
 ```
 
-Jalankan `python cyoa_downloader.py --help` untuk seluruh mode dan opsi.
+The GUI field is available under **Settings / Maintenance → Discord Bot
+Token**. Use a bot token from the Discord Developer Portal—never a password,
+user token, or personal account token. Existing attachment URLs do not require
+reading channels or messages. See the
+[Discord Attachment Recovery Guide](docs/DISCORD_ATTACHMENTS_GUIDE.md).
 
-## Memulihkan gambar Discord
+## Settings and safety
 
-Fitur ini sudah menjadi bagian dari program utama dan ditulis ulang secara
-internal; tidak perlu memasang Discord SDK atau menjalankan aplikasi kedua.
-Panduan lengkap tersedia di
-[Panduan Pemulihan Attachment Discord](docs/DISCORD_ATTACHMENTS_GUIDE.md).
-Fitur berjalan di pipeline download biasa, baik saat data berasal dari
-`project.json` maupun saat project disembunyikan di bundle `.js`:
+Active settings are stored in `~/.cyoa_downloader/settings.json`. Invalid
+manually edited values are normalized to safe ranges. Portable settings export
+removes secret fields automatically, but the active settings file can still
+contain plain credentials and must not be shared.
 
-```powershell
-$env:DISCORD_BOT_TOKEN = "TOKEN_BOT_DISCORD"
-python cyoa_downloader.py "https://example.com/cyoa/" -o "hasil"
-```
+Safe browser interaction permits a narrow allowlist such as **Load More** or
+**Show More**. Form submission, login, voting, comments, reports, payments,
+popups, and mutation requests remain blocked.
 
-Program mencoba URL CDN secara langsung terlebih dahulu. Jika URL sudah
-kedaluwarsa, program memanggil endpoint refresh Discord API v10 dan mengulangi
-unduhan. Hasil project menunjuk ke gambar lokal seperti aset lain. CLI juga
-mendukung `--discord-token TOKEN` untuk token satu proses dan
-`--no-discord-refresh` untuk menonaktifkan fitur sementara.
-
-### Login dari GUI
-
-Pada GUI buka **Settings / Maintenance**. Kontrol **Discord Bot Token** berada
-langsung di halaman Settings; tidak ada panel Discord terpisah. Ini bukan login
-akun Discord biasa: masukkan **Bot Token** dari Discord Developer Portal,
-tekan **Simpan**, lalu **Tes**. Token ditulis langsung ke `settings.json`; tidak
-ada pilihan mode penyimpanan. Untuk JSON yang sudah
-berisi URL `cdn.discordapp.com/attachments/...`, bot milikmu tidak perlu masuk
-ke server owner CYOA karena program tidak membaca channel atau pesan. Setelah
-itu gunakan tombol **Download** biasa. Tidak ada input/output JSON, checkbox
-aktivasi, atau tombol recovery Discord terpisah.
-
-Akses server hanya diperlukan jika input yang tersedia cuma link pesan Discord
-dan program harus membaca ulang pesan tersebut. Mode saat ini bekerja langsung
-dari URL attachment di JSON.
-
-Jangan memasukkan password Discord, user token, atau token akun pribadi.
-
-## Settings
-
-Setting aktif berada di `~/.cyoa_downloader/settings.json`. Formatnya tetap flat
-agar kompatibel dengan versi lama, tetapi setiap kategori diberi penanda
-`_section_...` dan memiliki `_meta` yang menjelaskan mode arsip serta rentang
-nilai. Penanda tersebut hanya judul visual dan diabaikan saat program membaca
-setting. Nilai hasil edit manual yang tidak valid dinormalisasi ke nilai aman.
-
-Bot Token Discord berada di field `discord_bot_token` dan disimpan langsung di
-file ini. Tidak ada `discord_token_storage` atau pilihan mode penyimpanan.
-
-`archive_interaction_policy=safe` mengizinkan tombol non-form yang masuk
-allowlist seperti Load More/Show More. Request mutasi, navigasi, popup, login,
-komentar, vote, report, pembayaran, dan submit diblokir. Field lama
-`archive_capture_interactions` tetap dibaca untuk kompatibilitas.
-
-Cloudflare dapat diatur dari panel **Cloudflare Access** atau CLI. Mode `Auto`
-mengirim request normal terlebih dahulu dan baru memakai fallback ketika
-challenge benar-benar terdeteksi. Prioritas fallback dapat dipilih melalui
-`cloudflare_priority=flaresolverr_first` atau `cloudscraper_first`, maupun CLI:
+Cloudflare handling uses a normal request first and activates a configured
+fallback only when a challenge is detected. Example:
 
 ```powershell
 python cyoa_downloader.py URL --cloudflare auto --cloudflare-priority flaresolverr-first
 ```
 
-Retry audio dan image memproses ulang log kegagalan secara background, menutup
-response HTTP dengan benar, dan memperbarui referensi `project.json` setelah
-audio berhasil disimpan. Dua baris antrean dengan URL CYOA yang sama dianggap
-dua job terpisah dan tidak saling menghapus saat batch selesai.
-
-Gunakan penyimpanan `session` atau `keyring` untuk secret. Jangan membagikan
-`settings.json` aktif jika memilih penyimpanan API key `plain`. Fitur ekspor
-settings membuang key rahasia secara otomatis.
-
-## Verifikasi
+## CLI examples
 
 ```powershell
-python -m pytest -q
-python cyoa_downloader.py --self-test
+python cyoa_downloader.py --help
 python cyoa_downloader.py --dependency-check
+python cyoa_downloader.py --self-test
+python cyoa_downloader.py "https://example.com/story/" `
+  --pure-website-folder `
+  --archive-strategy auto `
+  --archive-max-pages 800 `
+  --archive-max-depth 30 `
+  --output "output"
+python cyoa_downloader.py --verify "output"
 ```
 
-Dokumen refactor/pemeriksaan internal tetap tersedia di
-[README_REFACTOR.md](README_REFACTOR.md) dan folder [docs](docs/).
+## Diagnostics and media helpers
+
+The Diagnostics panel checks Python packages, command-line tools, browser
+backends, write permissions, settings, cache state, and frozen PyInstaller
+resources. A missing optional helper only disables the related feature.
+
+Current YouTube extraction normally requires an up-to-date `yt-dlp`, the
+`yt-dlp-ejs` package, and a JavaScript runtime such as Deno. A cookie file does
+not replace those components. Never commit cookies, settings, API keys, bot
+tokens, or downloaded content.
+
+## Build the Windows package
+
+```powershell
+.\tools\build_windows.ps1
+```
+
+If PowerShell policy blocks scripts:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\build_windows.ps1
+```
+
+The build creates `dist\CYOA-Downloader-Windows-x64.zip`. FFmpeg, Deno,
+browsers, and RAR helpers remain diagnosed external dependencies.
+
+## Repository map
+
+| Path | Purpose |
+| --- | --- |
+| `cyoa_downloader.py` | CLI and GUI entry point |
+| `cyoa_downloader_app/` | Application packages |
+| `docs/` | User, troubleshooting, and maintainer guides |
+| `examples/` | Safe sample batch inputs and templates |
+| `tests/` | Offline regression tests |
+| `tools/` | Verification and Windows build helpers |
+| `.github/` | CI, issue templates, and release automation |
+
+## Development and verification
+
+```powershell
+python -m pip install -r requirements-dev.txt
+python -m compileall -q cyoa_downloader_app cyoa_downloader.py
+python -m pytest -q
+ruff check cyoa_downloader.py cyoa_downloader_app
+```
+
+The current offline regression suite contains 429 passing tests with 7 optional
+tests skipped when their runtime conditions are unavailable.
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes. Security
+reports belong in [SECURITY.md](SECURITY.md). This project is distributed under
+the [MIT License](LICENSE).

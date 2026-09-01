@@ -1,33 +1,35 @@
 # GUI Queue Guide — CYOA Downloader v1.0.8
 
-## Mengubah mode tanpa menghapus URL
+## Change a mode without removing the URL
 
-1. Tambahkan URL ke antrean seperti biasa.
-2. Klik badge mode pada baris URL, misalnya `auto`.
-3. Pilih mode tujuan dari menu.
+1. Add the URL to the queue normally.
+2. Select its mode badge, such as `auto`.
+3. Choose the desired output mode.
 
-Mode yang dipilih langsung disimpan pada job tersebut. URL, urutan antrean,
-dan nama file tidak berubah. Jika memilih mode manual, hasil auto-detect lama
-dihapus agar job tidak lagi ditampilkan sebagai hasil deteksi otomatis.
+The selected mode is stored on that job immediately. Its URL, queue order, and
+filename remain unchanged. Selecting an explicit mode clears the previous
+auto-detected result so the row is no longer presented as automatically
+classified.
 
-## Mengekspor antrean
+## Export and import the queue
 
-1. Klik **Export List…** di area Input.
-2. Pilih `.csv` untuk format spreadsheet atau `.txt` untuk format teks sederhana.
-3. Simpan file, lalu gunakan **Import List…** untuk memuatnya kembali.
+1. Select **Export List…** in the Input area.
+2. Choose `.csv` for spreadsheet-compatible data or `.txt` for a simple text
+   representation.
+3. Save the file and use **Import List…** to load it again later.
 
-CSV memiliki kolom berikut:
+CSV columns:
 
 ```text
 url,filename,mode
 https://example.com/cyoa/,Example,website_folder
 ```
 
-Format TXT menggunakan:
+TXT representation:
 
 ```text
 https://example.com/cyoa/ | Example | website_folder
 ```
 
-Mode `auto` juga dipertahankan saat export/import. Field internal antrean,
-seperti ID job, tidak ikut diekspor.
+The `auto` mode is preserved across export and import. Internal fields such as
+the job identifier are intentionally not exported.

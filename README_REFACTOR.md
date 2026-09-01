@@ -1,7 +1,7 @@
 # CYOA Downloader Refactor — Current Architecture Notes
 
-Dokumentasi pengguna utama berada di [README.md](README.md). Panduan arsitektur
-arsip JavaScript berada di
+The primary user documentation is in [README.md](README.md). The JavaScript
+archive architecture guide is in
 [docs/JAVASCRIPT_ARCHIVE_GUIDE.md](docs/JAVASCRIPT_ARCHIVE_GUIDE.md).
 
 This package retains the Phase 75 refactor and now also includes the additive
@@ -21,12 +21,12 @@ were imported.
 Validation summary:
 
 ```text
-pytest                         : 175 passed
+pytest                         : 429 passed / 7 skipped
 compileall                     : OK
 import package modules          : 108 imported / 0 failed
 --help                         : OK
 --dependency-check             : OK
---self-test                    : 37/37 passed
+--self-test                    : passed
 GUI instantiation smoke         : passed with CustomTkinter
 original parity audit           : 0 missing / 5 expected additive signature diffs
 legacy.py                       : deleted

@@ -1,63 +1,57 @@
 # Auto (Safe) Archive
 
-`Auto` adalah coordinator, bukan engine downloader baru. Ia memilih jalur yang
-paling ringan berdasarkan bukti yang tersedia:
+`Auto` is a coordinator, not a separate download engine. It selects the
+lightest complete path from the available evidence:
 
-1. `cyoa.cafe/game/<id>` dengan `cyoa_pages` → direct PocketBase files dan
-   gallery offline tanpa aplikasi katalog.
-2. Record dengan `iframe_url` → resolve viewer tujuan, lalu lanjutkan deteksi.
-3. Project JSON valid → Classic/project-first; Browser dilewati.
-4. Route cerita same-origin → Smart atau Browser jika signal runtime juga kuat.
-5. SPA/Next/Vite/runtime tanpa project → Browser.
-6. HTML/asset yang dapat discan → Classic.
+1. A `cyoa.cafe/game/<id>` record with `cyoa_pages` uses direct PocketBase files
+   and generates a catalog-independent offline gallery.
+2. A record with `iframe_url` resolves the actual viewer and continues
+   profiling there.
+3. A valid project JSON uses the Classic project-first path and skips Browser.
+4. Same-origin story routes use Smart, or Browser when runtime evidence is
+   also strong.
+5. An SPA, Next.js, Vite, or other runtime application without project data
+   uses Browser.
+6. Scannable HTML and assets use Classic.
 
-## Sandbox interaksi aman
+## Safe interaction sandbox
 
-- Kandidat terbatas pada button/role-button/summary non-form yang terlihat.
-- Allowlist: Load More, Show More, Next, Continue, Expand, Reveal, dan
-  `aria-expanded=false`.
-- Denylist: login, register, submit, send, report, like/vote, payment, donate,
-  delete, share, upload, dan comment.
-- Selama interaction phase, metode selain GET/HEAD serta navigasi dokumen
-  diblokir. Popup dan dialog ditutup.
-- Jumlah klik, scroll, runtime pages, dan no-progress rounds selalu dibatasi.
+- Candidates are limited to visible, non-form buttons, role-buttons, and
+  summary controls.
+- The allowlist includes Load More, Show More, Next, Continue, Expand, Reveal,
+  and controls with `aria-expanded=false`.
+- The denylist includes login, registration, submission, send, report,
+  like/vote, payment, donation, deletion, sharing, upload, and comments.
+- During interaction capture, non-GET/HEAD requests and document navigation are
+  blocked. Popups and dialogs are closed.
+- Clicks, scrolls, runtime pages, settle time, and no-progress rounds are always
+  bounded.
 
-## Manifest
+## Manifest and auditability
 
-`archive_manifest.json` menyimpan `requested_policy`, policy efektif,
-`auto_profile`, jumlah scroll, interaksi produktif, request yang diblokir, dan
-alasan Browser dilewati. Ini membuat keputusan Auto dapat diaudit tanpa harus
-menebak dari log.
+`archive_manifest.json` records the requested and effective policy, Auto
+profile, scroll count, productive interactions, blocked requests, route state,
+and the reason Browser was skipped. This makes an Auto decision inspectable
+without reconstructing it from logs.
 
-## CYOA.CAFE
+## CYOA.CAFE records
 
-Static record menghasilkan:
+A static record can generate:
 
-- `index.html`
-- `images/pages/`
-- `images/previews/` bila tersedia
-- `images/cover/` bila tersedia
-- `cyoa_cafe_metadata.json` tanpa payload base64 besar
-- `archive_manifest.json`
+- `index.html`;
+- `images/pages/`;
+- `images/previews/` when available;
+- `images/cover/` when available;
+- `cyoa_cafe_metadata.json` without large base64 payloads;
+- `archive_manifest.json`.
 
-Linked viewer tetap memakai resolver lama. Ini mencakup viewer project-based,
-project dengan gambar data-URI tertanam, dan viewer custom yang membutuhkan
-fallback Browser.
+Linked records still use the normal viewer resolver. This covers project-based
+viewers, embedded data-URI images, and custom viewers that genuinely require a
+browser fallback.
 
-## Profil contoh yang diuji
-
-| URL/kategori | Sinyal utama | Jalur Auto |
-|---|---|---|
-| `cyoa.cafe/game/hl2exdb5mis2epn` | record `img`, satu `cyoa_pages` | adapter static PocketBase |
-| `cyoa.cafe/game/5wo6xl14vnpjzpt` | record `link`, viewer eksternal, project besar dengan gambar data-URI | resolver + project-first |
-| `cyoa.cafe/game/s8r10clavlh490j` | record `link`, 219 aset proyek | resolver + project-first |
-| `starsheldaloft.cyoa.cafe/divinecontractcorporation/` | project JSON, 37 referensi aset | project-first |
-| `powerpathcyoa.cyoa.cafe/path-of-power-cyoa-v-20-by-larien-static-complete/` | project JSON, 450 referensi aset | project-first |
-
-Pada project-first, deep scan bundle sebelum dan sesudah lokalisasi sengaja
-dilewati karena `process_images` sudah membaca struktur proyek. Ini mencegah
-scan ganda, percobaan 404 dari string acak dalam JavaScript minified, serta
-runtime Browser yang tidak menambah cakupan aset. HTML/CSS viewer tetap diproses
-secara rekursif. Aset asal yang gagal diunduh dicatat sebagai dependency online
-absolut dan masuk laporan kegagalan, bukan dibiarkan sebagai referensi lokal
-yang menyesatkan.
+In project-first mode, redundant bundle scans before and after localization are
+skipped because `process_images` already understands project structure. This
+avoids duplicate work, random 404 attempts from minified JavaScript strings,
+and browser sessions that add no asset coverage. Viewer HTML and CSS are still
+processed recursively. Failed source assets remain absolute online
+dependencies and are reported instead of becoming misleading local paths.

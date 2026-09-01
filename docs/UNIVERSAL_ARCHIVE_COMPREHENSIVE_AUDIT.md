@@ -1,50 +1,56 @@
-# Audit Komprehensif Arsip Universal
+# Universal Archive Comprehensive Audit
 
-Dokumen ini mencatat area yang diperiksa untuk integrasi Classic/Smart/Browser
-dan alasan perbaikannya. Tujuannya adalah menjaga konsep downloader lama sambil
-menambahkan dukungan website JavaScript secara terukur.
+This document records the integration areas reviewed for Classic, Smart, and
+Browser archiving. The objective is to preserve historical downloader behavior
+while adding bounded support for JavaScript websites.
 
-## Temuan yang sudah diperbaiki
+## Resolved findings
 
-1. **Settings hasil edit manual dapat merusak tipe dan rentang nilai.** Loader
-   sekarang menormalisasi boolean, integer, enum case-insensitive, temperatur
-   AI, dan nilai null.
-2. **Daftar enum settings tidak sama dengan opsi CLI/GUI.** Nilai Gallery-DL,
-   sesi/proxy FlareSolverr, serta penyimpanan AI `env` kini dipertahankan.
-3. **Depth nol berubah menjadi 30.** Normalisasi policy, default CLI, dan nilai
-   awal kontrol GUI sekarang mempertahankan `archive_max_depth=0` sebagai
-   permintaan hanya mengarsipkan halaman awal.
-4. **Nama route dapat bertabrakan atau tidak valid di Windows.** Komponen path
-   kini dibersihkan, nama perangkat Windows diamankan, Unicode dipertahankan,
-   dan collision mendapat hash stabil.
-5. **URL IPv6 rusak dapat menghentikan crawl.** Canonicalization, link parsing,
-   rewrite, dan resume sekarang mengabaikan URL malformed secara aman.
-6. **Batas halaman terlihat seperti crawl selesai.** Manifest kini mencatat
-   `route_limit_reached` dan `remaining_queued_routes`.
-7. **Resume rapuh terhadap manifest rusak dan path berbahaya.** Resume membangun
-   recovery manifest, memvalidasi path lokal, mengabaikan file hilang, dan dapat
-   menemukan link relatif yang belum diselesaikan.
-8. **Capture runtime melewatkan aset tertentu.** Deteksi kini mengenali MIME
-   image/audio/video/font, CSS, JavaScript, JSON, WASM, dan ekstensi aset saat
-   server memberi MIME kosong atau keliru.
-9. **Opsi interaksi membingungkan.** `archive_capture_interactions` dijelaskan
-   sebagai field kompatibilitas. Browser mode hanya load, wait, dan scroll;
-   tidak ada klik buta pada situs universal.
+1. **Manually edited settings could corrupt types and ranges.** The loader now
+   normalizes booleans, integers, case-insensitive enums, AI temperature, and
+   null values.
+2. **Settings enums did not match CLI and GUI choices.** Gallery-DL,
+   FlareSolverr session/proxy values, and AI `env` storage are preserved.
+3. **A depth of zero became 30.** Policy normalization, CLI defaults, and GUI
+   initial values now preserve `archive_max_depth=0` as entry-only archiving.
+4. **Route names could collide or be invalid on Windows.** Path components are
+   sanitized, Windows device names are protected, Unicode is retained, and
+   collisions receive stable hashes.
+5. **Malformed IPv6 URLs could stop a crawl.** Canonicalization, parsing,
+   rewriting, and resume paths now ignore malformed values safely.
+6. **A page cap looked like successful completion.** The manifest records
+   `route_limit_reached` and `remaining_queued_routes`.
+7. **Resume trusted damaged manifests and unsafe paths.** Recovery rebuilds a
+   safe manifest, validates local paths, ignores missing files, and can recover
+   unresolved relative links.
+8. **Runtime capture missed some assets.** Detection recognizes image, audio,
+   video, font, CSS, JavaScript, JSON, WASM, and useful file extensions when a
+   server provides missing or incorrect MIME types.
+9. **Interaction behavior was unclear.** The legacy interaction setting remains
+   compatible, while current Browser behavior is bounded and safe interaction
+   never performs blind form submission.
+10. **Concurrent website localization treated an in-progress sentinel as a
+    path.** Cache reuse now accepts only real local path values, preventing the
+    Teen Titans `os.path.isfile(object)` failure.
+11. **Settings network testing requested a third-party favicon.** Validation is
+    now offline and inspects only configuration and local interfaces.
+12. **DoT could weaken hostname verification.** DoT now requires a hostname,
+    bootstraps its address separately, and retains TLS server-name validation.
 
-## Invarian kompatibilitas
+## Compatibility invariants
 
-- Classic tetap default dan menjalankan perilaku historis.
-- Smart/Browser hanya aktif setelah dipilih pengguna.
-- Crawler dibatasi origin, scope cerita, jumlah halaman, dan kedalaman.
-- Aset runtime tetap melewati pipeline download normal.
-- `settings.json` tetap berbentuk object flat; `_meta` hanya dokumentasi file dan
-  tidak ikut menjadi runtime state.
-- Secret tidak dicetak oleh dokumentasi atau tes, dan ekspor settings meredaksi
-  key rahasia.
+- Classic remains available as the historical path.
+- Smart and Browser run only when explicitly selected or chosen by Auto.
+- Crawling is bounded by origin, story scope, page count, and depth.
+- Runtime assets pass through the normal download pipeline.
+- `settings.json` remains a flat object; `_meta` and `_section_...` fields do not
+  become runtime state.
+- Logs and portable exports redact secret values.
+- VPN policy is an application guard and never claims to create a tunnel.
 
-## Checklist verifikasi
+## Verification checklist
 
-Jalankan dari root project:
+Run from the repository root:
 
 ```powershell
 python -m pytest -q
@@ -52,33 +58,28 @@ python -m pytest -q -W error
 python -m compileall -q cyoa_downloader.py cyoa_downloader_app tests tools
 python cyoa_downloader.py --self-test
 python cyoa_downloader.py --dependency-check
-python tools/audit_import_surface.py
-python tools/audit_legacy_symbols.py
 ```
 
-Audit parity terhadap file historis dapat melaporkan perbedaan signature yang
-memang sengaja ditambahkan untuk parameter arsip. Perbedaan aditif tersebut
-bukan kehilangan API lama selama semua nama wajib tetap tersedia.
+Historical parity checks may report deliberately additive archive parameters.
+An additive signature difference is not a removed API as long as required names
+and earlier calling conventions remain available.
 
-## Kasus uji situs nyata
+## Real-site patterns represented by tests
 
-- Hypnosis Arena: pola daftar gambar JavaScript dan base path dinamis.
-- Isekai Quest: rute cerita besar, Next.js image proxy, lazy/runtime assets, dan
-  kebutuhan page limit yang lebih tinggi.
+- CYOA.CAFE catalog records and linked creator viewers;
+- Teen Titans concurrent asset localization and cache reuse;
+- Hypnosis Arena JavaScript image arrays and dynamic base paths;
+- large route stories, Next.js image optimization, and lazy/runtime assets;
+- Discord CDN refresh and local project-reference rewriting;
+- proxy, custom DNS, DoH/DoT, and fail-closed VPN guard behavior.
 
-Hasil arsip harus diuji melalui server HTTP lokal. `file://` bukan indikator
-yang andal untuk aplikasi modern karena module, fetch, CORS, dan service worker.
+Archive output should be tested through a local HTTP server. `file://` is not a
+reliable indicator for modern applications because of module, fetch, CORS, and
+service worker rules.
 
-## Hasil verifikasi 13 Juli 2026
+## Current verification result
 
-- Pytest normal: 175 lulus.
-- Pytest dengan warning sebagai error: 175 lulus.
-- Self-test internal: 37/37 lulus.
-- Import package: 108 modul, 0 gagal.
-- Import-surface audit: 15 nama wajib, 0 hilang.
-- GUI smoke: main window, Feature Toggles, dan Help/Guide berhasil dirender.
-- Dependency check: 19/19 modul Python terdeteksi; dependency wajib lengkap.
-- Compileall dan legacy-symbol audit: lulus.
-- Historical parity: 0 nama hilang, 0 constant diff, dan 5 signature diff yang
-  seluruhnya merupakan parameter aditif arsip/security.
-- Ruff tidak dijalankan karena modul opsional tersebut tidak terpasang.
+- Full offline pytest suite: 429 passed, 7 skipped.
+- Focused network, GUI, and universal archive suite: 90 passed.
+- Dependency diagnostics: 30 of 30 detected capabilities.
+- No public website or DNS resolver probe is used by Settings validation.
