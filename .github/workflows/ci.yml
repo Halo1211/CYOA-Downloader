@@ -15,9 +15,9 @@ jobs:
         python-version: ["3.10", "3.11", "3.12"]
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install system packages
@@ -45,7 +45,7 @@ jobs:
       - name: Self test
         run: python cyoa_downloader.py --self-test
       - name: Pytest
-        run: pytest -q
+        run: python -m pytest -q
       - name: Ruff lint (undefined/redefined names, repeated keys)
         run: ruff check cyoa_downloader.py --select F821,F811,F601
       - name: Verify smoke test

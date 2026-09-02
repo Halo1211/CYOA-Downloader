@@ -6,12 +6,34 @@ import hashlib
 import os
 import re
 import shutil
+import stat
 from typing import List
 from urllib.parse import unquote
 
 from ..logging_setup import logger
 
 _MAX_SAFE_SEGMENT_BYTES = 140
+
+
+def _is_link_or_junction(path: str) -> bool:
+    """Return whether *path* itself is a filesystem redirection.
+
+    Comparing ``realpath(path)`` with ``abspath(path)`` is not sufficient on
+    Windows: ``realpath`` also expands ordinary 8.3 aliases (for example
+    ``RUNNER~1`` on GitHub-hosted runners).  Inspecting the path entry avoids
+    rejecting those aliases while retaining the symlink/junction guard.
+    """
+    try:
+        if os.path.islink(path):
+            return True
+        isjunction = getattr(os.path, "isjunction", None)
+        if callable(isjunction) and isjunction(path):
+            return True
+        attributes = getattr(os.lstat(path), "st_file_attributes", 0)
+        reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+        return bool(attributes & reparse_flag)
+    except OSError:
+        return False
 
 
 def _truncate_path_segment(name: str) -> str:
@@ -75,7 +97,7 @@ def _safe_join(root: str, rel_path: str, fallback: str = "asset") -> str:
     # components before returning a path so writes cannot escape the selected
     # output root through filesystem indirection.
     root_real = os.path.realpath(root_abs)
-    if os.path.lexists(root_abs) and root_real != root_abs:
+    if os.path.lexists(root_abs) and _is_link_or_junction(root_abs):
         raise ValueError(f"Output root must not be a symlink or junction: {root!r}")
     target_real = os.path.realpath(target)
     if target_real != root_real and not target_real.startswith(root_real + os.sep):
@@ -113,7 +135,7 @@ def _safe_archive_join(root: str, member: str) -> str:
     if target == root_abs or not target.startswith(root_abs + os.sep):
         raise ValueError(f"Unsafe archive path rejected: {member!r}")
     root_real = os.path.realpath(root_abs)
-    if os.path.lexists(root_abs) and root_real != root_abs:
+    if os.path.lexists(root_abs) and _is_link_or_junction(root_abs):
         raise ValueError(f"Archive output root must not be a symlink or junction: {root!r}")
     target_real = os.path.realpath(target)
     if target_real == root_real or not target_real.startswith(root_real + os.sep):
@@ -141,4 +163,4 @@ def _copytree_merge_safe(src_dir: str, dst_dir: str, *, label: str = "assets") -
                 logger.debug(f"Copy {label} failed: {src_file} → {dst_file}: {e}")
     return count
 
-__all__ = ['_is_windows_reserved_basename', '_safe_rel_path', '_safe_join', '_safe_archive_rel_path', '_safe_archive_join', '_copytree_merge_safe']
+__all__ = ['_is_link_or_junction', '_is_windows_reserved_basename', '_safe_rel_path', '_safe_join', '_safe_archive_rel_path', '_safe_archive_join', '_copytree_merge_safe']

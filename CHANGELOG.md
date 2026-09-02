@@ -2,7 +2,7 @@
 
 This project uses a single changelog file. Older split release notes and patch reports have been consolidated here so users do not have to search through multiple Markdown files.
 
-## Unreleased
+## v1.0.8 — website reliability and advanced network profiles
 
 - Reduced CYOA.CAFE slug resolution to the authoritative slug lookup instead
   of first sending a guaranteed-failing PocketBase record-ID request.
@@ -16,12 +16,13 @@ This project uses a single changelog file. Older split release notes and patch r
 - Embedded File Version and Product Version in Windows executable properties.
 - Added an offline Teen Titans resolver regression that requires exactly one
   metadata lookup and one bounded viewer validation.
-
-## v1.0.8 — website reliability and advanced network profiles
-
 - Fixed the concurrent website-asset cache bug that could treat an in-progress
   marker as a filesystem path and repeatedly break CYOA.CAFE downloads such as
   Teen Titans.
+- Fixed Windows GitHub builds that mistook ordinary 8.3 path aliases such as
+  `RUNNER~1` for symlinks or junctions while keeping real reparse-point guards.
+- Fixed Linux CI imports by invoking pytest through the selected Python
+  interpreter, and upgraded official GitHub Actions to their Node.js 24 majors.
 - Added synchronized advanced network settings for the main GUI, Settings
   dashboard, CLI, Requests sessions, and browser fallbacks.
 - Added environment/manual/disabled proxy profiles, per-scheme HTTP/HTTPS
@@ -37,7 +38,7 @@ This project uses a single changelog file. Older split release notes and patch r
 - Updated the embedded Help/Guide and repository documentation in English,
   including detailed proxy, DNS privacy, VPN routing, and offline-validation
   explanations.
-- Expanded the offline regression suite to 430 passing tests with 7 optional
+- Expanded the offline regression suite to 438 passing tests with 7 optional
   tests skipped when their runtime conditions are unavailable.
 
 ## v1.0.7 — release consistency and beginner-friendly workflow
