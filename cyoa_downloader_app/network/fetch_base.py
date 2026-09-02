@@ -12,17 +12,18 @@ from urllib.parse import urljoin, urlparse
 
 import requests
 
+from ..download.headers import get_headers_for_url
+from ..integrations.ai_core import _host_resolves_internal, _ssrf_block_cross_origin
 from ._bridge import legacy
 from .cloudflare import (
-    is_cloudflare_challenge,
     _normalize_cloudflare_mode,
     fetch_via_flaresolverr,
+    is_cloudflare_challenge,
 )
+from .proxy import _should_bypass_manual_proxy
 from .sessions import _get_shared_session
 from .throttle import _domain_throttle
 from .vpn import vpn_requirement_satisfied
-from ..download.headers import get_headers_for_url
-from ..integrations.ai_core import _host_resolves_internal, _ssrf_block_cross_origin
 
 
 def base_fetch_response(
@@ -107,9 +108,20 @@ def base_fetch_response(
             initial_host = urlparse(url).hostname or ""
             initial_internal = _host_resolves_internal(initial_host)
             for redirect_count in range(11):
+                request_kwargs = {}
+                if _should_bypass_manual_proxy(request_url):
+                    # Remove Session-level manual proxies for this request.
+                    # ``None`` values cause Requests' merge logic to delete
+                    # the corresponding inherited mapping keys.
+                    request_kwargs["proxies"] = {
+                        "http": None,
+                        "https": None,
+                        "all": None,
+                    }
                 r = session.get(
                     request_url, headers=request_headers, timeout=timeout,
                     allow_redirects=False, verify=verify_ssl, stream=stream,
+                    **request_kwargs,
                 )
                 location = r.headers.get("Location", "")
                 if r.status_code not in {301, 302, 303, 307, 308} or not location:

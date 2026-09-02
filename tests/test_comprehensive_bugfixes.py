@@ -865,6 +865,103 @@ def test_cyoa_cafe_slug_route_uses_pocketbase_slug_filter(monkeypatch):
 
     assert resolver.resolve(source) == record["iframe_url"]
     assert any("filter=slug%3D%27demon-s-blessing-expansion%27" in url for url in calls)
+    assert not any("/records/demon-s-blessing-expansion" in url for url in calls)
+    assert calls.count(record["iframe_url"]) == 1
+
+
+def test_cyoa_cafe_teen_titans_resolution_is_bounded_and_cached(monkeypatch):
+    source = "https://cyoa.cafe/game/teen-titans"
+    viewer = "https://laath.cyoa.cafe/teen-titans-cyoa/"
+    record = {
+        "id": "0z76ezd3hdw0pam",
+        "slug": "teen-titans",
+        "iframe_url": viewer,
+    }
+    calls = []
+
+    monkeypatch.setattr(cyoa_cafe, "_CYOA_CAFE_CACHE", {})
+    monkeypatch.setattr(cyoa_cafe, "_CYOA_CAFE_RECORD_CACHE", {})
+    monkeypatch.setattr(cyoa_cafe, "_CYOA_CAFE_RECORD_MISS_CACHE", {})
+
+    def fake_fetch(url, **_kwargs):
+        calls.append(url)
+        if "filter=slug%3D%27teen-titans%27" in url:
+            return FakeResponse(
+                200,
+                {"Content-Type": "application/json"},
+                json.dumps({"items": [record]}).encode(),
+            )
+        if url == viewer:
+            return FakeResponse(
+                200,
+                {"Content-Type": "text/html"},
+                b"<html><div id='app'></div></html>",
+            )
+        raise AssertionError(f"unexpected request: {url}")
+
+    resolver = cyoa_cafe.CYOACafeResolver(fetcher=fake_fetch)
+
+    assert resolver.resolve(source) == viewer
+    assert calls == [cyoa_cafe._cyoa_cafe_slug_api_url("teen-titans"), viewer]
+
+
+def test_cyoa_cafe_record_miss_cache_stops_repeated_detection_requests(monkeypatch):
+    source = "https://cyoa.cafe/game/missing-game"
+    calls = []
+
+    monkeypatch.setattr(cyoa_cafe, "_CYOA_CAFE_RECORD_CACHE", {})
+    monkeypatch.setattr(cyoa_cafe, "_CYOA_CAFE_RECORD_MISS_CACHE", {})
+
+    def fake_fetch(url, **_kwargs):
+        calls.append(url)
+        return FakeResponse(
+            200,
+            {"Content-Type": "application/json"},
+            b'{"items": []}',
+        )
+
+    assert cyoa_cafe.fetch_cyoa_cafe_record(source, fetcher=fake_fetch) is None
+    assert cyoa_cafe.fetch_cyoa_cafe_record(source, fetcher=fake_fetch) is None
+    assert calls == [cyoa_cafe._cyoa_cafe_slug_api_url("missing-game")]
+
+
+def test_cyoa_cafe_cached_alias_refreshes_stale_record(monkeypatch):
+    source = "https://cyoa.cafe/game/current123"
+    old_viewer = "https://viewer.example/old/"
+    new_viewer = "https://viewer.example/new/"
+    new_record = {"id": "current123", "iframe_url": new_viewer}
+    calls = []
+
+    monkeypatch.setattr(cyoa_cafe, "_CYOA_CAFE_CACHE", {})
+    monkeypatch.setattr(cyoa_cafe, "_CYOA_CAFE_RECORD_CACHE", {
+        "record:current123": (
+            time.monotonic() + 3600,
+            {"id": "current123", "iframe_url": old_viewer},
+        ),
+    })
+    monkeypatch.setattr(cyoa_cafe, "_CYOA_CAFE_RECORD_MISS_CACHE", {})
+
+    def fake_fetch(url, **_kwargs):
+        calls.append(url)
+        if "/api/collections/games/records/current123" in url:
+            return FakeResponse(
+                200,
+                {"Content-Type": "application/json"},
+                json.dumps(new_record).encode(),
+            )
+        if url == new_viewer:
+            return FakeResponse(
+                200,
+                {"Content-Type": "text/html"},
+                b"<html><div id='app'></div></html>",
+            )
+        raise AssertionError(f"unexpected request: {url}")
+
+    resolver = cyoa_cafe.CYOACafeResolver(fetcher=fake_fetch)
+    resolver._cache_put(source, old_viewer)
+
+    assert resolver.resolve(source) == new_viewer
+    assert old_viewer not in calls
 
 
 def test_cyoa_cafe_accepts_static_core_cyoa_without_app_signature(monkeypatch):
@@ -1034,6 +1131,29 @@ def test_fetch_never_retries_with_tls_verification_disabled(monkeypatch):
     assert fetch_base.base_fetch_response("https://public.test/start") is None
     assert len(session.calls) == 1
     assert session.calls[0]["verify"] is True
+
+
+def test_fetch_manual_proxy_bypass_removes_session_proxy(monkeypatch):
+    class Session:
+        def __init__(self):
+            self.calls = []
+
+        def get(self, url, **kwargs):
+            self.calls.append((url, kwargs))
+            return FakeResponse(200, {"Content-Type": "text/plain"}, b"ok")
+
+    session = Session()
+    _prepare_fetch_base(monkeypatch, session)
+    monkeypatch.setattr(fetch_base, "_should_bypass_manual_proxy", lambda _url: True)
+
+    response = fetch_base.base_fetch_response("http://localhost:8191/v1")
+
+    assert response.status_code == 200
+    assert session.calls[0][1]["proxies"] == {
+        "http": None,
+        "https": None,
+        "all": None,
+    }
 
 
 def test_fetch_return_error_response_preserves_all_http_errors(monkeypatch):

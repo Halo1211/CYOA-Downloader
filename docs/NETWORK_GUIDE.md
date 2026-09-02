@@ -31,7 +31,11 @@ protected accordingly.
 
 Requests sessions and browser fallbacks consume the same effective profile.
 HTTP and HTTPS overrides take precedence over the common proxy for their
-respective schemes.
+respective schemes. Manual bypass rules are applied explicitly to Requests,
+DoH, browser, FlareSolverr, and gallery-dl traffic; they are not stored as an
+unused pseudo-proxy entry. FlareSolverr session names include a short,
+non-reversible route fingerprint so changing a proxy or bypass rule cannot
+silently reuse a browser session bound to the old route.
 
 ## DNS transports and presets
 
@@ -145,6 +149,11 @@ If a download fails:
    failure does not mean that project assets failed.
 5. Run `python cyoa_downloader.py --dependency-check` to confirm that dnspython
    and Requests SOCKS support are available.
+6. For source installs, run `python cyoa_downloader.py --version`. For the GUI
+   EXE, open **Properties → Details** and confirm that File Version and Product
+   Version are `1.0.8`; the in-app Help/Guide header also shows patch ID
+   `CYOA-v1.0.8`. Older executables do not contain the Teen Titans asset-cache
+   correction.
 
 Settings validation itself never downloads a favicon or probes the target
 website.

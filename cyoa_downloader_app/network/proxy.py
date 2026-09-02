@@ -11,6 +11,8 @@ import os
 from typing import Dict, Optional
 from urllib.parse import unquote, urlsplit, urlunsplit
 
+from requests.utils import should_bypass_proxies
+
 from ..logging_setup import logger
 from ..runtime import state
 from ..runtime.compat import mirror_to_legacy
@@ -80,13 +82,28 @@ def _get_active_proxies() -> Dict[str, str]:
             mapping["http"] = str(state._proxy_http or common)
         if state._proxy_https or common:
             mapping["https"] = str(state._proxy_https or common)
-        if state._proxy_no_proxy:
-            mapping["no_proxy"] = state._proxy_no_proxy
         return mapping
     # Environment proxies are consumed by requests via trust_env. Returning a
     # summary here keeps callers such as FlareSolverr compatible.
     proxy = _get_active_proxy()
     return {"http": proxy, "https": proxy} if proxy else {}
+
+
+def _should_bypass_manual_proxy(url: str) -> bool:
+    """Return whether the configured manual proxy bypass matches *url*.
+
+    ``requests`` only applies ``NO_PROXY`` automatically when environment
+    proxy discovery is enabled. Manual profiles deliberately disable that
+    discovery, so a ``no_proxy`` entry placed in ``Session.proxies`` was
+    ignored. Keep bypass evaluation explicit and shared by Requests, browser,
+    DoH, and FlareSolverr transports.
+    """
+    if state._proxy_mode != "manual" or not state._proxy_no_proxy:
+        return False
+    try:
+        return bool(should_bypass_proxies(str(url or ""), no_proxy=state._proxy_no_proxy))
+    except (TypeError, ValueError):
+        return False
 
 
 def _get_browser_proxy_config(url: str) -> Optional[Dict[str, str]]:
@@ -97,6 +114,8 @@ def _get_browser_proxy_config(url: str) -> Optional[Dict[str, str]]:
     browser fallback must not bypass it.
     """
     if state._proxy_mode != "manual":
+        return {}
+    if _should_bypass_manual_proxy(url):
         return {}
     target_scheme = urlsplit(str(url or "")).scheme.lower() or "https"
     proxy_url = _get_active_proxies().get(target_scheme)
@@ -167,7 +186,7 @@ def _set_proxy_config(
         if normalized_mode == "manual":
             rendered = {
                 key: _redact_proxy_url(value)
-                for key, value in _get_active_proxies().items() if key != "no_proxy"
+                for key, value in _get_active_proxies().items()
             }
             logger.info("Manual proxy profile active: %s", rendered)
         elif normalized_mode == "inherit_env":
@@ -190,5 +209,5 @@ def _set_active_proxy(url: Optional[str], *, mode: Optional[str] = None) -> None
 __all__ = [
     "_get_active_proxy", "_get_active_proxies", "_set_active_proxy",
     "_set_proxy_config", "_normalize_proxy_url", "_redact_proxy_url",
-    "_get_browser_proxy_config",
+    "_get_browser_proxy_config", "_should_bypass_manual_proxy",
 ]

@@ -11,7 +11,7 @@ import requests
 from ..runtime import state
 from ..runtime.compat import mirror_to_legacy
 from ._bridge import legacy
-from .proxy import _get_active_proxies
+from .proxy import _get_active_proxies, _should_bypass_manual_proxy
 
 
 def _build_dns_query_wire(host: str, qtype: int = 1) -> Tuple[int, bytes]:
@@ -91,9 +91,17 @@ def _doh_resolve_via(
             session = requests.Session()
             session.trust_env = (state._proxy_mode == "inherit_env")
             session.proxies.update(_get_active_proxies())
+            request_kwargs = {}
+            if _should_bypass_manual_proxy(doh_url):
+                request_kwargs["proxies"] = {
+                    "http": None,
+                    "https": None,
+                    "all": None,
+                }
             r = session.post(
                 doh_url, data=payload, headers=headers,
                 timeout=max(1, int(timeout or state._dns_timeout)),
+                **request_kwargs,
             )
         finally:
             if session is not None:

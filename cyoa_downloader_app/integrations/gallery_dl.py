@@ -18,8 +18,7 @@ from urllib.parse import urlparse
 from ..config.settings import _load_settings, _update_setting
 from ..download.asset_scan import _is_probable_raw_cdn_asset
 from ..logging_setup import logger
-from ..network.proxy import _get_active_proxy
-
+from ..network.proxy import _get_active_proxy, _should_bypass_manual_proxy
 
 _GALLERY_DL_HOSTS: Dict[str, str] = {
     "www.pixiv.net": "pixiv", "pixiv.net": "pixiv",
@@ -158,7 +157,7 @@ def _fetch_via_gallery_dl(url: str) -> Optional[bytes]:
         if _gallery_dl_config and os.path.exists(_gallery_dl_config):
             cmd.extend(["--config", _gallery_dl_config])
         proxy = _get_active_proxy()
-        if proxy:
+        if proxy and not _should_bypass_manual_proxy(url):
             cmd.extend(["--proxy", proxy])
         cmd.append(url)
 

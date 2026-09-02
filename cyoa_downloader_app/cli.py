@@ -164,6 +164,11 @@ def main() -> None:
             "both formats, or a full offline ICC viewer package. Run without arguments for the GUI."
         )
     )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"{_APP_DISPLAY_NAME} {_APP_VERSION} ({_STABILIZATION_PATCH_ID})",
+    )
     parser.add_argument("url", nargs="?", default="", help="URL of the CYOA project.")
     parser.add_argument("filename", nargs="?", default="", help="Optional output filename.")
     parser.add_argument("-u", "--url", dest="url_opt", default="",

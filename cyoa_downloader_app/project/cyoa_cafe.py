@@ -16,13 +16,21 @@ from urllib.parse import quote, urljoin, urlparse, urlunparse
 
 import requests
 
-from ..constants.assets import AUDIO_EXTENSIONS, FONT_EXTENSIONS, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS
+from ..constants.assets import (
+    AUDIO_EXTENSIONS,
+    FONT_EXTENSIONS,
+    IMAGE_EXTENSIONS,
+    VIDEO_EXTENSIONS,
+)
+from ..core.url_utils import canonicalize_url, is_probable_url
 from ..download.asset_scan import _safe_response_text
 from ..integrations.ai import _host_resolves_internal
 from ..logging_setup import logger
 from ..network.fetch import fetch_response
-from ..project.parse import extract_project_text_from_payload, looks_like_project_payload
-from ..core.url_utils import canonicalize_url, is_probable_url
+from ..project.parse import (
+    extract_project_text_from_payload,
+    looks_like_project_payload,
+)
 
 try:
     from bs4 import BeautifulSoup  # type: ignore
@@ -40,9 +48,11 @@ _CYOA_CAFE_FIELDS: Tuple[str, ...] = (
 )
 _CYOA_CAFE_CACHE_TTL = 6 * 3600.0
 _CYOA_CAFE_CACHE_MAX = 256
+_CYOA_CAFE_RECORD_MISS_TTL = 60.0
 _CYOA_CAFE_CACHE: Dict[str, Tuple[float, str]] = {}
 _CYOA_CAFE_CACHE_LOCK = threading.RLock()
 _CYOA_CAFE_RECORD_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+_CYOA_CAFE_RECORD_MISS_CACHE: Dict[str, float] = {}
 
 
 def _looks_like_custom_viewer_html(text: str) -> bool:
@@ -87,7 +97,13 @@ def _cyoa_cafe_slug_api_url(slug: str) -> str:
     )
 
 
-def fetch_cyoa_cafe_record(url: str, *, timeout: int = 15, fetcher: Optional[Any] = None) -> Optional[Dict[str, Any]]:
+def fetch_cyoa_cafe_record(
+    url: str,
+    *,
+    timeout: int = 15,
+    fetcher: Optional[Any] = None,
+    refresh: bool = False,
+) -> Optional[Dict[str, Any]]:
     """Fetch and TTL-cache a public cyoa.cafe game record.
 
     This is deliberately separate from viewer resolution: records whose
@@ -100,20 +116,32 @@ def fetch_cyoa_cafe_record(url: str, *, timeout: int = 15, fetcher: Optional[Any
     cache_key = f"record:{record_id}"
     now = time.monotonic()
     with _CYOA_CAFE_CACHE_LOCK:
-        cached = _CYOA_CAFE_RECORD_CACHE.get(cache_key)
-        if cached and cached[0] > now:
-            return dict(cached[1])
-        if cached:
-            _CYOA_CAFE_RECORD_CACHE.pop(cache_key, None)
+        if not refresh:
+            cached = _CYOA_CAFE_RECORD_CACHE.get(cache_key)
+            if cached and cached[0] > now:
+                return dict(cached[1])
+            if cached:
+                _CYOA_CAFE_RECORD_CACHE.pop(cache_key, None)
+            miss_expires = _CYOA_CAFE_RECORD_MISS_CACHE.get(cache_key, 0.0)
+            if miss_expires > now:
+                return None
+            if miss_expires:
+                _CYOA_CAFE_RECORD_MISS_CACHE.pop(cache_key, None)
     fetch = fetcher or CYOACafeResolver._default_fetch
     # /game/<key> historically addressed the record directly.  Current links
     # may use a slug, for which the direct endpoint returns 404; fall back to
     # PocketBase's exact slug filter in that case.
-    api_urls = [
-        "https://cyoa.cafe/api/collections/games/records/"
-        f"{quote(record_id, safe='')}",
-        _cyoa_cafe_slug_api_url(record_id),
-    ]
+    api_urls = []
+    # Human-readable slugs containing separators cannot be PocketBase record
+    # IDs. Skipping the guaranteed 404 matters because this resolver is used
+    # by several archive-detection stages and should not create noisy,
+    # redundant catalogue traffic for routes such as ``teen-titans``.
+    if "-" not in record_id and "_" not in record_id:
+        api_urls.append(
+            "https://cyoa.cafe/api/collections/games/records/"
+            f"{quote(record_id, safe='')}"
+        )
+    api_urls.append(_cyoa_cafe_slug_api_url(record_id))
     data: Any = None
     for api_url in api_urls:
         response = None
@@ -142,7 +170,7 @@ def fetch_cyoa_cafe_record(url: str, *, timeout: int = 15, fetcher: Optional[Any
             (
                 item for item in items
                 if isinstance(item, dict)
-                and str(item.get("slug") or "") == record_id
+                and str(item.get("slug") or "").casefold() == record_id.casefold()
             ),
             None,
         ) if isinstance(items, list) else None
@@ -152,9 +180,23 @@ def fetch_cyoa_cafe_record(url: str, *, timeout: int = 15, fetcher: Optional[Any
         data = None
 
     if not isinstance(data, dict) or not str(data.get("id") or ""):
+        with _CYOA_CAFE_CACHE_LOCK:
+            _CYOA_CAFE_RECORD_MISS_CACHE[cache_key] = (
+                time.monotonic() + _CYOA_CAFE_RECORD_MISS_TTL
+            )
+            if len(_CYOA_CAFE_RECORD_MISS_CACHE) > _CYOA_CAFE_CACHE_MAX:
+                oldest_miss = min(
+                    _CYOA_CAFE_RECORD_MISS_CACHE,
+                    key=_CYOA_CAFE_RECORD_MISS_CACHE.get,
+                )
+                _CYOA_CAFE_RECORD_MISS_CACHE.pop(oldest_miss, None)
         return None
     with _CYOA_CAFE_CACHE_LOCK:
-        _CYOA_CAFE_RECORD_CACHE[cache_key] = (now + _CYOA_CAFE_CACHE_TTL, dict(data))
+        _CYOA_CAFE_RECORD_CACHE[cache_key] = (
+            time.monotonic() + _CYOA_CAFE_CACHE_TTL,
+            dict(data),
+        )
+        _CYOA_CAFE_RECORD_MISS_CACHE.pop(cache_key, None)
         if len(_CYOA_CAFE_RECORD_CACHE) > _CYOA_CAFE_CACHE_MAX:
             oldest = min(_CYOA_CAFE_RECORD_CACHE, key=lambda key: _CYOA_CAFE_RECORD_CACHE[key][0])
             _CYOA_CAFE_RECORD_CACHE.pop(oldest, None)
@@ -269,6 +311,7 @@ class CYOACafeResolver:
             record_id = _cyoa_cafe_record_id(url)
             if record_id:
                 _CYOA_CAFE_RECORD_CACHE.pop(f"record:{record_id}", None)
+                _CYOA_CAFE_RECORD_MISS_CACHE.pop(f"record:{record_id}", None)
             stale = [k for k, (_exp, v) in _CYOA_CAFE_CACHE.items() if v == key or v == url]
             for k in stale:
                 _CYOA_CAFE_CACHE.pop(k, None)
@@ -316,7 +359,9 @@ class CYOACafeResolver:
             self._responses[url] = response
         return response
 
-    def _authoritative_metadata_target(self, normalized: str) -> str:
+    def _authoritative_metadata_target(
+        self, normalized: str, *, refresh: bool = False,
+    ) -> str:
         """Return the viewer named by the current catalogue record, if any.
 
         A resolver cache is useful for repeated downloads, but a catalogue
@@ -335,6 +380,7 @@ class CYOACafeResolver:
                 normalized,
                 timeout=self.timeout,
                 fetcher=self.fetcher,
+                refresh=refresh,
             )
         except Exception as exc:
             logger.debug("Authoritative CYOA.CAFE record check skipped: %s", exc)
@@ -623,9 +669,12 @@ class CYOACafeResolver:
         if host != "cyoa.cafe" and not host.endswith(".cyoa.cafe"):
             return normalized
 
-        authoritative_target = self._authoritative_metadata_target(normalized)
+        cached_target = self._cache_get(normalized)
+        authoritative_target = self._authoritative_metadata_target(
+            normalized,
+            refresh=bool(cached_target),
+        )
         if authoritative_target:
-            cached_target = self._cache_get(normalized)
             if cached_target:
                 try:
                     cached_key = canonicalize_url(cached_target)
@@ -644,6 +693,13 @@ class CYOACafeResolver:
                 logger.info(f"cyoa.cafe resolved from TTL cache: {cached}")
                 return cached
             self.invalidate(normalized)
+        if authoritative_target and self.validate_candidate(authoritative_target):
+            self._cache_put(normalized, authoritative_target)
+            logger.info(
+                "cyoa.cafe resolved via authoritative PocketBase record: %s",
+                authoritative_target,
+            )
+            return authoritative_target
         candidates: List[Tuple[str, str]] = []
         # Creator subdomain URLs are normally the real viewer. Validate and
         # return before querying the central catalog API; the API is only a
@@ -731,6 +787,7 @@ __all__ = [
     "build_cyoa_cafe_file_url",
     "_CYOA_CAFE_FIELDS", "_CYOA_CAFE_CACHE_TTL", "_CYOA_CAFE_CACHE_MAX",
     "_CYOA_CAFE_CACHE", "_CYOA_CAFE_CACHE_LOCK", "_CYOA_CAFE_RECORD_CACHE",
+    "_CYOA_CAFE_RECORD_MISS_CACHE", "_CYOA_CAFE_RECORD_MISS_TTL",
     "_v462_default_cafe_fetch", "_v462_invalidate_cafe_cache",
     "_v462_validate_pure_website_candidate", "_v462_resolve_cafe",
     "_v462_auto_detect_output_variant", "_v462_auto_detect_mode",

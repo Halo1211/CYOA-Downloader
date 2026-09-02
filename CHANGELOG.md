@@ -4,7 +4,18 @@ This project uses a single changelog file. Older split release notes and patch r
 
 ## Unreleased
 
-- No unreleased changes.
+- Reduced CYOA.CAFE slug resolution to the authoritative slug lookup instead
+  of first sending a guaranteed-failing PocketBase record-ID request.
+- Added a bounded negative metadata cache so repeated detection stages do not
+  request the same unavailable catalogue record again within one run.
+- Refresh stale CYOA.CAFE alias records before trusting a cached viewer target.
+- Fixed manual proxy bypass rules across Requests, DoH, browser, FlareSolverr,
+  and gallery-dl paths; FlareSolverr sessions are now isolated by a hashed
+  effective proxy route so profile changes cannot reuse an old route.
+- Added `--version` for quickly checking which CLI/EXE build is running.
+- Embedded File Version and Product Version in Windows executable properties.
+- Added an offline Teen Titans resolver regression that requires exactly one
+  metadata lookup and one bounded viewer validation.
 
 ## v1.0.8 — website reliability and advanced network profiles
 

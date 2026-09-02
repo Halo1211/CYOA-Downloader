@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
 
 import requests
 
-from .proxy import _get_active_proxies
-
 from ._bridge import legacy
+from .proxy import _get_active_proxies, _should_bypass_manual_proxy
 
 
 def is_cloudflare_challenge(response) -> bool:
@@ -179,6 +179,8 @@ def _flaresolverr_payload_proxy(target_url: str = "") -> Optional[Dict[str, str]
     l = legacy()
     if l._FLARESOLVERR_PROXY_MODE != "inherit":
         return None
+    if _should_bypass_manual_proxy(target_url):
+        return None
     target_scheme = urlparse(target_url).scheme.lower() or "https"
     mapping = _get_active_proxies()
     proxy = mapping.get(target_scheme) or l._get_active_proxy()
@@ -202,7 +204,19 @@ def _flaresolverr_post(payload: Dict[str, Any], timeout: Optional[int] = None) -
                 parsed = urlparse(api_url)
                 if (parsed.hostname or "").lower() not in {"localhost", "127.0.0.1", "::1"}:
                     session.proxies.update({"http": proxy, "https": proxy})
-            r = session.post(api_url, json=payload, timeout=request_timeout)
+            request_kwargs = {}
+            if _should_bypass_manual_proxy(api_url):
+                request_kwargs["proxies"] = {
+                    "http": None,
+                    "https": None,
+                    "all": None,
+                }
+            r = session.post(
+                api_url,
+                json=payload,
+                timeout=request_timeout,
+                **request_kwargs,
+            )
         finally:
             session.close()
         r.raise_for_status()
@@ -217,7 +231,14 @@ def _flaresolverr_post(payload: Dict[str, Any], timeout: Optional[int] = None) -
 
 def _flaresolverr_session_key(url: str) -> str:
     host = (urlparse(url).hostname or "default").lower()
-    return "cyoa_" + "".join(ch if ch.isalnum() else "_" for ch in host)[:48]
+    proxy_obj = _flaresolverr_payload_proxy(url)
+    route = str((proxy_obj or {}).get("url") or "direct")
+    # FlareSolverr binds a proxy to the browser session at creation time.
+    # Include a non-reversible route fingerprint so a profile/bypass change
+    # cannot silently reuse a session that still follows the previous proxy.
+    route_id = hashlib.sha256(route.encode("utf-8")).hexdigest()[:10]
+    safe_host = "".join(ch if ch.isalnum() else "_" for ch in host)[:36]
+    return f"cyoa_{safe_host}_{route_id}"
 
 
 def _flaresolverr_get_session(url: str) -> Optional[str]:

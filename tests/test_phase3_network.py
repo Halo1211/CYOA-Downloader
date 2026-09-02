@@ -1,6 +1,8 @@
 import os
+from types import SimpleNamespace
 
 import cyoa_downloader
+from cyoa_downloader_app.network import browser as browser_mod
 from cyoa_downloader_app.network import cloudflare as cf_mod
 from cyoa_downloader_app.network import dns as dns_mod
 from cyoa_downloader_app.network import fetch as fetch_mod
@@ -8,7 +10,6 @@ from cyoa_downloader_app.network import proxy as proxy_mod
 from cyoa_downloader_app.network import sessions as sessions_mod
 from cyoa_downloader_app.network import throttle as throttle_mod
 from cyoa_downloader_app.network import vpn as vpn_mod
-from cyoa_downloader_app.network import browser as browser_mod
 
 
 def test_phase3_facade_network_names_still_match_modules():
@@ -54,8 +55,10 @@ def test_advanced_proxy_profile_supports_scheme_overrides_and_redaction():
         assert proxy_mod._get_active_proxies() == {
             "http": "http://127.0.0.1:8080",
             "https": "socks5h://user:secret@127.0.0.1:1080",
-            "no_proxy": "localhost,127.0.0.1",
         }
+        assert proxy_mod._should_bypass_manual_proxy("http://localhost:8191/v1")
+        assert proxy_mod._should_bypass_manual_proxy("https://127.0.0.1/status")
+        assert not proxy_mod._should_bypass_manual_proxy("https://example.com/game")
         redacted = proxy_mod._redact_proxy_url(
             "socks5h://user:secret@127.0.0.1:1080"
         )
@@ -68,6 +71,7 @@ def test_advanced_proxy_profile_supports_scheme_overrides_and_redaction():
             "username": "user", "password": "secret",
             "bypass": "localhost,127.0.0.1",
         }
+        assert proxy_mod._get_browser_proxy_config("http://localhost:8191/v1") == {}
     finally:
         proxy_mod._set_proxy_config(mode="disabled")
 
@@ -149,3 +153,29 @@ def test_vpn_guard_blocks_browser_fallback_before_launch(monkeypatch):
     )
     assert session.fetch("https://example.com") is None
     assert browser_mod._fetch_headless("https://example.com") is None
+
+
+def test_flaresolverr_bypass_uses_a_separate_direct_session(monkeypatch):
+    try:
+        proxy_mod._set_proxy_config(
+            mode="manual",
+            proxy="http://127.0.0.1:8080",
+            no_proxy=".cyoa.cafe",
+        )
+        monkeypatch.setattr(cf_mod, "legacy", lambda: SimpleNamespace(
+            _FLARESOLVERR_PROXY_MODE="inherit",
+            _get_active_proxy=proxy_mod._get_active_proxy,
+        ))
+
+        bypassed = "https://laath.cyoa.cafe/teen-titans-cyoa/"
+        proxied = "https://example.com/game/"
+
+        assert cf_mod._flaresolverr_payload_proxy(bypassed) is None
+        assert cf_mod._flaresolverr_payload_proxy(proxied) == {
+            "url": "http://127.0.0.1:8080",
+        }
+        assert cf_mod._flaresolverr_session_key(bypassed) != (
+            cf_mod._flaresolverr_session_key(proxied)
+        )
+    finally:
+        proxy_mod._set_proxy_config(mode="disabled")
