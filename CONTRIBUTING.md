@@ -29,7 +29,7 @@ python -m py_compile cyoa_downloader.py
 python cyoa_downloader.py --help
 python cyoa_downloader.py --dependency-check
 python cyoa_downloader.py --self-test
-pytest -q
+python -m pytest -q
 ruff check cyoa_downloader.py --select F821
 ```
 

@@ -14,10 +14,17 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/Halo1211/CYOA-Downloader/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Halo1211/CYOA-Downloader/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/Halo1211/CYOA-Downloader/releases/latest"><img alt="Version" src="https://img.shields.io/badge/version-v1.0.8-20c997.svg"></a>
+  <img alt="Python" src="https://img.shields.io/badge/Python-3.10%2B-3aa6d0.svg">
+  <img alt="UI" src="https://img.shields.io/badge/UI-PySide6-d633b8.svg">
+  <a href="https://github.com/mikf/gallery-dl"><img alt="Powered by gallery-dl" src="https://img.shields.io/badge/powered%20by-gallery--dl-263238.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg"></a>
-  <img alt="Python" src="https://img.shields.io/badge/Python-3.10%2B-blue.svg">
-  <img alt="Release" src="https://img.shields.io/badge/Release-v1.0.8-orange.svg">
 </p>
+
+> **Important**  CYOA Downloader is an independent community utility. Download
+> only content you are permitted to access and retain. It is not affiliated with
+> CYOA.CAFE, gallery-dl, or any website handled by the downloader.
 
 ---
 
@@ -237,7 +244,7 @@ python -m pytest -q
 ruff check cyoa_downloader.py cyoa_downloader_app
 ```
 
-The current offline regression suite contains 429 passing tests with 7 optional
+The current offline regression suite contains 438 passing tests with 7 optional
 tests skipped when their runtime conditions are unavailable.
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes. Security

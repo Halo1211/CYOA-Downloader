@@ -146,7 +146,15 @@ def _playwright_chromium() -> str:
         spec = importlib.util.find_spec("playwright")
         for location in (spec.submodule_search_locations or []) if spec else []:
             roots.append(os.path.join(location, ".local-browsers"))
+    # Honour an explicitly supplied LOCALAPPDATA on every host.  This keeps
+    # diagnostics deterministic in CI/portable environments that model a
+    # Windows browser cache while retaining the native platform defaults.
+    local_appdata = os.environ.get("LOCALAPPDATA", "").strip()
+    if local_appdata:
+        roots.append(os.path.join(local_appdata, "ms-playwright"))
     if sys.platform == "win32":
+        # The explicit path above covers normal Windows too; keep this branch
+        # for clarity if the variable is absent or empty.
         roots.append(os.path.join(os.environ.get("LOCALAPPDATA", ""), "ms-playwright"))
     elif sys.platform == "darwin":
         roots.append(os.path.expanduser("~/Library/Caches/ms-playwright"))
