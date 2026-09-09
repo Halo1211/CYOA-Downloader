@@ -893,7 +893,10 @@ def _v25_manage_offline_viewers(self: Any) -> None:
 
     def _counts(manifest):
         total = len(manifest)
-        icc_types = {"icc_plus", "icc_plus2", "icc_legacy", "icc_remix", "lt_ouroumov", "icc"}
+        icc_types = {
+            "icc_plus", "icc_plus2", "icc_plus_legacy", "icc_original",
+            "icc_legacy", "icc_remix", "lt_ouroumov", "icc",
+        }
         icc = sum(1 for m in manifest.values() if m.get("viewer_type") in icc_types)
         custom = sum(1 for m in manifest.values() if m.get("viewer_type") not in {*icc_types, "cyoap_vue"})
         return total, icc, custom
@@ -939,9 +942,18 @@ def _v25_manage_offline_viewers(self: Any) -> None:
         ctk.CTkLabel(form, text=("Name" if is_en else "Nama"), text_color=p["muted"], anchor="w").grid(row=1, column=0, sticky="ew", padx=16)
         ctk.CTkEntry(form, textvariable=name_var, fg_color=p["input_bg"], text_color=p["input_fg"], border_color=p["border"]).grid(row=2, column=0, sticky="ew", padx=16, pady=(2, 8))
         ctk.CTkLabel(form, text=("Viewer type" if is_en else "Tipe viewer"), text_color=p["muted"], anchor="w").grid(row=3, column=0, sticky="ew", padx=16)
-        ctk.CTkSegmentedButton(form, values=["icc_plus", "icc", "cyoap_vue", "custom"], variable=type_var,
-                               fg_color=p["surface2"], selected_color="#3b82f6", selected_hover_color="#2563eb",
-                               unselected_color=p["surface2"], unselected_hover_color=p["surface"], text_color="#ffffff").grid(row=4, column=0, sticky="ew", padx=16, pady=(2, 8))
+        ctk.CTkOptionMenu(
+            form,
+            values=[
+                "icc_plus2", "icc_plus_legacy", "icc_original", "icc_remix",
+                "lt_ouroumov", "cyoap_vue", "custom",
+            ],
+            variable=type_var,
+            fg_color=p["surface2"],
+            button_color=p["surface"],
+            button_hover_color=p["surface2"],
+            text_color="#ffffff",
+        ).grid(row=4, column=0, sticky="ew", padx=16, pady=(2, 8))
         ctk.CTkLabel(form, text=("Description (optional)" if is_en else "Deskripsi (opsional)"), text_color=p["muted"], anchor="w").grid(row=5, column=0, sticky="ew", padx=16)
         ctk.CTkEntry(form, textvariable=desc_var, fg_color=p["input_bg"], text_color=p["input_fg"], border_color=p["border"]).grid(row=6, column=0, sticky="ew", padx=16, pady=(2, 14))
         btns = ctk.CTkFrame(form, fg_color="transparent")
@@ -1067,13 +1079,24 @@ def _v25_manage_offline_viewers(self: Any) -> None:
         row = 0
         for vid, meta in manifest.items():
             vtype = str(meta.get("viewer_type", "custom") or "custom")
-            if mode == "icc" and vtype not in {"icc_plus", "icc_plus2", "icc_legacy", "icc_remix", "lt_ouroumov", "icc"}:
+            if mode == "icc" and vtype not in {
+                "icc_plus", "icc_plus2", "icc_plus_legacy", "icc_original",
+                "icc_legacy", "icc_remix", "lt_ouroumov", "icc",
+            }:
                 continue
             if mode == "cyoap" and vtype != "cyoap_vue":
                 continue
-            if mode == "custom" and vtype in {"icc_plus", "icc_plus2", "icc_legacy", "icc_remix", "lt_ouroumov", "icc", "cyoap_vue"}:
+            if mode == "custom" and vtype in {
+                "icc_plus", "icc_plus2", "icc_plus_legacy", "icc_original",
+                "icc_legacy", "icc_remix", "lt_ouroumov", "icc", "cyoap_vue",
+            }:
                 continue
-            icon = {"icc_plus": "⚡", "icc_plus2": "⚡", "icc_legacy": "📄", "icc_remix": "🧩", "lt_ouroumov": "📄", "icc": "📄", "cyoap_vue": "🌿", "custom": "📦"}.get(vtype, "📦")
+            icon = {
+                "icc_plus": "⚡", "icc_plus2": "⚡", "icc_plus_legacy": "⚡",
+                "icc_original": "📄", "icc_legacy": "📄", "icc_remix": "🧩",
+                "lt_ouroumov": "📄", "icc": "📄", "cyoap_vue": "🌿",
+                "custom": "📦",
+            }.get(vtype, "📦")
             card = ctk.CTkFrame(list_frame, fg_color=p["surface"], corner_radius=14, border_width=1, border_color=p["border"])
             card.grid(row=row, column=0, sticky="ew", padx=6, pady=6)
             card.grid_columnconfigure(1, weight=1)

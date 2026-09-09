@@ -21,13 +21,32 @@ def _project(*, version: str = "") -> str:
     return json.dumps(value)
 
 
+def _plus_legacy_project() -> str:
+    return json.dumps({
+        "rows": [],
+        "pointTypes": [],
+        "styling": {},
+        "rowDesignGroups": [],
+        "objectDesignGroups": [],
+        "globalRequirements": [],
+        "mdObjects": [],
+    })
+
+
 def _manifest() -> dict[str, dict[str, str]]:
     return {
+        "original": {
+            "name": "Viewer 1.8",
+            "viewer_type": "icc_original",
+            "runtime_family": "icc_original",
+            "zip_filename": "Viewer 1.8.rar",
+            "entry_point": "index.html",
+        },
         "legacy": {
             "name": "New Viewer 1.18.9",
-            "viewer_type": "icc_legacy",
-            "runtime_family": "icc_legacy",
-            "zip_filename": "legacy.zip",
+            "viewer_type": "icc_plus_legacy",
+            "runtime_family": "icc_plus_legacy",
+            "zip_filename": "New.Viewer.1.18.9.zip",
             "entry_point": "index.html",
         },
         "plus2": {
@@ -55,7 +74,8 @@ def test_automatic_viewer_features_are_opt_in_by_default() -> None:
 
 def test_project_json_family_detection_uses_schema_and_version() -> None:
     assert registry.detect_project_runtime_family(_project(version="2.10.4")) == "icc_plus2"
-    assert registry.detect_project_runtime_family(_project()) == "icc_legacy"
+    assert registry.detect_project_runtime_family(_plus_legacy_project()) == "icc_plus_legacy"
+    assert registry.detect_project_runtime_family(_project()) == "icc_original"
     assert registry.detect_project_runtime_family("{not json") == ""
     assert registry.detect_project_runtime_family(json.dumps({"chapters": []})) == ""
 
@@ -64,13 +84,48 @@ def test_auto_selection_uses_project_data_when_html_has_no_runtime(monkeypatch) 
     monkeypatch.setattr(registry, "_load_viewers_manifest", _manifest)
 
     plus2 = registry.get_viewer_for_site("", mode="embed", project_data=_project(version="2.9.29"))
-    legacy = registry.get_viewer_for_site("", mode="embed", project_data=_project())
+    plus_legacy = registry.get_viewer_for_site(
+        "", mode="embed", project_data=_plus_legacy_project()
+    )
+    original = registry.get_viewer_for_site("", mode="embed", project_data=_project())
 
     assert plus2 is not None and plus2["id"] == "plus2"
     assert plus2["detected_family"] == "icc_plus2"
     assert "project.json version 2.9.29" in plus2["selection_reason"]
-    assert legacy is not None and legacy["id"] == "legacy"
-    assert legacy["detected_family"] == "icc_legacy"
+    assert plus_legacy is not None and plus_legacy["id"] == "legacy"
+    assert plus_legacy["detected_family"] == "icc_plus_legacy"
+    assert original is not None and original["id"] == "original"
+    assert original["detected_family"] == "icc_original"
+
+
+def test_classic_html_marker_uses_project_schema_to_choose_original_or_plus(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(registry, "_load_viewers_manifest", _manifest)
+    html = "<script src='js/app.c533aa25.js'></script>"
+
+    original = registry.get_viewer_for_site(html, project_data=_project())
+    plus_legacy = registry.get_viewer_for_site(
+        html, project_data=_plus_legacy_project()
+    )
+
+    assert original is not None and original["id"] == "original"
+    assert plus_legacy is not None and plus_legacy["id"] == "legacy"
+
+
+def test_old_combined_manifest_family_is_migrated_by_viewer_identity() -> None:
+    assert registry._archive_runtime_family({
+        "name": "Viewer 1.8",
+        "zip_filename": "Viewer 1.8.rar",
+        "viewer_type": "icc_plus",
+        "runtime_family": "icc_legacy",
+    }) == "icc_original"
+    assert registry._archive_runtime_family({
+        "name": "New Viewer 1.18.9",
+        "zip_filename": "New.Viewer.1.18.9.zip",
+        "viewer_type": "icc_plus",
+        "runtime_family": "icc_legacy",
+    }) == "icc_plus_legacy"
 
 
 def test_html_runtime_outweighs_ambiguous_project_and_manual_override_is_explicit(
@@ -99,10 +154,19 @@ def test_recommendations_report_required_and_optional_family_coverage(monkeypatc
     recommendations = registry.get_viewer_recommendations()
     by_family = {item["family"]: item for item in recommendations}
 
-    assert set(by_family) == {"icc_plus2", "icc_legacy", "icc_remix", "lt_ouroumov"}
+    assert set(by_family) == {
+        "icc_plus2",
+        "icc_plus_legacy",
+        "icc_original",
+        "icc_remix",
+        "lt_ouroumov",
+    }
     assert by_family["icc_plus2"]["required"] is True
     assert by_family["icc_plus2"]["available"] is True
-    assert by_family["icc_legacy"]["required"] is True
+    assert by_family["icc_plus_legacy"]["required"] is True
+    assert by_family["icc_original"]["required"] is True
+    assert by_family["icc_plus_legacy"]["title_en"] == "ICC Plus Legacy Viewer"
+    assert by_family["icc_original"]["title_en"] == "ICC Original / New Viewer"
     assert by_family["icc_remix"]["required"] is False
     assert by_family["lt_ouroumov"]["available"] is False
 

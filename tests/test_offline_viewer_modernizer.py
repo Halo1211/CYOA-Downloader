@@ -514,6 +514,29 @@ def test_remix_outer_package_resolves_nested_viewer_template(tmp_path: Path) -> 
     assert templates[SiteFamily.ICC_REMIX].inner_archive == "viewer-template.zip"
 
 
+def test_original_and_plus_legacy_collection_templates_resolve_separately(
+    tmp_path: Path,
+) -> None:
+    collection = tmp_path / "viewers"
+    original = (
+        collection
+        / "[Original] Interactive CYOA Creator"
+        / "Viewer 1.8.rar"
+    )
+    plus_legacy = (
+        collection
+        / "[Mod] Interactive CYOA Creator Plus"
+        / "New.Viewer.1.18.9.zip"
+    )
+    _write(original, "original archive fixture")
+    _write_zip(plus_legacy, {"index.html": "plus legacy fixture"})
+
+    templates = resolve_viewer_templates(collection)
+
+    assert templates[SiteFamily.ICC_ORIGINAL].archive_path == original
+    assert templates[SiteFamily.ICC_PLUS_LEGACY].archive_path == plus_legacy
+
+
 def test_modernize_remix_injects_inline_data_and_keeps_custom_head_tags(
     tmp_path: Path,
 ) -> None:
@@ -1013,5 +1036,5 @@ def test_registered_templates_are_routed_by_runtime_family(
 
     templates = resolve_registered_viewer_templates()
 
-    assert templates[SiteFamily.ICC_LEGACY].archive_path.name == "legacy.zip"
+    assert templates[SiteFamily.ICC_PLUS_LEGACY].archive_path.name == "legacy.zip"
     assert templates[SiteFamily.ICC_PLUS_2].archive_path.name == "plus2-offline.zip"

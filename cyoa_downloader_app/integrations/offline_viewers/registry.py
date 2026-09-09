@@ -43,6 +43,8 @@ _VIEWERS_LOCK = threading.RLock()
 # Detected from: script names, meta tags, HTML patterns in the CYOA site
 VIEWER_TYPE_HINTS: Dict[str, List[str]] = {
     "icc_plus2": ["core.js", "vite_is_modern_browser", "js/app.js", "js/polyfills.js"],
+    "icc_original": ["Viewer 1.8"],
+    "icc_plus_legacy": ["New Viewer 1.18.9", "New.Viewer.1.18.9"],
     "icc_legacy": ["app.c533aa25", "chunk-vendors.59af3576", "Viewer 1.8"],
     "lt_ouroumov": ["app.d3103a3b", "chunk-vendors.ae283b72"],
     # ICC Plus v1.x (New Viewer 1.18.9, Viewer 1.8) — webpack, app.c533aa25.js
@@ -70,11 +72,19 @@ VIEWER_FAMILY_GUIDANCE = (
         "required": True,
     },
     {
-        "family": "icc_legacy",
-        "title_en": "ICC Legacy / New Viewer",
-        "title_id": "ICC Legacy / New Viewer",
-        "use_en": "Required fallback for unversioned ICC, ICC Plus legacy, and classic bundles.",
-        "use_id": "Fallback wajib untuk ICC tanpa version, ICC Plus legacy, dan bundle klasik.",
+        "family": "icc_plus_legacy",
+        "title_en": "ICC Plus Legacy Viewer",
+        "title_id": "Viewer ICC Plus Legacy",
+        "use_en": "Recommended for unversioned ICC Plus projects with advanced design and requirement fields.",
+        "use_id": "Disarankan untuk project ICC Plus tanpa version dengan field desain dan requirement lanjutan.",
+        "required": True,
+    },
+    {
+        "family": "icc_original",
+        "title_en": "ICC Original / New Viewer",
+        "title_id": "Viewer ICC Original / New",
+        "use_en": "Recommended for classic ICC projects; Viewer 1.8 remains separate from ICC Plus.",
+        "use_id": "Disarankan untuk project ICC klasik; Viewer 1.8 dipisahkan dari ICC Plus.",
         "required": True,
     },
     {
@@ -89,11 +99,54 @@ VIEWER_FAMILY_GUIDANCE = (
         "family": "lt_ouroumov",
         "title_en": "Lt. Ouroumov-compatible Viewer",
         "title_id": "Viewer kompatibel Lt. Ouroumov",
-        "use_en": "Optional exact-match viewer; ICC Legacy remains the safe fallback.",
-        "use_id": "Viewer exact-match opsional; ICC Legacy tetap menjadi fallback aman.",
+        "use_en": "Optional exact-match viewer; a compatible classic viewer remains the fallback.",
+        "use_id": "Viewer exact-match opsional; viewer klasik yang kompatibel tetap menjadi fallback.",
         "required": False,
     },
 )
+
+_PLUS_LEGACY_PROJECT_KEYS = frozenset({
+    "globalRequirements",
+    "isFadingOut",
+    "isPointerCursor",
+    "mdObjects",
+    "objectDesignGroups",
+    "objectMap",
+    "pointTypeMap",
+    "rowDesignGroups",
+    "soundEffects",
+})
+
+
+def _classic_project_family(app: Mapping) -> str:
+    """Split unversioned classic project data by Plus-only schema evidence."""
+    return (
+        "icc_plus_legacy"
+        if _PLUS_LEGACY_PROJECT_KEYS.intersection(app.keys())
+        else "icc_original"
+    )
+
+
+def _classic_viewer_family(meta: Mapping) -> str:
+    """Split historical ``icc_legacy`` metadata without rewriting manifests."""
+    viewer_type = str(meta.get("viewer_type", "") or "").strip().lower()
+    if viewer_type in {"icc_original", "icc_plus_legacy"}:
+        return viewer_type
+    descriptor = " ".join((
+        str(meta.get("name", "") or ""),
+        str(meta.get("zip_filename", "") or ""),
+        str(meta.get("source_descriptor", "") or ""),
+    )).lower().replace("_", " ")
+    if "[original]" in descriptor or re.search(r"\bviewer[ .-]*1[ .-]*8\b", descriptor):
+        return "icc_original"
+    if (
+        "new viewer" in descriptor
+        or "new.viewer" in descriptor
+        or "creator plus" in descriptor
+        or viewer_type == "icc_plus"
+    ):
+        return "icc_plus_legacy"
+    return "icc_original"
 
 # ICC Plus marker — exists in ALL ICC Plus versions (v1.x, v2.x).
 # The comment block in app.js right before the default state object.
@@ -364,11 +417,16 @@ def register_offline_viewer(
         marker in " ".join(normalized_names)
         for marker in ("app.c533aa25", "chunk-vendors.59af3576")
     ):
-        runtime_family = "icc_legacy"
-    # Preserve the public historical type for auto-detected legacy archives;
-    # runtime_family carries the precise compatibility contract.
-    if viewer_type == "custom" and detected_type == "icc_legacy":
-        detected_type = "icc_plus"
+        runtime_family = _classic_viewer_family({
+            "name": name or source_name,
+            "zip_filename": source_name,
+            "source_descriptor": source_path,
+            "viewer_type": detected_type,
+        })
+    # New registrations store the precise classic family. Existing manifests
+    # using icc_legacy/icc_plus are migrated lazily by _archive_runtime_family.
+    if runtime_family in {"icc_original", "icc_plus_legacy"}:
+        detected_type = runtime_family
     if detected_type == "icc_plus" and has_plus2_local_bundle:
         detected_type = "icc_plus2"
     viewer_variant = ""
@@ -428,11 +486,11 @@ def _auto_register_bundled_viewers() -> None:
 
     # Plain viewer ZIPs/RARs in the script directory
     bundled = [
-        ("ICC_Plus_Viewer_v2_9_1_local.zip", "ICC Plus v2.9.1 (Local)",  "icc_plus"),
+        ("ICC_Plus_Viewer_v2_9_1_local.zip", "ICC Plus v2.9.1 (Local)",  "icc_plus2"),
         ("ICC_Remix.zip",                     "ICC Remix",                 "icc_remix"),
         ("ICCRemixLocal4.zip",                "ICC Remix Local v4",        "icc_remix"),
-        ("Viewer_1_8.rar",                    "ICC Viewer 1.8",            "icc_plus"),
-        ("New_Viewer_1_18_9.zip",             "New Viewer 1.18.9",         "icc_plus"),
+        ("Viewer_1_8.rar",                    "ICC Viewer 1.8",            "icc_original"),
+        ("New_Viewer_1_18_9.zip",             "New Viewer 1.18.9",         "icc_plus_legacy"),
     ]
     manifest = _load_viewers_manifest()
     for fname, display_name, vtype in bundled:
@@ -560,11 +618,10 @@ def unregister_offline_viewer(viewer_id: str, delete_zip: bool = False) -> bool:
 def detect_project_runtime_family(project_data: object) -> str:
     """Infer the compatible viewer family from project data alone.
 
-    ICC Plus 2 exports an explicit 2.x version. Historical ICC/Plus projects
-    share the classic rows/pointTypes/styling schema but generally have no
-    version, so they deliberately fall back to the legacy viewer. Remix and
-    Lt. Ouroumov require HTML/runtime evidence because their JSON is not a
-    unique format.
+    ICC Plus 2 exports an explicit 2.x version. Unversioned ICC Plus projects
+    expose fields that Viewer 1.8 did not support; projects without that
+    evidence stay on the original viewer. Remix and Lt. Ouroumov require
+    HTML/runtime evidence because their JSON is not a unique format.
     """
     try:
         value = json.loads(project_data) if isinstance(project_data, str) else project_data
@@ -580,7 +637,7 @@ def detect_project_runtime_family(project_data: object) -> str:
     ):
         return ""
     version = str(value.get("version") or app.get("version") or "").strip()
-    return "icc_plus2" if version.startswith("2.") else "icc_legacy"
+    return "icc_plus2" if version.startswith("2.") else _classic_project_family(app)
 
 
 def _detect_html_runtime_family(html_text: str) -> tuple[str, str]:
@@ -598,20 +655,28 @@ def _detect_html_runtime_family(html_text: str) -> tuple[str, str]:
     if any(marker in html_lower for marker in (
         "app.c533aa25", "chunk-vendors.59af3576"
     )):
-        return "icc_legacy", "source HTML contains an ICC legacy bundle marker"
+        return "icc_classic", "source HTML contains a classic ICC bundle marker"
     return "", ""
 
 
 def _archive_runtime_family(meta: Mapping) -> str:
     explicit = str(meta.get("runtime_family", "") or "").strip().lower()
-    aliases = {"icc_plus_2": "icc_plus2", "icc": "icc_legacy"}
+    aliases = {"icc_plus_2": "icc_plus2", "icc": "icc_original"}
+    if explicit == "icc_legacy":
+        return _classic_viewer_family(meta)
     if explicit:
         return aliases.get(explicit, explicit)
     viewer_type = str(meta.get("viewer_type", "custom") or "custom").strip().lower()
-    if viewer_type in {"icc_plus2", "icc_legacy", "icc_remix", "lt_ouroumov"}:
+    if viewer_type in {
+        "icc_plus2",
+        "icc_original",
+        "icc_plus_legacy",
+        "icc_remix",
+        "lt_ouroumov",
+    }:
         return viewer_type
     if viewer_type == "icc":
-        return "icc_legacy"
+        return "icc_original"
 
     archive_name = _safe_viewer_archive_name(meta.get("zip_filename", ""))
     archive_path = os.path.join(_VIEWERS_DIR, archive_name) if archive_name else ""
@@ -629,7 +694,7 @@ def _archive_runtime_family(meta: Mapping) -> str:
             if any("app.d3103a3b" in name for name in names):
                 return "lt_ouroumov"
             if any("app.c533aa25" in name for name in names):
-                return "icc_legacy"
+                return _classic_viewer_family(meta)
         except (OSError, ValueError, zipfile.BadZipFile):
             pass
     descriptor = f"{archive_name} {meta.get('name', '')}".lower()
@@ -638,8 +703,8 @@ def _archive_runtime_family(meta: Mapping) -> str:
     if re.search(r"(?:plus[ ._-]*2|v2[._-])", descriptor):
         return "icc_plus2"
     if any(term in descriptor for term in ("legacy", "viewer 1.8", "new viewer")):
-        return "icc_legacy"
-    return "icc_plus" if viewer_type == "icc_plus" else viewer_type
+        return _classic_viewer_family(meta)
+    return _classic_viewer_family(meta) if viewer_type == "icc_plus" else viewer_type
 
 
 def _archive_viewer_variant(meta: Mapping) -> str:
@@ -786,8 +851,18 @@ def get_viewer_for_site(
         }
 
     detected_site_type, selection_reason = _detect_html_runtime_family(html_text)
-    if not detected_site_type:
-        detected_site_type = detect_project_runtime_family(project_data)
+    project_family = detect_project_runtime_family(project_data)
+    if detected_site_type == "icc_classic":
+        detected_site_type = (
+            project_family
+            if project_family in {"icc_original", "icc_plus_legacy"}
+            else "icc_original"
+        )
+        selection_reason = (
+            "classic ICC bundle plus project schema selects " + detected_site_type
+        )
+    elif not detected_site_type:
+        detected_site_type = project_family
         if detected_site_type == "icc_plus2":
             try:
                 parsed = json.loads(project_data) if isinstance(project_data, str) else project_data
@@ -796,8 +871,10 @@ def get_viewer_for_site(
             except (AttributeError, TypeError, ValueError, json.JSONDecodeError):
                 version = "2.x"
             selection_reason = f"project.json version {version} requires ICC Plus 2"
-        elif detected_site_type == "icc_legacy":
-            selection_reason = "unversioned ICC project.json uses the legacy viewer contract"
+        elif detected_site_type == "icc_plus_legacy":
+            selection_reason = "unversioned ICC Plus project.json uses the Plus legacy viewer"
+        elif detected_site_type == "icc_original":
+            selection_reason = "classic ICC project.json uses the original Viewer 1.8 contract"
 
     scored: List[tuple] = []
     for vid, meta in manifest.items():
@@ -818,12 +895,19 @@ def get_viewer_for_site(
             elif (
                 vtype == "icc_plus"
                 and not meta.get("runtime_family")
-                and detected_site_type in {"icc_plus2", "icc_legacy"}
+                and detected_site_type in {
+                    "icc_plus2",
+                    "icc_plus_legacy",
+                    "icc_original",
+                }
             ):
                 # Backward compatibility for manifests created before the
                 # family split. A precise template always outranks this alias.
                 score += 25
-            elif detected_site_type == "lt_ouroumov" and runtime_family == "icc_legacy":
+            elif detected_site_type == "lt_ouroumov" and runtime_family in {
+                "icc_original",
+                "icc_plus_legacy",
+            }:
                 # Lt. Ouroumov retains the legacy embedded-project contract,
                 # so a legacy viewer is a functional fallback when no exact
                 # template has been registered.

@@ -1370,10 +1370,10 @@ class CYOADownloaderGUI:
                      fg_color=p["input_bg"], text_color=p["input_fg"],
                      border_color=p["border"]).grid(row=1, column=0, columnspan=2, sticky="ew", padx=(8, 4), pady=(4, 8))
         ctk.CTkOptionMenu(add, variable=type_var,
-                          values=["icc_plus2", "icc_legacy", "icc_remix", "lt_ouroumov", "cyoap_vue", "custom"], width=126,
+                          values=["icc_plus2", "icc_plus_legacy", "icc_original", "icc_remix", "lt_ouroumov", "cyoap_vue", "custom"], width=200,
                           height=30, fg_color=p["surface2"], button_color=p["surface"],
                           button_hover_color=p["surface2"], text_color=p["fg"]).grid(
-                              row=1, column=2, padx=4, pady=(4, 8))
+                              row=1, column=2, columnspan=2, sticky="ew", padx=(4, 8), pady=(4, 8))
 
         viewer_list = ctk.CTkFrame(registry_card, fg_color="transparent")
         viewer_list.grid(row=2, column=0, sticky="ew", padx=12, pady=(0, 4))
@@ -10693,7 +10693,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
 
                 # Icon + name + type
                 vtype = meta.get("viewer_type", "custom")
-                icon  = {"icc_plus":"⚡","icc_plus2":"⚡","icc_legacy":"📄","icc_remix":"🧩","lt_ouroumov":"📄","icc":"📄","cyoap_vue":"🌿","custom":"📦"}.get(vtype,"📦")
+                icon  = {"icc_plus":"⚡","icc_plus2":"⚡","icc_plus_legacy":"⚡","icc_original":"📄","icc_legacy":"📄","icc_remix":"🧩","lt_ouroumov":"📄","icc":"📄","cyoap_vue":"🌿","custom":"📦"}.get(vtype,"📦")
                 left  = ctk.CTkFrame(row, fg_color="transparent")
                 left.pack(side="left", fill="x", expand=True, padx=8, pady=6)
                 ctk.CTkLabel(left, text=f"{icon} {meta.get('name', vid)}",
@@ -10741,7 +10741,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             ctk.CTkLabel(name_win, text="Tipe viewer:",
                           font=ctk.CTkFont("Segoe UI", 11)).pack(anchor="w", padx=16, pady=(10,2))
             type_var = ctk.StringVar(value="custom")
-            for t in ["icc_plus", "icc", "cyoap_vue", "custom"]:
+            for t in ["icc_plus2", "icc_plus_legacy", "icc_original", "icc_remix", "lt_ouroumov", "cyoap_vue", "custom"]:
                 ctk.CTkRadioButton(name_win, text=t, variable=type_var, value=t,
                                     font=ctk.CTkFont("Segoe UI", 11)).pack(anchor="w", padx=24)
 

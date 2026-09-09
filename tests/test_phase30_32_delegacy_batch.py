@@ -32,7 +32,7 @@ def test_phase31_offline_viewer_registry_roundtrip(tmp_path, monkeypatch):
     vid = registry.register_offline_viewer(str(viewer_zip), name="Mini Local", viewer_type="custom")
     assert vid == "MiniViewer"
     manifest = registry._load_viewers_manifest()
-    assert manifest[vid]["viewer_type"] == "icc_plus"
+    assert manifest[vid]["viewer_type"] == "icc_original"
     match = registry.get_viewer_for_site("<script src='app.c533aa25.js'></script>", "website_zip")
     assert match and match["id"] == vid
     assert registry.unregister_offline_viewer(vid) is True

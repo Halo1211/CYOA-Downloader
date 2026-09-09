@@ -807,7 +807,14 @@ def _apply_offline_viewer(
                     project_json_str,
                 )
                 logger.info("Preserved source index customizations for %s", preserved_family.value)
-            elif runtime_family in {"icc_legacy", "lt_ouroumov"} or viewer_type in {
+            elif runtime_family in {
+                "icc_original",
+                "icc_plus_legacy",
+                "icc_legacy",
+                "lt_ouroumov",
+            } or viewer_type in {
+                "icc_original",
+                "icc_plus_legacy",
                 "icc_legacy",
                 "lt_ouroumov",
             }:

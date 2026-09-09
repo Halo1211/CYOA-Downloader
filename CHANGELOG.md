@@ -7,8 +7,10 @@ This project uses a single changelog file. Older split release notes and patch r
 - Added opt-in offline-viewer automation with independent switches for
   JSON-only downloads and full ICC website modernization. Both remain off by
   default.
-- Added compatibility-aware selection for ICC Legacy/Plus 1, ICC Plus 2,
-  ICC Remix, and Lt. Ouroumov-derived viewers. ICC Plus 2 accepts only a
+- Added compatibility-aware selection for ICC Original, ICC Plus Legacy,
+  ICC Plus 2, ICC Remix, and Lt. Ouroumov-derived viewers. ICC Original and
+  ICC Plus Legacy have separate Settings cards, registry types, schema
+  detection, and templates. ICC Plus 2 accepts only a
   verified local/offline/standalone runtime and never falls back to its online
   viewer.
 - Added registration for viewer ZIP, RAR, and unpacked folders, plus a themed

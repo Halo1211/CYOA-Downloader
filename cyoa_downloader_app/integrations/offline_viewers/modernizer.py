@@ -3,8 +3,9 @@
 The normal downloader historically treated every ICC-derived project the same.
 That is safe for the original/Plus 1 viewers, whose project lives at a stable
 marker in the JavaScript bundle, but not for ICC Plus 2 or ICC Remix.  This
-module keeps detection, template selection, runtime replacement, and local
-library conversion explicit so custom site files are never discarded.
+module keeps the two classic viewers distinct while making detection, template
+selection, runtime replacement, and local library conversion explicit so
+custom site files are never discarded.
 """
 
 from __future__ import annotations
@@ -34,7 +35,10 @@ from .registry import _ICC_MARKER_RE
 class SiteFamily(str, Enum):
     """Viewer families whose offline data-loading contracts differ."""
 
-    ICC_LEGACY = "icc_legacy"
+    ICC_ORIGINAL = "icc_original"
+    ICC_PLUS_LEGACY = "icc_plus_legacy"
+    # Source compatibility for callers that used the old combined name.
+    ICC_LEGACY = "icc_original"
     ICC_PLUS_2 = "icc_plus_2"
     ICC_REMIX = "icc_remix"
     LT_OUROUMOV = "lt_ouroumov"
@@ -366,11 +370,15 @@ def analyze_site(site_dir: os.PathLike[str] | str) -> SiteProfile:
 
     marker_script = _find_marker_script(root)
     if marker_script is not None and is_icc:
-        family = (
-            SiteFamily.LT_OUROUMOV
-            if marker_script.name.lower() == "app.d3103a3b.js"
-            else SiteFamily.ICC_LEGACY
-        )
+        if marker_script.name.lower() == "app.d3103a3b.js":
+            family = SiteFamily.LT_OUROUMOV
+        else:
+            detected_classic = viewer_registry.detect_project_runtime_family(project)
+            family = (
+                SiteFamily.ICC_PLUS_LEGACY
+                if detected_classic == "icc_plus_legacy"
+                else SiteFamily.ICC_ORIGINAL
+            )
         reasons.extend(("ICC project schema", "JavaScript injection marker"))
         return SiteProfile(
             family,
@@ -453,8 +461,14 @@ def resolve_viewer_templates(
             family = SiteFamily.ICC_PLUS_2
         elif "lt. ouroumov" in descriptor or "ltouroumov" in descriptor:
             family = SiteFamily.LT_OUROUMOV
-        elif "interactive cyoa creator" in descriptor or "viewer 1.8" in descriptor:
-            family = SiteFamily.ICC_LEGACY
+        elif "[original]" in descriptor or "viewer 1.8" in descriptor:
+            family = SiteFamily.ICC_ORIGINAL
+        elif (
+            "interactive cyoa creator plus" in descriptor
+            or "new.viewer" in descriptor
+            or "new viewer" in descriptor
+        ):
+            family = SiteFamily.ICC_PLUS_LEGACY
         if family is not None:
             candidates.setdefault(family, []).append(
                 ViewerTemplate(family, archive_path, inner_archive)
@@ -480,22 +494,24 @@ def resolve_registered_viewer_templates() -> dict[SiteFamily, ViewerTemplate]:
         "icc_plus2": SiteFamily.ICC_PLUS_2,
         "icc_plus_2": SiteFamily.ICC_PLUS_2,
         "icc_remix": SiteFamily.ICC_REMIX,
-        "icc_legacy": SiteFamily.ICC_LEGACY,
+        "icc_original": SiteFamily.ICC_ORIGINAL,
+        "icc_plus_legacy": SiteFamily.ICC_PLUS_LEGACY,
+        "icc_legacy": SiteFamily.ICC_ORIGINAL,
         "lt_ouroumov": SiteFamily.LT_OUROUMOV,
-        "icc": SiteFamily.ICC_LEGACY,
+        "icc": SiteFamily.ICC_ORIGINAL,
     }
     candidates: dict[SiteFamily, list[ViewerTemplate]] = {}
     for metadata in viewer_registry._load_viewers_manifest().values():
         viewer_type = str(metadata.get("viewer_type", "") or "")
-        runtime_family = str(metadata.get("runtime_family", "") or "")
-        family = family_names.get(runtime_family) or family_names.get(viewer_type)
+        resolved_family = viewer_registry._archive_runtime_family(metadata)
+        family = family_names.get(resolved_family)
         archive_name = str(metadata.get("zip_filename", "") or "")
         if family is None and viewer_type == "icc_plus":
             descriptor = archive_name.lower()
             family = (
                 SiteFamily.ICC_PLUS_2
                 if "localviewer" in descriptor or re.search(r"v2[._-]", descriptor)
-                else SiteFamily.ICC_LEGACY
+                else SiteFamily.ICC_PLUS_LEGACY
             )
         if family is None or not archive_name:
             continue

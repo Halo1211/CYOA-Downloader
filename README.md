@@ -51,9 +51,9 @@ and unrelated external domains are not treated as story routes.
 
 ### Make an existing CYOA library playable offline
 
-The modernizer distinguishes ICC/ICC Plus legacy bundles, Lt. Ouroumov's
-legacy bundle, ICC Plus 2, ICC Remix, and unrelated custom HTML. Legacy
-viewers are patched in place. ICC Plus 2 and Remix receive their matching
+The modernizer distinguishes ICC Original (Viewer 1.8), ICC Plus Legacy
+(New Viewer 1.18.9), Lt. Ouroumov's bundle, ICC Plus 2, ICC Remix, and
+unrelated custom HTML. Classic viewers are patched in place. ICC Plus 2 and Remix receive their matching
 local runtime, while publisher-authored titles, favicons, fonts, loading CSS,
 and extra scripts/styles are retained. Unknown and non-ICC sites are copied
 unchanged instead of being forced into an incompatible viewer.
@@ -62,9 +62,10 @@ Automatic viewer handling during normal downloads is **off by default**. Open
 **Settings → Viewers** to enable either JSON-only viewer injection, full ICC
 website modernization, or both. Keep **Auto (recommended)** selected unless
 you are testing a particular runtime: Auto uses HTML markers first, then the
-`project.json` schema/version (2.x → ICC Plus 2; unversioned ICC → Legacy).
-The Settings checklist shows whether the recommended Plus 2, Legacy, Remix,
-and Lt. Ouroumov-compatible viewer families are registered.
+`project.json` schema/version (2.x → ICC Plus 2; advanced unversioned schema →
+ICC Plus Legacy; classic schema → ICC Original). The Settings checklist shows
+separate coverage for ICC Original, ICC Plus Legacy, ICC Plus 2, Remix, and
+Lt. Ouroumov-compatible viewer families.
 
 Viewer registration accepts `.zip`, `.rar`, and an already-unpacked viewer
 folder; folders are packaged into the private registry without modifying the
