@@ -21,10 +21,6 @@ def test_phase6_facade_download_names_still_match_modules():
 
 
 def test_phase6_pipeline_helpers_smoke():
-    svg = image_mod._make_placeholder_svg("missing.png")
-    assert isinstance(svg, (bytes, bytearray))
-    assert b"<svg" in svg
-
     assert fonts_mod._find_font_urls("", "https://example.com/", "", []) == {}
     assert website_mod.is_zip_bytes(b"PK\x03\x04xxxx") is True
     assert package_mod.clean_url_path_component("a%20b/c?d") == "a b_c_d"

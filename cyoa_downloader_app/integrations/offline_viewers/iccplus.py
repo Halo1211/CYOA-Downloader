@@ -26,6 +26,30 @@ def _build_html_interceptor(data_js: str, size_bytes: int) -> str:
         f'{{status:200,headers:{{"Content-Type":"application/json"}}}}));'
         f'return _f?_f.call(this,u,o):Promise.reject(new Error("fetch N/A"));'
         f'}};'
+        # Native file:// XMLHttpRequest cannot read a sibling project.json.
+        # Wrap only matching project/data requests and preserve the native XHR
+        # object for every other URL. The usual progress/readystatechange/load
+        # lifecycle is dispatched so legacy viewers keep their initialization
+        # and loading-screen behavior.
+        f'var _X=window.XMLHttpRequest;'
+        f'if(_X){{'
+        f'window.XMLHttpRequest=function(){{'
+        f'var x=new _X(),_open=x.open.bind(x),_send=x.send.bind(x),hit=false;'
+        f'x.open=function(m,u){{'
+        f'if(location.protocol==="file:"&&R.test(String(u||""))){{hit=true;return;}}'
+        f'return _open.apply(x,arguments);'
+        f'}};'
+        f'x.send=function(body){{'
+        f'if(!hit)return _send.apply(x,arguments);'
+        f'var text=JSON.stringify(D),total=text.length;'
+        f'function prop(n,v){{try{{Object.defineProperty(x,n,{{configurable:true,get:function(){{return v;}}}});}}catch(e){{}}}}'
+        f'function event(n){{try{{x.dispatchEvent(new ProgressEvent(n,{{lengthComputable:true,loaded:total,total:total}}));}}catch(e){{x.dispatchEvent(new Event(n));}}}}'
+        f'prop("readyState",4);prop("status",200);prop("statusText","OK");'
+        f'prop("responseText",text);prop("response",text);'
+        f'setTimeout(function(){{event("progress");event("readystatechange");event("load");event("loadend");}},0);'
+        f'}};return x;'
+        f'}};window.XMLHttpRequest.prototype=_X.prototype;'
+        f'}}'
         f'window.__CYOA_OFFLINE__=true;window.__CYOA_DATA__=D;'
         f'document.addEventListener("DOMContentLoaded",function(){{'
         f'var el=document.getElementById("projectSize");'
@@ -135,7 +159,12 @@ def _apply_iccplus_viewer_config_to_html(
             return (_s.replace("\\", "%5C").replace("'", "%27")
                       .replace("\r", "").replace("\n", "").replace(")", "%29"))
         if loading_bg:
-            lines.append(":root{--cyoa-loading-bg:url('%s');}" % _css_url(loading_bg))
+            css_loading_bg = loading_bg
+            if not re.match(r"^(?:[a-z][a-z0-9+.-]*:|//|data:)", css_loading_bg, re.I):
+                # loading.css lives below css/, while project paths are rooted
+                # beside index.html. Resolve the authored path from that root.
+                css_loading_bg = "../" + css_loading_bg.lstrip("./\\")
+            lines.append(":root{--cyoa-loading-bg:url('%s');}" % _css_url(css_loading_bg))
             lines.append("body:before{content:'';position:fixed;inset:0;background-image:var(--cyoa-loading-bg);background-size:cover;background-position:center;opacity:.18;pointer-events:none;z-index:0;}")
         if loading_text:
             lines.append("#loadingText::after{content:' %s';}" % _css_str(loading_text))

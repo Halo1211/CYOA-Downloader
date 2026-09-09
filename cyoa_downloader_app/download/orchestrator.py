@@ -30,7 +30,35 @@ _PROTECTED = {
     "_recover_captured_project_assets",
     "run_download", "_v462_resolve_pure_download_url", "_v462_run_download",
     "_v466_run_download", "_RUN_DOWNLOAD_LOCK", "_LAST_PREVIEW_FOLDER",
+    "_classify_project_image_references",
 }
+
+
+def _classify_project_image_references(project: object) -> dict[str, int]:
+    """Count project image references by offline portability."""
+    counts = {"total": 0, "data": 0, "local": 0, "remote": 0}
+
+    def visit(value: object) -> None:
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if str(key).lower() == "image" and isinstance(child, str) and child.strip():
+                    reference = child.strip()
+                    counts["total"] += 1
+                    lowered = reference.lower()
+                    if lowered.startswith("data:image/"):
+                        counts["data"] += 1
+                    elif lowered.startswith(("http://", "https://", "//")):
+                        counts["remote"] += 1
+                    else:
+                        counts["local"] += 1
+                else:
+                    visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child)
+
+    visit(project)
+    return counts
 
 
 def _sync_legacy_globals():
@@ -288,7 +316,7 @@ def _base_run_download(
             # and a context-aware integrity section.
             viewer.write_manifest()
             integrity = viewer.validate_integrity()
-            if integrity["missing"]:
+            if integrity["missing"] or integrity.get("external"):
                 try:
                     report_path = os.path.join(site_folder, "backup_report.txt")
                     with open(report_path, "a", encoding="utf-8") as report:
@@ -297,6 +325,10 @@ def _base_run_download(
                         report.write("=" * 60 + "\n")
                         for missing in integrity["missing"]:
                             report.write(f"  {missing}\n")
+                        if integrity.get("external"):
+                            report.write("\nREACHABLE EXTERNAL DEPENDENCIES\n")
+                            for external in integrity["external"]:
+                                report.write(f"  {external}\n")
                 except OSError as exc:
                     logger.debug("Could not append Pure Website integrity report: %s", exc)
             if download_fonts:
@@ -617,10 +649,36 @@ def _base_run_download(
             finally:
                 delete_temp_folder(tmp)
 
+            # Full-site modernization is opt-in so the downloader never swaps
+            # a publisher viewer unless the user explicitly enables it.
+            if bool(_load_settings().get("offline_viewer_website_enabled", False)):
+                try:
+                    from ..integrations.offline_viewers.modernizer import (
+                        modernize_site,
+                        resolve_registered_viewer_templates,
+                    )
+
+                    modernization = modernize_site(
+                        site_folder,
+                        site_folder,
+                        templates=resolve_registered_viewer_templates(),
+                        source_url=base_url,
+                    )
+                    logger.info(
+                        "Offline website modernization: family=%s strategy=%s status=%s",
+                        modernization.family.value,
+                        modernization.strategy,
+                        modernization.status,
+                    )
+                except (OSError, TypeError, ValueError) as exc:
+                    logger.warning("Offline website modernization skipped: %s", exc)
+            else:
+                logger.info("Offline website modernization is disabled in Settings.")
+
             viewer.write_manifest(project_url=project_url)
             # Feature 6: integrity check
             integrity = viewer.validate_integrity()
-            if integrity["missing"]:
+            if integrity["missing"] or integrity.get("external"):
                 try:
                     report_path = os.path.join(site_folder, "backup_report.txt")
                     with open(report_path, "a", encoding="utf-8") as _rf:
@@ -629,6 +687,10 @@ def _base_run_download(
                         _rf.write("="*60 + "\n")
                         for miss in integrity["missing"]:
                             _rf.write(f"  {miss}\n")
+                        if integrity.get("external"):
+                            _rf.write("\nREACHABLE EXTERNAL DEPENDENCIES\n")
+                            for external in integrity["external"]:
+                                _rf.write(f"  {external}\n")
                 except Exception as _ignored_exc:
                     logger.debug("Ignored recoverable exception in run_download (line 12869): %s", _ignored_exc)
             _set_last_preview_folder(os.path.abspath(site_folder) if not website_zip_output else None)
@@ -647,13 +709,33 @@ def _base_run_download(
         # Detect an offline viewer before image processing. Embed-only mode normally
         # does not write image files, but offline viewers need images/audio on disk.
         _viewer_meta_normal = None
-        try:
-            _viewer_meta_normal = get_viewer_for_site(viewer_html or "", mode=output_mode_str)
-            if _viewer_meta_normal and not need_download:
-                need_download = True
-                logger.info("Offline viewer detected: enabling disk asset download for playable viewer output.")
-        except Exception as _vm_e:
-            logger.debug(f"Offline viewer pre-check skipped: {_vm_e}")
+        _viewer_settings = _load_settings()
+        _viewer_json_enabled = bool(
+            _viewer_settings.get("offline_viewer_json_enabled", False)
+        )
+        _viewer_preferred_id = str(
+            _viewer_settings.get("offline_viewer_preferred_id", "auto") or "auto"
+        )
+        if _viewer_json_enabled:
+            try:
+                _viewer_meta_normal = get_viewer_for_site(
+                    viewer_html or "",
+                    mode=output_mode_str,
+                    project_data=cleaned,
+                    preferred_viewer_id=_viewer_preferred_id,
+                )
+                if _viewer_meta_normal:
+                    logger.info(
+                        "Offline viewer selected: %s (family=%s; reason=%s)",
+                        _viewer_meta_normal.get("name") or _viewer_meta_normal.get("id", ""),
+                        _viewer_meta_normal.get("detected_family", "unknown"),
+                        _viewer_meta_normal.get("selection_reason", "automatic match"),
+                    )
+                if _viewer_meta_normal and not need_download:
+                    need_download = True
+                    logger.info("Offline viewer detected: enabling disk asset download for playable viewer output.")
+            except Exception as _vm_e:
+                logger.debug(f"Offline viewer pre-check skipped: {_vm_e}")
 
         tmp = None
         if need_download:
@@ -735,52 +817,68 @@ def _base_run_download(
             logger.warning(f"Could not save metadata: {_me}")
 
         # ── Offline Viewer: apply registered viewer if available ────────────
-        try:
-            _viewer_meta = _viewer_meta_normal
-            if not _viewer_meta:
+        if _viewer_json_enabled:
+            try:
+                _viewer_meta = _viewer_meta_normal
                 _page_html = ""
-                _rp = None
-                try:
-                    _rp = fetch_response(url, timeout=8, extra_headers={"User-Agent": "Mozilla/5.0"})
-                    if _rp is not None:
-                        _page_html = _safe_response_text(_rp)
-                except Exception as e:
-                    logger.debug(f"Offline viewer page fetch skipped: {e}")
-                finally:
-                    if _rp is not None:
-                        try:
-                            _rp.close()
-                        except Exception:
-                            pass
-                _viewer_meta = get_viewer_for_site(_page_html, mode=output_mode_str)
-            if _viewer_meta:
-                # Pass temp image/audio folders directly into the injected viewer.
-                # Do not copy them to output_dir roots; that can delete/overwrite folders
-                # from other projects.
-                _offline_asset_sources: Dict[str, str] = {}
-                if tmp and os.path.isdir(tmp):
-                    for _asset_dir_name in ("images", "audio"):
-                        _src = os.path.join(tmp, _asset_dir_name)
-                        if os.path.isdir(_src):
-                            _offline_asset_sources[_asset_dir_name] = _src
-                # Always use dl_result (URLs kept as-is) for offline viewer injection.
-                # embed_result has images as base64 → injecting it into app.js would
-                # make the file hundreds of MB. The viewer loads images from the
-                # images/ folder; we do NOT need base64 for the offline viewer.
-                _viewer_out = _apply_offline_viewer(
-                    output_dir=output_dir,
-                    project_json_str=dl_result,
-                    viewer_meta=_viewer_meta,
-                    file_name=file_name,
-                    asset_source_dirs=_offline_asset_sources,
-                )
-                if _viewer_out:
-                    logger.info(
-                        f"Offline viewer: {_viewer_meta.get('name','')} → "
-                        f"{os.path.relpath(_viewer_out, output_dir)}"
+                if not _viewer_meta:
+                    _rp = None
+                    try:
+                        _rp = fetch_response(url, timeout=8, extra_headers={"User-Agent": "Mozilla/5.0"})
+                        if _rp is not None:
+                            _page_html = _safe_response_text(_rp)
+                    except Exception as e:
+                        logger.debug(f"Offline viewer page fetch skipped: {e}")
+                    finally:
+                        if _rp is not None:
+                            try:
+                                _rp.close()
+                            except Exception:
+                                pass
+                    _viewer_meta = get_viewer_for_site(
+                        _page_html,
+                        mode=output_mode_str,
+                        project_data=dl_result,
+                        preferred_viewer_id=_viewer_preferred_id,
                     )
-        except Exception as _ov_e:
-            logger.debug(f"Offline viewer step skipped: {_ov_e}")
+                    if _viewer_meta:
+                        logger.info(
+                            "Offline viewer selected after page inspection: %s "
+                            "(family=%s; reason=%s)",
+                            _viewer_meta.get("name") or _viewer_meta.get("id", ""),
+                            _viewer_meta.get("detected_family", "unknown"),
+                            _viewer_meta.get("selection_reason", "automatic match"),
+                        )
+                if _viewer_meta:
+                    # Pass temp image/audio folders directly into the injected viewer.
+                    # Do not copy them to output_dir roots; that can delete/overwrite folders
+                    # from other projects.
+                    _offline_asset_sources: Dict[str, str] = {}
+                    if tmp and os.path.isdir(tmp):
+                        for _asset_dir_name in ("images", "audio"):
+                            _src = os.path.join(tmp, _asset_dir_name)
+                            if os.path.isdir(_src):
+                                _offline_asset_sources[_asset_dir_name] = _src
+                    # Always use dl_result (URLs kept as-is) for offline viewer injection.
+                    # embed_result has images as base64 → injecting it into app.js would
+                    # make the file hundreds of MB. The viewer loads images from the
+                    # images/ folder; we do NOT need base64 for the offline viewer.
+                    _viewer_out = _apply_offline_viewer(
+                        output_dir=output_dir,
+                        project_json_str=dl_result,
+                        viewer_meta=_viewer_meta,
+                        file_name=file_name,
+                        asset_source_dirs=_offline_asset_sources,
+                        source_html=viewer_html or _page_html,
+                        source_url=website_entry_url,
+                    )
+                    if _viewer_out:
+                        logger.info(
+                            f"Offline viewer: {_viewer_meta.get('name','')} → "
+                            f"{os.path.relpath(_viewer_out, output_dir)}"
+                        )
+            except Exception as _ov_e:
+                logger.debug(f"Offline viewer step skipped: {_ov_e}")
 
         # ── Feature 5: Post-download validation ────────────────────────────
         try:
@@ -799,15 +897,17 @@ def _base_run_download(
                             with open(_out_path, encoding="utf-8", errors="ignore") as _vf2:
                                 _out_text = _vf2.read()
                             _vobj = json.loads(_out_text)
-                            # Count referenced images vs actual base64 in file
-                            _ref_count  = _out_text.count('"image":"') + _out_text.count('"image": "')
-                            _b64_count  = _out_text.count("data:image/")
-                            _url_count  = _ref_count - _b64_count
+                            _image_counts = _classify_project_image_references(_vobj)
+                            _ref_count = _image_counts["total"]
+                            _b64_count = _image_counts["data"]
+                            _local_count = _image_counts["local"]
+                            _url_count = _image_counts["remote"]
                             logger.info(
                                 f"Validation OK: {_out_path} — "
                                 f"{_ref_count} image refs, "
                                 f"{_b64_count} base64, "
-                                f"{_url_count} URL remaining"
+                                f"{_local_count} local file(s), "
+                                f"{_url_count} remote URL(s) remaining"
                             )
                             if _url_count > 0 and embed_images:
                                 logger.warning(
@@ -858,5 +958,5 @@ _LAST_PREVIEW_FOLDER = getattr(_l, "_LAST_PREVIEW_FOLDER", None)
 __all__ = [
     "run_download", "_base_run_download", "_v462_resolve_pure_download_url",
     "_v462_run_download", "_v466_run_download", "_RUN_DOWNLOAD_LOCK",
-    "_LAST_PREVIEW_FOLDER",
+    "_LAST_PREVIEW_FOLDER", "_classify_project_image_references",
 ]

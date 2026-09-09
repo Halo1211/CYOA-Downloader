@@ -29,6 +29,49 @@ are bounded additions rather than unrestricted crawlers.
 Every number is a safety cap, not a work target. Crawling and runtime capture
 stop early when they no longer discover useful routes, assets, or responses.
 
+## Offline viewer automation
+
+Viewer injection and website modernization are opt-in. Both switches default
+to **Off**, so upgrading the application does not silently change historical
+download output.
+
+Open **Settings → Viewers** and configure the two workflows independently:
+
+| Option | Effect |
+| --- | --- |
+| JSON-only downloads | Creates a separate playable viewer folder beside the downloaded JSON and local assets |
+| Full ICC website downloads | Patches an existing compatible viewer or installs the matching local runtime for direct `file://` use |
+| Auto (recommended) | Uses source-HTML runtime markers first, then checks the project schema and version |
+| Specific viewer | Forces one registered archive; intended for testing when Auto makes the wrong choice |
+
+Auto selection uses these compatibility rules:
+
+- ICC Plus 2 HTML markers or `project.json` version `2.x` → ICC Plus 2 Local Viewer.
+- Unversioned ICC project schema → ICC Legacy/New Viewer.
+- ICC Remix marker/template → ICC Remix Local Viewer.
+- Lt. Ouroumov bundle marker → exact Lt. Ouroumov viewer when available, otherwise the compatible Legacy fallback.
+- Non-ICC JSON and custom/landing HTML are not forced into an ICC viewer.
+
+Before enabling Auto, register at least the two **Required** families shown in
+Settings: ICC Plus 2 Local and ICC Legacy/New Viewer. Ideally register all four
+families, including Remix and Lt. Ouroumov-compatible viewers, to preserve the
+source runtime as closely as possible. Replacement keeps publisher title,
+favicon, inline fonts/styles, loading CSS, and unrelated custom scripts. Files
+that must be overwritten are retained under `__original_site__`.
+
+Use **Archive…** for a `.zip`/`.rar`, or **Folder…** for an unpacked viewer
+such as Lt. Ouroumov's Modded Creator. The folder is packaged into the app's
+viewer registry; the source directory is left untouched. For ICC Plus 2, the
+release updater and automatic selector require a local/offline/standalone
+bundle. An online-only asset is reported as unavailable and is never used as a
+fallback for offline output.
+
+Replacement archives are validated before files are overlaid. Modernization is
+repeat-safe: running it again updates embedded project data while preserving
+the first `__original_site__` backup. Runtime cleanup targets only known or
+generated bundle names; publisher-owned `app.*` scripts and styles are retained
+when they are not identified as viewer runtime files.
+
 ## Settings reference
 
 | Option | Purpose | Guidance |
@@ -108,6 +151,16 @@ Use **Serve** in the GUI or another local HTTP server. Important files include:
 - `routes/.../index.html`: saved story routes;
 - `archive_manifest.json`: decisions, mappings, progress, and failures;
 - `backup_report.txt` and failure logs: unresolved dependencies.
+
+If an image, audio file, font, stylesheet, script, or iframe dependency cannot
+be downloaded, its authored reference is preserved. The downloader does not
+delete the tag, replace the reference, or generate placeholder content. The
+failure is recorded in `failed_assets.txt`, `failed_images.txt`,
+`backup_report.txt`, or `skipped_youtube_audio.txt` as appropriate.
+It also does not replace a missing filename with a same-stem file using a
+different extension. Preserved viewer assets use the same cross-origin
+private-host protection as the main downloader; blocked requests remain in the
+markup and are explained in the failure report.
 
 Direct `file://` loading can fail because of modules, CORS, fetch, or service
 worker restrictions. That failure does not by itself prove that archive files

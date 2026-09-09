@@ -7,7 +7,6 @@ from cyoa_downloader_app.download import image_pipeline
 
 def test_asset_scan_helpers_are_real_module_functions():
     for name in [
-        "_make_placeholder_svg",
         "_safe_response_text",
         "_scan_file_for_assets",
         "_is_probable_raw_cdn_asset",
@@ -19,14 +18,10 @@ def test_asset_scan_helpers_are_real_module_functions():
         assert getattr(facade, name) is fn
 
 
-def test_placeholder_svg_escapes_label_and_data_uri_exists():
-    data = asset_scan._make_placeholder_svg('a<&>"label')
-    text = data.decode("utf-8")
-    assert "&lt;" in text
-    assert "&amp;" in text
-    assert "&gt;" in text
-    assert "&quot;" in text
-    assert asset_scan._PLACEHOLDER_DATA_URI.startswith("data:image/svg+xml;base64,")
+def test_failed_asset_placeholder_api_is_not_exposed():
+    for module in (asset_scan, image_pipeline, facade):
+        assert not hasattr(module, "_make_placeholder_svg")
+        assert not hasattr(module, "_PLACEHOLDER_DATA_URI")
 
 
 def test_scan_file_for_assets_resolves_common_bundle_references():

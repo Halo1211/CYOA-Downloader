@@ -17,6 +17,7 @@ from cyoa_downloader_app.cli import _safe_console_print
 from cyoa_downloader_app.core.url_utils import canonicalize_url
 from cyoa_downloader_app.diagnostics import updates
 from cyoa_downloader_app.download import image_pipeline
+from cyoa_downloader_app.download.orchestrator import _classify_project_image_references
 from cyoa_downloader_app.download import asset_scan, fonts
 from cyoa_downloader_app.download.package import verify_output_package, write_package_manifest
 from cyoa_downloader_app.download.website import WebsiteDownloader
@@ -390,6 +391,71 @@ def test_project_asset_reference_rejects_parent_traversal(tmp_path):
     ok, report = verify_output_package(str(tmp_path))
     assert not ok
     assert "unsafe local asset reference" in report
+
+
+def test_package_verifier_treats_remote_favicon_as_optional_note(tmp_path):
+    (tmp_path / "index.html").write_text(
+        '<html><head><link rel="icon" href="https://origin.test/favicon.ico">'
+        '</head><body></body></html>',
+        encoding="utf-8",
+    )
+
+    ok, report = verify_output_package(str(tmp_path))
+
+    assert ok, report
+    assert "optional external icon remains" in report
+    assert "external dependency remains" not in report
+
+
+def test_package_verifier_keeps_remote_script_as_blocking_dependency(tmp_path):
+    (tmp_path / "index.html").write_text(
+        '<html><head><script src="https://origin.test/app.js"></script>'
+        '</head><body></body></html>',
+        encoding="utf-8",
+    )
+
+    ok, report = verify_output_package(str(tmp_path))
+
+    assert not ok
+    assert "external dependency remains" in report
+
+
+def test_package_verifier_ignores_non_runtime_original_site_backup(tmp_path):
+    (tmp_path / "index.html").write_text(
+        "<html><body>offline runtime</body></html>", encoding="utf-8"
+    )
+    backup = tmp_path / "__original_site__"
+    backup.mkdir()
+    (backup / "index.html").write_text(
+        '<script src="https://origin.test/old-runtime.js"></script>',
+        encoding="utf-8",
+    )
+
+    ok, report = verify_output_package(str(tmp_path))
+
+    assert ok, report
+    assert "external dependency remains" not in report
+
+
+def test_package_verifier_ignores_replaced_svelte_runtime_tree(tmp_path):
+    (tmp_path / "index.html").write_text(
+        '<html><body><div id="app"></div>'
+        '<script id="__cyoa_replacement_loader_bridge__"></script>'
+        '<script src="js/app.js"></script></body></html>',
+        encoding="utf-8",
+    )
+    (tmp_path / "js").mkdir()
+    (tmp_path / "js" / "app.js").write_text("window.viewerReady=true", encoding="utf-8")
+    obsolete = tmp_path / "_app" / "immutable" / "entry"
+    obsolete.mkdir(parents=True)
+    (obsolete / "app.js").write_text(
+        'import("../nodes/missing.js")', encoding="utf-8"
+    )
+
+    ok, report = verify_output_package(str(tmp_path))
+
+    assert ok, report
+    assert "missing.js" not in report
 
 
 def test_ipv6_canonicalization_restores_brackets():
@@ -1671,6 +1737,87 @@ def test_image_content_dedup_is_scoped_per_output_folder(tmp_path):
     assert asset_scan._check_image_dedup(
         content, str(second_folder / "a.png"), scope=str(second_folder),
     ) is None
+
+
+def test_website_mode_keeps_distinct_authored_filenames_with_identical_bytes(
+    monkeypatch, tmp_path,
+):
+    response = FakeResponse(200, {"Content-Type": "image/png"}, b"same-image" * 8)
+    monkeypatch.setattr(image_pipeline, "fetch_response", lambda *_a, **_k: response)
+    monkeypatch.setattr(image_pipeline, "_cache_get", lambda _url: None)
+    monkeypatch.setattr(image_pipeline, "_cache_put", lambda *_a: None)
+    monkeypatch.setattr(image_pipeline, "_domain_throttle", lambda _url: None)
+    monkeypatch.setattr(image_pipeline, "_domain_record_success", lambda _url: None)
+    monkeypatch.setattr(image_pipeline, "_domain_record_failure", lambda *_a: 0)
+    monkeypatch.setattr(image_pipeline, "_ssrf_block_cross_origin", lambda *_a: False)
+    monkeypatch.setattr(image_pipeline, "_SELENIUM_ENABLED", False)
+    monkeypatch.setattr(image_pipeline, "_is_gallery_dl_site", lambda _url: "")
+    monkeypatch.setattr(image_pipeline, "_write_failed_images_log", lambda *_a, **_k: None)
+    monkeypatch.setattr(image_pipeline, "write_asset_failure_summary", lambda *_a, **_k: None)
+    work = tmp_path / "site"
+    work.mkdir()
+    raw = json.dumps({"rows": [{"objects": [
+        {"image": "R9C3.png"}, {"image": "R9C4.png"},
+    ]}]})
+
+    _embedded, downloaded, _failed = image_pipeline.process_images(
+        raw,
+        "https://example.test/game/",
+        download=True,
+        temp_folder=str(work),
+        site_folder=str(work),
+        max_workers=1,
+    )
+
+    assert (work / "images" / "R9C3.png").is_file()
+    assert (work / "images" / "R9C4.png").is_file()
+    assert '"image":"images/R9C3.png"' in downloaded
+    assert '"image":"images/R9C4.png"' in downloaded
+
+
+def test_download_summary_counts_existing_site_assets_in_total(monkeypatch, tmp_path, caplog):
+    work = tmp_path / "site"
+    work.mkdir()
+    (work / "already.png").write_bytes(b"existing")
+    response = FakeResponse(200, {"Content-Type": "image/png"}, b"new-image" * 8)
+    monkeypatch.setattr(image_pipeline, "fetch_response", lambda *_a, **_k: response)
+    monkeypatch.setattr(image_pipeline, "_cache_get", lambda _url: None)
+    monkeypatch.setattr(image_pipeline, "_cache_put", lambda *_a: None)
+    monkeypatch.setattr(image_pipeline, "_domain_throttle", lambda _url: None)
+    monkeypatch.setattr(image_pipeline, "_domain_record_success", lambda _url: None)
+    monkeypatch.setattr(image_pipeline, "_domain_record_failure", lambda *_a: 0)
+    monkeypatch.setattr(image_pipeline, "_ssrf_block_cross_origin", lambda *_a: False)
+    monkeypatch.setattr(image_pipeline, "_SELENIUM_ENABLED", False)
+    monkeypatch.setattr(image_pipeline, "_is_gallery_dl_site", lambda _url: "")
+    monkeypatch.setattr(image_pipeline, "_write_failed_images_log", lambda *_a, **_k: None)
+    monkeypatch.setattr(image_pipeline, "write_asset_failure_summary", lambda *_a, **_k: None)
+    raw = json.dumps({"rows": [{"objects": [
+        {"image": "already.png"}, {"image": "new.png"},
+    ]}]})
+
+    image_pipeline.process_images(
+        raw,
+        "https://example.test/game/",
+        download=True,
+        temp_folder=str(work),
+        site_folder=str(work),
+        max_workers=1,
+    )
+
+    assert "Download summary: 2 OK" in caplog.text
+    assert "out of 2 total" in caplog.text
+
+
+def test_project_validation_distinguishes_local_data_and_remote_images():
+    counts = _classify_project_image_references({
+        "rows": [{"objects": [
+            {"image": "images/local.png"},
+            {"image": "data:image/png;base64,AA=="},
+            {"image": "https://cdn.test/remote.png"},
+        ]}],
+    })
+
+    assert counts == {"total": 3, "data": 1, "local": 1, "remote": 1}
 
 
 def test_font_aliases_fetch_once_and_same_name_different_bytes_are_preserved(monkeypatch, tmp_path):

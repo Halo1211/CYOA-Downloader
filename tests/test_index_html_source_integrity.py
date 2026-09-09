@@ -143,7 +143,7 @@ def test_download_html_removes_cloudflare_bootstraps(tmp_path, monkeypatch):
     assert "cloudflareinsights" not in saved
     assert "__CF$cv$params" not in saved
     assert "challenge-platform" not in saved
-    assert "story/js/app.js" in saved
+    assert 'src="js/app.js"' in saved
 
 
 def test_javascript_html_endpoint_is_saved_as_js_without_html_escaping(tmp_path, monkeypatch):

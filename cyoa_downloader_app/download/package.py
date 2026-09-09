@@ -78,6 +78,24 @@ _MANIFEST_NAME = "cyoa_manifest.json"
 _MANIFEST_HASH_CHUNK = 1 << 20
 
 
+def _is_optional_external_icon_label(label: str) -> bool:
+    """Return whether an integrity label points to a cosmetic site icon.
+
+    A source website frequently publishes a missing or access-controlled
+    favicon.  Keeping its absolute online fallback is useful and should be
+    visible in the report, but it does not prevent the archived application
+    from running.  Executable and stylesheet dependencies remain blocking.
+    """
+    ref = str(label or "").rsplit(" → ", 1)[-1].strip()
+    try:
+        basename = os.path.basename(urlparse(ref).path).casefold()
+    except (TypeError, ValueError):
+        return False
+    return basename.endswith(".ico") or basename.startswith((
+        "favicon.", "apple-touch-icon.", "mask-icon.",
+    ))
+
+
 def _hash_file_sha256(path: str) -> Optional[str]:
     """Return the sha256 hex digest of a file, streaming to bound memory."""
     try:
@@ -459,13 +477,22 @@ def verify_output_package(folder: str) -> Tuple[bool, str]:
         checker = WebsiteDownloader.__new__(WebsiteDownloader)
         checker.output_folder = root
         integrity = checker.validate_integrity()
-        checked_refs += len(integrity.get("ok", [])) + len(integrity.get("missing", []))
+        checked_refs += (
+            len(integrity.get("ok", []))
+            + len(integrity.get("missing", []))
+            + len(integrity.get("external", []))
+        )
         for label in integrity.get("missing", []):
             if " → " in label:
                 src_name, ref = label.split(" → ", 1)
             else:
                 src_name, ref = "website files", label
             missing_refs.setdefault(ref, src_name)
+        for label in integrity.get("external", []):
+            if _is_optional_external_icon_label(label):
+                notes.append(f"optional external icon remains: {label}")
+            else:
+                issues.append(f"external dependency remains: {label}")
     except Exception as exc:
         notes.append(f"context-aware website dependency scan unavailable: {exc}")
 

@@ -1,7 +1,8 @@
 # Start here
 
-New users can follow the [Beginner Guide](docs/BEGINNER_GUIDE.md), which walks
-through installation, the first download, and checking the finished backup.
+New users can follow the [README quick-start section](README.md#start-quickly),
+which walks through installation, the first download, and checking the
+finished backup.
 
 ## Windows users
 
@@ -36,4 +37,5 @@ python -m playwright install chromium
 
 Open `backup_report.txt`, then use **Verify**, **Retry Assets**, **Retry
 Images**, or **Retry Audio**. Run `--self-test` for an offline health check and
-read [Troubleshooting](docs/TROUBLESHOOTING.md) for platform-specific fixes.
+read the [JavaScript Archive Guide troubleshooting section](docs/JAVASCRIPT_ARCHIVE_GUIDE.md#troubleshooting)
+for archive-specific fixes.

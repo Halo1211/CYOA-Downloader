@@ -53,5 +53,6 @@ In project-first mode, redundant bundle scans before and after localization are
 skipped because `process_images` already understands project structure. This
 avoids duplicate work, random 404 attempts from minified JavaScript strings,
 and browser sessions that add no asset coverage. Viewer HTML and CSS are still
-processed recursively. Failed source assets remain absolute online
-dependencies and are reported instead of becoming misleading local paths.
+processed recursively. Failed source assets keep their authored references and
+are reported instead of being deleted, replaced, converted into placeholders,
+or redirected to similarly named local files.

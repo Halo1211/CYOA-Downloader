@@ -14,6 +14,7 @@ import pathlib
 import sys
 from types import ModuleType
 
+from .integrations.offline_viewers.modernizer import modernize_collection
 from .runtime.archive_preview import (
     extract_next_flight_stream,
     resolve_archived_page,
@@ -304,6 +305,12 @@ def main() -> None:
                         help="Validate a previously downloaded output FOLDER (read-only integrity check) and exit.")
     parser.add_argument("--write-manifest", action="store_true",
                         help="With --verify: write a cyoa_manifest.json checksum sidecar into the folder, then exit. Enables later checksum verification.")
+    parser.add_argument("--modernize-library", metavar="FOLDER", default=None,
+                        help="Copy a local CYOA library and make recognized ICC viewers work directly through file://.")
+    parser.add_argument("--viewer-collection", metavar="FOLDER", default=None,
+                        help="Viewer template collection used with --modernize-library.")
+    parser.add_argument("--modernize-output", metavar="FOLDER", default=None,
+                        help="Destination for --modernize-library (default: <library>/_edited). Must be empty or absent.")
     parser.add_argument("--export-settings", metavar="FILE", default=None,
                         help="Export current settings (secrets redacted) to FILE and exit.")
     parser.add_argument("--import-settings", metavar="FILE", default=None,
@@ -315,6 +322,44 @@ def main() -> None:
                         help="Disable automatic Discord attachment URL recovery for this run.")
     args = parser.parse_args()
     args.url = (args.url_opt or args.url or "").strip()
+
+    if args.modernize_library:
+        if not args.viewer_collection:
+            parser.error("--viewer-collection is required with --modernize-library")
+        library = pathlib.Path(args.modernize_library).expanduser().resolve()
+        viewer_collection = pathlib.Path(args.viewer_collection).expanduser().resolve()
+        output = (
+            pathlib.Path(args.modernize_output).expanduser().resolve()
+            if args.modernize_output
+            else library / "_edited"
+        )
+        if not library.is_dir():
+            parser.error(f"CYOA library folder not found: {library}")
+        if not viewer_collection.is_dir():
+            parser.error(f"Viewer collection folder not found: {viewer_collection}")
+        if output.exists() and any(output.iterdir()):
+            parser.error(f"Modernize output must be empty or absent: {output}")
+
+        def show_progress(position: int, total: int, name: str) -> None:
+            _safe_console_print(f"[{position}/{total}] {name}")
+
+        try:
+            report = modernize_collection(
+                library,
+                output,
+                viewer_collection=viewer_collection,
+                progress=show_progress,
+            )
+        except (OSError, TypeError, ValueError) as exc:
+            parser.error(f"Could not modernize library: {exc}")
+        _safe_console_print(
+            "Modernization complete: "
+            f"{report.modernized} modernized, {report.copied} copied unchanged, "
+            f"{report.failed} failed. Report: {output / 'conversion_report.json'}"
+        )
+        if report.failed:
+            raise SystemExit(1)
+        return
 
     if args.discord_token:
         # Process-local only: the token is consumed by the normal image

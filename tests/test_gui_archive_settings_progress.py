@@ -67,6 +67,7 @@ def test_settings_center_routes_to_modern_single_window_dashboard():
     assert "page_host" in dashboard_source
     assert "search_entry" in dashboard_source
     assert "Integrations" in dashboard_source
+    assert "Viewers" in dashboard_source
     assert "Maintenance" in dashboard_source
     assert "CTkTabview" not in dashboard_source
     assert "grab_set" not in dashboard_source
@@ -120,6 +121,12 @@ def test_inline_settings_builders_keep_complete_controls_available():
     assert "_clear_image_cache" in cache_source
     assert "register_offline_viewer" in viewers_source
     assert "unregister_offline_viewer" in viewers_source
+    assert "offline_viewer_json_enabled" in viewers_source
+    assert "offline_viewer_website_enabled" in viewers_source
+    assert "offline_viewer_preferred_id" in viewers_source
+    assert "Auto (recommended)" in viewers_source
+    assert "get_viewer_recommendations" in viewers_source
+    assert "grid(row=1" in viewers_source
 
 
 def test_inline_ai_form_preserves_provider_specific_credentials_and_models():
@@ -148,7 +155,8 @@ def test_download_page_combines_general_features_and_archive():
     assert "features = general" in dashboard_source
     assert 'network = _page(tab_names[1])' in dashboard_source
     assert 'integrations = _page(tab_names[2])' in dashboard_source
-    assert 'tools = _page(tab_names[3])' in dashboard_source
+    assert 'viewers = _page(tab_names[3])' in dashboard_source
+    assert 'tools = _page(tab_names[4])' in dashboard_source
     assert '("General" if is_en else "Umum")' not in dashboard_source
 
 

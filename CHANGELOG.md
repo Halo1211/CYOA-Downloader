@@ -4,6 +4,34 @@ This project uses a single changelog file. Older split release notes and patch r
 
 ## v1.0.8 — website reliability and advanced network profiles
 
+- Added opt-in offline-viewer automation with independent switches for
+  JSON-only downloads and full ICC website modernization. Both remain off by
+  default.
+- Added compatibility-aware selection for ICC Legacy/Plus 1, ICC Plus 2,
+  ICC Remix, and Lt. Ouroumov-derived viewers. ICC Plus 2 accepts only a
+  verified local/offline/standalone runtime and never falls back to its online
+  viewer.
+- Added registration for viewer ZIP, RAR, and unpacked folders, plus a themed
+  Settings checklist showing required and optional viewer-family coverage.
+- Preserved publisher titles, favicons, fonts, loading CSS, inline styles, and
+  unrelated scripts during runtime replacement. Original overwritten files
+  are retained under `__original_site__`.
+- Made Plus 2 and Remix modernization repeat-safe. A second run refreshes the
+  embedded project without requiring another Remix template or changing the
+  first original backup.
+- Validate replacement templates before an in-place overlay so an invalid
+  archive cannot leave a partially modified website.
+- Removed missing-image extension substitution and all generated missing-asset
+  placeholders. Failed references remain exactly as authored and are recorded
+  in `failed_assets.txt`, `failed_images.txt`, `backup_report.txt`, or
+  `skipped_youtube_audio.txt`.
+- Narrowed obsolete-runtime filtering so publisher files such as
+  `app.publisher-hooks.js` and `app.publisher-theme.css` are not discarded as
+  generated bundles.
+- Added failure reporting and cross-origin private-host protection to the
+  preserved-viewer asset localizer.
+- Reduced idle GUI work and bounded log/progress rendering per event-loop tick
+  to keep the main window responsive on lower-specification computers.
 - Reduced CYOA.CAFE slug resolution to the authoritative slug lookup instead
   of first sending a guaranteed-failing PocketBase record-ID request.
 - Added a bounded negative metadata cache so repeated detection stages do not
@@ -38,7 +66,7 @@ This project uses a single changelog file. Older split release notes and patch r
 - Updated the embedded Help/Guide and repository documentation in English,
   including detailed proxy, DNS privacy, VPN routing, and offline-validation
   explanations.
-- Expanded the offline regression suite to 438 passing tests with 7 optional
+- Expanded the offline regression suite to 501 passing tests with 8 optional
   tests skipped when their runtime conditions are unavailable.
 
 ## v1.0.7 — release consistency and beginner-friendly workflow

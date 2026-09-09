@@ -611,8 +611,6 @@ def run_download(
 #  Image processing  (parallel + all fields)
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-# [Phase 18] moved placeholder SVG helper/data URI to cyoa_downloader_app.download.asset_scan
-from ..download.asset_scan import _make_placeholder_svg, _PLACEHOLDER_DATA_URI
 # Refactor Phase 20: `_deep_scan_project_assets` moved to domain module; imported below for compatibility.
 
 
@@ -1103,7 +1101,7 @@ from ..download.orchestrator import (
     _v466_run_download, _RUN_DOWNLOAD_LOCK, _LAST_PREVIEW_FOLDER,
 )
 from ..download.image_pipeline import (
-    _make_placeholder_svg, _deep_scan_project_assets, _write_failed_images_log,
+    _deep_scan_project_assets, _write_failed_images_log,
     _write_youtube_skip_log, _find_ffmpeg, _make_ytdlp_hook,
     _download_youtube_audio, _patch_youtube_refs_in_json,
     _safe_response_text, process_images, _scan_file_for_assets,

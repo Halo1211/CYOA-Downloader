@@ -10,6 +10,8 @@ import json
 import os
 import re
 import threading
+import zipfile
+from collections.abc import Mapping
 from typing import Dict, List, Optional
 
 from ...logging_setup import logger
@@ -40,6 +42,9 @@ _VIEWERS_LOCK = threading.RLock()
 # Viewer type tags — used to match a CYOA site to the right viewer
 # Detected from: script names, meta tags, HTML patterns in the CYOA site
 VIEWER_TYPE_HINTS: Dict[str, List[str]] = {
+    "icc_plus2": ["core.js", "vite_is_modern_browser", "js/app.js", "js/polyfills.js"],
+    "icc_legacy": ["app.c533aa25", "chunk-vendors.59af3576", "Viewer 1.8"],
+    "lt_ouroumov": ["app.d3103a3b", "chunk-vendors.ae283b72"],
     # ICC Plus v1.x (New Viewer 1.18.9, Viewer 1.8) — webpack, app.c533aa25.js
     # ICC Plus v2.x — Vite, core.js bootstrap loader
     "icc_plus":  ["app.c533aa25", "chunk-vendors", "ICC+", "icc-plus", "ICCPlus",
@@ -54,6 +59,41 @@ VIEWER_TYPE_HINTS: Dict[str, List[str]] = {
     "cyoap_vue": ["platform.json", "cyoap", "cyoa_plus"],
     "custom":    [],
 }
+
+VIEWER_FAMILY_GUIDANCE = (
+    {
+        "family": "icc_plus2",
+        "title_en": "ICC Plus 2 Local Viewer",
+        "title_id": "Viewer Lokal ICC Plus 2",
+        "use_en": "Required for project.json with version 2.x and modern Plus 2 sites.",
+        "use_id": "Wajib untuk project.json version 2.x dan situs Plus 2 modern.",
+        "required": True,
+    },
+    {
+        "family": "icc_legacy",
+        "title_en": "ICC Legacy / New Viewer",
+        "title_id": "ICC Legacy / New Viewer",
+        "use_en": "Required fallback for unversioned ICC, ICC Plus legacy, and classic bundles.",
+        "use_id": "Fallback wajib untuk ICC tanpa version, ICC Plus legacy, dan bundle klasik.",
+        "required": True,
+    },
+    {
+        "family": "icc_remix",
+        "title_en": "ICC Remix Local Viewer",
+        "title_id": "Viewer Lokal ICC Remix",
+        "use_en": "Recommended when the source HTML identifies an ICC Remix runtime.",
+        "use_id": "Disarankan ketika HTML sumber terdeteksi memakai runtime ICC Remix.",
+        "required": False,
+    },
+    {
+        "family": "lt_ouroumov",
+        "title_en": "Lt. Ouroumov-compatible Viewer",
+        "title_id": "Viewer kompatibel Lt. Ouroumov",
+        "use_en": "Optional exact-match viewer; ICC Legacy remains the safe fallback.",
+        "use_id": "Viewer exact-match opsional; ICC Legacy tetap menjadi fallback aman.",
+        "required": False,
+    },
+)
 
 # ICC Plus marker — exists in ALL ICC Plus versions (v1.x, v2.x).
 # The comment block in app.js right before the default state object.
@@ -109,6 +149,9 @@ def _load_viewers_manifest() -> Dict[str, Dict]:
                         "description": "",
                         "entry_point": "index.html",
                         "project_json_path": "",
+                        "inner_archive": "",
+                        "runtime_family": "",
+                        "viewer_variant": "",
                     }
                     for key, fallback in defaults.items():
                         if not isinstance(normalized.get(key), str):
@@ -133,6 +176,15 @@ def _load_viewers_manifest() -> Dict[str, Dict]:
                             continue
                     normalized["entry_point"] = entry_point
                     normalized["project_json_path"] = project_json_path
+                    inner_archive = normalized.get("inner_archive", "")
+                    if inner_archive:
+                        inner_archive = _safe_viewer_relative_path(inner_archive)
+                        if not inner_archive or not inner_archive.lower().endswith(".zip"):
+                            logger.warning(
+                                "Ignoring offline viewer with unsafe nested archive: %s", viewer_id
+                            )
+                            continue
+                    normalized["inner_archive"] = inner_archive
                     cleaned[viewer_id] = normalized
                 return cleaned
     except Exception as _ignored_exc:
@@ -161,8 +213,10 @@ def register_offline_viewer(
     entry_point: str = "index.html",
 ) -> Optional[str]:
     """
-    Register an offline viewer ZIP or RAR.
-    Copies file to _VIEWERS_DIR and saves metadata to manifest.
+    Register an offline viewer ZIP, RAR, or unpacked viewer folder.
+    Folders are packaged into the private viewer store without changing the
+    source directory. Copies the resulting archive to _VIEWERS_DIR and saves
+    metadata to the manifest.
     Returns viewer_id or None on failure.
     """
     import shutil, zipfile as _zf
@@ -170,6 +224,46 @@ def register_offline_viewer(
     if not os.path.exists(zip_path):
         logger.error(f"Offline viewer file not found: {zip_path}")
         return None
+
+    source_path = os.path.abspath(zip_path)
+    source_name = os.path.basename(os.path.normpath(source_path))
+    if os.path.isdir(source_path):
+        os.makedirs(_VIEWERS_DIR, exist_ok=True)
+        viewer_id = source_name
+        packed_path = os.path.join(_VIEWERS_DIR, f"{viewer_id}.zip")
+        part_path = packed_path + f".{os.getpid()}.{threading.get_ident()}.part"
+        member_count = 0
+        total_size = 0
+        try:
+            with _zf.ZipFile(part_path, "w", compression=_zf.ZIP_DEFLATED) as archive:
+                for root, dirs, files in os.walk(source_path):
+                    dirs.sort()
+                    files.sort()
+                    for filename in files:
+                        full_path = os.path.join(root, filename)
+                        rel_path = os.path.relpath(full_path, source_path).replace("\\", "/")
+                        _safe_archive_rel_path(rel_path)
+                        file_size = os.path.getsize(full_path)
+                        member_count += 1
+                        total_size += file_size
+                        if member_count > 10000:
+                            raise ValueError("Viewer folder contains too many files")
+                        if file_size > 1024 * 1024 * 1024:
+                            raise ValueError(f"Viewer file is too large: {rel_path}")
+                        if total_size > 4 * 1024 * 1024 * 1024:
+                            raise ValueError("Viewer folder is larger than 4 GiB")
+                        archive.write(full_path, rel_path)
+            os.replace(part_path, packed_path)
+            zip_path = packed_path
+            logger.info("Packed unpacked viewer folder: %s", source_path)
+        except (OSError, ValueError, _zf.BadZipFile) as exc:
+            try:
+                if os.path.exists(part_path):
+                    os.remove(part_path)
+            except OSError:
+                pass
+            logger.error("Cannot package offline viewer folder %s: %s", source_path, exc)
+            return None
 
     is_rar = zip_path.lower().endswith(".rar")
 
@@ -221,14 +315,68 @@ def register_offline_viewer(
     if not entry_point and html_files:
         entry_point = os.path.basename(html_files[0])
 
+    # ICC Remix distributes a full editor package whose actual local viewer is
+    # nested as viewer-template.zip.  Record that contract so injection never
+    # mistakes the editor's own index.html for the playable viewer.
+    inner_archive = ""
+    if not is_rar:
+        nested_viewers = [
+            str(member).replace("\\", "/")
+            for member in names
+            if str(member).replace("\\", "/").lower().endswith("viewer-template.zip")
+        ]
+        if nested_viewers:
+            inner_archive = min(nested_viewers, key=len)
+
     # Auto-detect viewer type from filenames in archive
     js_files = " ".join(names)
     detected_type = viewer_type
-    if detected_type == "custom":
+    if inner_archive:
+        # A nested viewer-template.zip is an unambiguous ICC Remix package,
+        # even when an older GUI submitted its historical `icc_plus` default.
+        detected_type = "icc_remix"
+    elif detected_type == "custom":
         for vtype, hints in VIEWER_TYPE_HINTS.items():
             if any(h.lower() in js_files.lower() for h in hints):
                 detected_type = vtype
                 break
+    # Split the historical broad icc_plus tag when the archive itself proves
+    # which incompatible loading contract it uses.  Keep the broad value for
+    # old/custom archives whose contents are inconclusive.
+    normalized_names = {
+        str(member).replace("\\", "/").lower().lstrip("./") for member in names
+    }
+    has_plus2_local_bundle = (
+        any(name.endswith("js/app.js") for name in normalized_names)
+        and any(name.endswith("js/polyfills.js") for name in normalized_names)
+    )
+    has_plus2_online_loader = any(
+        name.endswith("core.js") for name in normalized_names
+    )
+    runtime_family = ""
+    if inner_archive:
+        runtime_family = "icc_remix"
+    elif has_plus2_local_bundle:
+        runtime_family = "icc_plus2"
+    elif any("app.d3103a3b" in name for name in normalized_names):
+        runtime_family = "lt_ouroumov"
+    elif any(
+        marker in " ".join(normalized_names)
+        for marker in ("app.c533aa25", "chunk-vendors.59af3576")
+    ):
+        runtime_family = "icc_legacy"
+    # Preserve the public historical type for auto-detected legacy archives;
+    # runtime_family carries the precise compatibility contract.
+    if viewer_type == "custom" and detected_type == "icc_legacy":
+        detected_type = "icc_plus"
+    if detected_type == "icc_plus" and has_plus2_local_bundle:
+        detected_type = "icc_plus2"
+    viewer_variant = ""
+    if runtime_family == "icc_plus2" or detected_type == "icc_plus2":
+        if has_plus2_local_bundle:
+            viewer_variant = "offline"
+        elif has_plus2_online_loader:
+            viewer_variant = "online"
 
     os.makedirs(_VIEWERS_DIR, exist_ok=True)
     viewer_id = os.path.splitext(os.path.basename(zip_path))[0]
@@ -255,6 +403,9 @@ def register_offline_viewer(
                 "description":       description,
                 "entry_point":       entry_point or "index.html",
                 "project_json_path": project_json_path,
+                "inner_archive":     inner_archive,
+                "runtime_family":    runtime_family,
+                "viewer_variant":    viewer_variant,
                 "registered_at":     __import__("datetime").datetime.now().isoformat(),
             }
             _save_viewers_manifest(manifest)
@@ -406,7 +557,192 @@ def unregister_offline_viewer(viewer_id: str, delete_zip: bool = False) -> bool:
     return True
 
 
-def get_viewer_for_site(html_text: str, mode: str = "auto") -> Optional[Dict]:
+def detect_project_runtime_family(project_data: object) -> str:
+    """Infer the compatible viewer family from project data alone.
+
+    ICC Plus 2 exports an explicit 2.x version. Historical ICC/Plus projects
+    share the classic rows/pointTypes/styling schema but generally have no
+    version, so they deliberately fall back to the legacy viewer. Remix and
+    Lt. Ouroumov require HTML/runtime evidence because their JSON is not a
+    unique format.
+    """
+    try:
+        value = json.loads(project_data) if isinstance(project_data, str) else project_data
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return ""
+    if not isinstance(value, Mapping):
+        return ""
+    app = value.get("app") if isinstance(value.get("app"), Mapping) else value
+    if not (
+        isinstance(app.get("rows"), list)
+        and isinstance(app.get("pointTypes"), list)
+        and isinstance(app.get("styling"), Mapping)
+    ):
+        return ""
+    version = str(value.get("version") or app.get("version") or "").strip()
+    return "icc_plus2" if version.startswith("2.") else "icc_legacy"
+
+
+def _detect_html_runtime_family(html_text: str) -> tuple[str, str]:
+    html_lower = html_text.lower()
+    if any(marker in html_lower for marker in (
+        "{{icc_project_data_script}}", "__icc_remix__", "app.offline.js", "iccremix"
+    )):
+        return "icc_remix", "source HTML contains an ICC Remix runtime marker"
+    if any(marker in html_lower for marker in (
+        "core.js", "vite_is_modern_browser", "app.b6d7tc9y", "app_bugw6rfa"
+    )):
+        return "icc_plus2", "source HTML contains an ICC Plus 2 runtime marker"
+    if "app.d3103a3b" in html_lower:
+        return "lt_ouroumov", "source HTML contains the Lt. Ouroumov bundle marker"
+    if any(marker in html_lower for marker in (
+        "app.c533aa25", "chunk-vendors.59af3576"
+    )):
+        return "icc_legacy", "source HTML contains an ICC legacy bundle marker"
+    return "", ""
+
+
+def _archive_runtime_family(meta: Mapping) -> str:
+    explicit = str(meta.get("runtime_family", "") or "").strip().lower()
+    aliases = {"icc_plus_2": "icc_plus2", "icc": "icc_legacy"}
+    if explicit:
+        return aliases.get(explicit, explicit)
+    viewer_type = str(meta.get("viewer_type", "custom") or "custom").strip().lower()
+    if viewer_type in {"icc_plus2", "icc_legacy", "icc_remix", "lt_ouroumov"}:
+        return viewer_type
+    if viewer_type == "icc":
+        return "icc_legacy"
+
+    archive_name = _safe_viewer_archive_name(meta.get("zip_filename", ""))
+    archive_path = os.path.join(_VIEWERS_DIR, archive_name) if archive_name else ""
+    if archive_path.lower().endswith(".zip") and os.path.isfile(archive_path):
+        try:
+            with zipfile.ZipFile(archive_path) as archive:
+                names = {name.replace("\\", "/").lower().lstrip("./") for name in archive.namelist()}
+            if any(name.endswith("viewer-template.zip") for name in names):
+                return "icc_remix"
+            if (
+                any(name.endswith("js/app.js") for name in names)
+                and any(name.endswith("js/polyfills.js") for name in names)
+            ):
+                return "icc_plus2"
+            if any("app.d3103a3b" in name for name in names):
+                return "lt_ouroumov"
+            if any("app.c533aa25" in name for name in names):
+                return "icc_legacy"
+        except (OSError, ValueError, zipfile.BadZipFile):
+            pass
+    descriptor = f"{archive_name} {meta.get('name', '')}".lower()
+    if "remix" in descriptor:
+        return "icc_remix"
+    if re.search(r"(?:plus[ ._-]*2|v2[._-])", descriptor):
+        return "icc_plus2"
+    if any(term in descriptor for term in ("legacy", "viewer 1.8", "new viewer")):
+        return "icc_legacy"
+    return "icc_plus" if viewer_type == "icc_plus" else viewer_type
+
+
+def _archive_viewer_variant(meta: Mapping) -> str:
+    """Return offline/online/unknown for a registered viewer archive."""
+    explicit = str(meta.get("viewer_variant", "") or "").strip().lower()
+    if explicit in {"offline", "online"}:
+        return explicit
+    descriptor = f"{meta.get('name', '')} {meta.get('zip_filename', '')}".lower()
+    if any(token in descriptor for token in ("local", "offline", "standalone")):
+        return "offline"
+    if "online" in descriptor:
+        return "online"
+    archive_name = _safe_viewer_archive_name(meta.get("zip_filename", ""))
+    archive_path = os.path.join(_VIEWERS_DIR, archive_name) if archive_name else ""
+    if archive_path.lower().endswith(".zip") and os.path.isfile(archive_path):
+        try:
+            with zipfile.ZipFile(archive_path) as archive:
+                names = {
+                    name.replace("\\", "/").lower().lstrip("./")
+                    for name in archive.namelist()
+                }
+            if (
+                any(name.endswith("js/app.js") for name in names)
+                and any(name.endswith("js/polyfills.js") for name in names)
+            ):
+                return "offline"
+            if any(name.endswith("core.js") for name in names):
+                return "online"
+        except (OSError, ValueError, zipfile.BadZipFile):
+            pass
+    return ""
+
+
+def select_offline_iccplus_asset(assets: object) -> Optional[dict]:
+    """Pick only a downloadable ICC Plus offline/local release asset.
+
+    The online bundle is intentionally never used as a fallback because it
+    cannot satisfy the downloader's direct-file offline viewer contract.
+    """
+    if not isinstance(assets, list):
+        return None
+    candidates = []
+    for asset in assets:
+        if not isinstance(asset, dict):
+            continue
+        name = str(asset.get("name", "") or "")
+        url = str(asset.get("browser_download_url", "") or "")
+        lower = name.lower()
+        if (
+            url
+            and lower.endswith((".zip", ".rar"))
+            and any(token in lower for token in ("local", "offline", "standalone"))
+            and "online" not in lower
+        ):
+            candidates.append(asset)
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: _viewer_quality({
+        "name": item.get("name", ""),
+        "zip_filename": item.get("name", ""),
+        "registered_at": "",
+    }))
+
+
+def _viewer_quality(meta: Mapping) -> tuple[int, tuple[int, ...], str]:
+    descriptor = f"{meta.get('name', '')} {meta.get('zip_filename', '')}".lower()
+    versions = tuple(int(part) for part in re.findall(r"\d+", descriptor)[:4])
+    return (
+        5 if str(meta.get("zip_filename", "")).lower().endswith(".zip") else 0,
+        versions,
+        str(meta.get("registered_at", "")),
+    )
+
+
+def get_viewer_recommendations() -> list[dict]:
+    """Return family coverage for the themed Settings viewer checklist."""
+    manifest = _load_viewers_manifest()
+    result: list[dict] = []
+    for guidance in VIEWER_FAMILY_GUIDANCE:
+        family = str(guidance["family"])
+        matches = [
+            (viewer_id, meta)
+            for viewer_id, meta in manifest.items()
+            if _archive_runtime_family(meta) == family
+            and not (family == "icc_plus2" and _archive_viewer_variant(meta) == "online")
+        ]
+        selected = max(matches, key=lambda item: _viewer_quality(item[1])) if matches else None
+        result.append({
+            **guidance,
+            "available": selected is not None,
+            "viewer_id": selected[0] if selected else "",
+            "viewer_name": str(selected[1].get("name", selected[0])) if selected else "",
+        })
+    return result
+
+
+def get_viewer_for_site(
+    html_text: str,
+    mode: str = "auto",
+    *,
+    project_data: object = None,
+    preferred_viewer_id: str = "auto",
+) -> Optional[Dict]:
     """
     Given the HTML content of a CYOA site and the download mode,
     return the best matching registered offline viewer (or None).
@@ -430,26 +766,68 @@ def get_viewer_for_site(html_text: str, mode: str = "auto") -> Optional[Dict]:
     }
     preferred_type = mode_to_type.get(mode, "")
 
-    # Detect ICC Remix sites by template marker
-    is_remix = (
-        "{{ICC_PROJECT_DATA_SCRIPT}}" in html_text or
-        "app.offline.js" in html_lower or
-        "iccremix" in html_lower
-    )
+    requested_id = str(preferred_viewer_id or "auto").strip()
+    if requested_id.casefold() != "auto" and requested_id in manifest:
+        requested_meta = manifest[requested_id]
+        if (
+            _archive_runtime_family(requested_meta) == "icc_plus2"
+            and _archive_viewer_variant(requested_meta) == "online"
+        ):
+            logger.warning(
+                "Rejected ICC Plus 2 online viewer override: %s; an offline/local bundle is required",
+                requested_id,
+            )
+            return None
+        return {
+            "id": requested_id,
+            **requested_meta,
+            "detected_family": _archive_runtime_family(requested_meta),
+            "selection_reason": f"Manual viewer override: {requested_id}",
+        }
+
+    detected_site_type, selection_reason = _detect_html_runtime_family(html_text)
+    if not detected_site_type:
+        detected_site_type = detect_project_runtime_family(project_data)
+        if detected_site_type == "icc_plus2":
+            try:
+                parsed = json.loads(project_data) if isinstance(project_data, str) else project_data
+                app = parsed.get("app") if isinstance(parsed, Mapping) and isinstance(parsed.get("app"), Mapping) else parsed
+                version = str(parsed.get("version") or app.get("version") or "").strip()
+            except (AttributeError, TypeError, ValueError, json.JSONDecodeError):
+                version = "2.x"
+            selection_reason = f"project.json version {version} requires ICC Plus 2"
+        elif detected_site_type == "icc_legacy":
+            selection_reason = "unversioned ICC project.json uses the legacy viewer contract"
 
     scored: List[tuple] = []
     for vid, meta in manifest.items():
         score = 0
         vtype = meta.get("viewer_type", "custom")
+        runtime_family = _archive_runtime_family(meta)
+        if runtime_family == "icc_plus2" and _archive_viewer_variant(meta) == "online":
+            continue
         hints = VIEWER_TYPE_HINTS.get(vtype, [])
         hint_matches = 0
         for hint in hints:
             if hint.lower() in html_lower:
                 hint_matches += 1
         score += hint_matches
-        # Strong bonus for ICC Remix sites
-        if is_remix and vtype == "icc_remix":
-            score += 20
+        if detected_site_type:
+            if runtime_family == detected_site_type:
+                score += 100
+            elif (
+                vtype == "icc_plus"
+                and not meta.get("runtime_family")
+                and detected_site_type in {"icc_plus2", "icc_legacy"}
+            ):
+                # Backward compatibility for manifests created before the
+                # family split. A precise template always outranks this alias.
+                score += 25
+            elif detected_site_type == "lt_ouroumov" and runtime_family == "icc_legacy":
+                # Lt. Ouroumov retains the legacy embedded-project contract,
+                # so a legacy viewer is a functional fallback when no exact
+                # template has been registered.
+                score += 35
         if preferred_type and vtype == preferred_type:
             score += 10
         # LocalViewer is designed for offline — prefer it
@@ -458,15 +836,20 @@ def get_viewer_for_site(html_text: str, mode: str = "auto") -> Optional[Dict]:
         # tie-breaker once HTML hints, mode, or Remix detection actually match.
         if score > 0 and ("localviewer" in name_lower or "local" in name_lower):
             score += 5
-        scored.append((score, vid, meta))
+        scored.append((score, _viewer_quality(meta), vid, meta))
 
     if not scored:
         return None
-    scored.sort(key=lambda x: x[0], reverse=True)
-    best_score, best_id, best_meta = scored[0]
+    scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    best_score, _quality, best_id, best_meta = scored[0]
     if best_score == 0:
         return None
-    return {"id": best_id, **best_meta}
+    return {
+        "id": best_id,
+        **best_meta,
+        "detected_family": detected_site_type or _archive_runtime_family(best_meta),
+        "selection_reason": selection_reason or "matched registered viewer hints and output mode",
+    }
 
 
 __all__ = [
@@ -475,4 +858,6 @@ __all__ = [
     "register_offline_viewer", "_auto_register_bundled_viewers",
     "_extract_iccplus_subviewers", "unregister_offline_viewer",
     "get_viewer_for_site",
+    "detect_project_runtime_family", "get_viewer_recommendations",
+    "select_offline_iccplus_asset",
 ]

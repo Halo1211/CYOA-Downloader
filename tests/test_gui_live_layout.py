@@ -193,7 +193,27 @@ def test_live_gui_settings_location_and_expanded_progress_geometry():
         root.update()
         maintenance_text = "\n".join(_visible_texts(settings_window))
         assert "Image cache" in maintenance_text or "Cache gambar" in maintenance_text
-        assert "Offline viewers" in maintenance_text or "Viewer offline" in maintenance_text
+
+        viewers_button = (
+            _button_with_text(settings_window, "Viewers")
+            or _button_with_text(settings_window, "Viewer")
+        )
+        assert viewers_button is not None
+        viewers_button.invoke()
+        root.update_idletasks()
+        root.update()
+        viewers_text = "\n".join(_visible_texts(settings_window))
+        assert "Automatic viewer handling" in viewers_text or "Penanganan viewer otomatis" in viewers_text
+        assert "Recommended viewer set" in viewers_text or "Kumpulan viewer yang disarankan" in viewers_text
+        assert "Auto (recommended)" in viewers_text or "Auto (disarankan)" in viewers_text
+
+        window_left = settings_window.winfo_rootx()
+        window_right = window_left + settings_window.winfo_width()
+        for button_text in ("Viewers", "Viewer", "Open Guide", "Buka Panduan"):
+            for button in _buttons_containing_text(settings_window, button_text):
+                if button.winfo_viewable():
+                    assert button.winfo_rootx() >= window_left
+                    assert button.winfo_rootx() + button.winfo_width() <= window_right
         settings_window.destroy()
         root.update_idletasks()
 

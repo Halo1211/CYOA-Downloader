@@ -213,6 +213,24 @@ def extract_balanced_brace_block(text: str, start_idx: int) -> str:
     return ""
 
 def extract_embedded_project_from_js(js_text: str) -> Optional[str]:
+    # ICC Plus 2's offline-capable bundle places the complete project directly
+    # after this stable authoring marker. A comment can sit between the
+    # reactive wrapper call (``app=Be(``) and the JSON object, so the generic
+    # assignment regex below cannot see it. Resolve this precise contract first
+    # and avoid mistaking a nested choice/addon object for the project root.
+    for marker_match in re.finditer(
+        r"/\*!\s*Delete and replace this part.*?\*/",
+        js_text,
+        flags=re.IGNORECASE | re.DOTALL,
+    ):
+        brace_idx = js_text.find("{", marker_match.end())
+        if brace_idx == -1:
+            continue
+        block = extract_balanced_brace_block(js_text, brace_idx)
+        if block and looks_like_project_payload(block):
+            logger.info("Found embedded ICC Plus project payload via authoring marker")
+            return block
+
     # ── Fast-path: Vuex },getters split (original downloader technique) ──
     # ICC Plus old viewer embeds project as: Store({state:{app:{...}},getters:...})
     # This is faster than balanced-brace for the exact Vuex pattern.
@@ -313,7 +331,17 @@ def extract_embedded_project_from_js(js_text: str) -> Optional[str]:
             brace_idx = js_text.rfind("{", scan_start, m.start())
             while brace_idx != -1:
                 block = extract_balanced_brace_block(js_text, brace_idx)
-                if block and len(block) > 100 and looks_like_project_payload(block):
+                # The candidate must actually enclose the keyword match. A
+                # completed nested choice immediately before ``rows`` used to
+                # pass the broad payload score and become a 100-byte project.
+                encloses_keyword = bool(
+                    block and brace_idx <= m.start() < brace_idx + len(block)
+                )
+                if (
+                    encloses_keyword
+                    and len(block) > 100
+                    and looks_like_project_payload(block)
+                ):
                     logger.info(f"Found embedded project payload near keyword: {pattern}")
                     return block
                 brace_idx = js_text.rfind("{", scan_start, brace_idx)

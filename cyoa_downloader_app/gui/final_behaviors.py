@@ -893,8 +893,9 @@ def _v25_manage_offline_viewers(self: Any) -> None:
 
     def _counts(manifest):
         total = len(manifest)
-        icc = sum(1 for m in manifest.values() if m.get("viewer_type") == "icc_plus")
-        custom = sum(1 for m in manifest.values() if m.get("viewer_type") not in {"icc_plus", "icc", "cyoap_vue"})
+        icc_types = {"icc_plus", "icc_plus2", "icc_legacy", "icc_remix", "lt_ouroumov", "icc"}
+        icc = sum(1 for m in manifest.values() if m.get("viewer_type") in icc_types)
+        custom = sum(1 for m in manifest.values() if m.get("viewer_type") not in {*icc_types, "cyoap_vue"})
         return total, icc, custom
 
     total_badge = ctk.CTkLabel(actions, text="Total 0", width=95, height=34, fg_color=p["surface"],
@@ -933,7 +934,7 @@ def _v25_manage_offline_viewers(self: Any) -> None:
         form.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(form, text=("Register viewer archive" if is_en else "Daftarkan arsip viewer"), font=ctk.CTkFont("Segoe UI", 15, "bold"), text_color=p["fg"], anchor="w").grid(row=0, column=0, sticky="ew", padx=16, pady=(16, 8))
         name_var = ctk.StringVar(value=os.path.splitext(os.path.basename(zip_path))[0])
-        type_var = ctk.StringVar(value="icc_plus")
+        type_var = ctk.StringVar(value="custom")
         desc_var = ctk.StringVar()
         ctk.CTkLabel(form, text=("Name" if is_en else "Nama"), text_color=p["muted"], anchor="w").grid(row=1, column=0, sticky="ew", padx=16)
         ctk.CTkEntry(form, textvariable=name_var, fg_color=p["input_bg"], text_color=p["input_fg"], border_color=p["border"]).grid(row=2, column=0, sticky="ew", padx=16, pady=(2, 8))
@@ -970,7 +971,7 @@ def _v25_manage_offline_viewers(self: Any) -> None:
         def _do_check():
             r = None
             try:
-                api = "https://api.github.com/repos/wahawa303/ICCPlus/releases/latest"
+                api = "https://api.github.com/repos/wahaha303/ICCPlus/releases/latest"
                 r = fetch_response(api, timeout=8, extra_headers={"User-Agent": "CYOA-Downloader"})
                 if r is None or r.status_code != 200:
                     code = getattr(r, "status_code", None)
@@ -980,9 +981,19 @@ def _v25_manage_offline_viewers(self: Any) -> None:
                 data = r.json()
                 tag = data.get("tag_name", "")
                 assets = data.get("assets", [])
-                offline_asset = next((a for a in assets if any(kw in a.get("name", "").lower() for kw in ["local", "offline", "standalone"])), assets[0] if assets else None)
+                from ..integrations.offline_viewers.registry import (
+                    select_offline_iccplus_asset,
+                )
+                offline_asset = select_offline_iccplus_asset(assets)
                 if not offline_asset:
-                    _v25_safe_after(win, lambda: status_var.set("No downloadable asset found." if is_en else "Aset unduhan tidak ditemukan."))
+                    _v25_safe_after(
+                        win,
+                        lambda: status_var.set(
+                            "No offline/local viewer asset found. Online viewer was not selected."
+                            if is_en else
+                            "Aset viewer offline/local tidak ditemukan. Viewer online tidak dipilih."
+                        ),
+                    )
                     return
                 asset_name = offline_asset.get("name", "ICCPlus.zip")
                 asset_url = offline_asset.get("browser_download_url", "")
@@ -1023,7 +1034,11 @@ def _v25_manage_offline_viewers(self: Any) -> None:
                                 if total:
                                     pct = done * 100 // total
                                     _v25_safe_after(win, lambda pct=pct: status_var.set(f"{asset_name}: {pct}%"))
-                    vid = register_offline_viewer(dest, name=f"ICCPlus {tag} (auto)", viewer_type="icc_plus")
+                    vid = register_offline_viewer(
+                        dest,
+                        name=f"ICCPlus {tag} Offline (auto)",
+                        viewer_type="icc_plus2",
+                    )
                     _v25_safe_after(win, lambda: (status_var.set((f"{asset_name} registered as '{vid}'." if is_en else f"{asset_name} terdaftar sebagai '{vid}'.")), _refresh_list()))
                 except Exception as exc:
                     _v25_safe_after(win, lambda e=str(exc): status_var.set(("Download failed: " if is_en else "Unduhan gagal: ") + e))
@@ -1052,13 +1067,13 @@ def _v25_manage_offline_viewers(self: Any) -> None:
         row = 0
         for vid, meta in manifest.items():
             vtype = str(meta.get("viewer_type", "custom") or "custom")
-            if mode == "icc" and vtype not in {"icc_plus", "icc"}:
+            if mode == "icc" and vtype not in {"icc_plus", "icc_plus2", "icc_legacy", "icc_remix", "lt_ouroumov", "icc"}:
                 continue
             if mode == "cyoap" and vtype != "cyoap_vue":
                 continue
-            if mode == "custom" and vtype in {"icc_plus", "icc", "cyoap_vue"}:
+            if mode == "custom" and vtype in {"icc_plus", "icc_plus2", "icc_legacy", "icc_remix", "lt_ouroumov", "icc", "cyoap_vue"}:
                 continue
-            icon = {"icc_plus": "⚡", "icc": "📄", "cyoap_vue": "🌿", "custom": "📦"}.get(vtype, "📦")
+            icon = {"icc_plus": "⚡", "icc_plus2": "⚡", "icc_legacy": "📄", "icc_remix": "🧩", "lt_ouroumov": "📄", "icc": "📄", "cyoap_vue": "🌿", "custom": "📦"}.get(vtype, "📦")
             card = ctk.CTkFrame(list_frame, fg_color=p["surface"], corner_radius=14, border_width=1, border_color=p["border"])
             card.grid(row=row, column=0, sticky="ew", padx=6, pady=6)
             card.grid_columnconfigure(1, weight=1)
@@ -2019,7 +2034,7 @@ def _v46_gui_init(self, root) -> None:
     _v46_gui_init_legacy(self, root)
     self._v46_progress_handler = _V46TelemetryLogHandler(self)
     logger.addHandler(self._v46_progress_handler)
-    self._v46_progress_after_id = self.root.after(125, self._v46_poll_progress)
+    self._v46_progress_after_id = self.root.after(350, self._v46_poll_progress)
     try:
         self.root.protocol("WM_DELETE_WINDOW", self._v46_on_close)
     except Exception as exc:
@@ -2702,12 +2717,17 @@ def _v46_poll_progress(self) -> None:
                     self._v46_telemetry.job_progress,
                 )
             drained += 1
-    snapshot = self._v46_telemetry.snapshot()
-    try:
-        self._v46_render_progress(snapshot)
-    except Exception as exc:
-        logger.debug(f"Progress render failed: {exc}")
-    next_delay = 50 if ui_drained >= 100 or drained >= 100 else 150
+    if ui_drained or drained:
+        snapshot = self._v46_telemetry.snapshot()
+        try:
+            self._v46_render_progress(snapshot)
+        except Exception as exc:
+            logger.debug(f"Progress render failed: {exc}")
+    next_delay = (
+        50 if ui_drained >= 100 or drained >= 100
+        else 150 if ui_drained or drained
+        else 500
+    )
     self._v46_progress_after_id = self.root.after(next_delay, self._v46_poll_progress)
 
 def _v46_render_progress(self, s: Dict[str, Any]) -> None:

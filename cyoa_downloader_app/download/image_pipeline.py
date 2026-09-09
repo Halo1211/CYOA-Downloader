@@ -24,8 +24,6 @@ from ..app_info import DEFAULT_MAX_WORKERS, DEFAULT_WAIT_TIME
 from .asset_scan import (
     _is_probable_raw_cdn_asset,
     _check_image_dedup,
-    _make_placeholder_svg,
-    _PLACEHOLDER_DATA_URI,
     _safe_response_text,
     _scan_file_for_assets,
     _deep_scan_project_assets,
@@ -290,6 +288,8 @@ def process_images(
             elif _YOUTUBE_ID_RE.fullmatch(value):
                 youtube_paths.add(f"https://www.youtube.com/watch?v={value}")
                 media_set.discard(candidate)
+
+    summary_total = len(image_paths) + len(audio_paths) + len(youtube_paths)
 
     if not image_paths and not audio_paths and not youtube_paths:
         logger.info("No external images or audio found.")
@@ -809,13 +809,17 @@ def process_images(
         if content is None and path in audio_paths
     ]
 
-    ok_count = sum(1 for _, (c, _, _, _) in fetch_cache.items() if c is not None)
+    skipped_youtube = len(youtube_paths)
+    ok_count = max(
+        0,
+        summary_total - len(failed_images) - len(failed_audio) - skipped_youtube,
+    )
     logger.info(
         f"Download summary: {ok_count} OK, "
         f"{len(failed_images)} image failure(s), "
         f"{len(failed_audio)} audio failure(s), "
-        f"{len(youtube_paths)} YouTube (skipped) "
-        f"out of {len(all_downloadable) + len(youtube_paths)} total."
+        f"{skipped_youtube} YouTube (skipped) "
+        f"out of {summary_total} total."
     )
     if failed_images:
         logger.warning(
@@ -974,7 +978,7 @@ def process_images(
                     dest_path,
                     scope=os.path.abspath(images_folder),
                 )
-                if is_image else None
+                if is_image and not site_folder else None
             )
             if duplicate_of and os.path.exists(duplicate_of):
                 try:
@@ -1660,7 +1664,6 @@ for _name, _value in vars(_l).items():
 
 __all__ = [
     "_is_probable_raw_cdn_asset", "_check_image_dedup",
-    "_make_placeholder_svg", "_PLACEHOLDER_DATA_URI",
     "_safe_response_text", "_scan_file_for_assets",
     "_deep_scan_project_assets", "_write_failed_images_log",
     "_write_youtube_skip_log", "_find_ffmpeg", "_make_ytdlp_hook",

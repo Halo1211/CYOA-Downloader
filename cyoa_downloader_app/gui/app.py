@@ -1154,40 +1154,183 @@ class CYOADownloaderGUI:
 
     def _settings_inline_viewers(self, parent, row: int, p: dict, is_en: bool,
                                  status_var, settings_win) -> int:
-        """Render offline-viewer registry and add/remove controls inline."""
+        """Render opt-in viewer automation, recommendations, and registry."""
         import os
         import customtkinter as ctk
         from tkinter import filedialog, messagebox
+        from ..integrations.offline_viewers.registry import get_viewer_recommendations
 
-        card = ctk.CTkFrame(parent, fg_color=p["surface"], corner_radius=12,
-                            border_width=1, border_color=p["border"])
-        card.grid(row=row, column=0, columnspan=2, sticky="ew", padx=6, pady=5)
-        card.grid_columnconfigure(1, weight=1)
+        auto_label = "Auto (recommended)" if is_en else "Auto (disarankan)"
+        saved = _load_settings()
+        json_enabled_var = ctk.BooleanVar(
+            value=bool(saved.get("offline_viewer_json_enabled", False))
+        )
+        website_enabled_var = ctk.BooleanVar(
+            value=bool(saved.get("offline_viewer_website_enabled", False))
+        )
+        preferred_var = ctk.StringVar(value=auto_label)
         path_var = ctk.StringVar(value="")
         name_var = ctk.StringVar(value="")
-        type_var = ctk.StringVar(value="icc_plus")
+        type_var = ctk.StringVar(value="icc_plus2")
         local_status = ctk.StringVar(value="")
-        ctk.CTkLabel(card, text="VW", width=38, height=30,
-                     font=ctk.CTkFont("Segoe UI", 8, "bold"), text_color="#ffffff",
-                     fg_color="#0f766e", corner_radius=8).grid(
-                         row=0, column=0, rowspan=2, padx=(12, 10), pady=12, sticky="n")
-        ctk.CTkLabel(card, text=("Offline viewers" if is_en else "Viewer offline"),
-                     font=ctk.CTkFont("Segoe UI", 13, "bold"), text_color=p["fg"],
-                     anchor="w").grid(row=0, column=1, sticky="ew", pady=(11, 0))
-        ctk.CTkLabel(card,
-                     text=("Register and manage local viewer archives here."
-                           if is_en else "Daftarkan dan kelola arsip viewer lokal di sini."),
-                     font=ctk.CTkFont("Segoe UI", 9), text_color=p["muted"],
-                     anchor="w").grid(row=1, column=1, sticky="ew", pady=(0, 8))
-        ctk.CTkButton(card, text=("Viewer folder" if is_en else "Folder viewer"),
-                      width=104, height=28, command=lambda: self._open_path_in_os(_VIEWERS_DIR),
-                      fg_color=p["surface2"], hover_color=p["surface"], text_color=p["fg"]).grid(
-                          row=0, column=2, rowspan=2, padx=12, pady=12)
 
-        add = ctk.CTkFrame(card, fg_color=p["panel"], corner_radius=8,
-                           border_width=1, border_color=p["border"])
-        add.grid(row=2, column=0, columnspan=3, sticky="ew", padx=12, pady=(0, 8))
-        add.grid_columnconfigure(0, weight=2)
+        preference_card = ctk.CTkFrame(
+            parent, fg_color=p["surface"], corner_radius=12,
+            border_width=1, border_color=p["border"],
+        )
+        preference_card.grid(
+            row=row, column=0, columnspan=2, sticky="ew", padx=6, pady=5
+        )
+        preference_card.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(
+            preference_card, text="AUTO", width=42, height=30,
+            font=ctk.CTkFont("Segoe UI", 8, "bold"), text_color="#ffffff",
+            fg_color=p["accent"], corner_radius=8,
+        ).grid(row=0, column=0, rowspan=2, padx=(12, 10), pady=12, sticky="n")
+        ctk.CTkLabel(
+            preference_card,
+            text=("Automatic viewer handling" if is_en else "Penanganan viewer otomatis"),
+            font=ctk.CTkFont("Segoe UI", 13, "bold"), text_color=p["fg"], anchor="w",
+        ).grid(row=0, column=1, sticky="ew", pady=(11, 0))
+        ctk.CTkLabel(
+            preference_card,
+            text=(
+                "Both workflows are opt-in and remain OFF by default. Auto is safest."
+                if is_en else
+                "Kedua workflow bersifat opt-in dan default-nya OFF. Auto adalah pilihan teraman."
+            ),
+            font=ctk.CTkFont("Segoe UI", 9), text_color=p["muted"],
+            anchor="w", justify="left", wraplength=680,
+        ).grid(row=1, column=1, sticky="ew", pady=(0, 8))
+
+        switches = ctk.CTkFrame(preference_card, fg_color=p["panel"], corner_radius=9)
+        switches.grid(row=2, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 8))
+        switches.grid_columnconfigure(0, weight=1)
+
+        def _save_preferences(*_args) -> None:
+            manifest = _load_viewers_manifest()
+            selected_label = preferred_var.get()
+            selected_id = "auto"
+            for viewer_id, meta in manifest.items():
+                label = f"{meta.get('name', viewer_id)} · {viewer_id}"
+                if label == selected_label:
+                    selected_id = viewer_id
+                    break
+            updates = {
+                "offline_viewer_json_enabled": bool(json_enabled_var.get()),
+                "offline_viewer_website_enabled": bool(website_enabled_var.get()),
+                "offline_viewer_preferred_id": selected_id,
+            }
+            _update_settings(updates)
+            enabled = updates["offline_viewer_json_enabled"] or updates["offline_viewer_website_enabled"]
+            state = "ON" if enabled else "OFF"
+            message = (
+                f"Viewer automation {state}; selection: {selected_label}."
+                if is_en else f"Otomatisasi viewer {state}; pilihan: {selected_label}."
+            )
+            local_status.set(message)
+            status_var.set(message)
+
+        ctk.CTkSwitch(
+            switches,
+            text=("JSON-only downloads → create a playable viewer folder"
+                  if is_en else "Download JSON saja → buat folder viewer siap dibuka"),
+            variable=json_enabled_var, command=_save_preferences,
+            fg_color=p["surface2"], progress_color=p["accent"],
+            button_color="#e2e8f0", button_hover_color="#ffffff",
+            text_color=p["fg"],
+        ).grid(row=0, column=0, sticky="w", padx=12, pady=(10, 2))
+        ctk.CTkLabel(
+            switches,
+            text=("Uses project schema/version plus HTML evidence to choose a compatible runtime."
+                  if is_en else "Memakai schema/version project dan bukti HTML untuk memilih runtime kompatibel."),
+            font=ctk.CTkFont("Segoe UI", 9), text_color=p["muted"],
+            anchor="w", justify="left", wraplength=680,
+        ).grid(row=1, column=0, sticky="ew", padx=39, pady=(0, 7))
+        ctk.CTkSwitch(
+            switches,
+            text=("Full ICC website downloads → modernize viewer for file://"
+                  if is_en else "Download website ICC penuh → modernisasi viewer untuk file://"),
+            variable=website_enabled_var, command=_save_preferences,
+            fg_color=p["surface2"], progress_color=p["accent"],
+            button_color="#e2e8f0", button_hover_color="#ffffff",
+            text_color=p["fg"],
+        ).grid(row=2, column=0, sticky="w", padx=12, pady=(2, 2))
+        ctk.CTkLabel(
+            switches,
+            text=("Legacy is patched in place; Plus 2/Remix use matched local templates and preserve custom HTML."
+                  if is_en else "Legacy dipatch langsung; Plus 2/Remix memakai template lokal yang cocok dan menjaga HTML kustom."),
+            font=ctk.CTkFont("Segoe UI", 9), text_color=p["muted"],
+            anchor="w", justify="left", wraplength=680,
+        ).grid(row=3, column=0, sticky="ew", padx=39, pady=(0, 10))
+
+        selection = ctk.CTkFrame(preference_card, fg_color="transparent")
+        selection.grid(row=3, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 10))
+        selection.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(
+            selection, text=("Viewer selection" if is_en else "Pemilihan viewer"),
+            font=ctk.CTkFont("Segoe UI", 10, "bold"), text_color=p["fg"], anchor="w",
+        ).grid(row=0, column=0, sticky="w", padx=(0, 10))
+        preferred_menu = ctk.CTkOptionMenu(
+            selection, variable=preferred_var, values=[auto_label], command=_save_preferences,
+            height=30, fg_color=p["surface2"], button_color=p["panel"],
+            button_hover_color=p["surface"], text_color=p["fg"],
+        )
+        preferred_menu.grid(row=0, column=1, sticky="ew")
+        ctk.CTkLabel(
+            selection,
+            text=("Manual choice overrides compatibility detection. Use only for testing."
+                  if is_en else "Pilihan manual mengabaikan deteksi kompatibilitas. Gunakan hanya untuk pengujian."),
+            font=ctk.CTkFont("Segoe UI", 9), text_color=p["muted"], anchor="w",
+        ).grid(row=1, column=1, sticky="ew", pady=(2, 0))
+
+        coverage_card = ctk.CTkFrame(
+            parent, fg_color=p["surface"], corner_radius=12,
+            border_width=1, border_color=p["border"],
+        )
+        coverage_card.grid(row=row + 1, column=0, columnspan=2, sticky="ew", padx=6, pady=5)
+        coverage_card.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            coverage_card,
+            text=("Recommended viewer set" if is_en else "Kumpulan viewer yang disarankan"),
+            font=ctk.CTkFont("Segoe UI", 12, "bold"), text_color=p["fg"], anchor="w",
+        ).grid(row=0, column=0, sticky="ew", padx=12, pady=(11, 1))
+        ctk.CTkLabel(
+            coverage_card,
+            text=("Install both Required families before enabling Auto; Plus 2 must be the offline/local build."
+                  if is_en else "Pasang kedua family Wajib sebelum mengaktifkan Auto; Plus 2 harus build offline/local."),
+            font=ctk.CTkFont("Segoe UI", 9), text_color=p["muted"],
+            anchor="w", justify="left", wraplength=720,
+        ).grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 8))
+        recommendation_host = ctk.CTkFrame(coverage_card, fg_color="transparent")
+        recommendation_host.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 10))
+        recommendation_host.grid_columnconfigure(0, weight=1)
+
+        registry_card = ctk.CTkFrame(
+            parent, fg_color=p["surface"], corner_radius=12,
+            border_width=1, border_color=p["border"],
+        )
+        registry_card.grid(row=row + 2, column=0, columnspan=2, sticky="ew", padx=6, pady=5)
+        registry_card.grid_columnconfigure(0, weight=1)
+        header = ctk.CTkFrame(registry_card, fg_color="transparent")
+        header.grid(row=0, column=0, sticky="ew", padx=12, pady=(10, 7))
+        header.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            header, text=("Registered archives" if is_en else "Arsip terdaftar"),
+            font=ctk.CTkFont("Segoe UI", 12, "bold"), text_color=p["fg"], anchor="w",
+        ).grid(row=0, column=0, sticky="ew")
+        ctk.CTkButton(
+            header, text=("Open folder" if is_en else "Buka folder"), width=96, height=28,
+            command=lambda: self._open_path_in_os(_VIEWERS_DIR),
+            fg_color=p["surface2"], hover_color=p["surface"], text_color=p["fg"],
+        ).grid(row=0, column=1, padx=(8, 0))
+
+        add = ctk.CTkFrame(
+            registry_card, fg_color=p["panel"], corner_radius=9,
+            border_width=1, border_color=p["border"],
+        )
+        add.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 8))
+        add.grid_columnconfigure(0, weight=1)
         add.grid_columnconfigure(1, weight=1)
 
         def _browse_viewer() -> None:
@@ -1201,25 +1344,39 @@ class CYOADownloaderGUI:
                 if not name_var.get().strip():
                     name_var.set(os.path.splitext(os.path.basename(chosen))[0])
 
+        def _browse_viewer_folder() -> None:
+            chosen = filedialog.askdirectory(
+                parent=settings_win,
+                title=("Select unpacked viewer folder" if is_en else "Pilih folder viewer yang sudah diekstrak"),
+                mustexist=True,
+            )
+            if chosen:
+                path_var.set(chosen)
+                if not name_var.get().strip():
+                    name_var.set(os.path.basename(os.path.normpath(chosen)))
+
         ctk.CTkEntry(add, textvariable=path_var, height=30,
-                     placeholder_text=("Viewer ZIP/RAR path" if is_en else "Path ZIP/RAR viewer"),
+                     placeholder_text=("Viewer ZIP/RAR or unpacked folder" if is_en else "ZIP/RAR atau folder viewer"),
                      fg_color=p["input_bg"], text_color=p["input_fg"],
-                     border_color=p["border"]).grid(row=0, column=0, sticky="ew", padx=(8, 4), pady=8)
-        ctk.CTkButton(add, text=("Browse…" if is_en else "Pilih…"), width=76, height=30,
+                     border_color=p["border"]).grid(row=0, column=0, columnspan=2, sticky="ew", padx=(8, 4), pady=(8, 4))
+        ctk.CTkButton(add, text=("Archive…" if is_en else "Arsip…"), width=76, height=30,
                       command=_browse_viewer, fg_color=p["surface2"], hover_color=p["surface"],
-                      text_color=p["fg"]).grid(row=0, column=1, padx=4, pady=8)
+                      text_color=p["fg"]).grid(row=0, column=2, padx=4, pady=(8, 4))
+        ctk.CTkButton(add, text=("Folder…" if is_en else "Folder…"), width=76, height=30,
+                      command=_browse_viewer_folder, fg_color=p["surface2"], hover_color=p["surface"],
+                      text_color=p["fg"]).grid(row=0, column=3, padx=(4, 8), pady=(8, 4))
         ctk.CTkEntry(add, textvariable=name_var, height=30,
                      placeholder_text=("Display name" if is_en else "Nama tampilan"),
                      fg_color=p["input_bg"], text_color=p["input_fg"],
-                     border_color=p["border"]).grid(row=0, column=2, sticky="ew", padx=4, pady=8)
+                     border_color=p["border"]).grid(row=1, column=0, columnspan=2, sticky="ew", padx=(8, 4), pady=(4, 8))
         ctk.CTkOptionMenu(add, variable=type_var,
-                          values=["icc_plus", "icc", "cyoap_vue", "custom"], width=116,
+                          values=["icc_plus2", "icc_legacy", "icc_remix", "lt_ouroumov", "cyoap_vue", "custom"], width=126,
                           height=30, fg_color=p["surface2"], button_color=p["surface"],
                           button_hover_color=p["surface2"], text_color=p["fg"]).grid(
-                              row=0, column=3, padx=4, pady=8)
+                              row=1, column=2, padx=4, pady=(4, 8))
 
-        viewer_list = ctk.CTkFrame(card, fg_color="transparent")
-        viewer_list.grid(row=3, column=0, columnspan=3, sticky="ew", padx=12, pady=(0, 4))
+        viewer_list = ctk.CTkFrame(registry_card, fg_color="transparent")
+        viewer_list.grid(row=2, column=0, sticky="ew", padx=12, pady=(0, 4))
         viewer_list.grid_columnconfigure(0, weight=1)
 
         def _remove_viewer(viewer_id: str) -> None:
@@ -1238,6 +1395,44 @@ class CYOADownloaderGUI:
             for child in viewer_list.winfo_children():
                 child.destroy()
             manifest = _load_viewers_manifest()
+            labels = [auto_label] + [
+                f"{meta.get('name', viewer_id)} · {viewer_id}"
+                for viewer_id, meta in manifest.items()
+            ]
+            preferred_menu.configure(values=labels)
+            saved_id = str(_load_settings().get("offline_viewer_preferred_id", "auto") or "auto")
+            if saved_id != "auto" and saved_id in manifest:
+                preferred_var.set(f"{manifest[saved_id].get('name', saved_id)} · {saved_id}")
+            elif preferred_var.get() not in labels:
+                preferred_var.set(auto_label)
+            for child in recommendation_host.winfo_children():
+                child.destroy()
+            for rec_row, recommendation in enumerate(get_viewer_recommendations()):
+                ready = bool(recommendation["available"])
+                required = bool(recommendation["required"])
+                rec = ctk.CTkFrame(recommendation_host, fg_color=p["panel"], corner_radius=8)
+                rec.grid(row=rec_row, column=0, sticky="ew", pady=2)
+                rec.grid_columnconfigure(0, weight=1)
+                ctk.CTkLabel(
+                    rec, text=str(recommendation["title_en" if is_en else "title_id"]),
+                    font=ctk.CTkFont("Segoe UI", 10, "bold"), text_color=p["fg"], anchor="w",
+                ).grid(row=0, column=0, sticky="ew", padx=(10, 6), pady=(6, 0))
+                ctk.CTkLabel(
+                    rec, text=str(recommendation["use_en" if is_en else "use_id"]),
+                    font=ctk.CTkFont("Segoe UI", 9), text_color=p["muted"],
+                    anchor="w", justify="left", wraplength=590,
+                ).grid(row=1, column=0, sticky="ew", padx=(10, 6), pady=(0, 6))
+                badge_text = (
+                    ("READY" if is_en else "SIAP") if ready else
+                    (("MISSING · REQUIRED" if is_en else "BELUM ADA · WAJIB") if required else
+                     ("MISSING · OPTIONAL" if is_en else "BELUM ADA · OPSIONAL"))
+                )
+                ctk.CTkLabel(
+                    rec, text=badge_text, width=128, height=25, corner_radius=7,
+                    fg_color=("#14532d" if ready else ("#7f1d1d" if required else p["surface2"])),
+                    text_color=("#bbf7d0" if ready else ("#fecaca" if required else p["muted"])),
+                    font=ctk.CTkFont("Segoe UI", 8, "bold"),
+                ).grid(row=0, column=1, rowspan=2, padx=(4, 9), pady=6)
             if not manifest:
                 ctk.CTkLabel(viewer_list,
                              text=("No offline viewers registered."
@@ -1257,21 +1452,29 @@ class CYOADownloaderGUI:
                 ctk.CTkLabel(item, text=detail, font=ctk.CTkFont("Segoe UI", 8),
                              text_color=p["muted"], anchor="w").grid(
                                  row=1, column=0, sticky="ew", padx=10, pady=(0, 7))
-                ctk.CTkButton(item, text=("Inject…" if is_en else "Inject…"), width=72,
-                              height=26, command=lambda m=dict(meta, id=viewer_id):
-                              _v25_inject_into_viewer(self, m, parent_win=settings_win),
-                              fg_color="#1d4ed8", hover_color="#2563eb").grid(
-                                  row=0, column=1, rowspan=2, padx=4, pady=6)
-                ctk.CTkButton(item, text=("Remove" if is_en else "Hapus"), width=72,
-                              height=26, command=lambda v=viewer_id: _remove_viewer(v),
-                              fg_color=p["danger_bg"], hover_color=p["danger_hv"],
-                              text_color=p["danger_fg"]).grid(
-                                  row=0, column=2, rowspan=2, padx=(4, 8), pady=6)
+                item_actions = ctk.CTkFrame(item, fg_color="transparent")
+                item_actions.grid(row=2, column=0, sticky="w", padx=8, pady=(0, 7))
+                ctk.CTkButton(
+                    item_actions, text=("Inject manually…" if is_en else "Inject manual…"),
+                    width=112, height=26,
+                    command=lambda m=dict(meta, id=viewer_id):
+                    _v25_inject_into_viewer(self, m, parent_win=settings_win),
+                    fg_color="#1d4ed8", hover_color="#2563eb",
+                ).pack(side="left", padx=(0, 5))
+                ctk.CTkButton(
+                    item_actions, text=("Remove" if is_en else "Hapus"), width=72,
+                    height=26, command=lambda v=viewer_id: _remove_viewer(v),
+                    fg_color=p["danger_bg"], hover_color=p["danger_hv"],
+                    text_color=p["danger_fg"],
+                ).pack(side="left")
 
         def _register_viewer() -> None:
             path = path_var.get().strip()
             if not path:
-                local_status.set("Choose an archive first." if is_en else "Pilih arsip terlebih dahulu.")
+                local_status.set(
+                    "Choose an archive or folder first."
+                    if is_en else "Pilih arsip atau folder terlebih dahulu."
+                )
                 return
             try:
                 viewer_id = register_offline_viewer(
@@ -1289,12 +1492,12 @@ class CYOADownloaderGUI:
 
         ctk.CTkButton(add, text=("Register" if is_en else "Daftarkan"), width=86,
                       height=30, command=_register_viewer, fg_color="#0f766e",
-                      hover_color="#0d9488").grid(row=0, column=4, padx=(4, 8), pady=8)
-        ctk.CTkLabel(card, textvariable=local_status, font=ctk.CTkFont("Segoe UI", 9),
+                      hover_color="#0d9488").grid(row=1, column=3, padx=(4, 8), pady=(4, 8))
+        ctk.CTkLabel(registry_card, textvariable=local_status, font=ctk.CTkFont("Segoe UI", 9),
                      text_color=p["muted"], anchor="w").grid(
-                         row=4, column=0, columnspan=3, sticky="ew", padx=12, pady=(0, 9))
+                         row=3, column=0, sticky="ew", padx=12, pady=(0, 9))
         _refresh_viewers()
-        return row + 1
+        return row + 3
 
     def _settings_dashboard_panel(self) -> None:
         """Modern, categorized Settings dashboard with persistent navigation.
@@ -1375,6 +1578,7 @@ class CYOADownloaderGUI:
             ("Download" if is_en else "Download"),
             ("Network" if is_en else "Jaringan"),
             ("Integrations" if is_en else "Integrasi"),
+            ("Viewers" if is_en else "Viewer"),
             ("Maintenance" if is_en else "Pemeliharaan"),
         ]
 
@@ -1385,7 +1589,7 @@ class CYOADownloaderGUI:
         sidebar.grid(row=0, column=0, sticky="nsw")
         sidebar.grid_propagate(False)
         sidebar.grid_columnconfigure(0, weight=1)
-        sidebar.grid_rowconfigure(9, weight=1)
+        sidebar.grid_rowconfigure(10, weight=1)
 
         ctk.CTkLabel(
             sidebar, text=("FIND A SETTING" if is_en else "CARI PENGATURAN"),
@@ -1415,7 +1619,8 @@ class CYOADownloaderGUI:
             tab_names[0]: "general auto output folder zip youtube cookie features deep scan selenium preview cheat gallery itch archive javascript policy pages depth runtime scroll click umum fitur arsip download",
             tab_names[1]: "network proxy http https socks vpn dns udp tcp doh dot tls resolver fallback ipv6 jaringan",
             tab_names[2]: "integrations ai cloudflare flaresolverr discord provider integrasi",
-            tab_names[3]: "maintenance settings file folder export import cache viewer tools pemeliharaan",
+            tab_names[3]: "viewer offline injection inject json icc plus remix legacy ouroumov archive otomatis",
+            tab_names[4]: "maintenance settings file folder export import cache tools pemeliharaan",
         }
 
         def _show_page(name: str) -> None:
@@ -1436,7 +1641,8 @@ class CYOADownloaderGUI:
 
         nav_labels = [
             (tab_names[0], "↓"), (tab_names[1], "NET"),
-            (tab_names[2], "↔"), (tab_names[3], "⚙"),
+            (tab_names[2], "↔"), (tab_names[3], "VIEW"),
+            (tab_names[4], "⚙"),
         ]
         for nav_row, (name, icon) in enumerate(nav_labels, start=3):
             button = ctk.CTkButton(
@@ -1452,7 +1658,7 @@ class CYOADownloaderGUI:
             sidebar, text=("?   Open Guide" if is_en else "?   Buka Panduan"),
             height=36, anchor="w", fg_color="transparent", hover_color=p["surface"],
             text_color=p["muted"], command=lambda: self._show_feature_guide("settings"),
-        ).grid(row=10, column=0, sticky="ew", padx=10, pady=(4, 14))
+        ).grid(row=11, column=0, sticky="ew", padx=10, pady=(4, 14))
 
         st = _load_settings()
         status_var = ctk.StringVar(value=(
@@ -2158,8 +2364,19 @@ class CYOADownloaderGUI:
             text_color=p["muted"], anchor="w",
         ).grid(row=3, column=1, columnspan=3, sticky="ew", padx=(0, 10), pady=(0, 9))
 
+        # Viewer page ----------------------------------------------------
+        viewers = _page(tab_names[3])
+        r = _title(
+            viewers, 0,
+            "Offline viewers" if is_en else "Viewer offline",
+            ("Opt-in automation, compatibility recommendations, and local viewer archives."
+             if is_en else
+             "Otomatisasi opt-in, rekomendasi kompatibilitas, dan arsip viewer lokal."),
+        )
+        self._settings_inline_viewers(viewers, r, p, is_en, status_var, win)
+
         # Maintenance page -----------------------------------------------
-        tools = _page(tab_names[3])
+        tools = _page(tab_names[4])
         r = _title(tools, 0, "Tools & Maintenance" if is_en else "Tools & Pemeliharaan",
                    "Manage storage and portable settings without another app window." if is_en else
                    "Kelola penyimpanan dan settings portabel tanpa jendela aplikasi tambahan.")
@@ -2178,7 +2395,6 @@ class CYOADownloaderGUI:
               button_text=("Import…" if is_en else "Impor…"))
         r += 1
         r = self._settings_inline_cache(tools, r, p, is_en, status_var, win)
-        r = self._settings_inline_viewers(tools, r, p, is_en, status_var, win)
 
         def _search_settings(_event=None) -> None:
             query = search_entry.get().strip().lower()
@@ -3105,7 +3321,7 @@ class CYOADownloaderGUI:
                 "Challenge handling, proxy, DNS, and HTTP/2 options." if is_en else "Pengaturan challenge, proxy, DNS, dan HTTP/2.",
                 "☁", self._cloudflare_panel)
         _action(r, 0, "Offline Viewers" if is_en else "Viewer Offline",
-                "Register/manage offline viewer ZIP packages." if is_en else "Daftarkan/kelola paket ZIP viewer offline.",
+                "Register offline ZIP/RAR packages or unpacked folders." if is_en else "Daftarkan ZIP/RAR atau folder viewer offline.",
                 "🌐", self._manage_offline_viewers)
         r += 1
 
@@ -4797,7 +5013,14 @@ class CYOADownloaderGUI:
         try:
             if hasattr(self, "_lang_pill"):
                 self._lang_pill.set("EN" if self._language == "en" else "ID")
-            self._translate_widget_tree(self.root)
+            # Widgets are authored in canonical English. Avoid walking and
+            # regex-checking the complete tree on the first English startup;
+            # this removes hundreds of Tk calls on slower computers. A real
+            # language transition still performs the full reversible pass.
+            previous_language = getattr(self, "_last_tree_language", None)
+            if not (previous_language is None and self._language == "en"):
+                self._translate_widget_tree(self.root)
+            self._last_tree_language = self._language
             if hasattr(self, "_dl_btn"):
                 self._dl_btn.configure(text=self._tr("download_all"))
             if hasattr(self, "_browse_button"):
@@ -5652,7 +5875,7 @@ CYOA DOWNLOADER v{_APP_VERSION} — HELP / SETUP / IMPORT
 • Download: feature toggles, including deep scan, Selenium fallback, serve preview, cheat panel, itch.io, and gallery-dl fallback.
 • Retry Assets / Retry Images / Retry Audio: direct recovery buttons that do not open extra menus.
 • Batch Check: runs update checks without opening an extra menu.
-• Settings: settings.json, settings folder, export/import settings, AI Assist, gallery-dl config, Cloudflare/FlareSolverr, Offline Viewers, cache, updates.
+• Settings: categorized Download, Network, Integrations, Viewers, and Maintenance pages. Viewer automation is opt-in and defaults to Off.
 • Logs / Diagnostics: results, diagnostics, and the feature guide.
 • CYOA Manager: import, export, and integration settings in one place.
 
@@ -5699,6 +5922,7 @@ Rows without a valid URL are skipped. If mode is empty, the current GUI mode is 
 • Verify a finished backup (read-only):  python cyoa_downloader.py --verify "OUTPUT_FOLDER"
 • Optional checksum baseline (run once):  python cyoa_downloader.py --verify "OUTPUT_FOLDER" --write-manifest
 • Failed assets: appended to backup_report.txt when available; otherwise failed_assets.txt.
+• Missing assets keep their authored references. The downloader never deletes them or creates placeholders.
 • 429 rate-limit: handled as rate-limit/backoff, not automatically as Cloudflare.
 • TLS certificates are always verified; invalid certificates fail safely instead of using an insecure fallback.
 
@@ -5715,6 +5939,11 @@ Rows without a valid URL are skipped. If mode is empty, the current GUI mode is 
 
 6) ICC Plus compatibility notes
 --------------------------------
+• Settings → Viewers has separate Off/On switches for JSON-only injection and full ICC website modernization. Both default to Off.
+• Auto (recommended) reads HTML runtime markers first, then project.json: version 2.x selects ICC Plus 2; an unversioned ICC schema selects Legacy.
+• Register at least ICC Plus 2 Local and ICC Legacy/New Viewer. Ideally also register ICC Remix Local and an Lt. Ouroumov-compatible viewer.
+• Viewer registration accepts ZIP/RAR or an unpacked folder. ICC Plus 2 accepts only local/offline/standalone release assets; the online viewer is never used as fallback.
+• A manual viewer choice overrides compatibility detection and is intended for testing only.
 • ICC Plus/Svelte projects can use viewerConfig, googleFonts/customFonts/customCSS, loadingBgImage, favicon, border images, backpack images, and design-group images.
 • Serve Developer Tools can export/import IndexedDB because ICC Plus build saves are commonly stored in cyoaPlusDB/buildStore.
 • Normal Serve preview no longer clears storage automatically; use /__clear_cache__ only when you intentionally want a clean preview.
@@ -5750,7 +5979,7 @@ CYOA DOWNLOADER v{_APP_VERSION} — BANTUAN / SETUP / IMPORT
 • Download: feature toggles, termasuk deep scan, fallback Selenium, serve preview, cheat panel, itch.io, dan gallery-dl fallback.
 • Retry Assets / Retry Images / Retry Audio: tombol recovery langsung tanpa membuka menu tambahan.
 • Batch Check: menjalankan update check tanpa membuka menu tambahan.
-• Settings: settings.json, folder settings, export/import settings, AI Assist, config gallery-dl, Cloudflare/FlareSolverr, Offline Viewers, cache, updates.
+• Settings: halaman Download, Jaringan, Integrasi, Viewer, dan Pemeliharaan yang terkelompok. Otomatisasi viewer bersifat opt-in dan default-nya Off.
 • Logs / Diagnostics: results, diagnostics, dan feature guide.
 • CYOA Manager: import, export, dan integration settings dalam satu tempat.
 
@@ -5797,6 +6026,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
 • Verifikasi backup yang sudah selesai (read-only):  python cyoa_downloader.py --verify "FOLDER_OUTPUT"
 • Baseline checksum opsional (jalankan sekali):  python cyoa_downloader.py --verify "FOLDER_OUTPUT" --write-manifest
 • Aset gagal: ditambahkan ke backup_report.txt jika ada; jika tidak, ditulis ke failed_assets.txt.
+• Referensi aset yang hilang dibiarkan seperti sumbernya; program tidak menghapus atau membuat placeholder.
 • 429 rate-limit: diperlakukan sebagai rate-limit/backoff, bukan otomatis sebagai Cloudflare.
 • Sertifikat TLS selalu diverifikasi; sertifikat invalid gagal secara aman tanpa fallback tidak aman.
 
@@ -5813,6 +6043,11 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
 
 6) Catatan kompatibilitas ICC Plus
 ----------------------------------
+• Settings → Viewer memiliki switch Off/On terpisah untuk injeksi download JSON saja dan modernisasi website ICC penuh. Keduanya default Off.
+• Auto (disarankan) membaca marker runtime HTML terlebih dahulu, lalu project.json: version 2.x memilih ICC Plus 2; schema ICC tanpa version memilih Legacy.
+• Daftarkan minimal ICC Plus 2 Local dan ICC Legacy/New Viewer. Idealnya tambahkan ICC Remix Local dan viewer kompatibel Lt. Ouroumov.
+• Registrasi viewer menerima ZIP/RAR atau folder yang sudah diekstrak. ICC Plus 2 hanya menerima aset rilis local/offline/standalone; viewer online tidak pernah dipakai sebagai fallback.
+• Pilihan viewer manual mengabaikan deteksi kompatibilitas dan ditujukan hanya untuk pengujian.
 • Project ICC Plus/Svelte dapat memakai viewerConfig, googleFonts/customFonts/customCSS, loadingBgImage, favicon, gambar border, gambar backpack, dan gambar design-group.
 • Serve Developer Tools dapat export/import IndexedDB karena save build ICC Plus umumnya disimpan di cyoaPlusDB/buildStore.
 • Preview Serve normal tidak lagi menghapus storage secara otomatis; gunakan /__clear_cache__ hanya jika Anda memang ingin preview bersih.
@@ -9155,12 +9390,12 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             },
             {
                 "title": "Pillow",
-                "desc_en": "Thank you to the Pillow maintainers for the image-handling toolkit used for placeholders, validation, and asset processing.",
-                "desc_id": "Terima kasih kepada para pengembang Pillow atas toolkit penanganan gambar yang dipakai untuk placeholder, validasi, dan pemrosesan aset.",
+                "desc_en": "Thank you to the Pillow maintainers for the image-handling toolkit used for validation and asset processing.",
+                "desc_id": "Terima kasih kepada para pengembang Pillow atas toolkit penanganan gambar yang dipakai untuk validasi dan pemrosesan aset.",
                 "url": "https://python-pillow.org/",
                 "category": "library",
-                "role_en": "Image handling & placeholders",
-                "role_id": "Penanganan gambar & placeholder",
+                "role_en": "Image validation & processing",
+                "role_id": "Validasi & pemrosesan gambar",
                 "license": "MIT-CMU",
             },
             {
@@ -10458,7 +10693,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
 
                 # Icon + name + type
                 vtype = meta.get("viewer_type", "custom")
-                icon  = {"icc_plus":"⚡","icc":"📄","cyoap_vue":"🌿","custom":"📦"}.get(vtype,"📦")
+                icon  = {"icc_plus":"⚡","icc_plus2":"⚡","icc_legacy":"📄","icc_remix":"🧩","lt_ouroumov":"📄","icc":"📄","cyoap_vue":"🌿","custom":"📦"}.get(vtype,"📦")
                 left  = ctk.CTkFrame(row, fg_color="transparent")
                 left.pack(side="left", fill="x", expand=True, padx=8, pady=6)
                 ctk.CTkLabel(left, text=f"{icon} {meta.get('name', vid)}",
@@ -10505,7 +10740,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
 
             ctk.CTkLabel(name_win, text="Tipe viewer:",
                           font=ctk.CTkFont("Segoe UI", 11)).pack(anchor="w", padx=16, pady=(10,2))
-            type_var = ctk.StringVar(value="icc_plus")
+            type_var = ctk.StringVar(value="custom")
             for t in ["icc_plus", "icc", "cyoap_vue", "custom"]:
                 ctk.CTkRadioButton(name_win, text=t, variable=type_var, value=t,
                                     font=ctk.CTkFont("Segoe UI", 11)).pack(anchor="w", padx=24)
@@ -10542,7 +10777,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             def _do_check():
                 r = None
                 try:
-                    api = "https://api.github.com/repos/wahawa303/ICCPlus/releases/latest"
+                    api = "https://api.github.com/repos/wahaha303/ICCPlus/releases/latest"
                     r   = fetch_response(api, timeout=8, extra_headers={"User-Agent": "CYOA-Downloader"})
                     if r is None or r.status_code != 200:
                         # v7.5.6 fix: capture the status text now — if r is None,
@@ -10556,14 +10791,17 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                     tag   = data.get("tag_name", "")
                     assets= data.get("assets", [])
                     # Look for local/offline ZIP asset
-                    offline_asset = next(
-                        (a for a in assets
-                         if any(kw in a["name"].lower()
-                                for kw in ["local", "offline", "standalone"])),
-                        assets[0] if assets else None
+                    from ..integrations.offline_viewers.registry import (
+                        select_offline_iccplus_asset,
                     )
+                    offline_asset = select_offline_iccplus_asset(assets)
                     if not offline_asset:
-                        win.after(0, lambda: status_var.set("No downloadable asset found in latest release."))
+                        win.after(
+                            0,
+                            lambda: status_var.set(
+                                "No offline/local viewer asset found; online viewer was not selected."
+                            ),
+                        )
                         return
 
                     asset_name = offline_asset["name"]
@@ -10625,7 +10863,9 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                                             f"Downloading {asset_name}… {p}%"))
 
                         vid = register_offline_viewer(
-                            dest, name=f"ICCPlus {tag} (auto)", viewer_type="icc_plus"
+                            dest,
+                            name=f"ICCPlus {tag} Offline (auto)",
+                            viewer_type="icc_plus2",
                         )
                         _v25_safe_after_widget(win, win, lambda: (
                             status_var.set(f"✓ {asset_name} registered as '{vid}'."),

@@ -14,6 +14,7 @@ import os
 import pathlib
 import re
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional, Set
 from urllib.parse import parse_qsl, unquote, urlencode, urljoin, urlparse, urlunparse
 
@@ -116,6 +117,47 @@ _ATOB_VARIABLE_RE = re.compile(
     r"\batob\s*\(\s*(?P<name>[A-Za-z_$][\w$]*)\s*\)",
     re.IGNORECASE,
 )
+
+
+def _infer_runtime_chunk_paths(text: str) -> List[str]:
+    """Expand finite Webpack/Vue lazy-chunk maps into concrete paths."""
+    if not text:
+        return []
+    pair_re = re.compile(r"[\"']([^\"']+)[\"']\s*:\s*[\"']([^\"']+)[\"']")
+    patterns = (
+        re.compile(
+            r"(?P<q1>[\"'])(?P<prefix>[^\"'\r\n]{0,120})(?P=q1)\s*\+\s*"
+            r"(?P<var>[A-Za-z_$][\w$]*)\s*\+\s*(?P<q2>[\"'])\.?(?P=q2)\s*\+\s*"
+            r"\{(?P<map>[^{}]{1,20000})\}\s*\[\s*(?P=var)\s*\]\s*\+\s*"
+            r"(?P<q3>[\"'])(?P<suffix>\.[A-Za-z0-9]{1,8})(?P=q3)",
+            re.IGNORECASE,
+        ),
+        re.compile(
+            r"(?P<q1>[\"'])(?P<prefix>[^\"'\r\n]{0,120})(?P=q1)\s*\+\s*"
+            r"\(\s*\{\s*\}\s*\[\s*(?P<var>[A-Za-z_$][\w$]*)\s*\]\s*\|\|\s*(?P=var)\s*\)"
+            r"\s*\+\s*(?P<q2>[\"'])\.(?P=q2)\s*\+\s*"
+            r"\{(?P<map>[^{}]{1,20000})\}\s*\[\s*(?P=var)\s*\]\s*\+\s*"
+            r"(?P<q3>[\"'])(?P<suffix>\.[A-Za-z0-9]{1,8})(?P=q3)",
+            re.IGNORECASE,
+        ),
+    )
+    public_match = re.search(
+        r"\b[A-Za-z_$][\w$]*\.p\s*=\s*([\"'])([^\"']*)\1", text
+    )
+    public_prefix = public_match.group(2) if public_match else ""
+    paths: List[str] = []
+    for pattern in patterns:
+        for chunk_map in pattern.finditer(text):
+            for chunk_id, digest in pair_re.findall(chunk_map.group("map"))[:500]:
+                path = (
+                    f'{chunk_map.group("prefix")}{chunk_id}.{digest}'
+                    f'{chunk_map.group("suffix")}'
+                )
+                if public_prefix:
+                    path = public_prefix.rstrip("/") + "/" + path.lstrip("/")
+                if path not in paths:
+                    paths.append(path)
+    return paths
 
 
 def _decode_inline_document_payload(html_text: str) -> str:
@@ -410,10 +452,11 @@ class WebsiteDownloader:
         every occurrence of words such as ``href`` or ``url``.  The latter
         mistakes ordinary JavaScript (``location.href``/``toDataURL()``) and
         application routes for missing files on modern sites.
-        Returns {"missing": [...], "ok": [...]}
+        Returns {"missing": [...], "ok": [...], "external": [...]}
         """
         missing_refs: Set[str] = set()
         ok_refs: Set[str] = set()
+        external_refs: Set[str] = set()
         asset_extensions = (
             IMAGE_EXTENSIONS | AUDIO_EXTENSIONS | VIDEO_EXTENSIONS |
             FONT_EXTENSIONS | SCRIPT_EXTENSIONS | STYLE_EXTENSIONS |
@@ -429,6 +472,16 @@ class WebsiteDownloader:
             r'(?P<quote>["\'])(?P<url>[^"\']+)(?P=quote)',
             re.IGNORECASE,
         )
+        replaced_svelte_runtime = False
+        try:
+            active_index = pathlib.Path(self.output_folder) / "index.html"
+            replaced_svelte_runtime = (
+                active_index.is_file()
+                and "__cyoa_replacement_loader_bridge__"
+                in active_index.read_text(encoding="utf-8", errors="ignore")
+            )
+        except OSError:
+            pass
 
         def _is_local(ref: str) -> bool:
             value = (ref or "").strip().strip("'\"")
@@ -448,7 +501,10 @@ class WebsiteDownloader:
             if not isinstance(ref, str):
                 return
             value = ref.strip().strip("'\"")
-            if _is_local(value):
+            lowered = value.lower()
+            if value and not lowered.startswith((
+                "data:", "blob:", "javascript:", "mailto:", "tel:", "#",
+            )):
                 refs.add(value)
 
         def _local_candidate(owner: str, ref: str) -> str:
@@ -492,6 +548,10 @@ class WebsiteDownloader:
         reachable_styles: Set[str] = set()
         style_queue: List[str] = []
         for html_path in pathlib.Path(self.output_folder).rglob("*.htm*"):
+            if "__original_site__" in html_path.relative_to(
+                self.output_folder
+            ).parts:
+                continue
             try:
                 html_soup = BeautifulSoup(html_path.read_text(encoding="utf-8", errors="ignore"), "html.parser")
                 for link in html_soup.find_all("link", href=True):
@@ -519,7 +579,16 @@ class WebsiteDownloader:
             except Exception as exc:
                 logger.debug("Unable to follow stylesheet imports from %s: %s", css_path, exc)
 
-        for root, _, files in os.walk(self.output_folder):
+        for root, directories, files in os.walk(self.output_folder):
+            directories[:] = [
+                name for name in directories
+                if name != "__original_site__"
+                and not (
+                    replaced_svelte_runtime
+                    and os.path.abspath(root) == os.path.abspath(self.output_folder)
+                    and name == "_app"
+                )
+            ]
             _raise_if_cancelled()
             for name in files:
                 ext = os.path.splitext(name)[1].lower()
@@ -612,8 +681,20 @@ class WebsiteDownloader:
                         for ref in inferred:
                             _record(refs, ref)
 
+                    # Webpack/Vue lazy chunks are assembled from a finite
+                    # id-to-hash map at runtime and therefore never appear as
+                    # one quoted URL.  Expand the same maps used by the
+                    # downloader so package verification cannot silently miss
+                    # a chunk that failed to download.
+                    if ext in {".js", ".mjs"}:
+                        for ref in _infer_runtime_chunk_paths(text):
+                            _record(refs, ref)
+
                     source_rel = os.path.relpath(local_path, self.output_folder)
                     for ref in refs:
+                        if not _is_local(ref):
+                            external_refs.add(f"{source_rel} → {ref}")
+                            continue
                         clean_ref = ref.split("?", 1)[0].split("#", 1)[0]
                         if not clean_ref:
                             continue
@@ -661,6 +742,7 @@ class WebsiteDownloader:
 
         missing = sorted(missing_refs)
         ok = sorted(ok_refs)
+        external = sorted(external_refs)
 
         if missing:
             logger.warning(
@@ -674,13 +756,27 @@ class WebsiteDownloader:
         else:
             logger.info(f"Integrity check: all {len(ok)} file references OK")
 
-        return {"missing": missing, "ok": ok}
+        if external:
+            logger.warning(
+                "Integrity check: %d reachable external dependency reference(s) remain",
+                len(external),
+            )
+            for item in external[:10]:
+                logger.warning("  EXTERNAL: %s", item)
+
+        return {"missing": missing, "ok": ok, "external": external}
 
 
 
     def localize_existing_text_assets(self) -> None:
         """Second-pass scan for downloaded text and JSON assets."""
-        for root, _, files in os.walk(self.output_folder):
+        for root, directories, files in os.walk(self.output_folder):
+            # Modernization backups are evidence/recovery material, not part
+            # of the active site. Never rewrite or validate their stale online
+            # runtime references as if the browser loaded them.
+            directories[:] = [
+                name for name in directories if name != "__original_site__"
+            ]
             for name in files:
                 if name in {
                     "archive_manifest.json", "download_state.json",
@@ -733,7 +829,30 @@ class WebsiteDownloader:
                     self._failed_items.append({"url": url, "error": "browser transport failed"})
                     return None
             else:
-                r = fetch_response(url, extra_headers=headers, timeout=20, as_bytes=False, stream=True)
+                r = fetch_response(
+                    url,
+                    extra_headers=headers,
+                    timeout=20,
+                    as_bytes=False,
+                    return_error_response=True,
+                    stream=True,
+                )
+                status = int(getattr(r, "status_code", 0) or 0) if r is not None else 0
+                if status in {404, 410}:
+                    self._failed_items.append(
+                        {"url": url, "error": f"HTTP {status} (permanently missing)"}
+                    )
+                    try:
+                        r.close()
+                    except Exception:
+                        pass
+                    return None
+                if status >= 400:
+                    try:
+                        r.close()
+                    except Exception:
+                        pass
+                    r = None
                 if r is None:
                     r = self._fetch_with_browser(url)
             if r is None:
@@ -1451,7 +1570,15 @@ class WebsiteDownloader:
             return False
 
     def _rewrite_direct_urls(self, text: str, referrer_url: str, local_text_path: str) -> str:
-        self._download_runtime_template_assets(text, referrer_url)
+        # Runtime template extraction is a JavaScript/HTML concern. Running it
+        # on CSS sees ordinary url(...) values as JS string arrays and bypasses
+        # the CSS local-file/cache checks below.
+        local_suffix = pathlib.Path(local_text_path).suffix.lower()
+        # HTML pages are scanned once before attribute/style rewriting in
+        # _download_html; scanning them again here would treat freshly-local
+        # CSS url(...) values as new remote runtime dependencies.
+        if local_suffix in {".js", ".mjs", ""}:
+            self._download_runtime_template_assets(text, referrer_url)
         dynamic_asset_tokens = _infer_dynamic_asset_paths(text)
 
         def repl(m: re.Match) -> str:
@@ -1478,6 +1605,30 @@ class WebsiteDownloader:
                 return m.group(0)
             if not self._should_download_from_text(original):
                 return m.group(0)
+            # Runtime preload arrays inside a classic script resolve their
+            # strings from the document URL. The prefetch pass above has
+            # already saved those assets using ``base_url``. Reuse that cache
+            # entry before attempting the script-relative URL (which would
+            # incorrectly turn ``css/app.css`` into ``js/css/app.css``).
+            if (
+                local_suffix in {".js", ".mjs"}
+                and not urlparse(original).scheme
+                and not original.startswith("//")
+            ):
+                document_base = str(getattr(self, "base_url", "") or "")
+                runtime_url = self._normalize_remote_url(original, document_base)
+                if runtime_url:
+                    runtime_local = self._downloaded.get(runtime_url)
+                    if runtime_local is None:
+                        runtime_local = self._downloaded.get(
+                            self._normalize_cache_key(runtime_url)
+                        )
+                    if _is_downloaded_local_file(runtime_local):
+                        # XMLHttpRequest/fetch/Image paths execute in the
+                        # document's URL context, even though their literals
+                        # live in a file below ``js/``. The original token is
+                        # already the correct offline document-relative path.
+                        return m.group(0)
             # Skip values already localized by an earlier
             # rewrite pass. _process_css runs @import/url() rewriting BEFORE this
             # direct-URL pass, so relative paths like "../assets/bg.png" may
@@ -1586,7 +1737,13 @@ class WebsiteDownloader:
 
         return embedded_url_re.sub(rewrite_embedded, rewritten)
 
-    def _download_runtime_template_assets(self, text: str, referrer_url: str) -> None:
+    def _download_runtime_template_assets(
+        self,
+        text: str,
+        referrer_url: str,
+        *,
+        chunk_maps_only: bool = False,
+    ) -> None:
         """Download concrete assets exposed by simple JS templates.
 
         A custom viewer may keep records in any array/object shape and build a
@@ -1598,6 +1755,160 @@ class WebsiteDownloader:
         leaves more complex expressions for the browser/runtime archive.
         """
         if not text:
+            return
+
+        seen_runtime: Set[str] = set()
+        seen_runtime_lock = threading.Lock()
+
+        def prefetch(raw_path: str, *, module_relative: bool = False) -> None:
+            value = str(raw_path or "").strip().replace("\\/", "/")
+            if (
+                not value
+                or "${" in value
+                or value.lower().startswith(("data:", "blob:", "javascript:"))
+            ):
+                return
+            runtime_base = referrer_url
+            referrer_path = pathlib.PurePosixPath(urlparse(referrer_url).path)
+            if (
+                not module_relative
+                and referrer_path.suffix.lower() in {".js", ".mjs"}
+            ):
+                # Browser-created URLs in a classic bundle are resolved from
+                # the document/public path, not from the bundle's own folder.
+                # A leading slash emitted by Webpack still resolves from the
+                # origin through normal urljoin semantics.
+                start_url = str(getattr(self, "start_url", "") or referrer_url)
+                runtime_base = str(
+                    getattr(self, "base_url", "")
+                    or _directory_base_url(start_url)
+                )
+            asset_url = urljoin(runtime_base, value)
+            with seen_runtime_lock:
+                if asset_url in seen_runtime:
+                    return
+                seen_runtime.add(asset_url)
+            self._download_asset(
+                asset_url,
+                preferred_kind=self._asset_kind_from_path(asset_url),
+                referrer_url=referrer_url,
+            )
+
+        # Direct arrays are common in custom preloaders. They are runtime
+        # dependencies even when no static script/link tag references them.
+        direct_asset_re = re.compile(
+            r"(?P<quote>[\"'])(?P<path>(?:(?:https?:)?//|/?(?:[A-Za-z0-9_@.-]+/))*"
+            r"[A-Za-z0-9_@.-]+\.(?:js|mjs|css|json|wasm|png|jpe?g|gif|webp|svg|avif|"
+            r"woff2?|ttf|otf|mp3|ogg|wav)(?:\?[^\"'\s<>]*)?)(?P=quote)",
+            re.IGNORECASE,
+        )
+        if not chunk_maps_only:
+            module_relative_paths = {
+                match.group("path")
+                for match in re.finditer(
+                    r'(?:\bfrom\s*|\bimport\s*\(\s*|\bnew\s+URL\s*\(\s*)'
+                    r'(?P<quote>["\'])(?P<path>[^"\']+)(?P=quote)',
+                    text,
+                    flags=re.IGNORECASE,
+                )
+            }
+            indexed_image_prefixes = list(dict.fromkeys(
+                match.group("prefix")
+                for match in re.finditer(
+                    r"\b(?:src|href)\s*=\s*(?P<quote>[\"'])"
+                    r"(?P<prefix>[A-Za-z0-9_./-]{1,160}/)(?P=quote)\s*\+\s*"
+                    r"[A-Za-z_$][\w$]*\s*\[",
+                    text,
+                    flags=re.IGNORECASE,
+                )
+            ))
+            asset_array_spans = [
+                (match.start("body"), match.end("body"))
+                for match in re.finditer(
+                    r"\b(?:var|let|const)\s+[A-Za-z_$][\w$]*\s*=\s*"
+                    r"\[(?P<body>.{0,100000}?)\]\s*;",
+                    text,
+                    flags=re.IGNORECASE | re.DOTALL,
+                )
+            ]
+            direct_matches = list(direct_asset_re.finditer(text))
+            direct_matches.sort(
+                key=lambda match: (
+                    0
+                    if pathlib.PurePosixPath(urlparse(match.group("path")).path).suffix.lower()
+                    in {".js", ".mjs", ".css", ".json", ".wasm"}
+                    else 1,
+                    match.start(),
+                )
+            )
+            direct_paths: List[str] = []
+            for direct in direct_matches[:500]:
+                direct_path = direct.group("path")
+                direct_ext = pathlib.PurePosixPath(
+                    urlparse(direct_path).path
+                ).suffix.lower()
+                # Some handcrafted preloaders store only filenames in a
+                # large array and add their directory when assigning img.src,
+                # e.g. ``img.src = "images/" + urls[i]``. Respect that
+                # runtime prefix instead of hammering the site root with
+                # hundreds of guaranteed 404 requests.
+                if (
+                    "/" not in direct_path
+                    and direct_ext in IMAGE_EXTENSIONS
+                    and len(indexed_image_prefixes) == 1
+                    and any(
+                        start <= direct.start("path") < end
+                        for start, end in asset_array_spans
+                    )
+                ):
+                    direct_path = indexed_image_prefixes[0] + direct_path
+                direct_paths.append(direct_path)
+
+            # Script/style/data dependencies may recursively reveal more
+            # assets, so process them first and deterministically. Large image
+            # preload lists are independent and can safely use the configured
+            # worker count instead of issuing hundreds of serial requests.
+            priority_paths = [
+                path for path in direct_paths
+                if pathlib.PurePosixPath(urlparse(path).path).suffix.lower()
+                not in IMAGE_EXTENSIONS
+            ]
+            image_paths = [
+                path for path in direct_paths
+                if pathlib.PurePosixPath(urlparse(path).path).suffix.lower()
+                in IMAGE_EXTENSIONS
+            ]
+            for path in priority_paths:
+                prefetch(path, module_relative=path in module_relative_paths)
+            worker_count = max(
+                1, min(int(getattr(self, "max_workers", 1) or 1), 16, len(image_paths) or 1)
+            )
+            if worker_count > 1:
+                with ThreadPoolExecutor(max_workers=worker_count) as executor:
+                    list(
+                        executor.map(
+                            lambda path: prefetch(
+                                path,
+                                module_relative=path in module_relative_paths,
+                            ),
+                            image_paths,
+                        )
+                    )
+            else:
+                for path in image_paths:
+                    prefetch(path, module_relative=path in module_relative_paths)
+
+        # Webpack/Vue runtimes often encode lazy chunks as
+        # "js/" + id + "." + {"id":"hash"}[id] + ".js". Expand the
+        # finite map so chunks not requested during capture are still archived.
+        for chunk_path in _infer_runtime_chunk_paths(text):
+            # These paths come from actual import()/Vite dependency maps and
+            # therefore resolve against import.meta.url (the owning bundle),
+            # not against the document's public root. This distinction is
+            # required for SvelteKit entry/../nodes/*.js dependencies.
+            prefetch(chunk_path, module_relative=True)
+
+        if chunk_maps_only:
             return
 
         # Some viewers select an asset from a numeric range at runtime, for
@@ -1644,11 +1955,7 @@ class WebsiteDownloader:
                 if asset_url in seen_numeric:
                     continue
                 seen_numeric.add(asset_url)
-                self._download_asset(
-                    asset_url,
-                    preferred_kind=self._asset_kind_from_path(asset_url),
-                    referrer_url=referrer_url,
-                )
+                prefetch(asset_url)
 
         template_re = re.compile(
             r"(?P<prefix>[A-Za-z0-9_./-]{0,160})"
@@ -1659,9 +1966,6 @@ class WebsiteDownloader:
             re.IGNORECASE,
         )
         templates = list(template_re.finditer(text))
-        if not templates:
-            return
-
         for template in templates:
             prop = template.group("prop")
             prefix = template.group("prefix")
@@ -1694,11 +1998,7 @@ class WebsiteDownloader:
             for value in values:
                 raw_path = f"{prefix}{value}{suffix}"
                 asset_url = urljoin(referrer_url, raw_path)
-                self._download_asset(
-                    asset_url,
-                    preferred_kind=self._asset_kind_from_path(asset_url),
-                    referrer_url=referrer_url,
-                )
+                prefetch(asset_url)
 
     def _process_css(self, css: str, css_url: str, css_local: str) -> str:
         def repl_import(m: re.Match) -> str:
@@ -1826,6 +2126,12 @@ class WebsiteDownloader:
 
         # Guard 2: app bundle
         if self._is_app_bundle(js_url):
+            # Do this before the rewrite guard. App bundles must remain
+            # structurally unchanged, but their finite lazy-chunk maps still
+            # need to be expanded and downloaded for offline use.
+            self._download_runtime_template_assets(
+                js, js_url, chunk_maps_only=True
+            )
             localized = self._rewrite_known_downloaded_urls(js, js_url, js_local)
             if localized != js:
                 logger.info(f"  Localized downloaded URLs in app bundle: {js_url.split('/')[-1]}")
@@ -1890,6 +2196,7 @@ class WebsiteDownloader:
                 return [c for c in out if c]
 
             parts = []
+            localized_any = False
             for chunk in _split_srcset(value):
                 bits = chunk.strip().split()
                 if not bits:
@@ -1903,14 +2210,15 @@ class WebsiteDownloader:
                 local = self._download_asset(asset, preferred_kind=preferred_kind, referrer_url=page_url)
                 if local:
                     parts.append(self._rel(local_html, local) + suffix)
+                    localized_any = True
                 else:
-                    # Preserve an explicit online fallback, but never leave a
-                    # failed relative URL that looks like a missing local file
-                    # inside the offline package.
-                    remote = self._normalize_remote_url(asset, page_url)
-                    parts.append((remote or asset) + suffix)
-            tag[attr] = ", ".join(parts)
-            return bool(parts)
+                    # A failed asset remains exactly as authored. The failure
+                    # report is the source of truth; never hide it by replacing
+                    # the reference or manufacturing a placeholder.
+                    parts.append(asset + suffix)
+            if localized_any:
+                tag[attr] = ", ".join(parts)
+            return localized_any
 
         local = self._download_asset(value, preferred_kind=preferred_kind, referrer_url=page_url)
         if not local:
@@ -1961,14 +2269,16 @@ class WebsiteDownloader:
             # reject an otherwise-valid local asset.
             if tag.has_attr("integrity"):
                 del tag["integrity"]
+            # A local file:// response has an opaque origin. Keeping the
+            # publisher's anonymous-CORS mode makes Chrome reject otherwise
+            # valid local styles/scripts.
+            if tag.has_attr("crossorigin"):
+                del tag["crossorigin"]
             return True
         else:
-            # The failure is recorded in backup_report/manifest. Keeping an
-            # absolute URL here accurately marks it as an unresolved external
-            # dependency and avoids a misleading broken local reference.
-            remote = self._normalize_remote_url(value, page_url)
-            if remote:
-                tag[attr] = remote
+            # Leave failed references byte-for-byte as authored. The failure
+            # is documented in failed_assets/backup_report instead of mutating
+            # the downloaded page or inventing substitute content.
             return False
 
     def _patch_local_audio_scripts(self) -> None:
@@ -2202,41 +2512,9 @@ class WebsiteDownloader:
         for tag in soup.find_all("script", src=True):
             _raise_if_cancelled()
             src_val = tag.get("src", "")
-            if "youtube.com/iframe_api" in src_val or "youtube-nocookie.com/iframe_api" in src_val:
-                stub_local = self._ensure_youtube_iframe_api_stub()
-                tag["src"] = self._rel(local_html, stub_local)
-                continue
             self._set_attr_local(tag, "src", asset_page_url, local_html, preferred_kind="js")
 
         self._patch_local_audio_scripts()
-
-        # Replace YouTube <iframe> embeds with an offline placeholder.
-        # Direct YouTube iframes cannot work offline regardless of the JS stub —
-        # they require a live connection to youtube.com.
-        for tag in soup.find_all("iframe"):
-            iframe_src = tag.get("src", "") or tag.get("data-src", "")
-            if _YOUTUBE_URL_RE.search(iframe_src):
-                video_id = ""
-                m = re.search(r'/embed/([A-Za-z0-9_-]+)', iframe_src)
-                if m:
-                    video_id = m.group(1)
-                yt_url = f"https://www.youtube.com/watch?v={video_id}" if video_id else iframe_src
-                w = tag.get("width", "560")
-                h = tag.get("height", "315")
-                placeholder_html = (
-                    f'<div style="width:{w}px;height:{h}px;background:#111;color:#aaa;'
-                    f'display:flex;align-items:center;justify-content:center;'
-                    f'flex-direction:column;font-family:sans-serif;border-radius:6px;'
-                    f'border:1px solid #333;box-sizing:border-box;">'
-                    f'<span style="font-size:32px">▶</span>'
-                    f'<span style="margin-top:8px;font-size:12px">YouTube (offline unavailable)</span>'
-                    f'<a href="{yt_url}" target="_blank" '
-                    f'style="margin-top:6px;font-size:11px;color:#4af">Open on YouTube</a>'
-                    f'</div>'
-                )
-                tag.replace_with(BeautifulSoup(placeholder_html, "html.parser"))
-                logger.info(f"  YouTube iframe replaced with offline placeholder: {yt_url}")
-                continue
 
         for tag in soup.find_all(["img", "audio", "video", "source"]):
             if tag.get("src"):
@@ -2363,134 +2641,6 @@ setTimeout(()=>{const status=findStatus();if(placeholder(status))localRoll(statu
         logger.info(f"  Page: {os.path.relpath(local_html, self.output_folder)}")
 
     # ── Methods that were previously monkey-patched — now proper class methods ──
-
-    def _ensure_youtube_iframe_api_stub(self) -> str:
-        stub_local = _safe_join(self.output_folder, "js/youtube-iframe-api-stub.js")
-        os.makedirs(os.path.dirname(stub_local), exist_ok=True)
-        # Always overwrite — ensures new HTML5 audio version replaces old dummy stub
-        stub = r"""(function(){
-  if (window.YT && window.YT.Player && window.YT.__cyoa_stub__) return;
-
-  function _isLocalAudio(id){
-    return typeof id === 'string' && (
-      id.indexOf('/') !== -1 ||
-      id.indexOf('.mp3') !== -1 || id.indexOf('.ogg') !== -1 ||
-      id.indexOf('.wav') !== -1 || id.indexOf('.m4a') !== -1 ||
-      id.indexOf('.aac') !== -1 || id.indexOf('.opus') !== -1
-    );
-  }
-
-  function AudioPlayer(id, options){
-    // ICC Plus uses "bgm-player" in newer versions, "bgm" in older ones
-    this._el     = typeof id === 'string' ? document.getElementById(id) : id;
-    this._opts   = options || {};
-    this._state  = -1;
-    this._volume = 100;
-    this._muted  = false;
-    this._audio  = null;
-    this._events = this._opts.events || {};
-    this._videoData  = {video_id:'', title:''};
-    this.playerInfo  = {videoData: this._videoData};
-    // Expose on window so ICC Plus can find it by element ID
-    if (typeof id === 'string' && id) window['__ytplayer_'+id] = this;
-    var self = this;
-    setTimeout(function(){
-      try { if (typeof self._events.onReady === 'function') self._events.onReady({target:self}); } catch(e){}
-    }, 0);
-  }
-
-  AudioPlayer.prototype._loadAudio = function(videoId){
-    if (!_isLocalAudio(videoId)) return;
-    var src = videoId;
-    if (src.charAt(0) !== '/' && src.indexOf('://') === -1){
-      var base = window.location.href.replace(/\/[^\/]*$/, '/');
-      src = base + src;
-    }
-    if (!this._audio){
-      this._audio = new Audio();
-      var self = this;
-      this._audio.addEventListener('ended', function(){
-        self._state = 0;
-        try { if (typeof self._events.onStateChange === 'function') self._events.onStateChange({data:0}); } catch(e){}
-      });
-    }
-    this._audio.src = src;
-    this._audio.volume = this._volume / 100;
-    this._audio.muted  = this._muted;
-    this._videoData.video_id = videoId;
-    this._videoData.title    = videoId.split('/').pop().replace(/\.[^.]+$/, '');
-    this.playerInfo.videoData = this._videoData;
-  };
-  AudioPlayer.prototype.loadVideoById = function(a){
-    var vid = typeof a === 'object' ? (a.videoId||'') : (a||'');
-    this._loadAudio(vid);
-    if (this._audio && _isLocalAudio(vid)){
-      var self = this;
-      this._state = 1;
-      // ICC Plus retries without CORS if crossOrigin fails (noCors fallback)
-      var tryPlay = function(withCors){
-        if(withCors) self._audio.crossOrigin = 'anonymous';
-        else self._audio.removeAttribute('crossOrigin');
-        var p = self._audio.play();
-        if(p && typeof p.catch === 'function'){
-          p.catch(function(err){
-            if(withCors && (String(err).indexOf('CORS') !== -1 || String(err).indexOf('cross') !== -1)){
-              // Retry without CORS
-              self._audio.src = self._audio.src; // reload
-              tryPlay(false);
-            } else {
-              self._state = -1;
-              console.warn('[CYOA stub] Audio play failed:', err);
-            }
-          });
-        }
-      };
-      tryPlay(true);
-      try { if (typeof self._events.onStateChange === 'function') self._events.onStateChange({data:1}); } catch(e){}
-    }
-  };
-  AudioPlayer.prototype.cueVideoById   = function(a){ this._loadAudio(typeof a==='object'?a.videoId||'':a||''); };
-  AudioPlayer.prototype.playVideo      = function(){ if(this._audio){this._audio.play().catch(function(){});this._state=1;} };
-  AudioPlayer.prototype.pauseVideo     = function(){ if(this._audio){this._audio.pause();this._state=2;} };
-  AudioPlayer.prototype.stopVideo      = function(){ if(this._audio){this._audio.pause();this._audio.currentTime=0;this._state=0;} };
-  AudioPlayer.prototype.seekTo         = function(s){ if(this._audio)this._audio.currentTime=s; };
-  AudioPlayer.prototype.destroy        = function(){ if(this._audio){this._audio.pause();this._audio=null;} };
-  AudioPlayer.prototype.getPlayerState = function(){ return this._state; };
-  AudioPlayer.prototype.getDuration    = function(){ return this._audio?this._audio.duration||0:0; };
-  AudioPlayer.prototype.getCurrentTime = function(){ return this._audio?this._audio.currentTime||0:0; };
-  AudioPlayer.prototype.setVolume      = function(v){ this._volume=v; if(this._audio)this._audio.volume=v/100; };
-  AudioPlayer.prototype.getVolume      = function(){ return this._volume; };
-  AudioPlayer.prototype.mute           = function(){ this._muted=true; if(this._audio)this._audio.muted=true; };
-  AudioPlayer.prototype.unMute         = function(){ this._muted=false; if(this._audio)this._audio.muted=false; };
-  AudioPlayer.prototype.isMuted        = function(){ return this._muted; };
-  AudioPlayer.prototype.setLoop        = function(l){ if(this._audio)this._audio.loop=l; };
-
-  window.YT = window.YT || {};
-  window.YT.Player      = AudioPlayer;
-  window.YT.__cyoa_stub__ = true;
-  window.YT.PlayerState = {UNSTARTED:-1,ENDED:0,PLAYING:1,PAUSED:2,BUFFERING:3,CUED:5};
-
-  // Fire BOTH callback names — viewers vary:
-  // Standard:    window.onYouTubeIframeAPIReady()   (documented by Google)
-  // New_Viewer:  window.onYouTubeIframeAPI()        (custom callback)
-  function _fireCallbacks(){
-    var cbs = ['onYouTubeIframeAPIReady', 'onYouTubeIframeAPI'];
-    for (var i=0; i<cbs.length; i++){
-      try { if (typeof window[cbs[i]] === 'function') window[cbs[i]](); } catch(e){}
-    }
-  }
-  // Fire once immediately (for scripts already parsed)
-  setTimeout(_fireCallbacks, 0);
-  // Fire again after DOMContentLoaded in case viewer waits for it
-  if (document.readyState === 'loading'){
-    document.addEventListener('DOMContentLoaded', function(){ setTimeout(_fireCallbacks, 50); });
-  } else {
-    setTimeout(_fireCallbacks, 50);
-  }
-})();
-"""
-        pathlib.Path(stub_local).write_text(stub, encoding="utf-8")
-        return stub_local
 
     def write_project_payload(self, project_url: str, project_text: str) -> None:
         root_local = _safe_join(self.output_folder, "project.json")

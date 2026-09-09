@@ -71,6 +71,12 @@ _SETTINGS_DEFAULTS: Dict[str, Any] = {
     "gallery_dl_mode": "off",
     "discord_bot_token": "",
     "auto_detect_output": "folder",
+    # Viewer injection is intentionally opt-in. Downloading project data or a
+    # complete website must keep its historical output unless the user enables
+    # the matching workflow in Settings.
+    "offline_viewer_json_enabled": False,
+    "offline_viewer_website_enabled": False,
+    "offline_viewer_preferred_id": "auto",
     "ytdlp_cookies": "",
     "cloudflare_mode": "auto",
     "cloudflare_priority": "flaresolverr_first",
@@ -144,6 +150,12 @@ _SETTINGS_GROUPS = (
     ("ITCH.IO", (
         "itch_enabled", "itch_key_storage", "itch_api_key",
     )),
+    # Append new groups so historical _section_XX headings stay stable for
+    # people and tools that inspect the readable settings file.
+    ("OFFLINE VIEWERS / VIEWER OFFLINE", (
+        "offline_viewer_json_enabled", "offline_viewer_website_enabled",
+        "offline_viewer_preferred_id",
+    )),
 )
 
 _OBSOLETE_SETTINGS_KEYS = {
@@ -205,6 +217,9 @@ def _settings_metadata() -> Dict[str, Any]:
             "dns_protocol": "system, udp, tcp, doh (HTTPS), or dot (TLS)",
             "vpn_policy": "system follows OS routing; require blocks downloads unless a VPN-like interface is active",
             "proxy_mode": "inherit_env, manual, or disabled",
+            "offline_viewer_json_enabled": "Opt-in: create a playable viewer beside JSON-only downloads",
+            "offline_viewer_website_enabled": "Opt-in: modernize full ICC website downloads for file:// use",
+            "offline_viewer_preferred_id": "auto is recommended; otherwise stores one registered viewer id",
         },
         "archive_modes": {
             "classic": "Original single-page behavior",

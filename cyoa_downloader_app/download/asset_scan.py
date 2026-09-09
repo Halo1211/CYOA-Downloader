@@ -7,7 +7,6 @@ legacy facade and the domain download pipeline.
 
 from __future__ import annotations
 
-import base64
 import hashlib as _hashlib
 import json
 import os
@@ -236,33 +235,6 @@ def _check_image_dedup(content: bytes, local_path: str, scope: str = "") -> Opti
             return _image_hash_map[key]
         _image_hash_map[key] = local_path
     return None
-
-
-def _make_placeholder_svg(label: str = "") -> bytes:
-    """
-    Return a minimal SVG placeholder image for use when an image fails to download.
-    Shows a grey box with a broken-image icon and the original filename.
-    """
-    safe_label = (label[:40] + "…") if len(label) > 40 else label
-    # Escape XML special chars
-    safe_label = safe_label.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
-    svg = (
-        '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200">'
-        '<rect width="320" height="200" fill="#2a2a2a" rx="6"/>'
-        '<line x1="130" y1="70" x2="190" y2="130" stroke="#888" stroke-width="2"/>'
-        '<line x1="190" y1="70" x2="130" y2="130" stroke="#888" stroke-width="2"/>'
-        '<rect x="120" y="60" width="80" height="80" fill="none" stroke="#666" stroke-width="2" rx="4"/>'
-        f'<text x="160" y="165" font-family="monospace" font-size="11" fill="#aaa" '
-        f'text-anchor="middle">{safe_label}</text>'
-        '</svg>'
-    )
-    return svg.encode("utf-8")
-
-
-_PLACEHOLDER_DATA_URI = (
-    "data:image/svg+xml;base64,"
-    + base64.b64encode(_make_placeholder_svg("[image unavailable]")).decode()
-)
 
 
 def _safe_response_text(r: "requests.Response") -> str:
@@ -977,7 +949,6 @@ def _infer_dynamic_asset_paths(text: str) -> Dict[str, Set[str]]:
 
 __all__ = [
     "_is_probable_raw_cdn_asset", "_check_image_dedup",
-    "_make_placeholder_svg", "_PLACEHOLDER_DATA_URI",
     "_safe_response_text", "_scan_file_for_assets", "_infer_dynamic_asset_paths",
 ]
 

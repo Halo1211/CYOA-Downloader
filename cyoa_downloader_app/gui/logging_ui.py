@@ -219,7 +219,10 @@ def _v465_poll_log(self: Any) -> None:
             self._log_txt.configure(state="disabled")
     try:
         if self.root.winfo_exists():
-            self._v465_log_poll_after_id = self.root.after(175, self._poll_log)
+            # Back off while idle. Busy downloads still drain quickly, while
+            # an idle main window no longer wakes six times per second.
+            next_delay = 75 if len(batch) >= 150 else (150 if batch else 500)
+            self._v465_log_poll_after_id = self.root.after(next_delay, self._poll_log)
     except Exception as exc:
         logger.debug(f"GUI log polling could not be rescheduled: {exc}")
 

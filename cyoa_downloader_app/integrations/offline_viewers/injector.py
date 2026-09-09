@@ -6,17 +6,24 @@ while preserving the historical strategies and output layout.
 
 from __future__ import annotations
 
+import io
+import hashlib
 import json
 import os
 import pathlib
 import re
 from typing import Dict, Optional
+from urllib.parse import unquote, urljoin, urlsplit
+
+from bs4 import BeautifulSoup
 
 from ...core.archive import validate_zip_archive
 from ...core.atomic_io import atomic_write_bytes, atomic_write_text
 from ...core.paths import _copytree_merge_safe, _safe_archive_join
+from ...diagnostics.reports import write_asset_failure_summary
 from ...logging_setup import logger
 from ...project.parse import extract_balanced_brace_block
+from ..ai_core import _ssrf_block_cross_origin
 from .iccplus import (
     _apply_iccplus_viewer_config_to_html,
     _build_html_interceptor,
@@ -31,12 +38,367 @@ from .registry import (
     _safe_viewer_relative_path,
 )
 
+
+def _localize_preserved_index_assets(
+    html: str,
+    source_url: str,
+    site_folder: str,
+    *,
+    fetcher=None,
+) -> str:
+    """Download preserved HTML assets that would break under ``file://``.
+
+    Viewer-owned files already present in ``site_folder`` remain unchanged.
+    Missing publisher/platform scripts, styles, and media are copied below a
+    host-namespaced ``__source_assets__`` directory and their HTML references
+    are rewritten. Failed downloads retain the original reference instead of
+    deleting publisher markup.
+    """
+    if not html:
+        return html
+    if fetcher is None:
+        from ...network.fetch import fetch_response
+
+        fetcher = fetch_response
+
+    root = os.path.abspath(site_folder)
+    downloaded: dict[str, tuple[str, str]] = {}
+    processing: set[str] = set()
+    failed: dict[str, dict[str, str]] = {}
+    css_url_re = re.compile(r"url\(\s*([^)]*?)\s*\)", re.IGNORECASE)
+    css_import_re = re.compile(
+        r"@import\s+(?:url\(\s*)?([\"']?)([^\"')\s;]+)\1\s*\)?",
+        re.IGNORECASE,
+    )
+    quoted_asset_re = re.compile(
+        r"(?P<quote>[\"'])(?P<url>[^\"'\r\n]{1,300}\.(?:js|mjs|css|json|png|jpe?g|gif|webp|svg|avif|woff2?|ttf|otf|mp3|ogg|wav)(?:\?[^\"'\s<>]*)?)(?P=quote)",
+        re.IGNORECASE,
+    )
+
+    def _safe_existing(reference: str, owner_path: str) -> Optional[str]:
+        parsed_ref = urlsplit(reference)
+        if parsed_ref.scheme or parsed_ref.netloc:
+            return None
+        clean = unquote(parsed_ref.path or "")
+        candidates = []
+        if clean.startswith("/"):
+            candidates.append(os.path.join(root, clean.lstrip("/\\")))
+        else:
+            candidates.extend((
+                os.path.join(os.path.dirname(owner_path), clean),
+                os.path.join(root, clean.lstrip("./\\")),
+            ))
+        for candidate in candidates:
+            candidate = os.path.abspath(os.path.normpath(candidate))
+            try:
+                inside = os.path.commonpath([root, candidate]) == root
+            except ValueError:
+                inside = False
+            if inside and os.path.isfile(candidate):
+                return candidate
+        return None
+
+    def _kind_suffix(kind: str, content_type: str = "") -> str:
+        if kind == "js" or "javascript" in content_type:
+            return ".js"
+        if kind == "css" or "text/css" in content_type:
+            return ".css"
+        return ""
+
+    def _relative_reference(owner_path: str, target_path: str) -> str:
+        return os.path.relpath(target_path, os.path.dirname(owner_path)).replace("\\", "/")
+
+    def _process_css(text: str, css_url: str, css_path: str) -> str:
+        def localize_css_ref(reference: str, kind: str = "") -> Optional[str]:
+            value = reference.strip().strip("\"'")
+            if not value or value.lower().startswith(("data:", "blob:", "#")):
+                return None
+            existing = _safe_existing(value, css_path)
+            if existing:
+                return _relative_reference(css_path, existing)
+            target = _download(urljoin(css_url, value), kind)
+            return _relative_reference(css_path, target[1]) if target else None
+
+        def replace_import(match: re.Match[str]) -> str:
+            local = localize_css_ref(match.group(2), "css")
+            return f'@import url("{local}")' if local else match.group(0)
+
+        def replace_url(match: re.Match[str]) -> str:
+            local = localize_css_ref(match.group(1))
+            return f'url("{local}")' if local else match.group(0)
+
+        return css_url_re.sub(replace_url, css_import_re.sub(replace_import, text))
+
+    def _process_js(text: str, js_url: str, js_path: str) -> str:
+        count = 0
+
+        def replace_asset(match: re.Match[str]) -> str:
+            nonlocal count
+            if count >= 500:
+                return match.group(0)
+            reference = match.group("url")
+            existing = _safe_existing(reference, js_path)
+            if existing:
+                return match.group(0)
+            count += 1
+            kind = pathlib.PurePosixPath(urlsplit(reference).path).suffix.lower().lstrip(".")
+            if kind in {"mjs", "js"}:
+                kind = "js"
+            elif kind == "css":
+                kind = "css"
+            else:
+                kind = ""
+            target = _download(urljoin(js_url, reference), kind)
+            if not target:
+                return match.group(0)
+            local = _relative_reference(js_path, target[1])
+            return f'{match.group("quote")}{local}{match.group("quote")}'
+
+        return quoted_asset_re.sub(replace_asset, text)
+
+    def _download(absolute_url: str, kind: str = "") -> Optional[tuple[str, str]]:
+        parsed = urlsplit(absolute_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            return None
+        if _ssrf_block_cross_origin(absolute_url, source_url):
+            error = "blocked: cross-origin internal host"
+            failed.setdefault(
+                absolute_url,
+                {"url": absolute_url, "error": error, "kind": kind or "asset"},
+            )
+            logger.warning("Could not localize preserved HTML asset %s: %s", absolute_url, error)
+            return None
+        cache_key = absolute_url
+        if cache_key in downloaded:
+            return downloaded[cache_key]
+        if cache_key in processing:
+            return None
+        raw_path = unquote(parsed.path or "").strip("/")
+        path_parts = [part for part in raw_path.replace("\\", "/").split("/") if part]
+        if any(part in {".", ".."} for part in path_parts):
+            return None
+        if not path_parts:
+            path_parts = ["index"]
+        safe_parts = [re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", part) for part in path_parts]
+        suffix = pathlib.PurePosixPath(safe_parts[-1]).suffix
+        if not suffix:
+            safe_parts[-1] += _kind_suffix(kind)
+        if parsed.query:
+            stem, ext = os.path.splitext(safe_parts[-1])
+            safe_parts[-1] = f"{stem}_{hashlib.sha1(parsed.query.encode()).hexdigest()[:10]}{ext}"
+        safe_host = re.sub(r"[^A-Za-z0-9._-]", "_", parsed.hostname)
+        relative = pathlib.PurePosixPath("__source_assets__", safe_host, *safe_parts)
+        destination = os.path.abspath(os.path.join(root, *relative.parts))
+        try:
+            if os.path.commonpath([root, destination]) != root:
+                return None
+        except ValueError:
+            return None
+
+        response = None
+        processing.add(cache_key)
+        try:
+            response = fetcher(
+                absolute_url,
+                timeout=20,
+                extra_headers={"User-Agent": "CYOA-Downloader"},
+            )
+            if response is None:
+                failed.setdefault(
+                    absolute_url,
+                    {"url": absolute_url, "error": "request failed", "kind": kind or "asset"},
+                )
+                return None
+            status = int(getattr(response, "status_code", 0) or 0)
+            if status != 200:
+                failed.setdefault(
+                    absolute_url,
+                    {
+                        "url": absolute_url,
+                        "error": f"HTTP {status}" if status else "request failed",
+                        "kind": kind or "asset",
+                    },
+                )
+                return None
+            content = bytes(getattr(response, "content", b""))
+            if not content:
+                failed.setdefault(
+                    absolute_url,
+                    {"url": absolute_url, "error": "empty response", "kind": kind or "asset"},
+                )
+                return None
+            if len(content) > 256 * 1024 * 1024:
+                failed.setdefault(
+                    absolute_url,
+                    {
+                        "url": absolute_url,
+                        "error": "asset exceeds 256 MiB localization limit",
+                        "kind": kind or "asset",
+                    },
+                )
+                return None
+            content_type = str(getattr(response, "headers", {}).get("Content-Type", "")).lower()
+            inferred_suffix = _kind_suffix(kind, content_type)
+            if not pathlib.PurePosixPath(destination).suffix and inferred_suffix:
+                destination += inferred_suffix
+                relative = pathlib.PurePosixPath(relative.as_posix() + inferred_suffix)
+            os.makedirs(os.path.dirname(destination), exist_ok=True)
+            local_reference = "./" + relative.as_posix()
+            downloaded[cache_key] = (local_reference, destination)
+            if kind == "css" or "text/css" in content_type or destination.lower().endswith(".css"):
+                decoded = content.decode("utf-8", errors="replace")
+                atomic_write_text(destination, _process_css(decoded, absolute_url, destination))
+            elif kind == "js" or "javascript" in content_type or destination.lower().endswith((".js", ".mjs")):
+                decoded = content.decode("utf-8", errors="replace")
+                atomic_write_text(destination, _process_js(decoded, absolute_url, destination))
+            else:
+                atomic_write_bytes(destination, content)
+            logger.info("Localized preserved HTML asset: %s", local_reference)
+            return downloaded[cache_key]
+        except (OSError, TypeError, ValueError, KeyError) as exc:
+            downloaded.pop(cache_key, None)
+            failed.setdefault(
+                absolute_url,
+                {"url": absolute_url, "error": str(exc), "kind": kind or "asset"},
+            )
+            logger.warning("Could not localize preserved HTML asset %s: %s", absolute_url, exc)
+            return None
+        finally:
+            processing.discard(cache_key)
+            if response is not None:
+                try:
+                    response.close()
+                except Exception:
+                    pass
+
+    soup = BeautifulSoup(html, "html.parser")
+    for script in list(soup.find_all("script")):
+        script_text = script.get_text(" ", strip=False).lower()
+        src = str(script.get("src") or "").lower()
+        if (
+            script.has_attr("data-cf-beacon")
+            or "cloudflareinsights.com" in src
+            or "/cdn-cgi/" in src
+            or "/cdn-cgi/" in script_text
+        ):
+            script.decompose()
+
+    index_path = os.path.join(root, "index.html")
+    attr_by_tag = {
+        "script": ("src", "js"), "link": ("href", ""), "img": ("src", ""),
+        "source": ("src", ""), "video": ("src", ""), "audio": ("src", ""),
+    }
+    for tag in soup.find_all(attr_by_tag.keys()):
+        attr, kind = attr_by_tag[tag.name]
+        reference = str(tag.get(attr) or "").strip()
+        if not reference or reference.lower().startswith(
+            ("#", "data:", "blob:", "javascript:", "mailto:", "tel:")
+        ):
+            continue
+        if tag.name == "link" and "stylesheet" in {
+            str(item).lower() for item in (tag.get("rel") or [])
+        }:
+            kind = "css"
+        existing = _safe_existing(reference, index_path)
+        if existing:
+            if kind == "css":
+                css_text = pathlib.Path(existing).read_text(encoding="utf-8", errors="replace")
+                css_url = urljoin(source_url, reference)
+                atomic_write_text(existing, _process_css(css_text, css_url, existing))
+            elif kind == "js":
+                js_text = pathlib.Path(existing).read_text(encoding="utf-8", errors="replace")
+                js_url = urljoin(source_url, reference)
+                atomic_write_text(existing, _process_js(js_text, js_url, existing))
+            if tag.has_attr("integrity"):
+                del tag["integrity"]
+            if tag.has_attr("crossorigin"):
+                del tag["crossorigin"]
+            continue
+        target = _download(urljoin(source_url, reference), kind)
+        if target:
+            tag[attr] = target[0]
+            if tag.has_attr("integrity"):
+                del tag["integrity"]
+            if tag.has_attr("crossorigin"):
+                del tag["crossorigin"]
+
+    for style in soup.find_all("style"):
+        original = style.string if style.string is not None else style.get_text("", strip=False)
+        style.clear()
+        style.append(_process_css(str(original), source_url, index_path))
+    for tag in soup.find_all(style=True):
+        tag["style"] = _process_css(str(tag.get("style") or ""), source_url, index_path)
+    if failed:
+        write_asset_failure_summary(
+            list(failed.values()),
+            root,
+            source_url=source_url,
+            title="Preserved Viewer Asset Download Failures",
+        )
+    return str(soup)
+
+
+def _inject_project_font_links(html: str, project: object) -> str:
+    """Materialize project-declared fonts and block duplicate online loads.
+
+    ICC runtimes create Google/custom font ``link`` nodes after startup. The
+    static links added here let the normal asset localizer archive the CSS and
+    font files, while the guard suppresses only the duplicate remote font link.
+    Project data itself remains byte-for-byte unchanged.
+    """
+    if not isinstance(project, dict):
+        return html
+    app = project.get("app") if isinstance(project.get("app"), dict) else project
+    google_fonts = app.get("googleFonts") if isinstance(app, dict) else []
+    custom_fonts = app.get("customFonts") if isinstance(app, dict) else []
+    google = []
+    for item in google_fonts if isinstance(google_fonts, list) else []:
+        name = str(item or "").strip()
+        if name and name not in google and len(name) <= 160:
+            google.append(name)
+    custom = []
+    for item in custom_fonts if isinstance(custom_fonts, list) else []:
+        reference = str(item or "").strip()
+        if reference and reference not in custom and len(reference) <= 2048:
+            custom.append(reference)
+    if not google and not custom:
+        return html
+
+    links = []
+    if google:
+        families = "&amp;".join(
+            "family=" + re.sub(r"\s+", "+", _html_escape(name)) for name in google
+        )
+        links.append(
+            '<link rel="stylesheet" data-cyoa-offline-project-font '
+            f'href="https://fonts.googleapis.com/css2?{families}&amp;display=swap">'
+        )
+    for reference in custom:
+        links.append(
+            '<link rel="stylesheet" data-cyoa-offline-project-font '
+            f'href="{_html_escape(reference)}">'
+        )
+
+    custom_json = json.dumps(custom, ensure_ascii=False).replace("</", "<\\/")
+    guard = (
+        '<script data-cyoa-offline-font-guard>(function(){'
+        f'var C={custom_json},O=HTMLHeadElement.prototype.appendChild;'
+        'function A(u){try{return new URL(u,location.href).href}catch(e){return String(u||"")}}'
+        'var S=new Set(C.map(A));HTMLHeadElement.prototype.appendChild=function(n){'
+        'var h=n&&n.tagName==="LINK"?A(n.href):"";'
+        'if(h&&(h.indexOf("https://fonts.googleapis.com/")===0||S.has(h)))return n;'
+        'return O.call(this,n)};})();</script>'
+    )
+    return _inject_into_head(html, guard + "\n" + "\n".join(links))
+
 def _apply_offline_viewer(
     output_dir: str,
     project_json_str: str,
     viewer_meta: Dict,
     file_name: str = "project",
     asset_source_dirs: Optional[Dict[str, str]] = None,
+    source_html: str = "",
+    source_url: str = "",
 ) -> Optional[str]:
     """
     Extract an offline viewer ZIP into output_dir and inject project data.
@@ -66,13 +428,26 @@ def _apply_offline_viewer(
     entry_point = _safe_viewer_relative_path(
         viewer_meta.get("entry_point"), default="index.html"
     )
-    if not zip_filename or not entry_point:
+    raw_inner_archive = str(viewer_meta.get("inner_archive", "") or "").strip()
+    inner_archive = (
+        _safe_viewer_relative_path(raw_inner_archive)
+        if raw_inner_archive
+        else ""
+    )
+    if (
+        not zip_filename
+        or not entry_point
+        or (raw_inner_archive and (not inner_archive or not inner_archive.lower().endswith(".zip")))
+    ):
         logger.error("Offline viewer metadata contains an unsafe archive or entry path")
         return None
     zip_path = os.path.join(_VIEWERS_DIR, zip_filename)
     is_rar       = zip_path.lower().endswith(".rar")
 
     if is_rar:
+        if inner_archive:
+            logger.error("Nested viewer archives are supported only inside ZIP packages")
+            return None
         try:
             import rarfile as _rf
         except ImportError:
@@ -109,7 +484,26 @@ def _apply_offline_viewer(
                 max_total_size=4 * 1024 * 1024 * 1024,
                 max_ratio=250.0,
             )
-            arc = _zf.ZipFile(zip_path)
+            if inner_archive:
+                with _zf.ZipFile(zip_path) as outer_arc:
+                    if inner_archive not in outer_arc.namelist():
+                        raise ValueError(
+                            f"Nested viewer archive not found: {inner_archive}"
+                        )
+                    nested_info = outer_arc.getinfo(inner_archive)
+                    if nested_info.file_size > 1024 * 1024 * 1024:
+                        raise ValueError("Nested viewer archive is too large")
+                    nested_bytes = outer_arc.read(inner_archive)
+                validate_zip_archive(
+                    nested_bytes,
+                    max_members=10000,
+                    max_member_size=1024 * 1024 * 1024,
+                    max_total_size=4 * 1024 * 1024 * 1024,
+                    max_ratio=250.0,
+                )
+                arc = _zf.ZipFile(io.BytesIO(nested_bytes))
+            else:
+                arc = _zf.ZipFile(zip_path)
 
         with arc:
             members = arc.namelist()
@@ -377,6 +771,51 @@ def _apply_offline_viewer(
                 logger.info("  No fetch() literal matched - injecting <head> fetch interceptor fallback")
                 html = _inject_into_head(html, _build_html_interceptor(data_js, size_bytes))
 
+    # Preserve publisher-authored index customizations (title, favicon, extra
+    # CSS and scripts) when replacing an ICC Plus 2/Remix online runtime with
+    # its local viewer.  Legacy templates already use the source bundle names
+    # and keep their established path unchanged.
+    if source_html and source_html.strip():
+        try:
+            from .modernizer import (
+                SiteFamily,
+                build_preserved_index,
+                merge_legacy_index_customizations,
+            )
+
+            project_app = (
+                parsed_project.get("app")
+                if isinstance(parsed_project.get("app"), dict)
+                else parsed_project
+            )
+            project_version = str(
+                parsed_project.get("version") or project_app.get("version") or ""
+            )
+            viewer_type = str(viewer_meta.get("viewer_type", ""))
+            runtime_family = str(viewer_meta.get("runtime_family", "") or "")
+            preserved_family = None
+            if viewer_type == "icc_remix":
+                preserved_family = SiteFamily.ICC_REMIX
+            elif project_version.startswith("2.") and os.path.isfile(
+                os.path.join(site_folder, "js", "app.js")
+            ):
+                preserved_family = SiteFamily.ICC_PLUS_2
+            if preserved_family is not None:
+                html = build_preserved_index(
+                    source_html,
+                    preserved_family,
+                    project_json_str,
+                )
+                logger.info("Preserved source index customizations for %s", preserved_family.value)
+            elif runtime_family in {"icc_legacy", "lt_ouroumov"} or viewer_type in {
+                "icc_legacy",
+                "lt_ouroumov",
+            }:
+                html = merge_legacy_index_customizations(html, source_html)
+                logger.info("Merged publisher customizations into legacy viewer index")
+        except (OSError, TypeError, ValueError) as exc:
+            logger.warning("Could not preserve source index customizations: %s", exc)
+
     # â”€â”€ Apply ICC Plus viewerConfig hints before final write â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     html = _apply_iccplus_viewer_config_to_html(
         html, project_json_str, site_folder, size_bytes, proj_title
@@ -569,6 +1008,13 @@ setTimeout(function(){clearInterval(t);},30000);
                     f"{os.path.relpath(_asset_dst, output_dir)}"
                 )
 
+    html = _inject_project_font_links(html, parsed_project)
+    html = _localize_preserved_index_assets(
+        html,
+        source_url,
+        site_folder,
+    )
+
     try:
         atomic_write_text(index_path, html)
         logger.info(
@@ -594,6 +1040,8 @@ def _v25_inject_into_viewer(*args, **kwargs):
 
 
 __all__ = [
-    "_apply_offline_viewer", "_v25_manage_offline_viewers", "_v25_inject_into_viewer",
+    "_apply_offline_viewer", "_localize_preserved_index_assets",
+    "_inject_project_font_links",
+    "_v25_manage_offline_viewers", "_v25_inject_into_viewer",
 ]
 

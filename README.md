@@ -49,6 +49,45 @@ Auto mode recognizes ICC project data, CYOA.CAFE records, route trees, and
 common runtime frameworks. Login, telemetry, comments, payments, mutations,
 and unrelated external domains are not treated as story routes.
 
+### Make an existing CYOA library playable offline
+
+The modernizer distinguishes ICC/ICC Plus legacy bundles, Lt. Ouroumov's
+legacy bundle, ICC Plus 2, ICC Remix, and unrelated custom HTML. Legacy
+viewers are patched in place. ICC Plus 2 and Remix receive their matching
+local runtime, while publisher-authored titles, favicons, fonts, loading CSS,
+and extra scripts/styles are retained. Unknown and non-ICC sites are copied
+unchanged instead of being forced into an incompatible viewer.
+
+Automatic viewer handling during normal downloads is **off by default**. Open
+**Settings → Viewers** to enable either JSON-only viewer injection, full ICC
+website modernization, or both. Keep **Auto (recommended)** selected unless
+you are testing a particular runtime: Auto uses HTML markers first, then the
+`project.json` schema/version (2.x → ICC Plus 2; unversioned ICC → Legacy).
+The Settings checklist shows whether the recommended Plus 2, Legacy, Remix,
+and Lt. Ouroumov-compatible viewer families are registered.
+
+Viewer registration accepts `.zip`, `.rar`, and an already-unpacked viewer
+folder; folders are packaged into the private registry without modifying the
+source. ICC Plus 2 automation accepts only release assets labelled
+`local`, `offline`, or `standalone`. It never falls back to the online viewer.
+
+```powershell
+python cyoa_downloader.py `
+  --modernize-library "E:\CYOA" `
+  --viewer-collection "E:\CYOA Viewer Collection" `
+  --modernize-output "E:\CYOA\_edited"
+```
+
+The destination must be empty or absent. The original library is never
+modified, and `conversion_report.json` records the detected family, strategy,
+changed files, and any failure for every discovered site. Whenever a viewer
+runtime file or `index.html` must be replaced, its original bytes are retained
+under that site's `__original_site__` directory. Publisher-specific loading
+CSS, fonts, favicons, and unrelated scripts/styles remain active in place.
+Replacement templates are validated before any in-place overlay, and rerunning
+modernization safely refreshes project data without replacing the first
+original backup.
+
 See the [JavaScript Archive Guide](docs/JAVASCRIPT_ARCHIVE_GUIDE.md) and
 [Auto Safe Archive notes](docs/AUTO_SAFE_ARCHIVE.md) for the complete behavior.
 
@@ -206,6 +245,12 @@ The Diagnostics panel checks Python packages, command-line tools, browser
 backends, write permissions, settings, cache state, and frozen PyInstaller
 resources. A missing optional helper only disables the related feature.
 
+Missing site assets are never replaced with placeholders or removed from the
+downloaded markup/project data. Their original references remain intact and
+the failure is written to `failed_assets.txt`, `failed_images.txt`,
+`backup_report.txt`, or `skipped_youtube_audio.txt` as appropriate. A similarly
+named local file with another extension is not substituted automatically.
+
 Current YouTube extraction normally requires an up-to-date `yt-dlp`, the
 `yt-dlp-ejs` package, and a JavaScript runtime such as Deno. A cookie file does
 not replace those components. Never commit cookies, settings, API keys, bot
@@ -247,7 +292,7 @@ python -m pytest -q
 ruff check cyoa_downloader.py cyoa_downloader_app
 ```
 
-The current offline regression suite contains 438 passing tests with 7 optional
+The current offline regression suite contains 501 passing tests with 8 optional
 tests skipped when their runtime conditions are unavailable.
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes. Security

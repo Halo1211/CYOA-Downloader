@@ -207,7 +207,7 @@ def test_package_verifier_ignores_minified_js_and_source_map_false_positives(tmp
     assert "materialdesignicons.css" not in report
 
 
-def test_failed_relative_html_asset_becomes_explicit_online_fallback(tmp_path, monkeypatch):
+def test_failed_relative_html_asset_keeps_authored_reference(tmp_path, monkeypatch):
     downloader = _bare_downloader(tmp_path)
     downloader.start_url = "https://example.test/story/"
     downloader._downloaded = {}
@@ -219,7 +219,22 @@ def test_failed_relative_html_asset_becomes_explicit_online_fallback(tmp_path, m
         preferred_kind="css",
     )
 
-    assert tag["href"] == "https://example.test/story/font/missing.css"
+    assert tag["href"] == "font/missing.css"
+
+
+def test_failed_srcset_assets_keep_authored_references(tmp_path, monkeypatch):
+    downloader = _bare_downloader(tmp_path)
+    downloader.start_url = "https://example.test/story/"
+    downloader._downloaded = {}
+    tag = {"srcset": "small.jpg 1x, large.jpg 2x"}
+    monkeypatch.setattr(downloader, "_download_asset", lambda *args, **kwargs: None)
+
+    downloader._set_attr_local(
+        tag, "srcset", downloader.start_url, str(tmp_path / "index.html"),
+        preferred_kind="images",
+    )
+
+    assert tag["srcset"] == "small.jpg 1x, large.jpg 2x"
 
 
 def test_successful_root_fallback_is_cached_for_original_reference(tmp_path, monkeypatch):
@@ -407,7 +422,7 @@ def test_cross_domain_basename_fallback_cannot_substitute_wrong_asset(tmp_path, 
     )
 
     assert localized is False
-    assert tag["src"] == "https://viewer.test/story/app.js"
+    assert tag["src"] == "app.js"
 
 
 def test_unique_same_origin_bare_basename_fallback_is_preserved(tmp_path, monkeypatch):
@@ -1144,6 +1159,61 @@ def test_download_html_adds_narrow_offline_dice_fallback(tmp_path, monkeypatch):
     assert "Roll dice again" in saved
 
 
+def test_download_html_preserves_confirmed_404_dependencies_for_audit(
+    tmp_path, monkeypatch
+):
+    downloader = WebsiteDownloader("https://example.test/story/", str(tmp_path))
+
+    def fake_download(url, preferred_kind="", referrer_url=None):
+        return None
+
+    monkeypatch.setattr(downloader, "_download_asset", fake_download)
+    html = (
+        "<html><head>"
+        "<link rel='stylesheet' href='missing.css'>"
+        "<link rel='stylesheet' href='temporarily-unavailable.css'>"
+        "</head><body><script type='module'>"
+        "import './js/image-editor.js'; window.keep=true;"
+        "</script></body></html>"
+    )
+
+    downloader._download_html(
+        "https://example.test/story/",
+        str(tmp_path / "index.html"),
+        html,
+    )
+
+    saved = (tmp_path / "index.html").read_text(encoding="utf-8")
+    assert "missing.css" in saved
+    assert "image-editor.js" in saved
+    assert "temporarily-unavailable.css" in saved
+    assert "window.keep=true" in saved
+
+
+def test_download_html_keeps_unavailable_youtube_markup_unchanged(
+    tmp_path, monkeypatch
+):
+    downloader = WebsiteDownloader("https://example.test/story/", str(tmp_path))
+    monkeypatch.setattr(downloader, "_download_asset", lambda *args, **kwargs: None)
+    monkeypatch.setattr(downloader, "_download_runtime_template_assets", lambda *_args: None)
+    monkeypatch.setattr(downloader, "_patch_local_audio_scripts", lambda: None)
+    html = (
+        '<html><body><script src="https://www.youtube.com/iframe_api"></script>'
+        '<iframe src="https://www.youtube.com/embed/abc123" width="560" '
+        'height="315"></iframe></body></html>'
+    )
+
+    downloader._download_html(
+        "https://example.test/story/", str(tmp_path / "index.html"), html
+    )
+
+    saved = (tmp_path / "index.html").read_text(encoding="utf-8")
+    assert 'src="https://www.youtube.com/iframe_api"' in saved
+    assert 'src="https://www.youtube.com/embed/abc123"' in saved
+    assert "YouTube (offline unavailable)" not in saved
+    assert not (tmp_path / "js" / "youtube-iframe-api-stub.js").exists()
+
+
 def test_runtime_incarnation_template_downloads_concrete_ids(tmp_path, monkeypatch):
     downloader = _bare_downloader(tmp_path)
     calls = []
@@ -1214,6 +1284,258 @@ def test_runtime_numeric_range_prefetches_all_concrete_assets(tmp_path, monkeypa
     ]
 
 
+def test_runtime_direct_asset_array_prefetches_concrete_files(tmp_path, monkeypatch):
+    downloader = _bare_downloader(tmp_path)
+    calls = []
+    monkeypatch.setattr(
+        downloader,
+        "_download_asset",
+        lambda url, **kwargs: calls.append((url, kwargs)) or str(tmp_path / "asset.js"),
+    )
+
+    downloader._download_runtime_template_assets(
+        "const files=['js/html-to-image.min.js','loading.js','audio-control.js'];",
+        "https://example.test/story/",
+    )
+
+    assert [url for url, _ in calls] == [
+        "https://example.test/story/js/html-to-image.min.js",
+        "https://example.test/story/loading.js",
+        "https://example.test/story/audio-control.js",
+    ]
+
+
+def test_runtime_bare_image_array_uses_indexed_preloader_prefix(tmp_path, monkeypatch):
+    downloader = _bare_downloader(tmp_path)
+    calls = []
+    monkeypatch.setattr(
+        downloader,
+        "_download_asset",
+        lambda url, **kwargs: calls.append(url) or str(tmp_path / "image.avif"),
+    )
+    source = (
+        'const favicon="favicon.avif";'
+        'var images=["R9C3.avif","R9C4.avif"];'
+        'for(let i=0;i<urls.length;i++){const img=new Image();'
+        'img.src="images/"+urls[i];}'
+    )
+
+    downloader._download_runtime_template_assets(
+        source, "https://example.test/story/"
+    )
+
+    assert calls == [
+        "https://example.test/story/favicon.avif",
+        "https://example.test/story/images/R9C3.avif",
+        "https://example.test/story/images/R9C4.avif",
+    ]
+
+
+def test_runtime_image_preloader_uses_configured_workers(tmp_path, monkeypatch):
+    downloader = _bare_downloader(tmp_path)
+    downloader.max_workers = 3
+    state = {"active": 0, "peak": 0}
+    state_lock = threading.Lock()
+
+    def slow_download(url, **kwargs):
+        with state_lock:
+            state["active"] += 1
+            state["peak"] = max(state["peak"], state["active"])
+        time.sleep(0.03)
+        with state_lock:
+            state["active"] -= 1
+        return str(tmp_path / "image.avif")
+
+    monkeypatch.setattr(downloader, "_download_asset", slow_download)
+    source = (
+        'var images=["A.avif","B.avif","C.avif","D.avif"];'
+        'img.src="images/"+urls[i];'
+    )
+
+    downloader._download_runtime_template_assets(
+        source, "https://example.test/story/"
+    )
+
+    assert state["peak"] > 1
+
+
+def test_js_rewrite_reuses_document_relative_prefetch_without_wrong_subfolder_request(
+    tmp_path, monkeypatch
+):
+    downloader = _bare_downloader(tmp_path)
+    downloader.base_url = "https://example.test/story/"
+    local_css = tmp_path / "css" / "app.css"
+    local_css.parent.mkdir()
+    local_css.write_text("body{}", encoding="utf-8")
+    downloader._downloaded = {
+        "https://example.test/story/css/app.css": str(local_css),
+    }
+    monkeypatch.setattr(downloader, "_download_runtime_template_assets", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        downloader,
+        "_download_asset",
+        lambda *_a, **_k: pytest.fail("must reuse the document-relative prefetch cache"),
+    )
+    local_js = tmp_path / "js" / "loading.js"
+
+    rewritten = downloader._rewrite_direct_urls(
+        "const resources=['css/app.css'];",
+        "https://example.test/story/js/loading.js",
+        str(local_js),
+    )
+
+    assert rewritten == "const resources=['css/app.css'];"
+
+
+def test_runtime_webpack_chunk_map_prefetches_hashed_chunks(tmp_path, monkeypatch):
+    downloader = _bare_downloader(tmp_path)
+    calls = []
+    monkeypatch.setattr(
+        downloader,
+        "_download_asset",
+        lambda url, **kwargs: calls.append(url) or str(tmp_path / "chunk.js"),
+    )
+    source = (
+        'function p(t){return"js/"+t+"."+{"chunk-a":"abc123","chunk-b":"def456"}[t]+".js"}'
+    )
+
+    downloader._download_runtime_template_assets(source, "https://example.test/story/")
+
+    assert calls == [
+        "https://example.test/story/js/chunk-a.abc123.js",
+        "https://example.test/story/js/chunk-b.def456.js",
+    ]
+
+
+def test_runtime_svelte_dependency_map_resolves_relative_to_entry_bundle(
+    tmp_path, monkeypatch
+):
+    downloader = _bare_downloader(tmp_path)
+    calls = []
+    monkeypatch.setattr(
+        downloader,
+        "_download_asset",
+        lambda url, **kwargs: calls.append(url) or str(tmp_path / "chunk.js"),
+    )
+    source = (
+        'const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=['
+        '"../nodes/0.root.js","../nodes/1.error.js","../nodes/2.page.js"])))'
+        '=>i.map(i=>d[i]);'
+        'const nodes=[()=>import("../nodes/0.root.js"),'
+        '()=>import("../nodes/1.error.js"),()=>import("../nodes/2.page.js")];'
+    )
+
+    downloader._download_runtime_template_assets(
+        source,
+        "https://example.test/story/_app/immutable/entry/app.hash.js",
+    )
+
+    assert "https://example.test/story/_app/immutable/nodes/1.error.js" in calls
+
+
+def test_runtime_vue_chunk_map_with_identity_fallback_is_expanded(tmp_path, monkeypatch):
+    downloader = _bare_downloader(tmp_path)
+    calls = []
+    monkeypatch.setattr(
+        downloader,
+        "_download_asset",
+        lambda url, **kwargs: calls.append(url) or str(tmp_path / "chunk.js"),
+    )
+    source = (
+        'function p(t){return"js/"+({}[t]||t)+"."+'
+        '{"chunk-2d0e6102":"09695d49"}[t]+".js"}'
+    )
+
+    downloader._download_runtime_template_assets(source, "https://example.test/story/")
+
+    assert calls == [
+        "https://example.test/story/js/chunk-2d0e6102.09695d49.js"
+    ]
+
+
+def test_runtime_vue_root_public_path_resolves_from_origin(tmp_path, monkeypatch):
+    downloader = _bare_downloader(tmp_path)
+    calls = []
+    monkeypatch.setattr(
+        downloader,
+        "_download_asset",
+        lambda url, **kwargs: calls.append(url) or str(tmp_path / "chunk.js"),
+    )
+    source = (
+        'function p(t){return"js/"+({}[t]||t)+"."+'
+        '{"chunk-x":"hash1"}[t]+".js"};loader.p="/";'
+    )
+
+    downloader._download_runtime_template_assets(
+        source, "https://example.test/story/js/app.js"
+    )
+
+    assert calls == ["https://example.test/js/chunk-x.hash1.js"]
+
+
+def test_app_bundle_prefetches_runtime_chunks_before_rewrite_guard(tmp_path, monkeypatch):
+    downloader = _bare_downloader(tmp_path)
+    calls = []
+    monkeypatch.setattr(
+        downloader,
+        "_download_asset",
+        lambda url, **kwargs: calls.append(url) or str(tmp_path / "chunk.js"),
+    )
+    source = (
+        'function p(t){return"js/"+({}[t]||t)+"."+'
+        '{"chunk-x":"hash1"}[t]+".js"};loader.p="/";'
+        'const optionalParserNames=["foreignNames.json","maps/entities.json"];'
+    )
+
+    result = downloader._process_js(
+        source,
+        "https://example.test/story/js/app.c533aa25.js",
+        str(tmp_path / "js" / "app.c533aa25.js"),
+    )
+
+    assert result == source
+    assert calls == ["https://example.test/js/chunk-x.hash1.js"]
+
+
+def test_integrity_validator_reports_missing_vue_lazy_chunk(tmp_path):
+    downloader = _bare_downloader(tmp_path)
+    (tmp_path / "index.html").write_text(
+        '<script src="js/app.js"></script>', encoding="utf-8"
+    )
+    (tmp_path / "js").mkdir()
+    (tmp_path / "js" / "app.js").write_text(
+        'function p(t){return"js/"+({}[t]||t)+"."+'
+        '{"chunk-x":"hash1"}[t]+".js"};loader.p="/";',
+        encoding="utf-8",
+    )
+
+    result = downloader.validate_integrity()
+
+    assert any("js/chunk-x.hash1.js" in item for item in result["missing"])
+
+
+def test_localized_subresource_drops_crossorigin_for_file_protocol(tmp_path, monkeypatch):
+    downloader = _bare_downloader(tmp_path)
+    local = tmp_path / "assets" / "site.css"
+    local.parent.mkdir()
+    local.write_text("body{}", encoding="utf-8")
+    monkeypatch.setattr(downloader, "_download_asset", lambda *_a, **_k: str(local))
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(
+        "<link rel='stylesheet' href='https://cdn.test/site.css' "
+        "crossorigin='anonymous' integrity='sha256-old'>",
+        "html.parser",
+    )
+    tag = soup.find("link")
+
+    assert downloader._set_attr_local(
+        tag, "href", "https://example.test/", str(tmp_path / "index.html"), "css"
+    )
+    assert not tag.has_attr("integrity")
+    assert not tag.has_attr("crossorigin")
+
+
 def test_integrity_validator_ignores_javascript_expressions_and_orphan_css(tmp_path):
     downloader = _bare_downloader(tmp_path)
     (tmp_path / "image/card").mkdir(parents=True)
@@ -1234,6 +1556,23 @@ def test_integrity_validator_ignores_javascript_expressions_and_orphan_css(tmp_p
     result = downloader.validate_integrity()
 
     assert result["missing"] == []
+
+
+def test_integrity_validator_reports_reachable_external_dependencies(tmp_path):
+    downloader = _bare_downloader(tmp_path)
+    (tmp_path / "index.html").write_text(
+        '<link rel="stylesheet" href="https://fonts.test/site.css">'
+        '<script src="https://cdn.test/app.js"></script>',
+        encoding="utf-8",
+    )
+
+    result = downloader.validate_integrity()
+
+    assert result["missing"] == []
+    assert result["external"] == [
+        "index.html → https://cdn.test/app.js",
+        "index.html → https://fonts.test/site.css",
+    ]
 
 
 def test_integrity_accepts_missing_legacy_font_formats_when_woff2_exists(tmp_path):
