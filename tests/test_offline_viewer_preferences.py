@@ -128,6 +128,36 @@ def test_old_combined_manifest_family_is_migrated_by_viewer_identity() -> None:
     }) == "icc_plus_legacy"
 
 
+def test_registration_splits_original_and_plus_archives_with_same_bundle_names(
+    tmp_path, monkeypatch,
+) -> None:
+    viewer_store = tmp_path / "registered"
+    monkeypatch.setattr(registry, "_VIEWERS_DIR", str(viewer_store))
+    monkeypatch.setattr(
+        registry, "_VIEWERS_MANIFEST", str(viewer_store / "viewers.json")
+    )
+    members = {
+        "index.html": "<div id='app'></div>",
+        "js/app.c533aa25.js": "app",
+        "js/chunk-vendors.59af3576.js": "vendors",
+    }
+    original_archive = tmp_path / "Viewer 1.8.zip"
+    plus_archive = tmp_path / "New.Viewer.1.18.9.zip"
+    for archive_path in (original_archive, plus_archive):
+        with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as archive:
+            for member, contents in members.items():
+                archive.writestr(member, contents)
+
+    original_id = registry.register_offline_viewer(str(original_archive))
+    plus_id = registry.register_offline_viewer(str(plus_archive))
+    manifest = registry._load_viewers_manifest()
+
+    assert manifest[original_id]["runtime_family"] == "icc_original"
+    assert manifest[original_id]["viewer_type"] == "icc_original"
+    assert manifest[plus_id]["runtime_family"] == "icc_plus_legacy"
+    assert manifest[plus_id]["viewer_type"] == "icc_plus_legacy"
+
+
 def test_html_runtime_outweighs_ambiguous_project_and_manual_override_is_explicit(
     monkeypatch,
 ) -> None:
