@@ -12,6 +12,7 @@ from typing import Dict, List, Optional
 from ..constants.modes import (
     _BATCH_VALID_MODES, _PURE_MODES, _CYOAP_MODES, _WEBSITE_MODES, _FOLDER_MODES,
 )
+from ..core.atomic_io import atomic_write_text, interprocess_file_lock
 from ..core.url_utils import is_probable_url
 from ..core.progress import DownloadCancelledError
 from ..logging_setup import logger
@@ -128,7 +129,9 @@ def import_queue_items_from_file(file_path: str) -> List[Dict[str, str]]:
 
     ext = os.path.splitext(file_path)[1].lower()
     if ext == ".txt":
-        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+        # ``utf-8-sig`` also accepts plain UTF-8 and strips the BOM written by
+        # Excel/Notepad, which otherwise invalidates the first URL.
+        with open(file_path, "r", encoding="utf-8-sig", errors="ignore") as f:
             for raw in f:
                 line = raw.strip()
                 if not line or line.startswith("#"):
@@ -333,21 +336,23 @@ def export_queue_items_to_file(items: List[Dict[str, str]], file_path: str) -> i
 
     ext = os.path.splitext(str(file_path))[1].lower()
     if ext == ".txt":
-        with open(file_path, "w", encoding="utf-8", newline="") as handle:
-            for row in rows:
-                fields = [row["url"]]
-                if row["filename"] or row["mode"]:
-                    fields.append(row["filename"])
-                if row["mode"]:
-                    fields.append(row["mode"])
-                handle.write(" | ".join(fields) + "\n")
+        lines = []
+        for row in rows:
+            fields = [row["url"]]
+            if row["filename"] or row["mode"]:
+                fields.append(row["filename"])
+            if row["mode"]:
+                fields.append(row["mode"])
+            lines.append(" | ".join(fields))
+        atomic_write_text(file_path, "".join(line + "\n" for line in lines))
     elif ext == ".csv":
         # utf-8-sig makes the exported file open cleanly in Excel while remaining
         # compatible with pandas and the existing CSV importer.
-        with open(file_path, "w", encoding="utf-8-sig", newline="") as handle:
-            writer = csv.DictWriter(handle, fieldnames=["url", "filename", "mode"])
-            writer.writeheader()
-            writer.writerows(rows)
+        buffer = io.StringIO(newline="")
+        writer = csv.DictWriter(buffer, fieldnames=["url", "filename", "mode"])
+        writer.writeheader()
+        writer.writerows(rows)
+        atomic_write_text(file_path, buffer.getvalue(), encoding="utf-8-sig")
     else:
         raise ValueError("Queue export supports .csv and .txt files only")
 
@@ -366,18 +371,20 @@ def write_failed_url_log(
         return None
     target_dir = output_dir if output_dir and os.path.isdir(output_dir) else os.getcwd()
     log_path   = os.path.join(target_dir, filename)
-    is_new     = not os.path.exists(log_path)
-
-    with open(log_path, "a", encoding="utf-8") as f:
-        if is_new:
-            f.write("# Failed batch URL downloads\n")
-            f.write("# Format: url<TAB>error_message\n\n")
-        f.write(f"# --- {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ({len(failed_items)} failed) ---\n")
-        for item in failed_items:
-            url = item.get("url", "")
-            err = item.get("error", "")
-            f.write(f"{url}\t{err}\n")
-        f.write("\n")
+    with interprocess_file_lock(log_path):
+        is_new = not os.path.exists(log_path) or os.path.getsize(log_path) == 0
+        with open(log_path, "a", encoding="utf-8") as f:
+            if is_new:
+                f.write("# Failed batch URL downloads\n")
+                f.write("# Format: url<TAB>error_message\n\n")
+            f.write(f"# --- {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ({len(failed_items)} failed) ---\n")
+            for item in failed_items:
+                # Keep the tab-separated log structurally valid even when a
+                # remote URL or exception text contains control characters.
+                url = re.sub(r"[\r\n\t]+", " ", str(item.get("url", ""))).strip()
+                err = re.sub(r"[\r\n\t]+", " ", str(item.get("error", ""))).strip()
+                f.write(f"{url}\t{err}\n")
+            f.write("\n")
 
     logger.info(f"Failed URL log saved: {log_path}")
     return log_path

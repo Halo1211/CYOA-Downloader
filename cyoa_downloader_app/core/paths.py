@@ -144,15 +144,27 @@ def _safe_archive_join(root: str, member: str) -> str:
 
 def _copytree_merge_safe(src_dir: str, dst_dir: str, *, label: str = "assets") -> int:
     """Copy src_dir into dst_dir without deleting existing user/output folders."""
-    if not src_dir or not os.path.isdir(src_dir):
+    if (
+        not src_dir
+        or not os.path.isdir(src_dir)
+        or _is_link_or_junction(src_dir)
+    ):
         return 0
     count = 0
-    for root, _dirs, files in os.walk(src_dir):
+    for root, dirs, files in os.walk(src_dir, followlinks=False):
+        dirs[:] = [
+            name
+            for name in dirs
+            if not _is_link_or_junction(os.path.join(root, name))
+        ]
         rel_root = os.path.relpath(root, src_dir)
         if rel_root == ".":
             rel_root = ""
         for name in files:
             src_file = os.path.join(root, name)
+            if _is_link_or_junction(src_file):
+                logger.warning(f"Skipping linked {label} source: {src_file}")
+                continue
             rel = os.path.join(rel_root, name).replace("\\", "/")
             dst_file = _safe_join(dst_dir, rel, fallback=name or "asset")
             os.makedirs(os.path.dirname(dst_file), exist_ok=True)

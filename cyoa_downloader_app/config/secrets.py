@@ -36,7 +36,7 @@ _REDACTED_PLACEHOLDER = "__REDACTED__"
 
 def _is_secret_setting_key(key: str) -> bool:
     k = str(key).lower()
-    if key in _SETTINGS_SECRET_KEYS:
+    if k in _SETTINGS_SECRET_KEYS:
         return True
     return any(frag in k for frag in _SETTINGS_SECRET_FRAGMENTS)
 

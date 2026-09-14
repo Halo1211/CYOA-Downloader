@@ -12,6 +12,7 @@ import importlib
 import os
 import pathlib
 import sys
+import tempfile
 from types import ModuleType
 
 from .integrations.offline_viewers.modernizer import modernize_collection
@@ -185,7 +186,7 @@ def main() -> None:
     parser.add_argument("--icc-folder", dest="website_folder", action="store_true",
                         help="ICC Mode (Folder): download the full ICC viewer + all assets as a local folder without ZIP compression.")
     parser.add_argument("--pure-website", action="store_true",
-                        help="Download viewer HTML/CSS/JS only — skip project.json search. "
+                        help="Download viewer HTML/CSS/JS only - skip project.json search. "
                              "Useful for custom-format sites (e.g. lewd_horizon). Output: ZIP.")
     parser.add_argument("--pure-website-folder", action="store_true",
                         help="Same as --pure-website but keep as folder instead of ZIP.")
@@ -361,25 +362,8 @@ def main() -> None:
             raise SystemExit(1)
         return
 
-    if args.discord_token:
-        # Process-local only: the token is consumed by the normal image
-        # pipeline and is never written to settings or command output.
-        os.environ["CYOA_DISCORD_BOT_TOKEN"] = args.discord_token.strip()
-    if args.no_discord_refresh:
-        os.environ["CYOA_DISABLE_DISCORD_REFRESH"] = "1"
-
-    try:
-        cookie_path = _configured_ytdlp_cookie_path(
-            args.ytdlp_cookies,
-            _cli_saved_settings.get("ytdlp_cookies", ""),
-        )
-    except FileNotFoundError as exc:
-        parser.error(f"yt-dlp cookie file not found: {exc}")
-    if cookie_path:
-        # Pass only the path through the process environment; the cookie
-        # contents must never enter settings, logs, or command output.
-        os.environ["CYOA_YTDLP_COOKIES"] = cookie_path
-
+    # Read-only diagnostics and settings operations must not depend on an
+    # unrelated media-cookie path or mutate process download configuration.
     if args.dependency_check:
         _safe_console_print(dependency_check_report())
         return
@@ -421,6 +405,26 @@ def main() -> None:
         if not ok:
             raise SystemExit(1)
         return
+
+    if args.discord_token:
+        # Process-local only: the token is consumed by the normal image
+        # pipeline and is never written to settings or command output.
+        os.environ["CYOA_DISCORD_BOT_TOKEN"] = args.discord_token.strip()
+    if args.no_discord_refresh:
+        os.environ["CYOA_DISABLE_DISCORD_REFRESH"] = "1"
+
+    try:
+        cookie_path = _configured_ytdlp_cookie_path(
+            args.ytdlp_cookies,
+            _cli_saved_settings.get("ytdlp_cookies", ""),
+        )
+    except FileNotFoundError as exc:
+        parser.error(f"yt-dlp cookie file not found: {exc}")
+    if cookie_path:
+        # Pass only the path through the process environment; the cookie
+        # contents must never enter settings, logs, or command output.
+        os.environ["CYOA_YTDLP_COOKIES"] = cookie_path
+
     # Resolve effective AI/network settings without overwriting saved GUI settings unless
     # the user supplied the corresponding CLI flag explicitly.
     ai_provider_eff = _normalize_ai_provider(args.ai_provider or _cli_saved_settings.get("ai_provider", "anthropic"))
@@ -460,10 +464,15 @@ def main() -> None:
     # mid-download failure.
     try:
         os.makedirs(args.output_dir, exist_ok=True)
-        _probe = os.path.join(args.output_dir, ".cyoa_write_test")
-        with open(_probe, "w") as _pf:
-            _pf.write("ok")
-        os.remove(_probe)
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=args.output_dir,
+            prefix=".cyoa_write_test.",
+            suffix=".tmp",
+        ) as probe:
+            probe.write("ok")
+            probe.flush()
     except Exception as _e:
         _safe_console_print(
             f"ERROR: output folder tidak bisa ditulis: {args.output_dir}\n       {_e}",
@@ -563,10 +572,14 @@ def main() -> None:
     if args.flaresolverr_test:
         ok, msg = flaresolverr_test_connection()
         _safe_console_print(("OK: " if ok else "ERROR: ") + msg)
+        if not ok:
+            raise SystemExit(1)
         return
     if getattr(args, "itch_test", False):
         ok, msg = itch_test_connection(explicit_key=os.environ.get("ITCH_API_KEY", ""))
         _safe_console_print(("OK: " if ok else "ERROR: ") + msg)
+        if not ok:
+            raise SystemExit(1)
         return
     st = _load_settings(); _net_changed = False
     if args.language is not None:
@@ -710,6 +723,8 @@ def main() -> None:
                 logger.error(f"Failed: {e}")
         write_failed_url_log(failed_items, args.output_dir)
         logger.info(f"Batch done    : {ok}/{len(items)} succeeded")
+        if failed_items:
+            raise SystemExit(1)
         return
 
     if not args.url:

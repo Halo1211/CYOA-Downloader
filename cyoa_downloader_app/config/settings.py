@@ -546,10 +546,10 @@ def export_settings(path: str) -> Tuple[bool, str]:
             "settings": safe,
         }
         os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
-        tmp = path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(payload, f, indent=2, ensure_ascii=False)
-        os.replace(tmp, path)
+        atomic_write_text(
+            path,
+            json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+        )
         return True, (f"Settings exported to {path} "
                       f"({len(safe)} keys, {len(redacted)} secret keys withheld).")
     except Exception as e:

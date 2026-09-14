@@ -101,9 +101,12 @@ def validate_zip_archive(
         if len(infos) > max_members:
             raise ValueError(f"Archive contains too many members: {len(infos)} > {max_members}")
         for info in infos:
+            # Directory entries need the same traversal validation as files.
+            # Strip only the archive directory marker before validating.
+            member_name = info.filename.rstrip("/\\") if info.is_dir() else info.filename
+            _safe_archive_rel_path(member_name)
             if info.is_dir():
                 continue
-            _safe_archive_rel_path(info.filename)
             count += 1
             if info.file_size < 0 or info.file_size > max_member_size:
                 raise ValueError(f"Archive member too large: {info.filename}")

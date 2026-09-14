@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import Iterator, Optional
 
 from .atomic_io import interprocess_file_lock
+from .paths import _is_link_or_junction
 from ..logging_setup import logger
 
 
@@ -45,6 +46,8 @@ def output_directory_lease(
 def prepare_clean_output_folder(folder: str) -> None:
     """Create a clean output folder without silently deleting pre-existing data."""
     target = os.path.abspath(folder)
+    if os.path.lexists(target) and _is_link_or_junction(target):
+        raise ValueError(f"Output folder must not be a symlink or junction: {target}")
     if os.path.isdir(target) and os.listdir(target):
         backup = target + ".pre_v46_" + datetime.now().strftime("%Y%m%d_%H%M%S")
         suffix = 1

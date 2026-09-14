@@ -240,7 +240,7 @@ def _clear_ai_plain_keys(settings: Optional[Dict[str, Any]] = None, provider: Op
 
 def _sanitize_ai_candidate_url(value: str) -> Optional[str]:
     """Whitelist AI URL/path outputs before urljoin/fetch."""
-    v = (value or "").strip().strip('"\'')
+    v = str(value or "").strip().strip('"\'')
     if not v or v.upper() in {"NONE", "NULL", "N/A", "[]"}:
         return None
     if len(v) > 600 or any(ord(ch) < 32 for ch in v):
@@ -253,14 +253,26 @@ def _sanitize_ai_candidate_url(value: str) -> Optional[str]:
     if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", v) and not lower.startswith(("http://", "https://")):
         return None
     if v.startswith("//"):
-        host = urlparse("https:" + v).hostname
+        try:
+            parsed = urlparse("https:" + v)
+            host = parsed.hostname
+            _ = parsed.port
+        except (TypeError, ValueError):
+            return None
         if host and _host_resolves_internal(host):
             return None
         return v if host else None
     # Block AI-suggested URLs that point at internal/loopback
     # addresses (prompt-injection SSRF). Mirrors the cyoa.cafe resolver guard.
     if lower.startswith(("http://", "https://")):
-        host = urlparse(v).hostname
+        try:
+            parsed = urlparse(v)
+            host = parsed.hostname
+            _ = parsed.port
+        except (TypeError, ValueError):
+            return None
+        if not host or any(ch.isspace() for ch in v):
+            return None
         if host and _host_resolves_internal(host):
             return None
     return v

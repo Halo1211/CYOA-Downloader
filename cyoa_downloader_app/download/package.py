@@ -31,7 +31,7 @@ from ..core.archive import validate_zip_archive
 from ..core.atomic_io import atomic_write_text, validate_response_content_length
 from ..core.cancellation import _emit_progress_event, _raise_if_cancelled
 from ..core.output import prepare_clean_output_folder, _cleanup_recent_part_files
-from ..core.paths import _safe_archive_rel_path
+from ..core.paths import _is_link_or_junction, _safe_archive_rel_path
 from ..core.url_utils import canonicalize_url
 from ..network.throttle import _throttle_bandwidth
 
@@ -120,7 +120,7 @@ def _walk_package_files(root: str) -> List[str]:
                 contained = os.path.commonpath([root_real, os.path.realpath(candidate)]) == root_real
             except (OSError, ValueError):
                 contained = False
-            if not os.path.islink(candidate) and contained:
+            if not _is_link_or_junction(candidate) and contained:
                 safe_dirs.append(dirname)
         dirnames[:] = safe_dirs
         for fn in filenames:
@@ -129,7 +129,7 @@ def _walk_package_files(root: str) -> List[str]:
                 contained = os.path.commonpath([root_real, os.path.realpath(candidate)]) == root_real
             except (OSError, ValueError):
                 contained = False
-            if not os.path.islink(candidate) and contained:
+            if not _is_link_or_junction(candidate) and contained:
                 out.append(candidate)
     out.sort()
     return out
@@ -163,8 +163,13 @@ def write_package_manifest(folder: str) -> Tuple[bool, str]:
         try:
             size = os.path.getsize(p)
         except OSError:
-            size = -1
+            skipped += 1
+            continue
         entries[rel] = {"sha256": digest, "size": size}
+    if skipped:
+        return False, (
+            f"FAIL  {skipped} unreadable file(s); manifest was not written"
+        )
     payload = {
         "manifest_version": 1,
         "app_version": _APP_VERSION,
@@ -173,18 +178,14 @@ def write_package_manifest(folder: str) -> Tuple[bool, str]:
         "files": entries,
     }
     try:
-        # Reuse the project's atomic writer when available; fall back to direct.
+        # A manifest is an integrity assertion. If the atomic commit fails,
+        # preserve any previous valid manifest and report failure instead of
+        # replacing it through a partial direct write.
         text = json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2)
-        try:
-            atomic_write_text(manifest_path, text)
-        except Exception:
-            with open(manifest_path, "w", encoding="utf-8") as f:
-                f.write(text)
+        atomic_write_text(manifest_path, text)
     except Exception as e:
         return False, f"FAIL  could not write manifest: {e}"
     msg = f"OK  wrote {_MANIFEST_NAME} with {len(entries)} file checksum(s)"
-    if skipped:
-        msg += f" ({skipped} unreadable file(s) skipped)"
     return True, msg
 
 
@@ -732,6 +733,8 @@ def save_string_to_file(content: str, filename: str, path: str = "") -> None:
 def zip_temp_folder(temp_path: str, zip_name: str = "") -> str:
     if not os.path.isdir(temp_path):
         raise ValueError(f"Not a directory: {temp_path}")
+    if _is_link_or_junction(temp_path):
+        raise ValueError(f"Archive source must not be a symlink or junction: {temp_path}")
     if not zip_name:
         zip_name = f"archive_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     zf_name = zip_name if zip_name.endswith(".zip") else zip_name + ".zip"
@@ -745,11 +748,14 @@ def zip_temp_folder(temp_path: str, zip_name: str = "") -> str:
                 # temporary folder can contain attacker-controlled page
                 # content, and following one could copy files outside the
                 # intended download root into the resulting archive.
-                dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(root, d))]
+                dirs[:] = [
+                    d for d in dirs
+                    if not _is_link_or_junction(os.path.join(root, d))
+                ]
                 for file in files:
                     _raise_if_cancelled()
                     abs_path = os.path.join(root, file)
-                    if os.path.islink(abs_path):
+                    if _is_link_or_junction(abs_path):
                         logger.warning(f"Skipping linked file while creating ZIP: {abs_path}")
                         continue
                     # ZIP spec requires '/' separators. On

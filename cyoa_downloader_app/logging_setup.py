@@ -12,12 +12,20 @@ logger = logging.getLogger("cyoa_downloader")
 _formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
 
 _SECRET_LOG_RE = re.compile(
-    r'(?i)\b(api[_-]?key|token|password|passwd|secret|cookie|authorization|credential|bearer)\b'
+    r'(?i)\b('
+    r'(?:[a-z0-9]+[_-])*api[_-]?key(?:[_-][a-z0-9]+)*|'
+    r'(?:[a-z0-9]+[_-])*(?:token|password|passwd|secret|cookie|authorization|credential|bearer)'
+    r'(?:[_-][a-z0-9]+)*'
+    r')\b'
     r'(\s*[:=]\s*|[\'"]?\s*:\s*[\'"]?)'
     r'([^,\s\'"}]{6,}|[\'"][^\'"]{6,}[\'"])'
 )
 
 _BEARER_LOG_RE = re.compile(r'(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{8,}')
+_URL_USERINFO_RE = re.compile(
+    r"(?i)\b(?P<scheme>https?|socks[45]h?)://"
+    r"(?P<username>[^/@:\s]+):(?P<password>[^/@\s]+)@"
+)
 
 def _redact_sensitive_text(value: Any) -> str:
     """Return log-safe text with token/password/cookie-like values withheld."""
@@ -26,6 +34,12 @@ def _redact_sensitive_text(value: Any) -> str:
     except Exception:
         return "<unprintable>"
     text = _BEARER_LOG_RE.sub("Bearer __REDACTED__", text)
+    text = _URL_USERINFO_RE.sub(
+        lambda match: (
+            f"{match.group('scheme')}://{match.group('username')}:__REDACTED__@"
+        ),
+        text,
+    )
     return _SECRET_LOG_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}__REDACTED__", text)
 
 class _SecretRedactionFilter(logging.Filter):

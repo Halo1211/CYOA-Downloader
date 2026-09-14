@@ -39,22 +39,35 @@ def _same_origin(url_a: str, url_b: str) -> bool:
         p = urlparse(u)
         scheme = (p.scheme or "").lower()
         host = (p.hostname or "").lower()
-        try:
-            port = p.port
-        except ValueError:
-            port = None
+        port = p.port
         if port is None:
             port = {"http": 80, "https": 443}.get(scheme)
         return scheme, host, port
-    return _key(url_a) == _key(url_b)
+    try:
+        key_a = _key(url_a)
+        key_b = _key(url_b)
+    except (TypeError, ValueError):
+        return False
+    return bool(
+        key_a[0] in {"http", "https"}
+        and key_a[1]
+        and key_a == key_b
+    )
 
 
 def _candidate_urls_for_cyoap_asset(base_url: str, value: str, kind: str) -> List[str]:
     value = (value or "").strip()
     if not value or value.startswith("data:"):
         return []
-    if is_probable_url(value):
-        return [value]
+    try:
+        # Scheme-relative references inherit the page scheme; host-like
+        # values without a scheme use canonicalize_url's HTTPS default.
+        absolute = urljoin(base_url, value) if value.startswith("//") else value
+        return [canonicalize_url(absolute)]
+    except (TypeError, ValueError):
+        # A normal relative asset path is expanded through the candidates
+        # below; only absolute/host-like values canonicalize successfully.
+        pass
 
     norm = value.lstrip("/")
     candidates: List[str] = [

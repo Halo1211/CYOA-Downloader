@@ -10,6 +10,7 @@ final GUI patch stack is composed.
 from __future__ import annotations
 
 import threading
+import tempfile
 import uuid
 from collections import Counter
 
@@ -6147,10 +6148,15 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
         if outdir:
             try:
                 os.makedirs(outdir, exist_ok=True)
-                probe = os.path.join(outdir, ".cyoa_write_test")
-                with open(probe, "w") as _pf:
-                    _pf.write("ok")
-                os.remove(probe)
+                with tempfile.NamedTemporaryFile(
+                    mode="w",
+                    encoding="utf-8",
+                    dir=outdir,
+                    prefix=".cyoa_write_test.",
+                    suffix=".tmp",
+                ) as probe:
+                    probe.write("ok")
+                    probe.flush()
             except Exception as e:
                 messagebox.showerror(
                     "Output folder",

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import queue as log_queue_module
+import tempfile
 import threading
 from collections import Counter, deque
 from typing import Any, Dict, Optional, Tuple
@@ -2298,9 +2299,15 @@ def _v46_start(self) -> None:
     if outdir:
         try:
             os.makedirs(outdir, exist_ok=True)
-            probe = os.path.join(outdir, f".cyoa_write_test_{os.getpid()}")
-            atomic_write_text(probe, "ok")
-            os.remove(probe)
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=outdir,
+                prefix=".cyoa_write_test.",
+                suffix=".tmp",
+            ) as probe:
+                probe.write("ok")
+                probe.flush()
         except Exception as exc:
             messagebox.showerror("Output folder", f"Folder output tidak bisa ditulis:\n{outdir}\n\n{exc}")
             return
@@ -2628,11 +2635,28 @@ def _v46_finish_close(self) -> None:
     if thread is not None and thread.is_alive():
         self.root.after(150, self._v46_finish_close)
         return
-    try:
-        if self._v46_progress_after_id:
-            self.root.after_cancel(self._v46_progress_after_id)
-    except Exception as exc:
-        logger.debug(f"Progress callback cancel failed: {exc}")
+    # Cancel every application-owned Tk timer before destroying the
+    # interpreter.  Leaving a log poller or debounce callback behind can make
+    # a later GUI instance in the same process execute a command registered by
+    # the destroyed interpreter (and produces noisy Tcl errors at shutdown).
+    for attr_name in (
+        "_v46_progress_after_id",
+        "_v465_log_poll_after_id",
+        "_v462_resize_after_id",
+        "_v463_resize_after_id",
+        "_proxy_after_id",
+        "_dns_after_id",
+        "_speed_timer_id",
+    ):
+        callback_id = getattr(self, attr_name, None)
+        if not callback_id:
+            continue
+        try:
+            self.root.after_cancel(callback_id)
+        except Exception as exc:
+            logger.debug(f"Tk callback cancel failed ({attr_name}): {exc}")
+        finally:
+            setattr(self, attr_name, None)
     try:
         handler = getattr(self, "_v46_progress_handler", None)
         if handler is not None:

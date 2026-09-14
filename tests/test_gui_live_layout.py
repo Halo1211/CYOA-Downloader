@@ -11,6 +11,22 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+@pytest.fixture(scope="module")
+def live_gui():
+    """Use one Tk interpreter, matching the application's single-root model."""
+    import customtkinter as ctk
+
+    from cyoa_downloader_app.runtime.surface import CYOADownloaderGUI
+
+    root = ctk.CTk()
+    gui = CYOADownloaderGUI(root)
+    try:
+        yield root, gui
+    finally:
+        if root.winfo_exists():
+            gui._v46_finish_close()
+
+
 def _visible_texts(widget):
     values = []
     for child in widget.winfo_children():
@@ -79,16 +95,12 @@ def _buttons_containing_text(widget, expected):
     return matches
 
 
-def test_live_gui_settings_location_and_expanded_progress_geometry():
+def test_live_gui_settings_location_and_expanded_progress_geometry(live_gui):
     import customtkinter as ctk
 
-    from cyoa_downloader_app.runtime.surface import CYOADownloaderGUI
-
-    root = ctk.CTk()
+    root, gui = live_gui
     root.geometry("1600x1000+20+20")
-    gui = None
     try:
-        gui = CYOADownloaderGUI(root)
         root.update_idletasks()
         root.update()
         assert root.title() == "CYOA Downloader v1.0.9"
@@ -227,25 +239,17 @@ def test_live_gui_settings_location_and_expanded_progress_geometry():
         assert "Arsip website JavaScript" not in settings_text
         assert "feature_toggles" not in gui._singleton_windows
     finally:
-        if gui is not None:
-            for window in list(getattr(gui, "_singleton_windows", {}).values()):
-                try:
-                    window.destroy()
-                except Exception:
-                    pass
-        root.destroy()
+        for window in list(getattr(gui, "_singleton_windows", {}).values()):
+            try:
+                window.destroy()
+            except Exception:
+                pass
 
 
-def test_import_export_stay_visible_without_maximizing():
-    import customtkinter as ctk
-
-    from cyoa_downloader_app.runtime.surface import CYOADownloaderGUI
-
-    root = ctk.CTk()
+def test_import_export_stay_visible_without_maximizing(live_gui):
+    root, gui = live_gui
     root.geometry("1100x720+20+20")
-    gui = None
     try:
-        gui = CYOADownloaderGUI(root)
         root.update_idletasks()
         root.update()
 
@@ -260,7 +264,4 @@ def test_import_export_stay_visible_without_maximizing():
             assert button.winfo_rootx() >= window_left
             assert button.winfo_rootx() + button.winfo_width() <= window_right
     finally:
-        if gui is not None:
-            gui._v46_finish_close()
-        elif root.winfo_exists():
-            root.destroy()
+        root.update_idletasks()

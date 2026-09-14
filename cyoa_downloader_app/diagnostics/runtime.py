@@ -391,10 +391,15 @@ def build_diagnostic_report(output_dir: str = "", check_network: bool = True,
     if output_dir:
         try:
             os.makedirs(output_dir, exist_ok=True)
-            probe = os.path.join(output_dir, ".cyoa_diag_probe")
-            with open(probe, "w") as fh:
-                fh.write("ok")
-            os.remove(probe)
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=output_dir,
+                prefix=".cyoa_diag_probe.",
+                suffix=".tmp",
+            ) as probe:
+                probe.write("ok")
+                probe.flush()
             _add("PASS", "Output folder writable", output_dir)
         except Exception as e:
             _add("FAIL", "Output folder writable", f"{output_dir}: {e}")
@@ -405,10 +410,15 @@ def build_diagnostic_report(output_dir: str = "", check_network: bool = True,
     try:
         cache_dir = _CACHE_DIR if "_CACHE_DIR" in globals() else tempfile.gettempdir()
         os.makedirs(cache_dir, exist_ok=True)
-        probe = os.path.join(cache_dir, ".cyoa_diag_probe")
-        with open(probe, "w") as fh:
-            fh.write("ok")
-        os.remove(probe)
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=cache_dir,
+            prefix=".cyoa_diag_probe.",
+            suffix=".tmp",
+        ) as probe:
+            probe.write("ok")
+            probe.flush()
         _add("PASS", "Cache folder writable", cache_dir)
     except Exception as e:
         _add("WARN", "Cache folder writable", str(e))
