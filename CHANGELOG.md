@@ -2,7 +2,7 @@
 
 This project uses a single changelog file. Older split release notes and patch reports have been consolidated here so users do not have to search through multiple Markdown files.
 
-## v1.0.8 — website reliability and advanced network profiles
+## v1.0.9 — safe offline viewer modernization
 
 - Added opt-in offline-viewer automation with independent switches for
   JSON-only downloads and full ICC website modernization. Both remain off by
@@ -34,6 +34,13 @@ This project uses a single changelog file. Older split release notes and patch r
   preserved-viewer asset localizer.
 - Reduced idle GUI work and bounded log/progress rendering per event-loop tick
   to keep the main window responsive on lower-specification computers.
+- Fixed the Linux CI setup so unrelated Chrome APT mirror metadata cannot block
+  dependency installation.
+- Expanded the offline regression suite to 505 passing tests with 8 optional
+  tests skipped when their runtime conditions are unavailable.
+
+## v1.0.8 — website reliability and advanced network profiles
+
 - Reduced CYOA.CAFE slug resolution to the authoritative slug lookup instead
   of first sending a guaranteed-failing PocketBase record-ID request.
 - Added a bounded negative metadata cache so repeated detection stages do not
@@ -68,7 +75,7 @@ This project uses a single changelog file. Older split release notes and patch r
 - Updated the embedded Help/Guide and repository documentation in English,
   including detailed proxy, DNS privacy, VPN routing, and offline-validation
   explanations.
-- Expanded the offline regression suite to 501 passing tests with 8 optional
+- Expanded the offline regression suite to 438 passing tests with 7 optional
   tests skipped when their runtime conditions are unavailable.
 
 ## v1.0.7 — release consistency and beginner-friendly workflow

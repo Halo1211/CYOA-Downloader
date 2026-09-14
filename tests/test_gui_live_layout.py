@@ -91,7 +91,7 @@ def test_live_gui_settings_location_and_expanded_progress_geometry():
         gui = CYOADownloaderGUI(root)
         root.update_idletasks()
         root.update()
-        assert root.title() == "CYOA Downloader v1.0.8"
+        assert root.title() == "CYOA Downloader v1.0.9"
 
         input_panel, queue_panel = gui._dispatch_gui_patch("_v462_find_main_panels")
         gui._v46_apply_progress_visibility(True)
