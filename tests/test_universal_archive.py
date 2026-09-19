@@ -24,7 +24,11 @@ from cyoa_downloader_app.download.cyoa_cafe_static import download_cyoa_cafe_sta
 from cyoa_downloader_app.download.package import verify_output_package
 from cyoa_downloader_app.download.route_crawler import RouteCrawler
 from cyoa_downloader_app.download.website import WebsiteDownloader
-from cyoa_downloader_app.download.asset_scan import _infer_dynamic_asset_paths, _scan_file_for_assets
+from cyoa_downloader_app.download.asset_scan import (
+    _infer_dynamic_asset_paths,
+    _infer_generated_entry_images,
+    _scan_file_for_assets,
+)
 from cyoa_downloader_app.network.runtime_capture import (
     RuntimeCaptureResult, _is_runtime_asset_response, _is_safe_interaction_label,
     capture_runtime_assets,
@@ -44,6 +48,52 @@ def _bare_downloader(tmp_path: pathlib.Path) -> WebsiteDownloader:
     downloader._used_local_paths = set()
     downloader._collision_log = []
     return downloader
+
+
+def test_static_module_scan_follows_root_relative_imports():
+    source = "import * as mutation_data from '/src/data/mutations.js';"
+
+    found = _scan_file_for_assets(
+        source,
+        "https://tentacle-realm.neocities.org/src/logic/mutations.js",
+        "https://tentacle-realm.neocities.org/",
+        ".js",
+    )
+
+    assert found == {
+        "https://tentacle-realm.neocities.org/src/data/mutations.js"
+    }
+
+
+def test_generated_entry_images_follow_observed_id_factory_and_template():
+    sources = {
+        "src/data/data.js": """
+            export class Entry {
+              gen_id(name, group) {
+                var result = 'li_' + group + '_' + name.toLowerCase().replaceAll(' ', '');
+                result = result.replace(/\\//g, '');
+                return result;
+              }
+            }
+        """,
+        "src/data/mutations.js": """
+            export class Mutation extends data.Entry {
+              constructor(name) { super(name, 'mutation', 0, 0, '', [], 0, ''); }
+            }
+            export const mutations = [
+              new Mutation('Eyes of the Beholder'),
+              new Mutation("Paws-itive"),
+            ];
+        """,
+        "src/logic/mutations.js": """
+            elm.innerHTML = `<img src="img/${mutation.id}.webp" />`;
+        """,
+    }
+
+    assert _infer_generated_entry_images(sources) == {
+        "img/li_mutation_eyesofthebeholder.webp",
+        "img/li_mutation_paws-itive.webp",
+    }
 
 
 def test_cache_key_strips_only_cache_busters(tmp_path):

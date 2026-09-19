@@ -54,6 +54,17 @@ def _v24_badge(parent: Any, text: str, color: str, width: int = 96) -> Any:
     return lbl
 
 
+def _v24_dialog_geometry(screen_width: int, screen_height: int) -> tuple[int, int, int, int]:
+    """Return report-dialog dimensions bounded by the visible display."""
+    sw = max(1, int(screen_width or 1))
+    sh = max(1, int(screen_height or 1))
+    available_width = max(320, sw - 32)
+    available_height = max(320, sh - 88)
+    width = max(320, min(980, available_width))
+    height = max(320, min(640, available_height))
+    return width, height, min(820, width), min(520, height)
+
+
 def _v24_result_is_failed(row: Dict[str, Any]) -> bool:
     """Return whether a result belongs in the Failed filter.
 
@@ -61,6 +72,23 @@ def _v24_result_is_failed(row: Dict[str, Any]) -> bool:
     are real failures even though their parent job completed successfully.
     """
     return str(row.get("status", "")).strip().upper() not in {"OK", "SKIP"}
+
+
+def _v24_partition_result_rows(rows: list[Dict[str, Any]]) -> Dict[str, list[Dict[str, Any]]]:
+    """Keep CYOA outcomes and asset failures as separate report concepts."""
+    groups: Dict[str, list[Dict[str, Any]]] = {
+        "cyoa_success": [],
+        "cyoa_failed": [],
+        "asset_failed": [],
+    }
+    for row in rows:
+        if str(row.get("result_type") or "job").lower() == "asset":
+            groups["asset_failed"].append(row)
+        elif _v24_result_is_failed(row):
+            groups["cyoa_failed"].append(row)
+        else:
+            groups["cyoa_success"].append(row)
+    return groups
 
 
 def _v46_failure_details_snapshot(self: Any) -> list[Dict[str, Any]]:
@@ -124,16 +152,24 @@ def _v24_show_results(self: Any) -> None:
         return
 
     p = self._p()
-    total = len(rows_all)
-    ok_cnt = sum(1 for r in rows_all if not _v24_result_is_failed(r))
-    fail_cnt = sum(1 for r in rows_all if _v24_result_is_failed(r))
+    groups = _v24_partition_result_rows(rows_all)
+    cyoa_total = len(groups["cyoa_success"]) + len(groups["cyoa_failed"])
+    ok_cnt = len(groups["cyoa_success"])
+    cyoa_fail_cnt = len(groups["cyoa_failed"])
+    asset_fail_cnt = len(groups["asset_failed"])
 
     win = self._make_singleton_window("reports_center")
     if win is None:
         return
     win.title("Reports Center" if is_en else "Pusat Laporan")
-    win.geometry("980x640")
-    win.minsize(820, 520)
+    try:
+        sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
+        width, height, min_width, min_height = _v24_dialog_geometry(sw, sh)
+        win.geometry(f"{width}x{height}")
+        win.minsize(min_width, min_height)
+    except Exception:
+        win.geometry("980x640")
+        win.minsize(820, 520)
     win.configure(fg_color=p["bg"])
     win.transient(self.root)
     win.grab_set()
@@ -143,9 +179,10 @@ def _v24_show_results(self: Any) -> None:
     ctk.CTkLabel(hdr, text=("📋 Reports Center" if is_en else "📋 Pusat Laporan"), font=ctk.CTkFont("Segoe UI", 16, "bold"), text_color=p["fg"]).pack(side="left", padx=18)
     stats = ctk.CTkFrame(hdr, fg_color="transparent")
     stats.pack(side="right", padx=18)
-    _v24_badge(stats, f"TOTAL {total}", "#334155", 104)
-    _v24_badge(stats, f"OK {ok_cnt}", "#047857", 92)
-    _v24_badge(stats, f"FAIL {fail_cnt}", "#b91c1c", 92)
+    _v24_badge(stats, f"CYOA {cyoa_total}", "#334155", 96)
+    _v24_badge(stats, f"OK {ok_cnt}", "#047857", 82)
+    _v24_badge(stats, f"CYOA FAIL {cyoa_fail_cnt}", "#b91c1c", 116)
+    _v24_badge(stats, f"ASSET FAIL {asset_fail_cnt}", "#b45309", 120)
 
     body = ctk.CTkFrame(win, fg_color=p["bg"], corner_radius=0)
     body.pack(fill="both", expand=True, padx=14, pady=12)
@@ -165,7 +202,13 @@ def _v24_show_results(self: Any) -> None:
             btn.configure(fg_color="#3b82f6" if active else p["surface2"], text_color="#ffffff" if active else p["muted"])
         _render()
 
-    for key, label in [("all", "All" if is_en else "Semua"), ("ok", "Success" if is_en else "Berhasil"), ("fail", "Failed" if is_en else "Gagal")]:
+    filters = [
+        ("all", "All" if is_en else "Semua"),
+        ("cyoa_success", "CYOA Success" if is_en else "CYOA Berhasil"),
+        ("cyoa_failed", "CYOA Failed" if is_en else "CYOA Gagal"),
+        ("asset_failed", "Asset Failed" if is_en else "Asset Gagal"),
+    ]
+    for key, label in filters:
         b = ctk.CTkButton(top, text=label, width=90, height=30, fg_color=p["surface2"], hover_color=p["surface"], text_color=p["muted"], command=lambda k=key: _set_filter(k))
         b.pack(side="left", padx=(0, 8))
         filter_buttons[key] = b
@@ -174,7 +217,7 @@ def _v24_show_results(self: Any) -> None:
         path = filedialog.asksaveasfilename(parent=win, defaultextension=".csv", filetypes=[("CSV", "*.csv")], initialfile="download_results.csv")
         if not path:
             return
-        fields = ["status", "url", "mode", "filename", "error"]
+        fields = ["result_type", "status", "url", "mode", "filename", "error"]
         try:
             with open(path, "w", newline="", encoding="utf-8") as f:
                 writer = csv_mod.DictWriter(f, fieldnames=fields, extrasaction="ignore")
@@ -186,8 +229,16 @@ def _v24_show_results(self: Any) -> None:
             messagebox.showerror("Reports" if is_en else "Laporan", str(e), parent=win)
 
     def _copy_failed() -> None:
-        failed = [r for r in rows_all if _v24_result_is_failed(r)]
-        text = "\n".join(f"{r.get('url','')}\t{r.get('error','')}" for r in failed)
+        sections = []
+        for key, heading in (
+            ("cyoa_failed", "FAILED CYOA"),
+            ("asset_failed", "FAILED ASSETS / IMAGES"),
+        ):
+            entries = groups[key]
+            if entries:
+                lines = [f"{r.get('url','')}\t{r.get('error','')}" for r in entries]
+                sections.append(heading + "\n" + "\n".join(lines))
+        text = "\n\n".join(sections)
         try:
             win.clipboard_clear(); win.clipboard_append(text)
         except Exception as _ignored_exc:
@@ -200,14 +251,16 @@ def _v24_show_results(self: Any) -> None:
         for child in list_frame.winfo_children():
             child.destroy()
         flt = filter_var.get()
-        rows = [r for r in rows_all if flt == "all" or (flt == "ok" and not _v24_result_is_failed(r)) or (flt == "fail" and _v24_result_is_failed(r))]
+        rows = rows_all if flt == "all" else groups.get(flt, [])
         if not rows:
             ctk.CTkLabel(list_frame, text="No rows in this filter." if is_en else "Tidak ada data untuk filter ini.", font=ctk.CTkFont("Segoe UI", 12), text_color=p["muted"]).grid(row=0, column=0, padx=12, pady=28, sticky="w")
             return
         for idx, r in enumerate(rows):
             ok = not _v24_result_is_failed(r)
-            accent = "#22c55e" if ok else "#ef4444"
-            title = (r.get("filename") or "[auto]") + "  ·  " + str(r.get("mode", "")).replace("_", " ")
+            is_asset = str(r.get("result_type") or "job").lower() == "asset"
+            accent = "#22c55e" if ok else ("#f59e0b" if is_asset else "#ef4444")
+            kind = "ASSET" if is_asset else "CYOA"
+            title = kind + "  ·  " + (r.get("filename") or "[auto]") + "  ·  " + str(r.get("mode", "")).replace("_", " ")
             detail = str(r.get("url", ""))
             err = str(r.get("error", ""))
             card = ctk.CTkFrame(list_frame, fg_color=p["surface"], corner_radius=10, border_width=1, border_color=p["border"])
@@ -2475,7 +2528,7 @@ def _v46_worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_a
             resume_key = str(item.get("_resume_key") or "")
             if resume_key in completed and resume_key not in duplicate_jobs:
                 skipped_count += 1
-                self._last_results.append({"url": url, "mode": mode, "status": "SKIP", "filename": item.get("filename", ""), "error": "Already completed"})
+                self._last_results.append({"url": url, "mode": mode, "status": "SKIP", "filename": item.get("filename", ""), "error": "Already completed", "queue_id": item.get("_queue_id", ""), "result_type": "job"})
                 self._set_dot(idx - 1, "skip")
                 if item.get("_queue_id"):
                     self._active_run_success_ids.add(str(item["_queue_id"]))
@@ -2518,21 +2571,21 @@ def _v46_worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_a
                     completed_jobs.append(resume_key)
                 if item.get("_queue_id"):
                     self._active_run_success_ids.add(str(item["_queue_id"]))
-                self._last_results.append({"url": url, "mode": mode, "status": "OK", "filename": item.get("filename", ""), "error": ""})
+                self._last_results.append({"url": url, "mode": mode, "status": "OK", "filename": item.get("filename", ""), "error": "", "queue_id": item.get("_queue_id", ""), "result_type": "job"})
                 self._set_dot(idx - 1, "done")
                 _record_history(url, item.get("filename", ""), mode, success=True)
                 save_resume_state(outdir, completed_jobs, [f["url"] for f in failed_items])
                 self._v46_enqueue_progress({"type": "job_completed", "failed_assets": 0, "time": time.monotonic()})
             except DownloadCancelledError:
                 cancelled = True
-                self._last_results.append({"url": url, "mode": mode, "status": "CANCELLED", "filename": item.get("filename", ""), "error": "Cancelled by user"})
+                self._last_results.append({"url": url, "mode": mode, "status": "CANCELLED", "filename": item.get("filename", ""), "error": "Cancelled by user", "queue_id": item.get("_queue_id", ""), "result_type": "job"})
                 self._set_dot(idx - 1, "skip")
                 self._v46_enqueue_progress({"type": "job_cancelled", "time": time.monotonic()})
                 break
             except Exception as exc:
                 logger.error(f"Failed [{url}]: {exc}")
                 failed_items.append({"url": url, "error": str(exc)})
-                self._last_results.append({"url": url, "mode": mode, "status": "FAIL", "filename": item.get("filename", ""), "error": str(exc)})
+                self._last_results.append({"url": url, "mode": mode, "status": "FAIL", "filename": item.get("filename", ""), "error": str(exc), "queue_id": item.get("_queue_id", ""), "result_type": "job"})
                 self._set_dot(idx - 1, "error")
                 _record_history(url, item.get("filename", ""), mode, success=False)
                 save_resume_state(outdir, completed_jobs, [f["url"] for f in failed_items])
@@ -2599,6 +2652,13 @@ def _v46_done(self) -> None:
     if successful_ids:
         removed = self._remove_queue_ids_from_queue(successful_ids)
         logger.info("[Queue] Removed %s completed row(s) by queue identity.", removed)
+    failed_ids = {
+        str(row.get("queue_id") or "")
+        for row in self._last_results
+        if row.get("status") in {"FAIL", "CANCELLED"} and row.get("queue_id")
+    }
+    if failed_ids:
+        self._reveal_queue_ids(failed_ids)
     self._active_run_urls = set()
     self._active_run_queue_ids = set()
     self._active_run_success_ids = set()

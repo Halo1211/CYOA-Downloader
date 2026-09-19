@@ -12,7 +12,7 @@ import json
 import os
 import re
 import threading as _threading
-from typing import Dict, Optional, Set, Tuple
+from typing import Dict, Mapping, Optional, Set, Tuple
 from urllib.parse import urljoin, urlparse, urlunparse
 
 import requests
@@ -565,7 +565,7 @@ def _scan_file_for_assets(
     # ── Static ES module imports: import{...}from"./foo.js" / import"./foo.js" ──
     # These are NOT dynamic import() calls — they use 'from' or bare import
     for m in _re.finditer(
-        r'(?:from|import)\s*["\'](\.[^"\']+' + JS_CHUNK + r')["\']',
+        r'(?:from|import)\s*["\']((?:\.{1,2}/|/)[^"\']+' + JS_CHUNK + r')["\']',
         text, _re.IGNORECASE
     ):
         r = _resolve(m.group(1))
@@ -947,9 +947,59 @@ def _infer_dynamic_asset_paths(text: str) -> Dict[str, Set[str]]:
     return inferred
 
 
+def _infer_generated_entry_images(sources: Mapping[str, str]) -> Set[str]:
+    """Infer image names only from a site's explicit Entry ID contract."""
+    import re as _re
+
+    combined = "\n".join(str(value or "") for value in sources.values())
+    id_factory = _re.compile(
+        r"['\"]li_['\"]\s*\+\s*group\s*\+\s*['\"]_['\"]\s*\+\s*"
+        r"name\.toLowerCase\(\)\.replaceAll\(\s*['\"] ['\"]\s*,\s*['\"]['\"]\s*\)",
+        _re.IGNORECASE,
+    )
+    image_template = _re.compile(
+        r"img/\$\{[A-Za-z_$][\w$]*\.id\}\.webp", _re.IGNORECASE
+    )
+    if not id_factory.search(combined) or not image_template.search(combined):
+        return set()
+
+    class_groups: Dict[str, str] = {}
+    class_pattern = _re.compile(
+        r"class\s+(?P<class>[A-Za-z_$][\w$]*)\s+extends\s+"
+        r"(?:[A-Za-z_$][\w$]*\.)?Entry\s*\{(?P<body>.*?)\n\s*\}",
+        _re.IGNORECASE | _re.DOTALL,
+    )
+    group_pattern = _re.compile(
+        r"super\(\s*name\s*,\s*['\"](?P<group>[A-Za-z0-9_-]+)['\"]",
+        _re.IGNORECASE,
+    )
+    for match in class_pattern.finditer(combined):
+        group_match = group_pattern.search(match.group("body"))
+        if group_match:
+            class_groups[match.group("class")] = group_match.group("group")
+
+    inferred: Set[str] = set()
+    for class_name, group in class_groups.items():
+        constructor = _re.compile(
+            rf"new\s+{_re.escape(class_name)}\s*\(\s*"
+            r"(?:\"(?P<double>(?:\\.|[^\"\\])*)\"|"
+            r"'(?P<single>(?:\\.|[^'\\])*)')",
+            _re.IGNORECASE,
+        )
+        for match in constructor.finditer(combined):
+            raw_name = match.group("double")
+            if raw_name is None:
+                raw_name = match.group("single") or ""
+            normalized = raw_name.lower().replace(" ", "").replace("/", "")
+            if normalized:
+                inferred.add(f"img/li_{group}_{normalized}.webp")
+    return inferred
+
+
 __all__ = [
     "_is_probable_raw_cdn_asset", "_check_image_dedup",
     "_safe_response_text", "_scan_file_for_assets", "_infer_dynamic_asset_paths",
+    "_infer_generated_entry_images",
 ]
 
 

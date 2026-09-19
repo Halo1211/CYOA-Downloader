@@ -55,6 +55,25 @@ def _responsive_window_geometry(screen_width: int, screen_height: int) -> tuple[
     return safe_width, safe_height, min_width, min_height
 
 
+def _responsive_settings_geometry(screen_width: int, screen_height: int) -> tuple[int, int, int, int]:
+    """Return settings sizes that remain usable on small displays."""
+    sw = max(1, int(screen_width or 1))
+    sh = max(1, int(screen_height or 1))
+    available_width = max(320, sw - 32)
+    available_height = max(320, sh - 88)
+    safe_width = max(320, min(1080, available_width))
+    safe_height = max(320, min(760, available_height))
+    min_width = max(320, min(820, available_width))
+    min_height = max(320, min(580, available_height))
+    return safe_width, safe_height, min_width, min_height
+
+
+def _queue_scroll_fraction(row_y: int, content_height: int, viewport_height: int) -> float:
+    """Map a queue row position onto the scrollable canvas range."""
+    scroll_range = max(1, int(content_height) - int(viewport_height))
+    return max(0.0, min(1.0, int(row_y) / scroll_range))
+
+
 def _sync_legacy_globals(namespace: dict) -> type:
     """Expose legacy module globals to mechanically moved GUI methods.
 
@@ -1532,12 +1551,18 @@ class CYOADownloaderGUI:
         win.title("Settings / Maintenance" if is_en else "Pengaturan / Pemeliharaan")
         try:
             sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
-            w, h = min(1080, max(860, sw - 160)), min(760, max(620, sh - 140))
+            w, h, min_w, min_h = _responsive_settings_geometry(sw, sh)
             win.geometry(f"{w}x{h}+{max(24, (sw - w) // 2)}+{max(24, (sh - h) // 2)}")
+            win.minsize(min_w, min_h)
         except Exception:
             win.geometry("980x700")
-        win.minsize(820, 580)
+            win.minsize(820, 580)
         win.configure(fg_color=p["bg"])
+        # Paint the window shell before constructing the dense settings pages.
+        # This makes the button feel immediate even on slower keyring/runtime
+        # setups; credentials themselves are loaded asynchronously below.
+        win.update_idletasks()
+        win.update()
         try:
             win.transient(self.root)
         except Exception as exc:
@@ -1989,12 +2014,20 @@ class CYOADownloaderGUI:
         ctk.CTkLabel(key_card, text="Optional; keyring storage is preferred." if is_en else "Opsional; penyimpanan keyring lebih aman.", font=ctk.CTkFont("Segoe UI", 9), text_color=p["muted"], anchor="w").grid(row=1, column=1, sticky="ew", pady=(0, 9))
         key_entry = ctk.CTkEntry(key_card, show="*", width=220, height=30, placeholder_text="optional API key", fg_color=p["input_bg"], text_color=p["input_fg"], border_color=p["border"])
         key_entry.grid(row=0, column=2, rowspan=2, padx=6, pady=10)
-        try:
-            existing_key, _src = _resolve_itch_api_key("")
+        def _load_itch_key() -> None:
+            try:
+                existing_key, _src = _resolve_itch_api_key("")
+            except Exception as exc:
+                logger.debug("Could not load itch API key: %s", exc)
+                return
             if existing_key:
-                key_entry.insert(0, existing_key)
-        except Exception as exc:
-            logger.debug("Could not load itch API key: %s", exc)
+                self.root.after(
+                    0,
+                    lambda: key_entry.insert(0, existing_key)
+                    if key_entry.winfo_exists() and not key_entry.get() else None,
+                )
+
+        threading.Thread(target=_load_itch_key, daemon=True).start()
 
         def _save_key() -> None:
             key = key_entry.get().strip()
@@ -2312,13 +2345,21 @@ class CYOADownloaderGUI:
         )
         discord_entry.grid(row=2, column=1, sticky="ew", padx=(0, 6), pady=(0, 6))
         discord_status = ctk.StringVar(value="")
-        try:
-            loaded_discord_token = resolve_discord_bot_token()
+        def _load_discord_token() -> None:
+            try:
+                loaded_discord_token = resolve_discord_bot_token()
+            except Exception as exc:
+                logger.debug("Could not load Discord token: %s", exc)
+                return
             if loaded_discord_token:
-                discord_entry.insert(0, loaded_discord_token)
-                discord_status.set("Token loaded and hidden." if is_en else "Token dimuat dan disembunyikan.")
-        except Exception as exc:
-            logger.debug("Could not load Discord token: %s", exc)
+                def _apply_loaded_token() -> None:
+                    if not discord_entry.winfo_exists() or discord_entry.get():
+                        return
+                    discord_entry.insert(0, loaded_discord_token)
+                    discord_status.set("Token loaded and hidden." if is_en else "Token dimuat dan disembunyikan.")
+                self.root.after(0, _apply_loaded_token)
+
+        threading.Thread(target=_load_discord_token, daemon=True).start()
 
         def _save_discord() -> None:
             token = discord_entry.get().strip()
@@ -7714,6 +7755,48 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             except Exception as e:
                 logger.debug(f"[Queue] Could not remove queue row {idx}: {e}")
         return removed
+
+    def _reveal_queue_ids(self, queue_ids: Set[str]) -> None:
+        """Highlight failed rows and scroll the queue to the first one."""
+        wanted = {str(value) for value in queue_ids if value}
+        if not wanted:
+            return
+
+        def _reveal() -> None:
+            first_row = None
+            first_index = None
+            for index, item in enumerate(self._queue_data):
+                if str(item.get("_queue_id") or "") not in wanted:
+                    continue
+                if index >= len(self._queue_rows):
+                    continue
+                row, _dot, url_label, _badge, _remove = self._queue_rows[index]
+                try:
+                    row.configure(border_width=1, border_color="#ef4444")
+                    url_label.configure(text_color="#fca5a5")
+                    self._set_dot(index, "error")
+                    if first_row is None:
+                        first_row, first_index = row, index
+                except Exception as exc:
+                    logger.debug("[Queue] Could not highlight failed row: %s", exc)
+            if first_row is None:
+                return
+            try:
+                self.root.update_idletasks()
+                canvas = getattr(self._qlist, "_parent_canvas", None)
+                if canvas is not None:
+                    bounds = canvas.bbox("all") or (0, 0, 0, 1)
+                    content_height = max(1, int(bounds[3] - bounds[1]))
+                    position = _queue_scroll_fraction(
+                        first_row.winfo_y(), content_height, canvas.winfo_height()
+                    )
+                    canvas.yview_moveto(position)
+                first_row.focus_set()
+                logger.info("[Queue] Revealed failed row %s.", first_index)
+            except Exception as exc:
+                logger.debug("[Queue] Could not scroll to failed row: %s", exc)
+
+        self.root.after_idle(_reveal)
 
     def _done_base(self) -> None:
         self._is_running = False

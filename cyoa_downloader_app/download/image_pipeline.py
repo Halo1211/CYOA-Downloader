@@ -26,6 +26,7 @@ from .asset_scan import (
     _check_image_dedup,
     _safe_response_text,
     _scan_file_for_assets,
+    _infer_generated_entry_images,
     _deep_scan_project_assets,
     _extract_image_references,
 )
@@ -1107,6 +1108,7 @@ def _deep_scan_and_download_assets(
     scanned_files: Set[str]        = set()   # abs file paths already scanned
     known_urls:    Set[str]        = set()   # canonical candidate URLs already seen
     candidate_sources: Dict[str, Set[str]] = {}
+    scanned_texts: Dict[str, str] = {}
     excluded_paths = {
         str(path).replace('\\', '/').lstrip('./').lower()
         for path in (exclude_relative_paths or set())
@@ -1172,6 +1174,7 @@ def _deep_scan_and_download_assets(
                 try:
                     with open(fpath, encoding='utf-8', errors='replace') as _fh:
                         text = _fh.read()
+                    scanned_texts[rel] = text
                     urls = run_asset_scanner_plugins(text, f_url, base_url, ext)
                     canonical_urls = {_canonical_scan_url(url) for url in urls}
                     new_candidates |= (canonical_urls - known_urls)
@@ -1179,6 +1182,15 @@ def _deep_scan_and_download_assets(
                         candidate_sources.setdefault(candidate, set()).add(f_url)
                 except Exception as e:
                     logger.debug(f"[deep scan] {fn}: {e}")
+        for inferred_path in _infer_generated_entry_images(scanned_texts):
+            candidate = _canonical_scan_url(
+                urljoin(base_url.rstrip('/') + '/', inferred_path)
+            )
+            candidate_sources.setdefault(candidate, set()).add(
+                "generated Entry.id image contract"
+            )
+            if candidate not in known_urls:
+                new_candidates.add(candidate)
         return new_candidates
 
     def _url_to_local(url: str, content: Optional[bytes] = None) -> str:

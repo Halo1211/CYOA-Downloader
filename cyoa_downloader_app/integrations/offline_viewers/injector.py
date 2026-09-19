@@ -25,8 +25,10 @@ from ...logging_setup import logger
 from ...project.parse import extract_balanced_brace_block
 from ..ai_core import _ssrf_block_cross_origin
 from .iccplus import (
+    _OFFLINE_PROJECT_PAYLOAD,
     _apply_iccplus_viewer_config_to_html,
     _build_html_interceptor,
+    _build_project_payload,
     _html_escape,
     _inject_into_head,
     _unique_folder,
@@ -1023,6 +1025,11 @@ setTimeout(function(){clearInterval(t);},30000);
     )
 
     try:
+        if '__cyoa_offline_patch__' in html:
+            atomic_write_text(
+                os.path.join(site_folder, _OFFLINE_PROJECT_PAYLOAD),
+                _build_project_payload(data_js),
+            )
         atomic_write_text(index_path, html)
         logger.info(
             f"OK Offline viewer ready -> {os.path.relpath(index_path, output_dir)} "

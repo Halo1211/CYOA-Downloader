@@ -29,6 +29,11 @@ from ...core.paths import _safe_archive_rel_path
 from ...logging_setup import logger
 from ...project.parse import extract_balanced_brace_block
 from . import registry as viewer_registry
+from .iccplus import (
+    _OFFLINE_PROJECT_PAYLOAD,
+    _build_html_interceptor,
+    _build_project_payload,
+)
 from .registry import _ICC_MARKER_RE
 
 
@@ -980,30 +985,12 @@ def build_preserved_index(
     )
     html = _remove_incompatible_runtime_scripts(html, family)
     if family is SiteFamily.ICC_PLUS_2:
+        html = _strip_project_interceptor_markup(html)
         html = _ensure_head_markup(html, _PLUS2_REQUIRED_HEAD)
-        # Current Plus 2 offline bundles embed the project at their injection
-        # marker, but still try fetch("project.json") during startup. Browsers
-        # reject sibling fetches under file:// and the runtime logs a CORS
-        # error before falling back to the embedded state. Satisfy that narrow
-        # request from the same project payload so double-click startup is
-        # clean and retains the runtime's normal loading path.
-        if '__cyoa_offline_patch__' not in html:
-            from .iccplus import _build_html_interceptor
-
-            try:
-                project = json.loads(project_text)
-            except (TypeError, ValueError):
-                project = None
-            if isinstance(project, dict):
-                data_js = json.dumps(
-                    project, ensure_ascii=False, separators=(",", ":")
-                )
-                html = _inject_into_head(
-                    html,
-                    _build_html_interceptor(
-                        data_js, len(project_text.encode("utf-8"))
-                    ),
-                )
+        # The offline runtime receives the full project at its app.js marker.
+        # Its optional project.json fetch may fail on file://, but the embedded
+        # state remains authoritative; duplicating that state in HTML or a
+        # second JS payload needlessly doubles large projects.
         if not re.search(
             r"\bid\s*=\s*([\"'])app\1", html, flags=re.IGNORECASE
         ):
@@ -1096,6 +1083,153 @@ def _patch_index_for_replacement(
     atomic_write_text(str(index_path), html)
 
 
+def _write_external_project_payload(index_path: Path, project_text: str) -> Path:
+    """Write the compact project object next to an interceptor-bearing HTML."""
+    project = json.loads(project_text)
+    data_js = json.dumps(project, ensure_ascii=False, separators=(",", ":"))
+    payload_path = index_path.parent / _OFFLINE_PROJECT_PAYLOAD
+    atomic_write_text(str(payload_path), _build_project_payload(data_js))
+    return payload_path
+
+
+def _strip_project_interceptor_markup(html: str) -> str:
+    """Remove both generations of the project interceptor from HTML."""
+    external_pattern = re.compile(
+        r'<script\b[^>]*\bsrc=["\'](?:\./)?__cyoa_offline_project__\.js["\']'
+        r'[^>]*>\s*</script>\s*',
+        flags=re.IGNORECASE,
+    )
+    marker_pattern = re.compile(
+        r'<script\b[^>]*\bid=["\']__cyoa_offline_patch__["\'][^>]*>'
+        r'.*?</script>\s*',
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    return marker_pattern.sub("", external_pattern.sub("", html), count=1)
+
+
+def externalize_inline_project_interceptor(
+    index_path: os.PathLike[str] | str,
+    project_path: os.PathLike[str] | str | None = None,
+) -> bool:
+    """Migrate a legacy inline ``var D=<project>`` patch to a sibling payload.
+
+    Returns ``True`` only when an old inline interceptor was replaced. Existing
+    externalized output is intentionally left byte-for-byte unchanged.
+    """
+    index = Path(index_path)
+    html = _read_text(index)
+    marker = re.search(
+        r'<script\b[^>]*\bid=["\']__cyoa_offline_patch__["\'][^>]*>'
+        r'(?P<body>.*?)</script>\s*',
+        html,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if not marker or not re.search(
+        r'\bvar\s+D\s*=\s*(?!window\.__CYOA_OFFLINE_PROJECT__)',
+        marker.group("body"),
+    ):
+        return False
+
+    project_file = Path(project_path) if project_path is not None else index.with_name("project.json")
+    project_text = _read_text(project_file)
+    # Validate before changing either output file.
+    json.loads(project_text)
+    replacement = _build_html_interceptor(
+        "", len(project_text.encode("utf-8"))
+    )
+    external_tag = re.compile(
+        r'<script\b[^>]*\bsrc=["\'](?:\./)?__cyoa_offline_project__\.js["\']'
+        r'[^>]*>\s*</script>\s*',
+        flags=re.IGNORECASE,
+    )
+    without_duplicate_loader = external_tag.sub("", html)
+    migrated = re.sub(
+        r'<script\b[^>]*\bid=["\']__cyoa_offline_patch__["\'][^>]*>'
+        r'.*?</script>\s*',
+        lambda _match: replacement,
+        without_duplicate_loader,
+        count=1,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    _write_external_project_payload(index, project_text)
+    atomic_write_text(str(index), migrated)
+    return True
+
+
+def _runtime_marker_contains_project(site_root: Path, project_text: str) -> bool:
+    """Return whether a local runtime marker contains the expected project."""
+    expected = json.loads(project_text)
+    for script in site_root.rglob("*.js"):
+        if "__original_site__" in script.relative_to(site_root).parts:
+            continue
+        text = _read_text(script)
+        marker = _ICC_MARKER_RE.search(text)
+        if marker is None:
+            continue
+        after = text[marker.end():]
+        brace_index = after.find("{")
+        if brace_index < 0:
+            continue
+        block = extract_balanced_brace_block(after, brace_index)
+        if not block:
+            continue
+        try:
+            embedded = json.loads(block)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if embedded == expected:
+            return True
+        # Asset localization can rewrite paths in the injected runtime after
+        # project.json is written. Treat matching non-empty project structure
+        # as the same payload even when those leaf strings differ.
+        if isinstance(embedded, dict) and isinstance(expected, dict):
+            embedded_rows = embedded.get("rows")
+            expected_rows = expected.get("rows")
+            if isinstance(embedded_rows, list) and isinstance(expected_rows, list):
+                def _choice_count(rows: list) -> int:
+                    return sum(
+                        len(row.get("objects") or row.get("choices") or [])
+                        for row in rows
+                        if isinstance(row, dict)
+                    )
+
+                same_identity = (
+                    len(embedded_rows) > 0
+                    and len(embedded_rows) == len(expected_rows)
+                    and _choice_count(embedded_rows) == _choice_count(expected_rows)
+                    and embedded.get("version") == expected.get("version")
+                )
+                if same_identity:
+                    return True
+    return False
+
+
+def remove_redundant_project_interceptor(
+    index_path: os.PathLike[str] | str,
+    project_path: os.PathLike[str] | str | None = None,
+) -> bool:
+    """Remove a duplicated HTML payload when app.js already has the project."""
+    index = Path(index_path)
+    project_file = Path(project_path) if project_path is not None else index.with_name("project.json")
+    project_text = _read_text(project_file)
+    if not _runtime_marker_contains_project(index.parent, project_text):
+        return False
+    html = _read_text(index)
+    marker_pattern = re.compile(
+        r'<script\b[^>]*\bid=["\']__cyoa_offline_patch__["\'][^>]*>'
+        r'.*?</script>\s*',
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if not marker_pattern.search(html):
+        return False
+    migrated = _strip_project_interceptor_markup(html)
+    atomic_write_text(str(index), migrated)
+    payload_path = index.with_name(_OFFLINE_PROJECT_PAYLOAD)
+    if payload_path.exists():
+        payload_path.unlink()
+    return True
+
+
 def _overlay_template(template_dir: Path, destination: Path) -> list[str]:
     changed: list[str] = []
     for source in template_dir.rglob("*"):
@@ -1184,12 +1318,12 @@ def _ensure_file_protocol_project_interceptor(
     marker_script: Path | None,
     project_text: str,
 ) -> list[str]:
-    """Inject embedded project responses for legacy XHR/fetch loaders.
+    """Add compatibility nodes required by legacy XHR/fetch loaders.
 
     Marker injection supplies the Vue/Vuex initial state, but customized legacy
     viewers can still reload ``project.json`` through XHR during ``beforeCreate``.
-    Add the narrow project-only interceptor only when that runtime pattern is
-    actually present; sites without it remain byte-for-byte unchanged.
+    The project itself is already injected at the runtime marker. Keep only
+    DOM compatibility shims here so the payload is not duplicated in HTML.
     """
     if index_path is None or marker_script is None:
         return []
@@ -1201,9 +1335,6 @@ def _ensure_file_protocol_project_interceptor(
         return []
     original_html = _read_text(index_path)
     html = original_html
-    has_interceptor = '__cyoa_offline_patch__' in html
-    from .iccplus import _build_html_interceptor, _inject_into_head
-
     compat_nodes: list[tuple[str, str]] = []
     for element_id, tag_name in (("lm", "div"), ("indicator", "span")):
         runtime_lookup = re.search(
@@ -1247,17 +1378,6 @@ def _ensure_file_protocol_project_interceptor(
         )
 
     patched = html
-    if not has_interceptor:
-        try:
-            project = json.loads(project_text)
-        except (TypeError, ValueError):
-            return []
-        data_js = json.dumps(project, ensure_ascii=False, separators=(",", ":"))
-        data_js = data_js.replace("</", "<\\/")
-        patched = _inject_into_head(
-            patched,
-            _build_html_interceptor(data_js, len(project_text.encode("utf-8"))),
-        )
     if patched == original_html:
         return []
     backup_path = _backup_original(site_root, index_path)
@@ -1557,6 +1677,8 @@ __all__ = [
     "ViewerTemplate",
     "analyze_site",
     "build_preserved_index",
+    "externalize_inline_project_interceptor",
+    "remove_redundant_project_interceptor",
     "merge_legacy_index_customizations",
     "modernize_collection",
     "modernize_site",

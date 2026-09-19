@@ -10,15 +10,27 @@ from typing import Any, Dict, Tuple
 
 from ...logging_setup import logger
 
-def _build_html_interceptor(data_js: str, size_bytes: int) -> str:
-    """Build the HTML fetch/XHR interceptor script tag (fallback when JS embed fails)."""
-    # Same "</script>"-termination hardening as the main
-    # injection path, in case a future caller passes unescaped JSON.
+_OFFLINE_PROJECT_PAYLOAD = "__cyoa_offline_project__.js"
+
+
+def _build_project_payload(data_js: str) -> str:
+    """Build the external project payload consumed by the HTML interceptor."""
     data_js = data_js.replace("</", "<\\/")
     return (
+        f"window.__CYOA_OFFLINE_PROJECT__={data_js};\n"
+        "window.__CYOA_PROJECT__=window.__CYOA_OFFLINE_PROJECT__;\n"
+        "window.__ICCPLUS_DATA__=window.__CYOA_OFFLINE_PROJECT__;\n"
+        "window.__CYOA_DATA__=window.__CYOA_OFFLINE_PROJECT__;\n"
+    )
+
+def _build_html_interceptor(data_js: str, size_bytes: int) -> str:
+    """Build a small interceptor that reads project data from a sibling JS file."""
+    return (
+        f'<script src="{_OFFLINE_PROJECT_PAYLOAD}"></script>\n'
         f'<script id="__cyoa_offline_patch__">'
         f'(function(){{'
-        f'var D={data_js};'
+        f'var D=window.__CYOA_OFFLINE_PROJECT__;'
+        f'if(!D){{console.error("Offline project payload is missing");return;}}'
         f'var R=/project\\.json|data\\.json/i;'
         f'var _f=window.fetch;'
         f'window.fetch=function(u,o){{'
@@ -179,6 +191,7 @@ def _apply_iccplus_viewer_config_to_html(
 
 
 __all__ = [
+    "_OFFLINE_PROJECT_PAYLOAD", "_build_project_payload",
     "_build_html_interceptor", "_inject_into_head", "_unique_folder",
     "_html_escape", "_extract_iccplus_app_and_viewer_config",
     "_apply_iccplus_viewer_config_to_html",

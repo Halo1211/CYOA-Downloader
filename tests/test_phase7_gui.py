@@ -35,6 +35,21 @@ def test_low_resolution_initial_gui_geometry_stays_inside_screen():
     assert min_h <= safe_h
 
 
+def test_settings_geometry_never_exceeds_small_screen():
+    safe_w, safe_h, min_w, min_h = gui_app._responsive_settings_geometry(800, 600)
+
+    assert safe_w <= 768
+    assert safe_h <= 512
+    assert min_w <= safe_w
+    assert min_h <= safe_h
+
+
+def test_failed_queue_scroll_fraction_targets_row_and_clamps():
+    assert gui_app._queue_scroll_fraction(0, 2000, 500) == 0.0
+    assert gui_app._queue_scroll_fraction(750, 2000, 500) == 0.5
+    assert gui_app._queue_scroll_fraction(2500, 2000, 500) == 1.0
+
+
 def test_phase7_preview_token_helpers_round_trip():
     token = preview_server._new_preview_token()
     try:

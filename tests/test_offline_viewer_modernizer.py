@@ -12,15 +12,74 @@ from cyoa_downloader_app.integrations.offline_viewers import injector, registry
 from cyoa_downloader_app.integrations.offline_viewers.modernizer import (
     SiteFamily,
     analyze_site,
+    externalize_inline_project_interceptor,
+    remove_redundant_project_interceptor,
     modernize_collection,
     modernize_site,
     resolve_registered_viewer_templates,
     resolve_viewer_templates,
 )
+from cyoa_downloader_app.integrations.offline_viewers.iccplus import (
+    _build_html_interceptor,
+    _build_project_payload,
+)
 
 MARKER = (
     "/*! Delete and replace this part with your project if you're pasting it in. */"
 )
+
+
+def test_html_interceptor_keeps_project_payload_out_of_html():
+    project = json.dumps({"rows": [{"description": "x" * 100_000}]})
+    markup = _build_html_interceptor(project, len(project.encode("utf-8")))
+    payload = _build_project_payload(project)
+
+    assert len(markup) < 5_000
+    assert "x" * 1_000 not in markup
+    assert 'src="__cyoa_offline_project__.js"' in markup
+    assert "window.__CYOA_OFFLINE_PROJECT__" in payload
+    assert "x" * 1_000 in payload
+
+
+def test_externalize_inline_interceptor_migrates_existing_output(tmp_path: Path):
+    project = json.dumps({"rows": [{"description": "x" * 100_000}]})
+    index = tmp_path / "index.html"
+    (tmp_path / "project.json").write_text(project, encoding="utf-8")
+    index.write_text(
+        "<html><head><script id=\"__cyoa_offline_patch__\">"
+        f"(function(){{var D={project};window.__CYOA_DATA__=D;}})();"
+        "</script></head><body></body></html>",
+        encoding="utf-8",
+    )
+
+    assert externalize_inline_project_interceptor(index) is True
+    migrated = index.read_text(encoding="utf-8")
+    payload = (tmp_path / "__cyoa_offline_project__.js").read_text(encoding="utf-8")
+    assert len(migrated) < 5_000
+    assert "x" * 1_000 not in migrated
+    assert 'src="__cyoa_offline_project__.js"' in migrated
+    assert "x" * 1_000 in payload
+    assert externalize_inline_project_interceptor(index) is False
+
+
+def test_redundant_interceptor_is_removed_when_runtime_contains_project(tmp_path: Path):
+    project = json.dumps({"rows": [{"title": "Already embedded"}]})
+    index = tmp_path / "index.html"
+    (tmp_path / "project.json").write_text(project, encoding="utf-8")
+    (tmp_path / "js").mkdir()
+    (tmp_path / "js" / "app.js").write_text(
+        f"const app={MARKER}\n{project};", encoding="utf-8"
+    )
+    index.write_text(
+        "<html><head><script id=\"__cyoa_offline_patch__\">"
+        f"(function(){{var D={project};}})();</script></head></html>",
+        encoding="utf-8",
+    )
+
+    assert remove_redundant_project_interceptor(index) is True
+    migrated = index.read_text(encoding="utf-8")
+    assert "__cyoa_offline_patch__" not in migrated
+    assert not (tmp_path / "__cyoa_offline_project__.js").exists()
 
 
 def _write(path: Path, text: str) -> None:
@@ -256,12 +315,10 @@ def test_modernize_plus2_replaces_runtime_but_preserves_site_customization(
     assert "custom/before.js" in html and "custom/after.js" in html
     assert "core.js" not in html
     assert "./js/app.js" in html
-    # The offline Plus 2 runtime still fetches project.json before falling
-    # back to its embedded state.  Double-click/file:// must satisfy that
-    # request locally instead of logging a CORS failure.
-    assert 'id="__cyoa_offline_patch__"' in html
-    assert "window.fetch" in html
-    assert "window.XMLHttpRequest" in html
+    # The local runtime already contains the project at its marker. Avoid a
+    # second full project copy in index.html or a companion payload script.
+    assert 'id="__cyoa_offline_patch__"' not in html
+    assert not (destination / "__cyoa_offline_project__.js").exists()
     assert (destination / "css" / "loading.css").read_text(
         encoding="utf-8"
     ) == "/* hand customized loading */"
@@ -309,9 +366,9 @@ def test_modernize_plus2_can_be_repeated_without_changing_original_backup(
     assert (site / "index.html").read_bytes() == first_index
     assert (site / "js" / "app.js").read_bytes() == first_app
     assert original_backup.read_text(encoding="utf-8") == original_index
-    assert (site / "index.html").read_text(encoding="utf-8").count(
-        'id="__cyoa_offline_patch__"'
-    ) == 1
+    assert 'id="__cyoa_offline_patch__"' not in (
+        site / "index.html"
+    ).read_text(encoding="utf-8")
 
 
 def test_invalid_plus2_template_does_not_partially_modify_in_place_site(
@@ -912,7 +969,7 @@ def test_modernize_makes_resource_counter_loader_work_on_file_protocol(
     assert "if (window.location.protocol !== 'file:') resources.forEach" in loader
 
 
-def test_modernize_intercepts_legacy_project_xhr_on_file_protocol(
+def test_modernize_legacy_project_xhr_uses_embedded_runtime_without_duplicate_payload(
     tmp_path: Path,
 ) -> None:
     site = tmp_path / "legacy-xhr"
@@ -935,10 +992,8 @@ def test_modernize_intercepts_legacy_project_xhr_on_file_protocol(
 
     assert result.status == "modernized"
     html = (site / "index.html").read_text(encoding="utf-8")
-    assert 'id="__cyoa_offline_patch__"' in html
-    assert "window.XMLHttpRequest" in html
-    assert 'location.protocol==="file:"' in html
-    assert 'event("loadend")' in html
+    assert 'id="__cyoa_offline_patch__"' not in html
+    assert not (site / "__cyoa_offline_project__.js").exists()
     assert '[["lm","div"],["indicator","span"]]' in html
     assert 'node.id=spec[0]' in html
     assert 'data-cyoa-runtime-compat="legacy-progress"' in html

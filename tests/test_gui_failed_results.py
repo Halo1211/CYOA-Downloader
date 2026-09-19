@@ -6,9 +6,20 @@ from types import SimpleNamespace
 
 from cyoa_downloader_app.core.progress import DownloadTelemetry
 from cyoa_downloader_app.gui.final_behaviors import (
+    _v24_dialog_geometry,
+    _v24_partition_result_rows,
     _v24_result_is_failed,
     _v24_result_rows,
 )
+
+
+def test_report_dialog_geometry_stays_inside_small_screen():
+    width, height, min_width, min_height = _v24_dialog_geometry(800, 600)
+
+    assert width <= 768
+    assert height <= 512
+    assert min_width <= width
+    assert min_height <= height
 from cyoa_downloader_app.gui.telemetry_log import _V46TelemetryLogHandler
 
 
@@ -48,6 +59,20 @@ def test_asset_failure_survives_successful_parent_job_for_results():
     assert failed[0]["filename"] == "missing.png"
     assert failed[0]["url"] == "https://example.test/cyoa/missing.png"
     assert failed[0]["error"] == "HTTP 404"
+
+
+def test_report_partitions_cyoa_outcomes_from_asset_failures():
+    rows = [
+        {"status": "OK", "url": "https://example.test/good", "result_type": "job"},
+        {"status": "FAIL", "url": "https://example.test/bad", "result_type": "job"},
+        {"status": "FAIL", "url": "https://cdn.test/missing.png", "result_type": "asset"},
+    ]
+
+    groups = _v24_partition_result_rows(rows)
+
+    assert [row["url"] for row in groups["cyoa_success"]] == ["https://example.test/good"]
+    assert [row["url"] for row in groups["cyoa_failed"]] == ["https://example.test/bad"]
+    assert [row["url"] for row in groups["asset_failed"]] == ["https://cdn.test/missing.png"]
 
 
 def test_results_see_enqueued_failure_before_gui_poller_applies_it():
