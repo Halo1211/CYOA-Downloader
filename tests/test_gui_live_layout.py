@@ -173,6 +173,18 @@ def test_live_gui_settings_location_and_expanded_progress_geometry(live_gui):
         assert "AI Assist" in integrations_text
         assert "Cloudflare / FlareSolverr" in integrations_text
 
+        flaresolverr_url_label = _visible_widget_with_text(
+            settings_window, "FlareSolverr API URL"
+        )
+        clear_sessions_button = _button_with_text(settings_window, "Clear sessions")
+        assert flaresolverr_url_label is not None
+        assert clear_sessions_button is not None
+        assert (
+            flaresolverr_url_label.winfo_rooty()
+            + flaresolverr_url_label.winfo_height()
+            <= clear_sessions_button.winfo_rooty()
+        )
+
         provider_label = _visible_widget_with_text(settings_window, "Provider")
         assert provider_label is not None
         ai_card = provider_label.master

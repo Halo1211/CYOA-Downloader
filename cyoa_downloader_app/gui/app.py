@@ -1056,7 +1056,7 @@ class CYOADownloaderGUI:
             threading.Thread(target=_worker, daemon=True).start()
 
         actions = ctk.CTkFrame(card, fg_color="transparent")
-        actions.grid(row=2, column=0, columnspan=2, sticky="ew", padx=12, pady=(2, 10))
+        actions.grid(row=3, column=0, columnspan=2, sticky="ew", padx=12, pady=(2, 10))
         actions.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(actions, textvariable=local_status, font=ctk.CTkFont("Segoe UI", 9),
                      text_color=p["muted"], anchor="w").grid(row=0, column=0, sticky="ew")
