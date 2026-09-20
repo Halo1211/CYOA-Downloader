@@ -124,10 +124,15 @@ def truncate_display_url(url: str, max_length: int = 72) -> str:
     text = str(url or "")
     if max_length < 12 or len(text) <= max_length:
         return text
-    parsed = urlparse(text)
-    prefix = parsed.netloc + parsed.path if parsed.netloc else text
-    suffix = ("?" + parsed.query) if parsed.query else ""
-    shown = prefix + suffix
+    try:
+        parsed = urlparse(text)
+        prefix = parsed.netloc + parsed.path if parsed.netloc else text
+        suffix = ("?" + parsed.query) if parsed.query else ""
+        shown = prefix + suffix
+    except (TypeError, ValueError):
+        # This helper runs in GUI status/error paths, where a malformed pasted
+        # URL must remain displayable instead of raising a second exception.
+        shown = text
     if len(shown) <= max_length:
         return shown
     keep_left = max(6, int(max_length * 0.62))

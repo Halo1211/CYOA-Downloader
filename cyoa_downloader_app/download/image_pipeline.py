@@ -39,6 +39,7 @@ from .audio_reports import (
 from .audio_download import _make_ytdlp_hook, _download_youtube_audio
 from .headers import get_headers_for_url
 from ..core.cancellation import _cancel_requested, _emit_progress_event, _raise_if_cancelled
+from ..core.paths import _safe_rel_path
 from ..core.progress import DownloadCancelledError
 from ..network.vpn import vpn_requirement_satisfied
 from ..integrations.discord_attachments import (
@@ -126,7 +127,9 @@ def _deep_scan_external_rel_path(url: str, content: Optional[bytes] = None) -> s
     # The short URL digest keeps same-named files from different CDNs and
     # meaningful query variants distinct without recreating the CDN directory
     # tree (which was the source of the huge hash-folder output).
-    digest = hashlib.sha1(str(url).encode("utf-8", "replace")).hexdigest()[:10]
+    digest = hashlib.sha1(
+        str(url).encode("utf-8", "replace"), usedforsecurity=False
+    ).hexdigest()[:10]
     filename = f"{stem[:120]}_{digest}{extension}"
 
     lower_ext = extension.lower()
@@ -140,7 +143,7 @@ def _deep_scan_external_rel_path(url: str, content: Optional[bytes] = None) -> s
         kind = "assets"
     else:
         kind = "assets"
-    return f"external/{kind}/{filename}"
+    return _safe_rel_path(f"external/{kind}/{filename}")
 
 
 def _asset_is_error_document(
@@ -921,7 +924,9 @@ def process_images(
                 raw_name = os.path.basename(unquote(resolved_parsed.path)) or "image"
                 safe_name = clean_url_path_component(raw_name)
                 stem, source_ext = os.path.splitext(safe_name)
-                digest = hashlib.sha1(resolved.encode("utf-8", "replace")).hexdigest()[:12]
+                digest = hashlib.sha1(
+                    resolved.encode("utf-8", "replace"), usedforsecurity=False
+                ).hexdigest()[:12]
                 # Keep the final Windows filename bounded too: the host + hash
                 # prefix can push an already-long CDN basename over MAX_PATH.
                 fn = clean_url_path_component(
@@ -1218,9 +1223,11 @@ def _deep_scan_and_download_assets(
         rel_path = rel_path.lstrip('/')
         if parsed.query:
             root, ext = os.path.splitext(rel_path)
-            digest = hashlib.sha1(parsed.query.encode("utf-8", "replace")).hexdigest()[:10]
+            digest = hashlib.sha1(
+                parsed.query.encode("utf-8", "replace"), usedforsecurity=False
+            ).hexdigest()[:10]
             rel_path = f"{root}_{digest}{ext}"
-        return rel_path
+        return _safe_rel_path(rel_path)
 
     failed_keys: Set[Tuple[str, str]] = set()
 

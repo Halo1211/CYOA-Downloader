@@ -55,6 +55,15 @@ def test_url_helpers_moved_out_of_legacy():
     assert "truncate_display_url" not in names
 
 
+def test_truncate_display_url_contains_malformed_authority():
+    value = "https://[" + "x" * 80
+
+    rendered = url_utils.truncate_display_url(value, 32)
+
+    assert len(rendered) == 32
+    assert "…" in rendered
+
+
 def test_probable_url_rejects_scheme_only_whitespace_and_invalid_ports():
     assert url_utils.is_probable_url("https://example.test/path")
     assert not url_utils.is_probable_url("https://")

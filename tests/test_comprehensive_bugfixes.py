@@ -1088,6 +1088,46 @@ def test_remote_batch_import_contains_malformed_csv_and_propagates_cancellation(
         batch_importer.import_queue_items_from_source("https://example.test/list.csv")
 
 
+def test_remote_batch_import_streams_and_stops_at_size_limit(monkeypatch):
+    class StreamingResponse:
+        headers = {}
+        encoding = "utf-8"
+
+        def __init__(self):
+            self.closed = False
+            self.chunks_read = 0
+
+        @property
+        def content(self):
+            raise AssertionError("remote batch import must not materialize response.content")
+
+        def iter_content(self, chunk_size=0):
+            assert chunk_size > 0
+            for _ in range(40):
+                self.chunks_read += 1
+                yield b"x" * (1024 * 1024)
+
+        def close(self):
+            self.closed = True
+
+    response = StreamingResponse()
+    fetch_kwargs = {}
+
+    def fake_fetch(_url, **kwargs):
+        fetch_kwargs.update(kwargs)
+        return response
+
+    monkeypatch.setattr(batch_importer, "fetch_response", fake_fetch)
+
+    assert batch_importer.import_queue_items_from_source(
+        "https://example.test/list.csv"
+    ) == []
+    assert fetch_kwargs["stream"] is True
+    assert fetch_kwargs["as_bytes"] is False
+    assert response.chunks_read == 33
+    assert response.closed
+
+
 def test_discovered_project_urls_block_cross_origin_internal_hosts(monkeypatch):
     html = '<script>fetch("http://127.0.0.1:9000/project.json")</script>'
     assert discover.find_candidate_urls_in_text(html, "https://public.test/game/") == []
@@ -1103,6 +1143,55 @@ def test_discovered_project_urls_block_cross_origin_internal_hosts(monkeypatch):
         source_url="https://public.test/game/",
     ) == (None, "")
     assert calls == []
+
+
+def test_project_candidate_rejects_declared_oversize_before_streaming(monkeypatch):
+    class OversizedResponse(FakeResponse):
+        def __init__(self):
+            super().__init__(200, {"Content-Length": "6"}, b"ignored")
+            self.iterated = False
+
+        def iter_content(self, chunk_size=131072):
+            self.iterated = True
+            yield self.content
+
+    response = OversizedResponse()
+    monkeypatch.setattr(
+        discover, "_MAX_PROJECT_CANDIDATE_BYTES", 5, raising=False
+    )
+    monkeypatch.setattr(discover, "fetch_response", lambda *_a, **_k: response)
+
+    assert discover.try_project_candidate("https://example.test/project.json") == (
+        None,
+        "",
+    )
+    assert not response.iterated
+    assert response.closed
+
+
+def test_project_candidate_stops_chunked_oversize_and_closes(monkeypatch):
+    class ChunkedResponse(FakeResponse):
+        def __init__(self):
+            super().__init__(200, {}, b"")
+            self.chunks_read = 0
+
+        def iter_content(self, chunk_size=131072):
+            for chunk in (b"abc", b"def", b"should-not-be-read"):
+                self.chunks_read += 1
+                yield chunk
+
+    response = ChunkedResponse()
+    monkeypatch.setattr(
+        discover, "_MAX_PROJECT_CANDIDATE_BYTES", 5, raising=False
+    )
+    monkeypatch.setattr(discover, "fetch_response", lambda *_a, **_k: response)
+
+    assert discover.try_project_candidate("https://example.test/project.json") == (
+        None,
+        "",
+    )
+    assert response.chunks_read == 2
+    assert response.closed
 
 
 def _prepare_fetch_base(monkeypatch, session):
@@ -1856,6 +1945,28 @@ def test_font_aliases_fetch_once_and_same_name_different_bytes_are_preserved(mon
     assert rewritten.count("fonts/font_2.woff2") == 1
 
 
+def test_font_download_bounds_unicode_filename_by_bytes(monkeypatch, tmp_path):
+    remote_name = "🙂" * 80 + ".woff2"
+    remote_url = f"https://cdn.test/{remote_name}"
+
+    def fake_fetch(url, **_kwargs):
+        assert url == remote_url
+        return FakeResponse(200, {"Content-Type": "font/woff2"}, b"font-data")
+
+    monkeypatch.setattr(fonts, "fetch_response", fake_fetch)
+    project = json.dumps({"font": remote_url}, ensure_ascii=False)
+
+    rewritten = fonts._download_fonts_into_folder(
+        project, "https://example.test/game/", str(tmp_path)
+    )
+
+    saved = list((tmp_path / "fonts").iterdir())
+    assert len(saved) == 1
+    assert len(saved[0].name.encode("utf-8")) <= 140
+    assert saved[0].read_bytes() == b"font-data"
+    assert f"fonts/{saved[0].name}" in rewritten
+
+
 def test_deep_scan_coalesces_cachebusters_but_keeps_query_variants(monkeypatch, tmp_path):
     (tmp_path / ".vite").mkdir()
     (tmp_path / "build").mkdir()
@@ -1952,6 +2063,44 @@ def test_deep_scan_flattens_external_assets_into_type_folder(monkeypatch, tmp_pa
     assert image_pipeline._deep_scan_external_rel_path(
         "https://cdn.example.test/avatarhd", b"\x00\x00\x00\x18ftypavif"
     ).endswith(".avif")
+
+
+def test_deep_scan_returns_the_actual_bounded_unicode_output_path(monkeypatch, tmp_path):
+    (tmp_path / "index.css").write_text("body{}", encoding="utf-8")
+    image_url = "https://cdn.example.test/" + ("🙂" * 100) + ".png"
+
+    monkeypatch.setattr(
+        image_pipeline, "run_asset_scanner_plugins", lambda *_a: {image_url}
+    )
+    monkeypatch.setattr(
+        image_pipeline,
+        "fetch_response",
+        lambda *_a, **_k: FakeResponse(
+            200, {"Content-Type": "image/png"}, b"\x89PNG\r\n\x1a\npayload"
+        ),
+    )
+    monkeypatch.setattr(image_pipeline, "_get_active_proxy", lambda: "")
+    monkeypatch.setattr(
+        image_pipeline, "_legacy", lambda: SimpleNamespace(_HTTP2_ENABLED=False)
+    )
+    monkeypatch.setattr(
+        image_pipeline, "_ssrf_block_cross_origin", lambda *_a: False
+    )
+    monkeypatch.setattr(
+        image_pipeline, "_throttle_bandwidth", lambda *_a, **_k: None
+    )
+
+    downloaded = image_pipeline._deep_scan_and_download_assets(
+        str(tmp_path),
+        "https://example.test/game/",
+        str(tmp_path),
+        max_workers=1,
+        ai_mode="off",
+    )
+
+    relative = downloaded[image_url]
+    assert len(Path(relative).name.encode("utf-8")) <= 140
+    assert (tmp_path / relative).is_file()
 
 
 def test_deep_scan_never_saves_html_as_bin_and_detects_extensionless_images(monkeypatch, tmp_path):

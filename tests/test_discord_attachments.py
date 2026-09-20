@@ -32,6 +32,19 @@ def test_collect_discord_urls_is_strict_and_deduplicated():
     assert not discord.is_discord_attachment_url(external_proxy)
 
 
+def test_discord_output_filename_is_byte_bounded_and_preserves_extension():
+    url = (
+        "https://cdn.discordapp.com/attachments/123/456/"
+        + ("🙂" * 180)
+        + ".png"
+    )
+
+    filename = discord._output_filename(url)
+
+    assert len(filename.encode("utf-8")) <= 255
+    assert filename.endswith(".png")
+
+
 def test_run_downloads_and_rewrites_json(tmp_path, monkeypatch):
     source = tmp_path / "project.json"
     url = "https://cdn.discordapp.com/attachments/123/456/picture.png?ex=1&is=2&hm=3"

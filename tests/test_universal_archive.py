@@ -455,6 +455,29 @@ def test_same_origin_unicode_asset_segment_is_bounded_by_bytes(tmp_path):
     assert pathlib.Path(local).suffix == ".png"
 
 
+def test_website_safe_filename_counts_mime_extension_in_byte_budget(tmp_path):
+    downloader = _bare_downloader(tmp_path)
+
+    filename = downloader._safe_filename(
+        "https://cdn.example.test/" + ("🙂" * 35),
+        ext_hint=".png",
+    )
+
+    assert len(filename.encode("utf-8")) <= 140
+    assert filename.endswith(".png")
+
+
+def test_website_collision_suffix_keeps_unicode_name_byte_bounded(tmp_path):
+    downloader = _bare_downloader(tmp_path)
+    url = "https://example.test/game/" + ("画" * 120) + ".png"
+
+    first = downloader._allocate_local_path(url, content_type="image/png")
+    second = downloader._allocate_local_path(url, content_type="image/png")
+
+    assert first != second
+    assert len(pathlib.Path(second).name.encode("utf-8")) <= 140
+
+
 def test_cross_domain_basename_fallback_cannot_substitute_wrong_asset(tmp_path, monkeypatch):
     downloader = WebsiteDownloader(
         "https://viewer.test/story/", str(tmp_path), archive_strategy="classic",
@@ -677,6 +700,20 @@ def test_route_local_names_are_windows_safe_and_collision_resistant(tmp_path):
 
     assert reserved.parent.name == "_CON"
     assert first != second
+
+
+def test_route_local_name_keeps_query_hash_inside_byte_budget(tmp_path):
+    crawler = RouteCrawler(
+        _FakeDownloader(tmp_path), ArchivePolicy(strategy="smart"),
+    )
+
+    local = pathlib.Path(
+        crawler._route_local_path(
+            "https://example.test/game/story/" + "🙂" * 80 + "?ending=one"
+        )
+    )
+
+    assert len(local.parent.name.encode("utf-8")) <= 140
 
 
 def test_route_crawler_ignores_malformed_ipv6_links(tmp_path):

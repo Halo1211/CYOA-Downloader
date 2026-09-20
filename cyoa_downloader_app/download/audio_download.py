@@ -311,7 +311,9 @@ def _download_youtube_audio(
                 from urllib.parse import urlparse as _urlparse
                 _slug = _urlparse(url_clean).path.rstrip("/").rsplit("/", 1)[-1]
                 _slug = _re.sub(r"[^A-Za-z0-9._-]+", "-", _slug).strip(".-_")[:64]
-                _digest = _hashlib.sha1(url_clean.encode("utf-8")).hexdigest()[:8]
+                _digest = _hashlib.sha1(
+                    url_clean.encode("utf-8"), usedforsecurity=False
+                ).hexdigest()[:8]
                 vid_id = f"{_slug or 'audio'}-{_digest}"
             except Exception:
                 vid_id = "audio"

@@ -16,6 +16,11 @@ from ..core.atomic_io import atomic_write_text, interprocess_file_lock
 from ..core.url_utils import is_probable_url
 from ..core.progress import DownloadCancelledError
 from ..logging_setup import logger
+from ..project.parse import try_decode_bytes
+
+
+_REMOTE_BATCH_MAX_BYTES = 32 * 1024 * 1024
+_REMOTE_BATCH_CHUNK_BYTES = 1024 * 1024
 
 
 def fetch_response(*args, **kwargs):
@@ -28,6 +33,30 @@ def _safe_response_text(response):
     # Shared response decoder now lives with asset-scan/download helpers.
     from ..download.asset_scan import _safe_response_text as _decode_response_text
     return _decode_response_text(response)
+
+
+def _read_remote_batch_text(response) -> str:
+    """Read an untrusted remote list without materializing an oversized body."""
+    raw_length = response.headers.get("Content-Length")
+    try:
+        declared_length = int(raw_length) if raw_length not in (None, "") else None
+    except (TypeError, ValueError):
+        declared_length = None
+    if declared_length is not None and declared_length > _REMOTE_BATCH_MAX_BYTES:
+        raise ValueError("Remote batch list exceeds the 32 MiB import limit")
+
+    payload = bytearray()
+    for chunk in response.iter_content(chunk_size=_REMOTE_BATCH_CHUNK_BYTES):
+        if not chunk:
+            continue
+        if len(payload) + len(chunk) > _REMOTE_BATCH_MAX_BYTES:
+            raise ValueError("Remote batch list exceeds the 32 MiB import limit")
+        payload.extend(chunk)
+
+    ignored_encodings = {"iso-8859-1", "iso8859-1", "latin-1", "latin1", ""}
+    encoding = str(getattr(response, "encoding", "") or "")
+    preferred = encoding if encoding.lower() not in ignored_encodings else ""
+    return try_decode_bytes(bytes(payload), preferred_encoding=preferred)
 
 def _derive_mode_flags(mode: str) -> Dict[str, object]:
     """Map a canonical batch mode key to run_download() keyword flags.
@@ -236,10 +265,16 @@ def import_queue_items_from_source(source: str) -> List[Dict[str, str]]:
     url = _google_sheet_csv_export_url(source) if "docs.google.com/spreadsheets" in source else source
     r = None
     try:
-        r = fetch_response(url, timeout=30, extra_headers={"User-Agent": "Mozilla/5.0"}, as_bytes=True)
+        r = fetch_response(
+            url,
+            timeout=30,
+            extra_headers={"User-Agent": "Mozilla/5.0"},
+            as_bytes=False,
+            stream=True,
+        )
         if r is None:
             raise RuntimeError("request failed")
-        text = _safe_response_text(r)
+        text = _read_remote_batch_text(r)
     except DownloadCancelledError:
         raise
     except Exception as e:
@@ -255,9 +290,6 @@ def import_queue_items_from_source(source: str) -> List[Dict[str, str]]:
     # A remote source is untrusted input. Keep an accidental HTML dump or a
     # giant generated sheet from freezing the GUI while materializing every
     # row, and contain csv.Error instead of crashing the import callback.
-    if len(text.encode("utf-8", "replace")) > 32 * 1024 * 1024:
-        logger.error("Remote batch list exceeds the 32 MiB import limit")
-        return []
     try:
         rows = list(csv.reader(io.StringIO(text)))
     except (csv.Error, UnicodeError) as exc:

@@ -6,6 +6,7 @@ import json
 import os
 import pathlib
 import re
+from glob import escape as escape_glob
 from typing import Optional
 from urllib.parse import parse_qs, unquote, urlparse
 
@@ -57,10 +58,24 @@ def resolve_archived_page(serve_dir: str, request_route: str) -> Optional[str]:
         manifest = json.loads(pathlib.Path(manifest_path).read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError, TypeError):
         return None
+    if not isinstance(manifest, dict):
+        return None
+    pages = manifest.get("pages", [])
+    if not isinstance(pages, list):
+        return None
 
-    wanted = _normalized_route(request_route)
-    for page in manifest.get("pages", []):
-        if not isinstance(page, dict) or _normalized_route(page.get("url", "")) != wanted:
+    try:
+        wanted = _normalized_route(request_route)
+    except (TypeError, ValueError, UnicodeError):
+        return None
+    for page in pages:
+        if not isinstance(page, dict):
+            continue
+        try:
+            page_route = _normalized_route(page.get("url", ""))
+        except (TypeError, ValueError, UnicodeError):
+            continue
+        if page_route != wanted:
             continue
         local = str(page.get("local") or "").replace("/", os.sep)
         candidate = os.path.abspath(os.path.join(root, local))
@@ -91,11 +106,17 @@ def extract_next_flight_stream(html: str) -> str:
 
 def resolve_next_optimizer_image(serve_dir: str, request_target: str) -> Optional[str]:
     """Resolve a ``/_next/image`` request to an already-downloaded source image."""
-    parsed = urlparse(str(request_target or ""))
+    try:
+        parsed = urlparse(str(request_target or ""))
+    except (TypeError, ValueError):
+        return None
     source_values = parse_qs(parsed.query).get("url", [])
     if not source_values:
         return None
-    source_path = unquote(urlparse(source_values[0]).path)
+    try:
+        source_path = unquote(urlparse(source_values[0]).path)
+    except (TypeError, ValueError, UnicodeError):
+        return None
     basename = pathlib.PurePosixPath(source_path).name
     stem, suffix = os.path.splitext(basename)
     if not stem:
@@ -103,9 +124,9 @@ def resolve_next_optimizer_image(serve_dir: str, request_target: str) -> Optiona
 
     root = pathlib.Path(serve_dir).resolve()
     search_roots = [root / "external" / "images", root / "images", root]
-    patterns = [basename]
+    patterns = [escape_glob(basename)]
     if suffix:
-        patterns.append(f"{stem}_*{suffix}")
+        patterns.append(f"{escape_glob(stem)}_*{escape_glob(suffix)}")
     for search_root in search_roots:
         if not search_root.is_dir():
             continue

@@ -24,6 +24,7 @@ from filecmp import cmp as files_are_equal
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
+from ...core.archive import validate_zip_archive
 from ...core.atomic_io import atomic_write_text
 from ...core.paths import _safe_archive_rel_path
 from ...logging_setup import logger
@@ -563,6 +564,13 @@ def _zip_members(archive: zipfile.ZipFile) -> list[str]:
 
 
 def _extract_zip(archive: zipfile.ZipFile, destination: Path) -> None:
+    validate_zip_archive(
+        archive,
+        max_members=10_000,
+        max_member_size=1024 * 1024 * 1024,
+        max_total_size=4 * 1024 * 1024 * 1024,
+        max_ratio=250.0,
+    )
     names = _zip_members(archive)
     roots = {name.replace("\\", "/").split("/", 1)[0] for name in names}
     strip_root = next(iter(roots)) + "/" if len(roots) == 1 else ""
@@ -595,7 +603,13 @@ def _extract_template(template: ViewerTemplate, destination: Path) -> None:
         )
     with zipfile.ZipFile(template.archive_path) as outer:
         if template.inner_archive:
-            _zip_members(outer)
+            validate_zip_archive(
+                outer,
+                max_members=10_000,
+                max_member_size=1024 * 1024 * 1024,
+                max_total_size=4 * 1024 * 1024 * 1024,
+                max_ratio=250.0,
+            )
             nested = outer.read(template.inner_archive)
             with zipfile.ZipFile(io.BytesIO(nested)) as viewer:
                 _extract_zip(viewer, destination)

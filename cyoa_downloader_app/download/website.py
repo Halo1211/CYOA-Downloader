@@ -968,11 +968,16 @@ class WebsiteDownloader:
         # names can't collide after truncation. Names within the limit are
         # returned unchanged.
         _MAX_NAME = 140
-        if len(root) + len(ext) > _MAX_NAME:
+        root_bytes = root.encode("utf-8", "replace")
+        ext_bytes = ext.encode("utf-8", "replace")
+        if len(root_bytes) + len(ext_bytes) > _MAX_NAME:
             import hashlib as _hl
-            digest = _hl.sha1(name.encode("utf-8", "replace")).hexdigest()[:10]
-            keep = max(1, _MAX_NAME - len(ext) - 11)  # 11 = "_" + digest
-            root = f"{root[:keep]}_{digest}"
+            digest = _hl.sha1(
+                name.encode("utf-8", "replace"), usedforsecurity=False
+            ).hexdigest()[:10]
+            keep = max(1, _MAX_NAME - len(ext_bytes) - 11)  # 11 = "_" + digest
+            bounded_root = root_bytes[:keep].decode("utf-8", "ignore") or fallback
+            root = f"{bounded_root}_{digest}"
         return f"{root}{ext}"
 
     def _kind_from(self, url: str, content_type: str = "", preferred_kind: str = "") -> str:
@@ -1095,7 +1100,10 @@ class WebsiteDownloader:
                 normalized_query = urlparse(self._normalize_cache_key(url)).query
                 if normalized_query:
                     rel_root, rel_ext = os.path.splitext(rel_parts)
-                    digest = hashlib.sha1(normalized_query.encode("utf-8", "replace")).hexdigest()[:10]
+                    digest = hashlib.sha1(
+                        normalized_query.encode("utf-8", "replace"),
+                        usedforsecurity=False,
+                    ).hexdigest()[:10]
                     rel_parts = f"{rel_root}_{digest}{rel_ext}"
                 local_candidate = _safe_join(self.output_folder, rel_parts)
                 os.makedirs(os.path.dirname(local_candidate), exist_ok=True)
@@ -1119,7 +1127,10 @@ class WebsiteDownloader:
         normalized_query = urlparse(self._normalize_cache_key(url)).query
         if normalized_query:
             root, ext = os.path.splitext(filename)
-            digest = hashlib.sha1(normalized_query.encode("utf-8", "replace")).hexdigest()[:10]
+            digest = hashlib.sha1(
+                normalized_query.encode("utf-8", "replace"),
+                usedforsecurity=False,
+            ).hexdigest()[:10]
             filename = f"{root}_{digest}{ext}"
         folder_name = kind if kind not in {"html", "json"} else "assets"
         folder = _safe_join(self.output_folder, folder_name, fallback="assets")

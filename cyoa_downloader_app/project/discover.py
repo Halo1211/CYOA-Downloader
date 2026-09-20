@@ -44,6 +44,13 @@ except Exception:  # pragma: no cover - mirrors legacy fallback behavior
         )
 
 
+_MAX_PROJECT_CANDIDATE_BYTES = 512 * 1024 * 1024
+
+
+class _ProjectCandidateTooLargeError(ValueError):
+    """Internal control flow for a bounded remote project response."""
+
+
 
 
 def get_iframe_url_from_cyoa_cafe(*args, **kwargs):
@@ -513,15 +520,25 @@ def try_project_candidate(
         url=display_url,
         total_bytes=total,
     )
-    chunks: List[bytes] = []
+    raw = bytearray()
     downloaded = 0
     try:
+        if total is not None and total > _MAX_PROJECT_CANDIDATE_BYTES:
+            raise _ProjectCandidateTooLargeError(
+                f"declared size {total} exceeds the "
+                f"{_MAX_PROJECT_CANDIDATE_BYTES}-byte limit"
+            )
         iterator = response.iter_content(chunk_size=128 * 1024)
         for chunk in iterator:
             _raise_if_cancelled()
             if not chunk:
                 continue
-            chunks.append(chunk)
+            if downloaded + len(chunk) > _MAX_PROJECT_CANDIDATE_BYTES:
+                raise _ProjectCandidateTooLargeError(
+                    f"streamed size exceeds the "
+                    f"{_MAX_PROJECT_CANDIDATE_BYTES}-byte limit"
+                )
+            raw.extend(chunk)
             downloaded += len(chunk)
             # Publish absolute byte progress directly. The legacy bandwidth
             # callback is disabled for this chunk so total bytes and speed are
@@ -536,13 +553,21 @@ def try_project_candidate(
                 url=display_url,
                 name=os.path.basename(urlparse(display_url).path) or display_url,
             )
-        raw = b"".join(chunks)
         validate_response_content_length(response, downloaded)
         _emit_progress_event(
             "file_completed",
             name=os.path.basename(urlparse(display_url).path) or display_url,
             url=display_url,
         )
+    except _ProjectCandidateTooLargeError as exc:
+        logger.warning("Project candidate rejected as too large: %s (%s)", candidate_url, exc)
+        _emit_progress_event(
+            "file_failed",
+            name=os.path.basename(urlparse(display_url).path) or display_url,
+            url=display_url,
+            error="Project candidate exceeds the 512 MiB size limit",
+        )
+        return None, ""
     except Exception:
         _emit_progress_event(
             "file_failed",

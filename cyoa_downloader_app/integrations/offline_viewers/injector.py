@@ -19,7 +19,12 @@ from bs4 import BeautifulSoup
 
 from ...core.archive import validate_zip_archive
 from ...core.atomic_io import atomic_write_bytes, atomic_write_text
-from ...core.paths import _copytree_merge_safe, _safe_archive_join
+from ...core.paths import (
+    _copytree_merge_safe,
+    _safe_archive_join,
+    _safe_rel_path,
+    _truncate_path_segment,
+)
 from ...diagnostics.reports import write_asset_failure_summary
 from ...logging_setup import logger
 from ...project.parse import extract_balanced_brace_block
@@ -181,14 +186,32 @@ def _localize_preserved_index_assets(
             return None
         if not path_parts:
             path_parts = ["index"]
-        safe_parts = [re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", part) for part in path_parts]
+        def _safe_source_segment(part: str) -> str:
+            # Remote hosts legitimately use dot-directories (for example
+            # ``/.nekoweb-api/``). Preserve one leading dot while applying the
+            # shared Windows-safe normalization and UTF-8 byte limit.
+            keep_leading_dot = part.startswith(".") and not part.startswith("..")
+            sanitized = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", part)
+            sanitized = _safe_rel_path(sanitized, fallback="asset")
+            if keep_leading_dot and not sanitized.startswith("."):
+                sanitized = "." + sanitized
+            return _truncate_path_segment(sanitized)
+
+        safe_parts = [_safe_source_segment(part) for part in path_parts]
         suffix = pathlib.PurePosixPath(safe_parts[-1]).suffix
         if not suffix:
             safe_parts[-1] += _kind_suffix(kind)
         if parsed.query:
             stem, ext = os.path.splitext(safe_parts[-1])
-            safe_parts[-1] = f"{stem}_{hashlib.sha1(parsed.query.encode()).hexdigest()[:10]}{ext}"
-        safe_host = re.sub(r"[^A-Za-z0-9._-]", "_", parsed.hostname)
+            query_digest = hashlib.sha1(
+                parsed.query.encode(), usedforsecurity=False
+            ).hexdigest()[:10]
+            safe_parts[-1] = f"{stem}_{query_digest}{ext}"
+        safe_parts[-1] = _safe_source_segment(safe_parts[-1])
+        safe_host = _safe_rel_path(
+            re.sub(r"[^A-Za-z0-9._-]", "_", parsed.hostname),
+            fallback="host",
+        )
         relative = pathlib.PurePosixPath("__source_assets__", safe_host, *safe_parts)
         destination = os.path.abspath(os.path.join(root, *relative.parts))
         try:
@@ -242,8 +265,12 @@ def _localize_preserved_index_assets(
             content_type = str(getattr(response, "headers", {}).get("Content-Type", "")).lower()
             inferred_suffix = _kind_suffix(kind, content_type)
             if not pathlib.PurePosixPath(destination).suffix and inferred_suffix:
-                destination += inferred_suffix
-                relative = pathlib.PurePosixPath(relative.as_posix() + inferred_suffix)
+                relative_parts = list(relative.parts)
+                relative_parts[-1] = _safe_source_segment(
+                    relative_parts[-1] + inferred_suffix
+                )
+                relative = pathlib.PurePosixPath(*relative_parts)
+                destination = os.path.abspath(os.path.join(root, *relative.parts))
             os.makedirs(os.path.dirname(destination), exist_ok=True)
             local_reference = "./" + relative.as_posix()
             downloaded[cache_key] = (local_reference, destination)

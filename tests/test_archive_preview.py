@@ -35,6 +35,15 @@ def test_resolve_archived_page_uses_original_clean_route(tmp_path):
     assert resolve_archived_page(str(tmp_path), "/game/story/") == str(route)
 
 
+def test_resolve_archived_page_rejects_wrong_manifest_shape_and_malformed_route(tmp_path):
+    manifest = tmp_path / "archive_manifest.json"
+    manifest.write_text("[]", encoding="utf-8")
+    assert resolve_archived_page(str(tmp_path), "/game/story") is None
+
+    manifest.write_text(json.dumps({"pages": []}), encoding="utf-8")
+    assert resolve_archived_page(str(tmp_path), "http://[") is None
+
+
 def test_extract_next_flight_stream_decodes_and_joins_payloads():
     html = (
         '<script>self.__next_f.push([0])</script>'
@@ -55,6 +64,21 @@ def test_resolve_next_optimizer_image_finds_localized_source(tmp_path):
     )
 
     assert resolve_next_optimizer_image(str(tmp_path), request) == str(image)
+
+
+def test_resolve_next_optimizer_image_treats_query_filename_as_literal(tmp_path):
+    secret = tmp_path / "secret.txt"
+    secret.write_text("not an image", encoding="utf-8")
+
+    assert resolve_next_optimizer_image(
+        str(tmp_path), "/_next/image?url=*.txt&w=640&q=75"
+    ) is None
+
+
+def test_resolve_next_optimizer_image_rejects_malformed_nested_source_url(tmp_path):
+    assert resolve_next_optimizer_image(
+        str(tmp_path), "/_next/image?url=http%3A%2F%2F%5B&w=640&q=75"
+    ) is None
 
 
 def test_archive_preview_never_resolves_manifest_page_through_outside_symlink(tmp_path):

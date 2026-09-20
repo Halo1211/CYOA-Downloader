@@ -43,6 +43,7 @@ DISCORD_REFRESH_BATCH_SIZE = 50
 DISCORD_REFRESH_PATH = "/attachments/refresh-urls"
 REFRESHABLE_HTTP_STATUSES = {401, 403, 404, 410}
 DEFAULT_MAX_FILE_BYTES = 512 * 1024 * 1024
+_MAX_SAFE_FILENAME_BYTES = 180
 
 
 class DiscordAttachmentError(RuntimeError):
@@ -179,7 +180,25 @@ def _safe_filename(value: str) -> str:
         "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
     }:
         name = "_" + name
-    return name[:180]
+    encoded = name.encode("utf-8", errors="replace")
+    if len(encoded) <= _MAX_SAFE_FILENAME_BYTES:
+        return name
+
+    stem, extension = os.path.splitext(name)
+    extension_bytes = extension.encode("utf-8", errors="replace")
+    if len(extension_bytes) > 20:
+        stem, extension, extension_bytes = name, "", b""
+    digest = hashlib.sha256(encoded).hexdigest()[:10]
+    stem_budget = max(
+        1,
+        _MAX_SAFE_FILENAME_BYTES - len(extension_bytes) - len(digest) - 1,
+    )
+    truncated_stem = (
+        stem.encode("utf-8", errors="replace")[:stem_budget]
+        .decode("utf-8", errors="ignore")
+        .rstrip(". ")
+    ) or "attachment"
+    return f"{truncated_stem}_{digest}{extension}"
 
 
 def _canonical_attachment_key(url: str) -> str:

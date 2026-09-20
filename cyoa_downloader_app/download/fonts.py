@@ -24,6 +24,7 @@ from ..core.atomic_io import atomic_write_bytes
 from ..logging_setup import logger
 from ..network.fetch import fetch_response
 from ..project.discover import get_source
+from .package import clean_url_path_component
 
 
 def _find_font_urls(
@@ -278,9 +279,6 @@ def _download_fonts_into_folder(
                 raise RuntimeError("request failed")
             if r.status_code != 200:
                 raise RuntimeError(f"HTTP {r.status_code}")
-            raw_fn = os.path.basename(urlparse(font_url).path)
-            if not raw_fn:
-                raw_fn = hashlib.md5(font_url.encode()).hexdigest()[:8] + ".woff2"
             return font_url, r.content
         except Exception as e:
             logger.error(f"  Font failed: {font_url} — {e}")
@@ -297,7 +295,15 @@ def _download_fonts_into_folder(
         for font_url, content in ex.map(_download_one_font, representatives):
             if content is None:
                 continue
-            raw_fn = os.path.basename(urlparse(font_url).path) or hashlib.md5(font_url.encode()).hexdigest()[:8] + ".woff2"
+            remote_name = os.path.basename(urlparse(font_url).path)
+            raw_fn = (
+                clean_url_path_component(remote_name)
+                if remote_name
+                else hashlib.md5(
+                    font_url.encode(), usedforsecurity=False
+                ).hexdigest()[:8]
+                + ".woff2"
+            )
             # Deduplicate filename
             base_fn, ext_fn = os.path.splitext(raw_fn)
             fn = raw_fn
@@ -323,7 +329,7 @@ def _download_fonts_into_folder(
                 existing_different = True
             if existing_different or fn in saved_names:
                 while os.path.exists(save_path) or fn in saved_names:
-                    fn = f"{base_fn}_{counter}{ext_fn}"
+                    fn = clean_url_path_component(f"{base_fn}_{counter}{ext_fn}")
                     counter += 1
                     save_path = os.path.join(fonts_dir, fn)
             atomic_write_bytes(save_path, content)

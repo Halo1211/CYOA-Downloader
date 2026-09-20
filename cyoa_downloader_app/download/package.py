@@ -623,10 +623,14 @@ def clean_url_path_component(encoded_str: str) -> str:
     if len(cleaned.encode("utf-8", "replace")) > 140:
         import hashlib as _hl
         _root, _ext = os.path.splitext(cleaned)
-        if len(_ext) > 16:  # absurd "extension" — treat whole thing as stem
+        _ext_bytes = _ext.encode("utf-8", "replace")
+        if len(_ext_bytes) > 16:  # absurd extension — treat whole thing as stem
             _root, _ext = cleaned, ""
-        _digest = _hl.sha1(cleaned.encode("utf-8", "replace")).hexdigest()[:10]
-        _rb = _root.encode("utf-8", "replace")[: max(1, 140 - len(_ext) - 11)]
+            _ext_bytes = b""
+        _digest = _hl.sha1(
+            cleaned.encode("utf-8", "replace"), usedforsecurity=False
+        ).hexdigest()[:10]
+        _rb = _root.encode("utf-8", "replace")[: max(1, 140 - len(_ext_bytes) - 11)]
         _root = _rb.decode("utf-8", "ignore")
         cleaned = f"{_root}_{_digest}{_ext}"
     return cleaned

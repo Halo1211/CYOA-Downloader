@@ -111,13 +111,25 @@ class RouteCrawler:
         if not safe_parts:
             safe_parts = ["route"]
         if p.query:
-            safe_parts[-1] += "_" + hashlib.sha1(p.query.encode("utf-8")).hexdigest()[:8]
+            safe_parts[-1] = clean_url_path_component(
+                safe_parts[-1]
+                + "_"
+                + hashlib.sha1(
+                    p.query.encode("utf-8"), usedforsecurity=False
+                ).hexdigest()[:8]
+            )
         local = os.path.join(self.downloader.output_folder, "routes", *safe_parts, "index.html")
         canonical = self._canonicalize(url)
         path_key = os.path.normcase(os.path.abspath(local))
         owner = self._local_route_owners.get(path_key)
         if owner and owner != canonical:
-            safe_parts[-1] += "_" + hashlib.sha1(canonical.encode("utf-8")).hexdigest()[:8]
+            safe_parts[-1] = clean_url_path_component(
+                safe_parts[-1]
+                + "_"
+                + hashlib.sha1(
+                    canonical.encode("utf-8"), usedforsecurity=False
+                ).hexdigest()[:8]
+            )
             local = os.path.join(self.downloader.output_folder, "routes", *safe_parts, "index.html")
             path_key = os.path.normcase(os.path.abspath(local))
         self._local_route_owners[path_key] = canonical

@@ -61,6 +61,14 @@ def test_output_name_temp_helpers_moved_out_of_legacy():
         assert name not in names
 
 
+def test_clean_url_path_component_bounds_multibyte_extension_by_bytes():
+    cleaned = package_mod.clean_url_path_component(
+        "a" * 200 + "." + "🙂" * 10
+    )
+
+    assert len(cleaned.encode("utf-8")) <= 140
+
+
 def test_phase13_zip_temp_folder_uses_normalized_members():
     with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as cwd:
         src = Path(tmp) / "src"

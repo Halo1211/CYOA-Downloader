@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from cyoa_downloader_app.integrations.offline_viewers import injector, registry
+from cyoa_downloader_app.integrations.offline_viewers import injector, modernizer, registry
 from cyoa_downloader_app.integrations.offline_viewers.modernizer import (
     SiteFamily,
     analyze_site,
@@ -92,6 +92,17 @@ def _write_zip(path: Path, members: dict[str, str]) -> None:
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
         for name, contents in members.items():
             archive.writestr(name, contents)
+
+
+def test_extract_zip_rejects_suspicious_compression_ratio(tmp_path: Path):
+    archive_path = tmp_path / "compressed-bomb.zip"
+    _write_zip(archive_path, {"index.html": "x" * (2 * 1024 * 1024)})
+
+    with zipfile.ZipFile(archive_path) as archive:
+        with pytest.raises(ValueError, match="compression ratio"):
+            modernizer._extract_zip(archive, tmp_path / "output")
+
+    assert not (tmp_path / "output" / "index.html").exists()
 
 
 def _project(*, version: str | None = None, title: str = "Example") -> str:
@@ -886,6 +897,31 @@ def test_preserved_assets_localize_nested_css_and_avoid_file_directory_collision
     assert css.is_file()
     assert "../fonts/theme.woff2" in css.read_text(encoding="utf-8")
     assert (tmp_path / "__source_assets__" / "cdn.test" / "vue-select@latest" / "fonts" / "theme.woff2").is_file()
+
+
+def test_preserved_asset_localization_bounds_unicode_url_segments(tmp_path: Path) -> None:
+    remote = "https://cdn.test/" + ("🙂" * 100) + ".js?version=one"
+
+    def fetcher(url: str, **_kwargs):
+        assert url == remote
+        return SimpleNamespace(
+            status_code=200,
+            content=b"window.localized=true",
+            headers={"Content-Type": "application/javascript"},
+            close=lambda: None,
+        )
+
+    localized = injector._localize_preserved_index_assets(
+        f"<html><head><script src='{remote}'></script></head></html>",
+        "https://source.test/game/",
+        str(tmp_path),
+        fetcher=fetcher,
+    )
+
+    assert remote not in localized
+    files = list((tmp_path / "__source_assets__" / "cdn.test").rglob("*.js"))
+    assert len(files) == 1
+    assert len(files[0].name.encode("utf-8")) <= 140
 
 
 def test_preserved_local_stylesheet_localizes_remote_font_and_fixes_relative_loading_image(
