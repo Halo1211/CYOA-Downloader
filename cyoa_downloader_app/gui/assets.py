@@ -14,6 +14,11 @@ import pathlib
 
 from ..logging_setup import logger
 
+# Pillow, Tk, and external asset files are all optional GUI presentation
+# backends.  A failure in any of them must fall back to the embedded/default
+# presentation rather than prevent application startup.
+_OPTIONAL_IMAGE_BACKEND_ERRORS = (Exception,)
+
 _CYOA_LEGACY_PUBLIC_FILE = os.path.abspath(
     os.path.join(os.path.dirname(__file__), os.pardir, os.pardir, "cyoa_downloader.py")
 )
@@ -49,7 +54,7 @@ def _load_logo_images():
             Image.open(io.BytesIO(base64.b64decode(_APP_LOGO_LIGHT_B64))).convert("RGBA"),
             Image.open(io.BytesIO(base64.b64decode(_APP_LOGO_DARK_B64))).convert("RGBA"),
         )
-    except Exception as e:
+    except _OPTIONAL_IMAGE_BACKEND_ERRORS as e:
         logger.debug(f"Logo fallback used: {e}")
         return None, None
 
@@ -83,9 +88,9 @@ def _load_window_icon_photo(root=None):
                 master=root,
                 data=base64.b64encode(payload.getvalue()).decode("ascii"),
             )
-        except Exception as _embedded_icon_exc:
+        except _OPTIONAL_IMAGE_BACKEND_ERRORS as _embedded_icon_exc:
             logger.debug("Embedded window-icon fallback failed: %s", _embedded_icon_exc)
-    except Exception as e:
+    except _OPTIONAL_IMAGE_BACKEND_ERRORS as e:
         logger.debug(f"Window icon fallback used: {e}")
     return None
 

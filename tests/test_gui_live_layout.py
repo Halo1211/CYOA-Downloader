@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+from contextlib import suppress
+from tkinter import TclError
 
 import pytest
 
@@ -29,25 +31,21 @@ def live_gui():
 def _visible_texts(widget):
     values = []
     for child in widget.winfo_children():
-        try:
+        with suppress(TclError, AttributeError, ValueError):
             if not child.winfo_ismapped():
                 continue
             text = child.cget("text")
             if text:
                 values.append(str(text))
-        except Exception:
-            pass
         values.extend(_visible_texts(child))
     return values
 
 
 def _button_with_text(widget, expected):
     for child in widget.winfo_children():
-        try:
+        with suppress(TclError, AttributeError, ValueError):
             if expected in str(child.cget("text")) and callable(getattr(child, "invoke", None)):
                 return child
-        except Exception:
-            pass
         match = _button_with_text(child, expected)
         if match is not None:
             return match
@@ -56,13 +54,11 @@ def _button_with_text(widget, expected):
 
 def _visible_widget_with_text(widget, expected):
     for child in widget.winfo_children():
-        try:
+        with suppress(TclError, AttributeError, ValueError):
             if not child.winfo_ismapped():
                 continue
             if str(child.cget("text")) == expected:
                 return child
-        except Exception:
-            pass
         match = _visible_widget_with_text(child, expected)
         if match is not None:
             return match
@@ -71,11 +67,9 @@ def _visible_widget_with_text(widget, expected):
 
 def _widget_with_exact_text(widget, expected):
     for child in widget.winfo_children():
-        try:
+        with suppress(TclError, AttributeError, ValueError):
             if str(child.cget("text")) == expected:
                 return child
-        except Exception:
-            pass
         match = _widget_with_exact_text(child, expected)
         if match is not None:
             return match
@@ -85,11 +79,9 @@ def _widget_with_exact_text(widget, expected):
 def _buttons_containing_text(widget, expected):
     matches = []
     for child in widget.winfo_children():
-        try:
+        with suppress(TclError, AttributeError, ValueError):
             if child.__class__.__name__ == "CTkButton" and expected in str(child.cget("text")):
                 matches.append(child)
-        except Exception:
-            pass
         matches.extend(_buttons_containing_text(child, expected))
     return matches
 
@@ -251,10 +243,8 @@ def test_live_gui_settings_location_and_expanded_progress_geometry(live_gui):
         assert "feature_toggles" not in gui._singleton_windows
     finally:
         for window in list(getattr(gui, "_singleton_windows", {}).values()):
-            try:
+            with suppress(TclError):
                 window.destroy()
-            except Exception:
-                pass
 
 
 def test_import_export_stay_visible_without_maximizing(live_gui):

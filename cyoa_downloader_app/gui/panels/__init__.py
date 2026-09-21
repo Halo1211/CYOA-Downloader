@@ -6,6 +6,7 @@ this module is deliberately mechanical and idempotent.
 
 from __future__ import annotations
 
+import logging
 from typing import TypeVar
 
 T = TypeVar("T")
@@ -80,8 +81,8 @@ PANEL_BIND_ORDER = tuple(module.__name__.rsplit(".", 1)[-1] for module in PANEL_
 try:
     from ..app import CYOADownloaderGUI as _CYOADownloaderGUI
     attach_panel_methods(_CYOADownloaderGUI)
-except Exception:
-    pass
+except (ImportError, AttributeError) as exc:
+    logging.getLogger(__name__).debug("Deferred GUI panel binding during import cycle: %s", exc)
 
 
 __all__ = [

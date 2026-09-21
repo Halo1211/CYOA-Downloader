@@ -3,9 +3,6 @@ line-length = 120
 
 [lint]
 # Enforced ratchet: every selected rule is clean across the repository.
-# BLE001/S110 remain external until Phases 10-12 finish; Phase 9 infrastructure
-# is independently enforced by tests/test_phase9_exception_hygiene.py.
-external = ["BLE001", "S110"]
 select = [
     "E9",
     "F63",
@@ -17,6 +14,7 @@ select = [
     "B009",
     "B010",
     "B023",
+    "BLE001",
     "C401",
     "C405",
     "C408",
@@ -44,6 +42,7 @@ select = [
     "RUF046",
     "RUF059",
     "RUF100",
+    "S110",
     "S112",
     "SIM101",
     "SIM102",

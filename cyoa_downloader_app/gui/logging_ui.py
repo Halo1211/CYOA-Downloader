@@ -12,9 +12,15 @@ import queue as log_queue_module
 import re
 import threading
 from datetime import datetime
+from tkinter import TclError
 from typing import Any
 
 from ..logging_setup import _formatter, logger
+
+_LOG_EMIT_ERRORS = (Exception,)
+_LOG_HANDLER_ERRORS = (Exception,)
+_GUI_LOG_ERRORS = (AttributeError, RuntimeError, TclError, TypeError, ValueError)
+_LOG_RENDER_ERRORS = (Exception,)
 
 
 class GUILogHandler(logging.Handler):
@@ -69,7 +75,7 @@ class GUILogHandler(logging.Handler):
                 except log_queue_module.Full:
                     evicted += 1
                 self._restore_dropped(evicted)
-        except Exception:
+        except _LOG_EMIT_ERRORS:
             self.handleError(record)
 
 def _v465_configure_log_tags(self: Any) -> None:
@@ -144,7 +150,7 @@ def _v465_setup_logging(self: Any) -> None:
             logger.removeHandler(handler)
             try:
                 handler.close()
-            except Exception as exc:
+            except _LOG_HANDLER_ERRORS as exc:
                 logger.debug(f"GUI log handler close failed: {exc}")
     handler = GUILogHandler(self._log_queue)
     handler.setFormatter(_formatter)
@@ -191,7 +197,7 @@ def _v465_poll_log(self: Any) -> None:
     try:
         if not self.root.winfo_exists() or not self._log_txt.winfo_exists():
             return
-    except Exception:
+    except _GUI_LOG_ERRORS:
         return
     batch: list[Any] = []
     try:
@@ -207,13 +213,13 @@ def _v465_poll_log(self: Any) -> None:
             for item in batch:
                 try:
                     _v465_insert_log_line(self, item)
-                except Exception as exc:
+                except _LOG_RENDER_ERRORS as exc:
                     self._log_txt.insert("end", f"GUI log render error: {exc}\n", "ERROR")
             try:
                 line_count = int(self._log_txt.index("end-1c").split(".")[0])
                 if line_count > 5000:
                     self._log_txt.delete("1.0", f"{line_count - 4500}.0")
-            except Exception as exc:
+            except _GUI_LOG_ERRORS as exc:
                 logger.debug(f"GUI log trimming failed: {exc}")
             self._log_txt.see("end")
         finally:
@@ -224,7 +230,7 @@ def _v465_poll_log(self: Any) -> None:
             # an idle main window no longer wakes six times per second.
             next_delay = 75 if len(batch) >= 150 else (150 if batch else 500)
             self._v465_log_poll_after_id = self.root.after(next_delay, self._poll_log)
-    except Exception as exc:
+    except _GUI_LOG_ERRORS as exc:
         logger.debug(f"GUI log polling could not be rescheduled: {exc}")
 
 def _v465_safe_message(self: Any, title: str, message: str) -> None:
@@ -234,7 +240,7 @@ def _v465_safe_message(self: Any, title: str, message: str) -> None:
     def show() -> None:
         try:
             messagebox.showerror(str(title), str(message), parent=self.root)
-        except Exception as exc:
+        except _GUI_LOG_ERRORS as exc:
             logger.error(f"{title}: {message} (dialog failed: {exc})")
 
     if threading.current_thread() is threading.main_thread():

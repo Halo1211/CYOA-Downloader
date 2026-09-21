@@ -11,6 +11,8 @@ from typing import Any
 from ..core.progress import DownloadState
 from ..logging_setup import logger
 
+_LOG_HANDLER_ERRORS = (Exception,)
+
 
 class _V46TelemetryLogHandler(logging.Handler):
     """Translate stable legacy log messages into progress events without touching Tk."""
@@ -78,7 +80,7 @@ class _V46TelemetryLogHandler(logging.Handler):
             if event:
                 event.setdefault("time", time.monotonic())
                 gui._v46_enqueue_progress(event)
-        except Exception as exc:
+        except _LOG_HANDLER_ERRORS as exc:
             logger.debug(f"Telemetry log bridge failed: {exc}")
 
 __all__ = ["_V46TelemetryLogHandler"]

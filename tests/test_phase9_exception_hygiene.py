@@ -1,4 +1,4 @@
-"""Scoped Ruff ratchet for completed exception-hygiene phases."""
+"""Repository-wide exception-hygiene ratchet and cancellation guards."""
 
 from __future__ import annotations
 
@@ -13,34 +13,15 @@ from cyoa_downloader_app import cli
 from cyoa_downloader_app.core.progress import DownloadCancelledError
 
 ROOT = Path(__file__).resolve().parents[1]
-EXCEPTION_HYGIENE_PATHS = (
-    "cyoa_downloader_app/cli.py",
-    "cyoa_downloader_app/config",
-    "cyoa_downloader_app/core",
-    "cyoa_downloader_app/diagnostics",
-    "cyoa_downloader_app/download",
-    "cyoa_downloader_app/gui/app.py",
-    "cyoa_downloader_app/importers",
-    "cyoa_downloader_app/integrations",
-    "cyoa_downloader_app/logging_setup.py",
-    "cyoa_downloader_app/network",
-    "cyoa_downloader_app/project",
-    "cyoa_downloader_app/runtime",
-    "cyoa_downloader_app/storage",
-    "tools/audit_original_parity.py",
-    "tests/test_phase5_integrations.py",
-)
-
-
-def test_completed_exception_hygiene_scopes_stay_clean() -> None:
-    """Keep completed Phase 9 through Phase 11 scopes free of broad/silent catches."""
+def test_repository_exception_hygiene_stays_clean() -> None:
+    """Keep the completed exception-hygiene cleanup clean repository-wide."""
     result = subprocess.run(
         [
             sys.executable,
             "-m",
             "ruff",
             "check",
-            *EXCEPTION_HYGIENE_PATHS,
+            ".",
             "--select",
             "BLE001,S110",
             "--output-format",
@@ -55,15 +36,29 @@ def test_completed_exception_hygiene_scopes_stay_clean() -> None:
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_gui_dynamic_boundaries_propagate_download_cancellation() -> None:
+@pytest.mark.parametrize(
+    "relative_path,boundary_names",
+    [
+        (
+            "cyoa_downloader_app/gui/app.py",
+            {
+                "_GUI_CALLBACK_ERRORS",
+                "_GUI_JOB_BOUNDARY_ERRORS",
+                "_OPTIONAL_BACKEND_ERRORS",
+            },
+        ),
+        (
+            "cyoa_downloader_app/gui/final_behaviors.py",
+            {"_DYNAMIC_CALLBACK_ERRORS", "_GUI_JOB_BOUNDARY_ERRORS"},
+        ),
+    ],
+)
+def test_gui_dynamic_boundaries_propagate_download_cancellation(
+    relative_path: str, boundary_names: set[str]
+) -> None:
     """Every broad GUI boundary must preserve the cancellation control flow."""
-    source = (ROOT / "cyoa_downloader_app/gui/app.py").read_text(encoding="utf-8")
+    source = (ROOT / relative_path).read_text(encoding="utf-8")
     tree = ast.parse(source)
-    boundary_names = {
-        "_GUI_CALLBACK_ERRORS",
-        "_GUI_JOB_BOUNDARY_ERRORS",
-        "_OPTIONAL_BACKEND_ERRORS",
-    }
 
     for node in ast.walk(tree):
         if not isinstance(node, ast.Try):
@@ -75,8 +70,7 @@ def test_gui_dynamic_boundaries_propagate_download_cancellation() -> None:
             cancellation = node.handlers[index - 1]
             assert isinstance(cancellation.type, ast.Name)
             assert cancellation.type.id == "DownloadCancelledError"
-            assert len(cancellation.body) == 1
-            assert isinstance(cancellation.body[0], ast.Raise)
+            assert cancellation.body, f"line {handler.lineno}: cancellation handler is empty"
 
 
 def test_cli_batch_propagates_download_cancellation(

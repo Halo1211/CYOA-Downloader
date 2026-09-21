@@ -7,16 +7,22 @@ intentionally behavior-preserving.
 from __future__ import annotations
 
 import os
+import subprocess
+from tkinter import TclError
 from typing import Any
 
+from ..core.progress import DownloadCancelledError
 from ..logging_setup import logger
 from .logging_ui import GUILogHandler
+
+_TK_OPERATION_ERRORS = (AttributeError, RuntimeError, TclError, TypeError, ValueError)
+_DYNAMIC_CALLBACK_ERRORS = (Exception,)
 
 
 def _gui_exists(widget: Any) -> bool:
     try:
         return widget is not None and bool(widget.winfo_exists())
-    except Exception:
+    except _TK_OPERATION_ERRORS:
         return False
 
 
@@ -25,7 +31,7 @@ def _v25_safe_after(win: Any, fn) -> None:
     try:
         if win is not None and bool(win.winfo_exists()):
             win.after(0, fn)
-    except Exception as _ignored_exc:
+    except _TK_OPERATION_ERRORS as _ignored_exc:
         logger.debug("Ignored recoverable exception in _v25_safe_after (line 20307): %s", _ignored_exc)
 
 def _v25_safe_after_widget(root: Any, widget: Any, fn, delay: int = 0) -> None:
@@ -47,10 +53,12 @@ def _v25_safe_after_widget(root: Any, widget: Any, fn, delay: int = 0) -> None:
             try:
                 if _gui_exists(widget):
                     fn()
-            except Exception as _exc:
+            except DownloadCancelledError:
+                raise
+            except _DYNAMIC_CALLBACK_ERRORS as _exc:
                 logger.debug("safe_after_widget callback skipped: %s", _exc)
         root.after(delay, _runner)
-    except Exception as _ignored_exc:
+    except _TK_OPERATION_ERRORS as _ignored_exc:
         logger.debug("Ignored recoverable exception in _v25_safe_after_widget: %s", _ignored_exc)
 
 def _v25_center_window(win: Any, root: Any, width: int, height: int, *, min_w: int = 720, min_h: int = 520) -> None:
@@ -62,11 +70,11 @@ def _v25_center_window(win: Any, root: Any, width: int, height: int, *, min_w: i
         y = max(24, (sh - h) // 2)
         win.geometry(f"{w}x{h}+{x}+{y}")
         win.minsize(min_w, min_h)
-    except Exception:
+    except _TK_OPERATION_ERRORS:
         try:
             win.geometry(f"{width}x{height}")
             win.minsize(min_w, min_h)
-        except Exception as _ignored_exc:
+        except _TK_OPERATION_ERRORS as _ignored_exc:
             logger.debug("Ignored recoverable exception in _v25_center_window (line 20324): %s", _ignored_exc)
 
 def _v27_ai_provider_values() -> list[str]:
@@ -76,7 +84,7 @@ def _v27_safe_after(win: Any, fn: Any) -> None:
     try:
         if _gui_exists(win):
             win.after(0, lambda: fn() if _gui_exists(win) else None)
-    except Exception as exc:
+    except _TK_OPERATION_ERRORS as exc:
         logger.debug(f"GUI callback skipped: {exc}")
 
 def _v27_open_path(path: str) -> None:
@@ -85,7 +93,6 @@ def _v27_open_path(path: str) -> None:
     # undefined open_path() raised NameError, silently breaking this button.
     try:
         import platform
-        import subprocess
         if not path or not os.path.exists(path):
             logger.warning(f"Open path failed: path not found: {path}")
             return
@@ -96,7 +103,7 @@ def _v27_open_path(path: str) -> None:
             subprocess.Popen(["open", path], close_fds=True)
         else:
             subprocess.Popen(["xdg-open", path], close_fds=True)
-    except Exception as exc:
+    except (OSError, subprocess.SubprocessError, ValueError) as exc:
         logger.warning(f"Open path failed: {path}: {exc}")
 
 

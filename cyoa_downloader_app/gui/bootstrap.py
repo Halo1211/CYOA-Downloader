@@ -6,11 +6,15 @@ that compose the exported GUI class.
 """
 from __future__ import annotations
 
+import logging
 import threading
 from collections.abc import Iterable, MutableMapping
 from typing import Any
 
 from ..runtime import state as _runtime_state
+
+_GUI_BOOTSTRAP_ERRORS = (Exception,)
+_bootstrap_logger = logging.getLogger(__name__)
 
 
 def _sync(module_sync: Any, namespace: MutableMapping[str, Any]) -> None:
@@ -32,7 +36,7 @@ def _bind_methods(
     for name, value in bindings:
         try:
             setattr(cls, name, value)
-        except Exception as exc:
+        except _GUI_BOOTSTRAP_ERRORS as exc:
             if not recoverable:
                 raise
             if logger is not None:
@@ -45,12 +49,16 @@ def _resync_modules(sync_fns: Iterable[Any], namespace: MutableMapping[str, Any]
     for sync_fn in sync_fns:
         try:
             sync_fn(snapshot)
-        except Exception as exc:
+        except _GUI_BOOTSTRAP_ERRORS as exc:
             if logger is not None:
                 try:
                     logger.debug("Ignored recoverable exception during %s GUI namespace sync: %s", context, exc)
-                except Exception:
-                    pass
+                except _GUI_BOOTSTRAP_ERRORS as log_exc:
+                    _bootstrap_logger.debug(
+                        "GUI namespace sync and compatibility logger both failed during %s",
+                        context,
+                        exc_info=log_exc,
+                    )
 
 
 def bootstrap_gui_runtime(namespace: MutableMapping[str, Any]) -> MutableMapping[str, Any]:

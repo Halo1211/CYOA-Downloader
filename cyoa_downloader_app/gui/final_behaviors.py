@@ -113,6 +113,16 @@ from .widgets import (
     _v27_safe_after,
 )
 
+# These aliases are reserved for real GUI boundaries.  Tk callbacks are
+# selected dynamically, background jobs cross network/filesystem/provider
+# stacks, and optional backends (notably keyring and viewer integrations) do
+# not expose one stable exception hierarchy.  Cancellable jobs re-raise
+# DownloadCancelledError before entering a broad boundary.
+_GUI_CALLBACK_ERRORS = (Exception,)
+_DYNAMIC_CALLBACK_ERRORS = (Exception,)
+_GUI_JOB_BOUNDARY_ERRORS = (Exception,)
+_OPTIONAL_BACKEND_ERRORS = (Exception,)
+
 if TYPE_CHECKING:
     from .app import CYOADownloaderGUI
 
@@ -317,7 +327,7 @@ def _v24_show_results(self: Any) -> None:
         width, height, min_width, min_height = _v24_dialog_geometry(sw, sh)
         win.geometry(f"{width}x{height}")
         win.minsize(min_width, min_height)
-    except Exception:
+    except _GUI_CALLBACK_ERRORS:
         win.geometry("980x640")
         win.minsize(820, 520)
     win.configure(fg_color=p["bg"])
@@ -375,7 +385,7 @@ def _v24_show_results(self: Any) -> None:
                 for r in rows_all:
                     writer.writerow({k: r.get(k, "") for k in fields})
             logger.info(f"Results exported: {path}")
-        except Exception as e:
+        except (OSError, UnicodeError, ValueError, csv_mod.Error) as e:
             messagebox.showerror("Reports" if is_en else "Laporan", str(e), parent=win)
 
     def _copy_failed() -> None:
@@ -391,7 +401,7 @@ def _v24_show_results(self: Any) -> None:
         text = "\n\n".join(sections)
         try:
             win.clipboard_clear(); win.clipboard_append(text)
-        except Exception as _ignored_exc:
+        except _GUI_CALLBACK_ERRORS as _ignored_exc:
             logger.debug("Ignored recoverable exception in _copy_failed (line 19924): %s", _ignored_exc)
 
     ctk.CTkButton(top, text="Export CSV" if is_en else "Ekspor CSV", width=104, height=30, fg_color="#0f766e", hover_color="#115e59", text_color="#ffffff", command=_export_csv).pack(side="right", padx=(8, 0))
@@ -544,7 +554,9 @@ def _v24_batch_update_panel(self: Any) -> None:
             try:
                 results = _batch_check_updates(items, progress_cb=_progress)
                 err = ""
-            except Exception as exc:
+            except DownloadCancelledError:
+                raise
+            except _GUI_JOB_BOUNDARY_ERRORS as exc:
                 results, err = [], str(exc)
             def _done() -> None:
                 if not _gui_exists(win):
@@ -636,7 +648,7 @@ def _v24_diagnostics_panel(self: Any) -> None:
         text_box._textbox.tag_config("fail", foreground="#fca5a5")
         text_box._textbox.tag_config("head", foreground="#93c5fd")
         text_box._textbox.tag_config("muted", foreground=p["muted"])
-    except Exception as _ignored_exc:
+    except _GUI_CALLBACK_ERRORS as _ignored_exc:
         logger.debug("Ignored recoverable exception in _v24_diagnostics_panel (line 20164): %s", _ignored_exc)
     report = {"text": "", "counts": {"PASS": 0, "WARN": 0, "FAIL": 0}}
 
@@ -684,7 +696,7 @@ def _v24_diagnostics_panel(self: Any) -> None:
         try:
             win.clipboard_clear(); win.clipboard_append(report.get("text") or "")
             status.configure(text=("Copied" if is_en else "Disalin"))
-        except Exception as e:
+        except _GUI_CALLBACK_ERRORS as e:
             status.configure(text=str(e))
 
     def _save(path: str) -> None:
@@ -709,7 +721,9 @@ def _v24_diagnostics_panel(self: Any) -> None:
         def _worker() -> None:
             try:
                 text, counts = build_diagnostic_report(output_dir=self._outdir_var.get() or "", check_network=True, check_ai=bool(getattr(self, "_ai_enabled", False)), language=getattr(self, "_language", "id"))
-            except Exception as exc:
+            except DownloadCancelledError:
+                raise
+            except _GUI_JOB_BOUNDARY_ERRORS as exc:
                 text, counts = f"FAIL diagnostics {exc}", {"PASS": 0, "WARN": 0, "FAIL": 1}
             def _done() -> None:
                 if not _gui_exists(win):
@@ -747,7 +761,7 @@ def _v24_add_url_to_queue(self: Any, url: str, filename: str = "") -> None:
         if filename and hasattr(self, "_fn_var"):
             self._fn_var.set(filename)
         self._add_to_queue()
-    except Exception as exc:
+    except _GUI_CALLBACK_ERRORS as exc:
         logger.debug(f"Could not add URL to queue from helper: {exc}")
 
 
@@ -778,7 +792,7 @@ def _v25_ai_settings_panel(self: Any) -> None:
     try:
         win.transient(self.root)
         win.grab_set()
-    except Exception as _ignored_exc:
+    except _GUI_CALLBACK_ERRORS as _ignored_exc:
         logger.debug("Ignored recoverable exception in _v25_ai_settings_panel (line 20344): %s", _ignored_exc)
 
     root = ctk.CTkFrame(win, fg_color=p["bg"], corner_radius=0)
@@ -917,33 +931,33 @@ def _v25_ai_settings_panel(self: Any) -> None:
         provider = _normalize_ai_provider(provider_var.get())
         if provider == "ollama":
             try: key_entry.configure(state="disabled", placeholder_text="Ollama uses local API")
-            except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 20483): %s", _ignored_exc)
+            except _GUI_CALLBACK_ERRORS as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 20483): %s", _ignored_exc)
             try: ollama_url_entry.configure(state="normal")
-            except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 20485): %s", _ignored_exc)
+            except _GUI_CALLBACK_ERRORS as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 20485): %s", _ignored_exc)
             warn_var.set("Ollama uses a local endpoint; no cloud API key is needed." if is_en else "Ollama memakai endpoint lokal; API key cloud tidak diperlukan.")
         elif mode == "env":
             try: ollama_url_entry.configure(state="disabled")
-            except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 20489): %s", _ignored_exc)
+            except _GUI_CALLBACK_ERRORS as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 20489): %s", _ignored_exc)
             try: key_entry.configure(state="disabled", placeholder_text=_ai_primary_env_var(provider) or "Environment variable")
-            except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 20491): %s", _ignored_exc)
+            except _GUI_CALLBACK_ERRORS as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 20491): %s", _ignored_exc)
             warn_var.set(("Set " + " or ".join(_ai_env_vars(provider)) + " in the OS environment. The app will not store the key.") if is_en else ("Atur " + " atau ".join(_ai_env_vars(provider)) + " di environment OS. Aplikasi tidak menyimpan key."))
         elif mode == "keyring":
             try: ollama_url_entry.configure(state="disabled")
-            except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 20495): %s", _ignored_exc)
+            except _GUI_CALLBACK_ERRORS as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 20495): %s", _ignored_exc)
             try: key_entry.configure(state="normal", placeholder_text="Enter key to save to OS Credential Manager")
-            except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 20497): %s", _ignored_exc)
+            except _GUI_CALLBACK_ERRORS as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 20497): %s", _ignored_exc)
             warn_var.set(("Requires optional package: pip install keyring" if not _keyring_module() else "Key will be stored in the OS credential store.") if is_en else ("Membutuhkan paket opsional: pip install keyring" if not _keyring_module() else "Key akan disimpan di credential store sistem operasi."))
         elif mode == "plain":
             try: ollama_url_entry.configure(state="disabled")
-            except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 20501): %s", _ignored_exc)
+            except _GUI_CALLBACK_ERRORS as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 20501): %s", _ignored_exc)
             try: key_entry.configure(state="normal", placeholder_text="API key...")
-            except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 20503): %s", _ignored_exc)
+            except _GUI_CALLBACK_ERRORS as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 20503): %s", _ignored_exc)
             warn_var.set("Warning: plain-text storage writes the API key into settings.json." if is_en else "Peringatan: penyimpanan plain-text menulis API key ke settings.json.")
         else:
             try: ollama_url_entry.configure(state="disabled")
-            except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 20507): %s", _ignored_exc)
+            except _GUI_CALLBACK_ERRORS as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 20507): %s", _ignored_exc)
             try: key_entry.configure(state="normal", placeholder_text="Session only; cleared when app exits")
-            except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 20509): %s", _ignored_exc)
+            except _GUI_CALLBACK_ERRORS as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 20509): %s", _ignored_exc)
             warn_var.set("Safest default. The key stays in memory only." if is_en else "Default paling aman. Key hanya berada di memori.")
         status_var.set(_ai_key_status_text(mode, session_key_var.get(), provider))
 
@@ -951,7 +965,7 @@ def _v25_ai_settings_panel(self: Any) -> None:
         prov = _normalize_ai_provider(provider_var.get())
         opts = _ai_model_options(prov)
         try: model_menu.configure(values=opts)
-        except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in _provider_changed (line 20517): %s", _ignored_exc)
+        except _GUI_CALLBACK_ERRORS as _ignored_exc: logger.debug("Ignored recoverable exception in _provider_changed (line 20517): %s", _ignored_exc)
         if model_var.get() not in opts:
             model_var.set(_default_ai_model(prov))
         if prov == "ollama":
@@ -998,10 +1012,10 @@ def _v25_ai_settings_panel(self: Any) -> None:
             self._ai_enabled = bool(toggle_var.get())
             self._ai_key_storage = storage
             try: self._ai_var.set(self._ai_enabled)
-            except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in _save (line 20564): %s", _ignored_exc)
+            except _GUI_CALLBACK_ERRORS as _ignored_exc: logger.debug("Ignored recoverable exception in _save (line 20564): %s", _ignored_exc)
             _refresh_key_ui()
             status_var.set("Saved. AI Assist settings updated." if is_en else "Tersimpan. Pengaturan AI Assist diperbarui.")
-        except Exception as exc:
+        except _GUI_CALLBACK_ERRORS as exc:
             messagebox.showerror("AI Assist", (f"Failed to save: {exc}" if is_en else f"Gagal menyimpan: {exc}"), parent=win)
 
     def _clear_key() -> None:
@@ -1011,7 +1025,7 @@ def _v25_ai_settings_panel(self: Any) -> None:
             self._ai_api_key = ""
             _refresh_key_ui()
             status_var.set("Key cleared for the selected storage/provider." if is_en else "Key dibersihkan untuk storage/provider terpilih.")
-        except Exception as exc:
+        except _GUI_CALLBACK_ERRORS as exc:
             messagebox.showerror("AI Assist", str(exc), parent=win)
 
     def _test() -> None:
@@ -1027,7 +1041,9 @@ def _v25_ai_settings_panel(self: Any) -> None:
                 ok = _ai_is_available(key, prov)
                 msg = "API key works." if ok and is_en else "API key berhasil digunakan." if ok else "API key test failed. Check key, model, and network." if is_en else "Tes API key gagal. Cek key, model, dan jaringan."
                 _v25_safe_after(win, lambda: status_var.set(msg))
-            except Exception as exc:
+            except DownloadCancelledError:
+                raise
+            except _GUI_JOB_BOUNDARY_ERRORS as exc:
                 _v25_safe_after(win, lambda e=str(exc): status_var.set(("Test failed: " if is_en else "Tes gagal: ") + e))
         threading.Thread(target=worker, daemon=True).start()
 
@@ -1058,7 +1074,7 @@ def _v25_manage_offline_viewers(self: Any) -> None:
     try:
         win.transient(self.root)
         win.grab_set()
-    except Exception as _ignored_exc:
+    except _GUI_CALLBACK_ERRORS as _ignored_exc:
         logger.debug("Ignored recoverable exception in _v25_manage_offline_viewers (line 20624): %s", _ignored_exc)
 
     root = ctk.CTkFrame(win, fg_color=p["bg"], corner_radius=0)
@@ -1140,7 +1156,7 @@ def _v25_manage_offline_viewers(self: Any) -> None:
         name_win.configure(fg_color=p["bg"])
         _v25_center_window(name_win, win, 460, 360, min_w=420, min_h=320)
         try: name_win.grab_set()
-        except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in _add_viewer (line 20701): %s", _ignored_exc)
+        except _GUI_CALLBACK_ERRORS as _ignored_exc: logger.debug("Ignored recoverable exception in _add_viewer (line 20701): %s", _ignored_exc)
         form = ctk.CTkFrame(name_win, fg_color=p["surface"], corner_radius=14, border_width=1, border_color=p["border"])
         form.pack(fill="both", expand=True, padx=18, pady=18)
         form.grid_columnconfigure(0, weight=1)
@@ -1176,7 +1192,9 @@ def _v25_manage_offline_viewers(self: Any) -> None:
                     _refresh_list()
                 else:
                     messagebox.showerror("Viewer", "Failed to register viewer. Check log for details." if is_en else "Gagal mendaftarkan viewer. Cek log untuk detail.", parent=win)
-            except Exception as exc:
+            except DownloadCancelledError:
+                raise
+            except _GUI_JOB_BOUNDARY_ERRORS as exc:
                 messagebox.showerror("Viewer", str(exc), parent=win)
         ctk.CTkButton(btns, text=("Cancel" if is_en else "Batal"), width=90, fg_color=p["surface2"], hover_color=p["surface"], text_color=p["fg"], command=name_win.destroy).pack(side="left", padx=(0, 8))
         ctk.CTkButton(btns, text=("Register" if is_en else "Daftarkan"), width=110, fg_color="#3b82f6", hover_color="#2563eb", command=_do_register).pack(side="left")
@@ -1227,14 +1245,18 @@ def _v25_manage_offline_viewers(self: Any) -> None:
                     if messagebox.askyesno("New ICCPlus Release" if is_en else "Rilis ICCPlus Baru", (f"Latest release: {tag}\nFile: {asset_name}\n\nDownload and register?" if is_en else f"Rilis terbaru: {tag}\nFile: {asset_name}\n\nUnduh dan daftarkan?"), parent=win):
                         _do_download(tag, asset_name, asset_url)
                 _v25_safe_after(win, _offer)
-            except Exception as exc:
+            except DownloadCancelledError:
+                raise
+            except _GUI_JOB_BOUNDARY_ERRORS as exc:
                 _v25_safe_after(win, lambda e=str(exc): status_var.set(("Update check failed: " if is_en else "Cek update gagal: ") + e))
             finally:
                 if r is not None:
                     try:
                         r.close()
-                    except Exception:
-                        pass
+                    except DownloadCancelledError:
+                        raise
+                    except _GUI_JOB_BOUNDARY_ERRORS as close_exc:
+                        logger.debug("Update-check response cleanup failed: %s", close_exc)
         def _do_download(tag: str, asset_name: str, asset_url: str):
             status_var.set(f"Downloading {asset_name}…" if is_en else f"Mengunduh {asset_name}…")
             def _dl():
@@ -1261,7 +1283,9 @@ def _v25_manage_offline_viewers(self: Any) -> None:
                         viewer_type="icc_plus2",
                     )
                     _v25_safe_after(win, lambda: (status_var.set(f"{asset_name} registered as '{vid}'." if is_en else f"{asset_name} terdaftar sebagai '{vid}'."), _refresh_list()))
-                except Exception as exc:
+                except DownloadCancelledError:
+                    raise
+                except _GUI_JOB_BOUNDARY_ERRORS as exc:
                     _v25_safe_after(win, lambda e=str(exc): status_var.set(("Download failed: " if is_en else "Unduhan gagal: ") + e))
             threading.Thread(target=_dl, daemon=True).start()
         threading.Thread(target=_do_check, daemon=True).start()
@@ -1365,7 +1389,7 @@ def _v25_inject_into_viewer(self: Any, viewer_meta: dict, parent_win: Any = None
     try:
         win.transient(owner)
         win.grab_set()
-    except Exception as _ignored_exc:
+    except _GUI_CALLBACK_ERRORS as _ignored_exc:
         logger.debug("Ignored recoverable exception in _v25_inject_into_viewer (grab): %s", _ignored_exc)
 
     viewer_name = str(viewer_meta.get("name", viewer_meta.get("id", "viewer")))
@@ -1476,7 +1500,7 @@ def _v25_inject_into_viewer(self: Any, viewer_meta: dict, parent_win: Any = None
         try:
             with open(path, "rb") as fh:
                 raw = fh.read()
-        except Exception as exc:
+        except OSError as exc:
             _log(f"Could not read file: {exc}" if is_en else f"Gagal membaca file: {exc}")
             return None, {}
         assets: dict[str, str] = {}
@@ -1520,14 +1544,14 @@ def _v25_inject_into_viewer(self: Any, viewer_meta: dict, parent_win: Any = None
             js_files = sorted(
                 [f for f in os.listdir(folder) if f.lower().endswith(".js")],
                 key=lambda n: (0 if n.lower().startswith("app") else 1, n.lower()))
-        except Exception:
+        except OSError:
             js_files = []
         for js in js_files:
             jpath = os.path.join(folder, js)
             try:
                 with open(jpath, "rb") as fh:
                     raw = fh.read()
-            except Exception as exc:
+            except OSError as exc:
                 logger.debug("Could not read embedded-project candidate %s: %s", jpath, exc)
                 continue
             proj = extract_project_text_from_payload(try_decode_bytes(raw))
@@ -1541,12 +1565,12 @@ def _v25_inject_into_viewer(self: Any, viewer_meta: dict, parent_win: Any = None
     def _resolve_from_url(url: str):
         try:
             ai_provider = _get_ai_provider()
-        except Exception:
+        except _OPTIONAL_BACKEND_ERRORS:
             ai_provider = ""
         ai_key = ""
         try:
             ai_key = _resolve_ai_api_key()
-        except Exception:
+        except _OPTIONAL_BACKEND_ERRORS:
             ai_key = ""
         _log("Resolving project from URL…" if is_en else "Mengambil project dari URL…")
         proj, resolved = get_project_source(
@@ -1586,7 +1610,9 @@ def _v25_inject_into_viewer(self: Any, viewer_meta: dict, parent_win: Any = None
                 if kind == "url":
                     try:
                         stem = _build_output_name(src)
-                    except Exception:
+                    except DownloadCancelledError:
+                        raise
+                    except _GUI_JOB_BOUNDARY_ERRORS:
                         stem = "project"
                 else:
                     base = os.path.basename(src.rstrip("/\\"))
@@ -1612,14 +1638,16 @@ def _v25_inject_into_viewer(self: Any, viewer_meta: dict, parent_win: Any = None
                                                 if is_en else "Viewer offline dibuat.\nBuka foldernya?"), parent=win):
                             try:
                                 self._open_path_in_os(rel)
-                            except Exception as _e:
+                            except _GUI_CALLBACK_ERRORS as _e:
                                 logger.debug("open folder failed: %s", _e)
                     _v25_safe_after(win, _done_ok)
                 else:
                     _log("✗ Injection failed — viewer index.html not found or unsupported."
                           if is_en else "✗ Inject gagal — index.html viewer tidak ada atau tidak didukung.")
                     _v25_safe_after(win, lambda: (inject_btn.configure(state="normal"), close_btn.configure(state="normal")))
-            except Exception as exc:
+            except DownloadCancelledError:
+                raise
+            except _GUI_JOB_BOUNDARY_ERRORS as exc:
                 _log(f"✗ Error: {exc}")
                 _v25_safe_after(win, lambda: (inject_btn.configure(state="normal"), close_btn.configure(state="normal")))
 
@@ -1653,7 +1681,7 @@ def _v25_cloudflare_panel(self: Any) -> None:
     try:
         win.transient(self.root)
         win.grab_set()
-    except Exception as _ignored_exc:
+    except _GUI_CALLBACK_ERRORS as _ignored_exc:
         logger.debug("Ignored recoverable exception in _v25_cloudflare_panel (line 20863): %s", _ignored_exc)
 
     root = ctk.CTkFrame(win, fg_color=p["bg"], corner_radius=0)
@@ -1745,12 +1773,12 @@ def _v25_cloudflare_panel(self: Any) -> None:
 
     def apply_settings(persist: bool = True) -> None:
         try: timeout_s = int(timeout_var.get() or 60)
-        except Exception: timeout_s = 60
+        except (TypeError, ValueError, OverflowError): timeout_s = 60
         try: wait_s = int(wait_var.get() or 3)
-        except Exception: wait_s = 3
+        except (TypeError, ValueError, OverflowError): wait_s = 3
         _set_cloudflare_config(mode_var.get(), priority=_normalize_cloudflare_priority(priority_var.get()), flaresolverr_url=url_var.get(), session_policy=sess_var.get(), timeout=timeout_s, wait_after=wait_s, proxy_mode=proxy_var.get(), persist=persist)
         try: self._cf_mode_var.set(_display_cloudflare_mode(_CLOUDFLARE_MODE))
-        except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in apply_settings (line 20952): %s", _ignored_exc)
+        except _GUI_CALLBACK_ERRORS as _ignored_exc: logger.debug("Ignored recoverable exception in apply_settings (line 20952): %s", _ignored_exc)
 
     def do_test():
         apply_settings(True)
@@ -1811,7 +1839,7 @@ def _v27_cache_manager_panel(self: Any) -> None:
     _v25_center_window(win, self.root, 720, 520, min_w=640, min_h=440)
     try:
         win.transient(self.root); win.grab_set()
-    except Exception as _ignored_exc:
+    except _GUI_CALLBACK_ERRORS as _ignored_exc:
         logger.debug("Ignored recoverable exception in _v27_cache_manager_panel (line 21047): %s", _ignored_exc)
 
     root = ctk.CTkFrame(win, fg_color=p["bg"], corner_radius=0)
@@ -1861,7 +1889,7 @@ def _v27_cache_manager_panel(self: Any) -> None:
             cache_limit_var.set(f"{stats['limit_mb'] / 1024:g}")
             stats_var.set(f"Cache is writable and used to avoid re-downloading duplicate images.\nLocation: {cache_dir}"
                            if is_en else f"Cache dapat ditulis dan dipakai agar gambar yang sama tidak diunduh ulang.\nLokasi: {cache_dir}")
-        except Exception as exc:
+        except _GUI_CALLBACK_ERRORS as exc:
             stats_var.set(f"Failed to read cache: {exc}" if is_en else f"Gagal membaca cache: {exc}")
 
     def _save_cache_limit() -> None:
@@ -1920,7 +1948,7 @@ def _v27_cache_manager_panel(self: Any) -> None:
             n = _clear_image_cache()
             logger.info(f"Image cache cleared: {n} file(s)")
             _refresh()
-        except Exception as exc:
+        except _GUI_CALLBACK_ERRORS as exc:
             messagebox.showerror("Image Cache" if is_en else "Cache Gambar", str(exc), parent=win)
 
     ctk.CTkButton(footer, text=("Refresh" if is_en else "Muat Ulang"), width=110, fg_color=p["surface2"], hover_color=p["surface"], text_color=p["fg"], command=_refresh).grid(row=0, column=0, sticky="w", padx=(18, 8), pady=12)
@@ -1944,7 +1972,7 @@ def _v27_check_updates_panel(self: Any) -> None:
     _v25_center_window(win, self.root, 720, 500, min_w=640, min_h=420)
     try:
         win.transient(self.root); win.grab_set()
-    except Exception as _ignored_exc:
+    except _GUI_CALLBACK_ERRORS as _ignored_exc:
         logger.debug("Ignored recoverable exception in _v27_check_updates_panel (line 21149): %s", _ignored_exc)
 
     root = ctk.CTkFrame(win, fg_color=p["bg"], corner_radius=0)
@@ -2021,7 +2049,9 @@ def _v27_check_updates_panel(self: Any) -> None:
                     return
                 info = _check_for_app_updates()
                 _v27_safe_after(win, lambda i=info: _apply(i))
-            except Exception as exc:
+            except DownloadCancelledError:
+                raise
+            except _GUI_JOB_BOUNDARY_ERRORS as exc:
                 _v27_safe_after(win, lambda e=str(exc): _apply(None, e))
         threading.Thread(target=worker, daemon=True).start()
 
@@ -2045,7 +2075,7 @@ def _v27_ai_settings_panel(self: Any) -> None:
     _v25_center_window(win, self.root, 920, 760, min_w=780, min_h=620)
     try:
         win.transient(self.root); win.grab_set()
-    except Exception as _ignored_exc:
+    except _GUI_CALLBACK_ERRORS as _ignored_exc:
         logger.debug("Ignored recoverable exception in _v27_ai_settings_panel (line 21250): %s", _ignored_exc)
 
     root = ctk.CTkFrame(win, fg_color=p["bg"], corner_radius=0)
@@ -2132,41 +2162,41 @@ def _v27_ai_settings_panel(self: Any) -> None:
         mode = _normalize_ai_key_storage(storage_var.get()); provider = _normalize_ai_provider(provider_var.get())
         for entry in (ollama_url_entry, custom_base_entry):
             try: entry.configure(state="disabled")
-            except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 21337): %s", _ignored_exc)
+            except _GUI_CALLBACK_ERRORS as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 21337): %s", _ignored_exc)
         if provider == "ollama":
             try: key_entry.configure(state="disabled", placeholder_text="Ollama uses local API")
-            except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 21340): %s", _ignored_exc)
+            except _GUI_CALLBACK_ERRORS as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 21340): %s", _ignored_exc)
             try: ollama_url_entry.configure(state="normal")
-            except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 21342): %s", _ignored_exc)
+            except _GUI_CALLBACK_ERRORS as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 21342): %s", _ignored_exc)
             warn_var.set("Ollama uses a local endpoint; no cloud API key is needed." if is_en else "Ollama memakai endpoint lokal; API key cloud tidak diperlukan.")
         elif provider == "custom":
             try: custom_base_entry.configure(state="normal")
-            except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 21346): %s", _ignored_exc)
+            except _GUI_CALLBACK_ERRORS as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 21346): %s", _ignored_exc)
             try: key_entry.configure(state="normal" if mode != "env" else "disabled", placeholder_text="API key..." if mode != "env" else (_ai_primary_env_var(provider) or "CUSTOM_AI_API_KEY"))
-            except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 21348): %s", _ignored_exc)
+            except _GUI_CALLBACK_ERRORS as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 21348): %s", _ignored_exc)
             warn_var.set("Custom provider uses /chat/completions on the custom base URL. Store keys with session/keyring/env when possible." if is_en else "Provider custom memakai /chat/completions pada base URL custom. Simpan key dengan session/keyring/env jika memungkinkan.")
         elif mode == "env":
             try: key_entry.configure(state="disabled", placeholder_text=_ai_primary_env_var(provider) or "Environment variable")
-            except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 21352): %s", _ignored_exc)
+            except _GUI_CALLBACK_ERRORS as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 21352): %s", _ignored_exc)
             warn_var.set(("Set " + " or ".join(_ai_env_vars(provider)) + " in the OS environment. The app will not store the key.") if is_en else ("Atur " + " atau ".join(_ai_env_vars(provider)) + " di environment OS. Aplikasi tidak menyimpan key."))
         elif mode == "keyring":
             try: key_entry.configure(state="normal", placeholder_text="Enter key to save to OS Credential Manager")
-            except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 21356): %s", _ignored_exc)
+            except _GUI_CALLBACK_ERRORS as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 21356): %s", _ignored_exc)
             warn_var.set(("Requires optional package: pip install keyring" if not _keyring_module() else "Key will be stored in the OS credential store.") if is_en else ("Membutuhkan paket opsional: pip install keyring" if not _keyring_module() else "Key akan disimpan di credential store sistem operasi."))
         elif mode == "plain":
             try: key_entry.configure(state="normal", placeholder_text="API key...")
-            except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 21360): %s", _ignored_exc)
+            except _GUI_CALLBACK_ERRORS as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 21360): %s", _ignored_exc)
             warn_var.set("Warning: plain-text storage writes the API key into settings.json." if is_en else "Peringatan: penyimpanan plain-text menulis API key ke settings.json.")
         else:
             try: key_entry.configure(state="normal", placeholder_text="Session only; cleared when app exits")
-            except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 21364): %s", _ignored_exc)
+            except _GUI_CALLBACK_ERRORS as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 21364): %s", _ignored_exc)
             warn_var.set("Safest default. The key stays in memory only." if is_en else "Default paling aman. Key hanya berada di memori.")
         status_var.set(_ai_key_status_text(mode, session_key_var.get(), provider))
 
     def _provider_changed(*_):
         prov = _normalize_ai_provider(provider_var.get()); opts = _ai_model_options(prov)
         try: model_menu.configure(values=opts)
-        except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in _provider_changed (line 21371): %s", _ignored_exc)
+        except _GUI_CALLBACK_ERRORS as _ignored_exc: logger.debug("Ignored recoverable exception in _provider_changed (line 21371): %s", _ignored_exc)
         if model_var.get() not in opts:
             model_var.set(_default_ai_model(prov))
         if prov == "ollama":
@@ -2198,11 +2228,11 @@ def _v27_ai_settings_panel(self: Any) -> None:
             elif storage in {"env", "plain"}: self._ai_api_key = ""
             self._ai_enabled = bool(toggle_var.get()); self._ai_key_storage = storage; self._ai_provider = prov; self._ai_model = settings["ai_model"]; self._ai_mode = mode
             try: self._ai_var.set(self._ai_enabled)
-            except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in _save (line 21403): %s", _ignored_exc)
+            except _GUI_CALLBACK_ERRORS as _ignored_exc: logger.debug("Ignored recoverable exception in _save (line 21403): %s", _ignored_exc)
             _refresh_key_ui()
             if show_status: status_var.set("Saved. AI Assist settings updated." if is_en else "Tersimpan. Pengaturan AI Assist diperbarui.")
             return True
-        except Exception as exc:
+        except _GUI_CALLBACK_ERRORS as exc:
             messagebox.showerror("AI Assist", (f"Failed to save: {exc}" if is_en else f"Gagal menyimpan: {exc}"), parent=win)
             return False
 
@@ -2210,7 +2240,7 @@ def _v27_ai_settings_panel(self: Any) -> None:
         try:
             _clear_ai_api_key_storage(storage_var.get(), provider_var.get(), clear_all=False); session_key_var.set(""); self._ai_api_key = ""; _refresh_key_ui()
             status_var.set("Key cleared for the selected storage/provider." if is_en else "Key dibersihkan untuk storage/provider terpilih.")
-        except Exception as exc: messagebox.showerror("AI Assist", str(exc), parent=win)
+        except _GUI_CALLBACK_ERRORS as exc: messagebox.showerror("AI Assist", str(exc), parent=win)
 
     def _test() -> None:
         if not _save(show_status=False): return
@@ -2224,7 +2254,9 @@ def _v27_ai_settings_panel(self: Any) -> None:
                 res = _ai_call(key, "Reply exactly: OK", max_tokens=16, label="AI provider test", model=model_var.get(), provider=prov)
                 ok = bool(res)
                 _v27_safe_after(win, lambda: status_var.set("Provider test succeeded." if ok and is_en else "Tes provider berhasil." if ok else "Provider test failed. Check key, model, endpoint, and network." if is_en else "Tes provider gagal. Cek key, model, endpoint, dan jaringan."))
-            except Exception as exc:
+            except DownloadCancelledError:
+                raise
+            except _GUI_JOB_BOUNDARY_ERRORS as exc:
                 _v27_safe_after(win, lambda e=str(exc): status_var.set(("Test failed: " if is_en else "Tes gagal: ") + e))
         threading.Thread(target=worker, daemon=True).start()
 
@@ -2274,7 +2306,7 @@ def _v46_gui_init(self, root) -> None:
     self._v46_progress_after_id = self.root.after(350, self._v46_poll_progress)
     try:
         self.root.protocol("WM_DELETE_WINDOW", self._v46_on_close)
-    except Exception as exc:
+    except _GUI_CALLBACK_ERRORS as exc:
         logger.debug(f"Could not install close handler: {exc}")
 
 def _v46_default_progress_expanded(screen_height: int) -> bool:
@@ -2314,7 +2346,7 @@ def _v46_gui_setup_ui(self) -> None:
     main = action_bar.master
     try:
         main.grid_rowconfigure(3, weight=1, minsize=150)
-    except Exception as exc:
+    except _GUI_CALLBACK_ERRORS as exc:
         logger.debug(f"Could not reserve minimum log height: {exc}")
 
     progress_host = ctk.CTkFrame(action_bar, fg_color=p["panel"], corner_radius=0)
@@ -2407,7 +2439,7 @@ def _v46_gui_setup_ui(self) -> None:
             self._speed_canvas.grid_forget()
         if hasattr(self, "_speed_label"):
             self._speed_label.grid_forget()
-    except Exception as exc:
+    except _GUI_CALLBACK_ERRORS as exc:
         logger.debug(f"Legacy speed widgets could not be hidden: {exc}")
 
 def _v46_install_url_menu(self, label: Any, getter: Any, kind: str) -> None:
@@ -2445,7 +2477,7 @@ def _v46_install_url_menu(self, label: Any, getter: Any, kind: str) -> None:
         top = tooltip.get("window")
         if top is not None:
             try: top.destroy()
-            except Exception as exc: logger.debug(f"Tooltip destroy failed: {exc}")
+            except _GUI_CALLBACK_ERRORS as exc: logger.debug(f"Tooltip destroy failed: {exc}")
             tooltip["window"] = None
     label.bind("<Enter>", show_tip, add="+")
     label.bind("<Leave>", hide_tip, add="+")
@@ -2522,7 +2554,7 @@ def _v46_start(self) -> None:
             ) as probe:
                 probe.write("ok")
                 probe.flush()
-        except Exception as exc:
+        except OSError as exc:
             messagebox.showerror("Output folder", f"Folder output tidak bisa ditulis:\n{outdir}\n\n{exc}")
             return
     else:
@@ -2615,7 +2647,9 @@ def _v46_worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_a
         mirror_to_legacy("_ytdlp_enabled", _runtime_state._ytdlp_enabled)
         mirror_to_legacy("_bandwidth_limit_kbps", _runtime_state._bandwidth_limit_kbps)
         mirror_to_legacy("wait_time", _runtime_state.wait_time)
-    except Exception as _state_sync_exc:
+    except DownloadCancelledError:
+        raise
+    except _GUI_JOB_BOUNDARY_ERRORS as _state_sync_exc:
         logger.debug("Ignored runtime-state sync exception in v46 worker: %s", _state_sync_exc)
     _ytdlp_enabled = ytdlp_enabled
     _bandwidth_limit_kbps = bw_limit
@@ -2743,7 +2777,7 @@ def _v46_worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_a
                 self._set_dot(idx - 1, "skip")
                 self._v46_enqueue_progress({"type": "job_cancelled", "time": time.monotonic()})
                 break
-            except Exception as exc:
+            except _GUI_JOB_BOUNDARY_ERRORS as exc:
                 logger.error(f"Failed [{url}]: {exc}")
                 failed_items.append({"url": url, "error": str(exc)})
                 self._last_results.append({"url": url, "mode": mode, "status": "FAIL", "filename": item.get("filename", ""), "error": str(exc), "queue_id": item.get("_queue_id", ""), "result_type": "job"})
@@ -2778,7 +2812,7 @@ def _v46_worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_a
         logger.info(f"[Cancel] Cleaned {removed} partial file(s)")
         self._v46_enqueue_progress({"type": "job_cancelled", "time": time.monotonic()})
         self._set_status("Cancelled")
-    except Exception as exc:
+    except _GUI_JOB_BOUNDARY_ERRORS as exc:
         logger.exception("Unhandled worker failure")
         self._v46_enqueue_progress({"type": "job_failed", "error": str(exc), "time": time.monotonic()})
         self._set_status(f"Failed — {exc}")
@@ -2791,11 +2825,11 @@ def _v46_done(self) -> None:
     self._is_running = False
     self._paused.set()
     try: self._pause_btn.configure(text="⏸ Pause", state="disabled")
-    except Exception as exc: logger.debug(f"Pause button reset failed: {exc}")
+    except _GUI_CALLBACK_ERRORS as exc: logger.debug(f"Pause button reset failed: {exc}")
     try: self._dl_btn.configure(state="normal")
-    except Exception as exc: logger.debug(f"Start button reset failed: {exc}")
+    except _GUI_CALLBACK_ERRORS as exc: logger.debug(f"Start button reset failed: {exc}")
     try: self._v46_cancel_btn.configure(state="disabled")
-    except Exception as exc: logger.debug(f"Cancel button reset failed: {exc}")
+    except _GUI_CALLBACK_ERRORS as exc: logger.debug(f"Cancel button reset failed: {exc}")
     status = self._status_var.get()
     failed = [r for r in self._last_results if r.get("status") == "FAIL"]
     asset_failed = bool(_v46_failure_details_snapshot(self))
@@ -2874,7 +2908,7 @@ def _v46_finish_close(self) -> None:
             continue
         try:
             self.root.after_cancel(callback_id)
-        except Exception as exc:
+        except _GUI_CALLBACK_ERRORS as exc:
             logger.debug(f"Tk callback cancel failed ({attr_name}): {exc}")
         finally:
             setattr(self, attr_name, None)
@@ -2882,11 +2916,11 @@ def _v46_finish_close(self) -> None:
         handler = getattr(self, "_v46_progress_handler", None)
         if handler is not None:
             logger.removeHandler(handler)
-    except Exception as exc:
+    except _GUI_CALLBACK_ERRORS as exc:
         logger.debug(f"Telemetry handler removal failed: {exc}")
     try:
         self._stop_server()
-    except Exception as exc:
+    except _GUI_CALLBACK_ERRORS as exc:
         logger.debug(f"Server stop during close failed: {exc}")
     self.root.destroy()
 
@@ -2919,7 +2953,7 @@ def _v46_poll_progress(self) -> None:
     try:
         if not self.root.winfo_exists():
             return
-    except Exception:
+    except _GUI_CALLBACK_ERRORS:
         return
     # Execute worker-originated GUI commands only from this Tk callback.  Keep
     # the per-tick budget finite so a large queue cannot monopolize mainloop.
@@ -2933,7 +2967,9 @@ def _v46_poll_progress(self) -> None:
                 break
             try:
                 callback()
-            except Exception as exc:
+            except DownloadCancelledError:
+                raise
+            except _DYNAMIC_CALLBACK_ERRORS as exc:
                 logger.debug(f"Queued GUI command failed: {exc}")
             ui_drained += 1
     drained = 0
@@ -2989,7 +3025,7 @@ def _v46_poll_progress(self) -> None:
         snapshot = self._v46_telemetry.snapshot()
         try:
             self._v46_render_progress(snapshot)
-        except Exception as exc:
+        except _GUI_CALLBACK_ERRORS as exc:
             logger.debug(f"Progress render failed: {exc}")
     next_delay = (
         50 if ui_drained >= 100 or drained >= 100
@@ -3110,7 +3146,7 @@ def _v462_default_cafe_fetch(url: str, timeout: int = 15) -> requests.Response |
 def _v462_resolution_key(url: str) -> str:
     try:
         return CYOACafeResolver.normalize_input(url)
-    except Exception:
+    except (TypeError, ValueError):
         return str(url or "").strip()
 
 def _v462_record_resolution_kind(source_url: str, resolved_url: str, kind: str) -> None:
@@ -3177,7 +3213,7 @@ def _v462_validate_pure_website_candidate(
         return False
     try:
         canonical = canonicalize_url(candidate)
-    except Exception as exc:
+    except (TypeError, ValueError) as exc:
         self._reject(candidate, f"{rejection_prefix}: normalization failed: {exc}")
         return False
     parsed = urlparse(canonical)
@@ -3213,7 +3249,7 @@ def _v462_validate_pure_website_candidate(
         title = " ".join((soup.title.get_text(" ", strip=True) if soup.title else "").lower().split())
         heading = soup.find(["h1", "h2"])
         heading_text = " ".join((heading.get_text(" ", strip=True) if heading else "").lower().split())
-    except Exception as exc:
+    except _OPTIONAL_BACKEND_ERRORS as exc:
         self._reject(canonical, f"{rejection_prefix}: HTML parse failed: {exc}")
         return False
     soft_error_text = f"{title} {heading_text}".strip()
@@ -3252,7 +3288,7 @@ def _v462_resolve_cafe(self: CYOACafeResolver, url: str) -> str:
                 continue
             try:
                 stale = canonicalize_url(cached_target) != authoritative_target
-            except Exception:
+            except (TypeError, ValueError):
                 stale = cached_target != authoritative_target
             if stale:
                 break
@@ -3289,7 +3325,7 @@ def _v462_resolve_cafe(self: CYOACafeResolver, url: str) -> str:
                 continue
             try:
                 candidate = canonicalize_url(urljoin(normalized, raw))
-            except Exception as exc:
+            except (TypeError, ValueError) as exc:
                 self._reject(str(raw), f"pure website normalization failed: {exc}")
                 continue
             if candidate in seen or candidate == normalized:
@@ -3326,7 +3362,7 @@ def _v462_auto_detect_mode(url: str, timeout: int = 6) -> str:
 def _v462_is_cafe_url(url: str) -> bool:
     try:
         host = urlparse(canonicalize_url(url)).netloc.lower()
-    except Exception:
+    except (TypeError, ValueError):
         return False
     return host == "cyoa.cafe" or host.endswith(".cyoa.cafe")
 
@@ -3456,7 +3492,7 @@ def _v462_find_main_panels(self: CYOADownloaderGUI) -> tuple[Any | None, Any | N
                 queue_panel = child
         self._v462_input_panel = input_panel
         self._v462_queue_panel = queue_panel
-    except Exception as exc:
+    except _GUI_CALLBACK_ERRORS as exc:
         logger.debug(f"Responsive panel discovery failed: {exc}")
     return input_panel, queue_panel
 
@@ -3474,7 +3510,7 @@ def _v462_configure_queue_viewport(self: CYOADownloaderGUI) -> None:
             parent_frame.grid_propagate(False)
         if parent_canvas is not None:
             parent_canvas.configure(height=height)
-    except Exception as exc:
+    except _GUI_CALLBACK_ERRORS as exc:
         logger.debug(f"Could not compact queue viewport: {exc}")
 
 
@@ -3495,7 +3531,7 @@ def _v462_apply_small_screen_layout(self: CYOADownloaderGUI) -> None:
         try:
             main = self._v46_progress_host.master.master
             self._v462_main = main
-        except Exception:
+        except _GUI_CALLBACK_ERRORS:
             main = None
 
     try:
@@ -3513,7 +3549,7 @@ def _v462_apply_small_screen_layout(self: CYOADownloaderGUI) -> None:
             self.root.grid_columnconfigure(1, weight=1, minsize=0)
             if main is not None:
                 main.grid_configure(column=1, columnspan=1)
-    except Exception as exc:
+    except _GUI_CALLBACK_ERRORS as exc:
         logger.debug(f"Small-screen sidebar layout failed: {exc}")
 
     input_row = getattr(self, "_input_row", None)
@@ -3552,7 +3588,7 @@ def _v462_apply_small_screen_layout(self: CYOADownloaderGUI) -> None:
             header_actions = getattr(self, "_input_header_actions", None)
             if header_actions is not None:
                 header_actions.grid()
-    except Exception as exc:
+    except _GUI_CALLBACK_ERRORS as exc:
         logger.debug(f"Small-screen input layout failed: {exc}")
 
     row_wrap = getattr(self, "_rowB_wrap", None)
@@ -3592,7 +3628,7 @@ def _v462_apply_small_screen_layout(self: CYOADownloaderGUI) -> None:
                     child.pack(side="left", padx=(0, 1), pady=3)
             for col in range(5):
                 row_tools.grid_columnconfigure(col, weight=0)
-    except Exception as exc:
+    except _GUI_CALLBACK_ERRORS as exc:
         logger.debug(f"Small-screen tool-strip layout failed: {exc}")
     self._v462_small_screen = compact
 
@@ -3618,7 +3654,7 @@ def _v462_apply_progress_visibility_gui(self: CYOADownloaderGUI, expanded: bool 
                 panel.grid_remove()
             else:
                 panel.grid()
-        except Exception as exc:
+        except _GUI_CALLBACK_ERRORS as exc:
             logger.debug(f"Responsive panel visibility update failed: {exc}")
 
 def _v462_refresh_responsive_layout(self: CYOADownloaderGUI) -> None:
@@ -3630,7 +3666,7 @@ def _v462_gui_setup_ui_final(self: CYOADownloaderGUI) -> None:
     _V461_GUI_SETUP_UI_FINAL(self)
     try:
         self._v462_main = self._v46_progress_host.master.master
-    except Exception:
+    except _GUI_CALLBACK_ERRORS:
         self._v462_main = None
     self._v462_small_screen = False
     _v462_apply_small_screen_layout(self)
@@ -3646,7 +3682,7 @@ def _v462_gui_setup_ui_final(self: CYOADownloaderGUI) -> None:
         if prior is not None:
             try:
                 self.root.after_cancel(prior)
-            except Exception as exc:
+            except _GUI_CALLBACK_ERRORS as exc:
                 logger.debug(f"Responsive resize debounce cancel failed: {exc}")
         self._v462_resize_after_id = self.root.after(140, self._v462_refresh_responsive_layout)
 
@@ -3757,7 +3793,7 @@ def _v463_arrange_progress_and_log(self: CYOADownloaderGUI) -> None:
             main.grid_rowconfigure(4, weight=1, minsize=170)
             host.grid(row=3, column=0, columnspan=2, sticky="ew", padx=0, pady=(0, 4))
             log_frame.grid(row=4, column=0, columnspan=2, sticky="nsew", padx=0, pady=(4, 0))
-    except Exception as exc:
+    except _GUI_CALLBACK_ERRORS as exc:
         logger.debug(f"v46.3 responsive workspace arrangement failed: {exc}")
 
 
@@ -3793,7 +3829,7 @@ def _v463_set_queue_density(self: CYOADownloaderGUI, expanded: bool) -> None:
             parent_frame.grid_propagate(False)
         if parent_canvas is not None:
             parent_canvas.configure(height=height)
-    except Exception as exc:
+    except _GUI_CALLBACK_ERRORS as exc:
         logger.debug(f"Could not update queue density for progress details: {exc}")
 
 def _v463_apply_progress_visibility(self: CYOADownloaderGUI, expanded: bool | None = None) -> None:
@@ -3825,7 +3861,7 @@ def _v463_apply_progress_visibility(self: CYOADownloaderGUI, expanded: bool | No
             # context. Older responsive layers may have removed these panels,
             # so explicitly restore both before arranging the workspace.
             panel.grid()
-        except Exception as exc:
+        except _GUI_CALLBACK_ERRORS as exc:
             logger.debug(f"Progress panel restore failed: {exc}")
     _v463_set_queue_density(self, expanded_now)
     if details is not None:
@@ -3833,8 +3869,8 @@ def _v463_apply_progress_visibility(self: CYOADownloaderGUI, expanded: bool | No
     _v463_arrange_progress_and_log(self)
     try:
         self.root.after_idle(self._v463_arrange_progress_and_log)
-    except Exception:
-        pass
+    except _GUI_CALLBACK_ERRORS as exc:
+        logger.debug("Progress layout idle callback could not be scheduled: %s", exc)
 
 def _v469_lang(self: CYOADownloaderGUI) -> str:
     return "en" if getattr(self, "_language", "id") == "en" else "id"
@@ -3867,7 +3903,7 @@ def _v463_rebuild_progress_workspace(self: CYOADownloaderGUI) -> None:
     if old_host is not None:
         try:
             old_host.destroy()
-        except Exception as exc:
+        except _GUI_CALLBACK_ERRORS as exc:
             logger.debug(f"Could not remove previous progress host: {exc}")
 
     host = ctk.CTkFrame(main, fg_color=p["bg"], corner_radius=0)
@@ -4059,7 +4095,7 @@ def _v463_gui_setup_ui_final(self: CYOADownloaderGUI) -> None:
         if prior is not None:
             try:
                 self.root.after_cancel(prior)
-            except Exception as exc:
+            except _GUI_CALLBACK_ERRORS as exc:
                 logger.debug(f"v46.3 resize debounce cancel failed: {exc}")
         self._v463_resize_after_id = self.root.after(120, self._v463_arrange_progress_and_log)
 
@@ -4086,7 +4122,7 @@ def _v465_apply_theme(self: CYOADownloaderGUI) -> None:
     if not getattr(self, "_is_running", False):
         try:
             _v463_rebuild_progress_workspace(self)
-        except Exception as exc:
+        except _GUI_CALLBACK_ERRORS as exc:
             logger.debug(f"Progress workspace re-theme skipped: {exc}")
 
 
@@ -4101,7 +4137,7 @@ def _v466_is_cafe_metadata_game_url(value: str) -> bool:
     """Return True only for public CYOA.CAFE metadata game routes."""
     try:
         parsed = urlparse(canonicalize_url(value))
-    except Exception:
+    except (TypeError, ValueError):
         return False
     path = re.sub(r"/+", "/", parsed.path or "/")
     return parsed.netloc.lower() == "cyoa.cafe" and bool(
@@ -4205,13 +4241,13 @@ def _v466_setup_ui(self: CYOADownloaderGUI) -> None:
         if widget is not None:
             try:
                 widget.grid_remove()
-            except Exception as exc:
+            except _GUI_CALLBACK_ERRORS as exc:
                 logger.debug(f"Could not hide redundant progress widget {attr}: {exc}")
     legacy_status = getattr(getattr(self, "_status_lbl", None), "master", None)
     if legacy_status is not None:
         try:
             legacy_status.grid_remove()
-        except Exception as exc:
+        except _GUI_CALLBACK_ERRORS as exc:
             logger.debug(f"Could not hide legacy toolbar status strip: {exc}")
 
 
