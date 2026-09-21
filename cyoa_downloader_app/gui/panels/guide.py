@@ -11,6 +11,12 @@ PANEL_METHOD_NAMES = (
 
 PANEL_METHODS = method_map(PANEL_METHOD_NAMES)
 
-globals().update(PANEL_METHODS)
+_show_format_guide = PANEL_METHODS["_show_format_guide"]
+_show_feature_guide = PANEL_METHODS["_show_feature_guide"]
 
-__all__ = ["PANEL_METHOD_NAMES", "PANEL_METHODS", *PANEL_METHOD_NAMES]
+__all__ = [
+    "PANEL_METHODS",
+    "PANEL_METHOD_NAMES",
+    "_show_feature_guide",
+    "_show_format_guide",
+]

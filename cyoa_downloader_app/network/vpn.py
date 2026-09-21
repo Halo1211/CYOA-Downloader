@@ -16,12 +16,10 @@ import socket
 import subprocess
 import threading
 import time
-from typing import Dict, List, Tuple
 
 from ..logging_setup import logger
 from ..runtime import state
 from ..runtime.compat import mirror_to_legacy
-
 
 _VPN_INTERFACE_TOKENS = (
     "vpn", "wireguard", "wintun", "openvpn", "nordlynx", "mullvad",
@@ -29,7 +27,7 @@ _VPN_INTERFACE_TOKENS = (
     "globalprotect", "forticlient", "anyconnect",
 )
 _STATUS_LOCK = threading.Lock()
-_STATUS_CACHE: Tuple[float, List[Dict[str, object]]] = (0.0, [])
+_STATUS_CACHE: tuple[float, list[dict[str, object]]] = (0.0, [])
 
 
 def _looks_like_vpn_interface(name: str) -> bool:
@@ -42,7 +40,7 @@ def _looks_like_vpn_interface(name: str) -> bool:
     return bool(re.search(r"(?:^|[\s_-])(tun\d*|tap\d*|wg\d*)(?:$|[\s_-])", lowered))
 
 
-def _windows_active_interfaces() -> List[Dict[str, object]]:
+def _windows_active_interfaces() -> list[dict[str, object]]:
     # The .NET API is substantially faster than importing the NetAdapter
     # PowerShell module in a fresh process (which can exceed the timeout on a
     # normal Windows laptop). It also works without administrator privileges.
@@ -58,6 +56,7 @@ def _windows_active_interfaces() -> List[Dict[str, object]]:
         ["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
         capture_output=True, text=True, timeout=4,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        check=False,
     )
     if completed.returncode != 0 or not completed.stdout.strip():
         return []
@@ -73,8 +72,8 @@ def _windows_active_interfaces() -> List[Dict[str, object]]:
     ]
 
 
-def _posix_active_interfaces() -> List[Dict[str, object]]:
-    rows: List[Dict[str, object]] = []
+def _posix_active_interfaces() -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
     for _index, name in socket.if_nameindex():
         up = True
         operstate = f"/sys/class/net/{name}/operstate"
@@ -88,7 +87,7 @@ def _posix_active_interfaces() -> List[Dict[str, object]]:
     return rows
 
 
-def list_active_network_interfaces(*, refresh: bool = False) -> List[Dict[str, object]]:
+def list_active_network_interfaces(*, refresh: bool = False) -> list[dict[str, object]]:
     """Return active interfaces, cached briefly to keep the request path cheap."""
     global _STATUS_CACHE
     now = time.monotonic()
@@ -100,7 +99,7 @@ def list_active_network_interfaces(*, refresh: bool = False) -> List[Dict[str, o
                 rows = _windows_active_interfaces()
             else:
                 rows = _posix_active_interfaces()
-        except Exception as exc:
+        except (OSError, RuntimeError, ValueError) as exc:
             logger.debug("VPN interface discovery failed: %s", exc)
             rows = []
         if not rows:
@@ -118,7 +117,7 @@ def list_active_network_interfaces(*, refresh: bool = False) -> List[Dict[str, o
         return [dict(item) for item in rows]
 
 
-def get_vpn_status(*, refresh: bool = False) -> Dict[str, object]:
+def get_vpn_status(*, refresh: bool = False) -> dict[str, object]:
     interfaces = list_active_network_interfaces(refresh=refresh)
     requested = str(state._vpn_interface or "").strip().lower()
     matches = []
@@ -168,6 +167,8 @@ def _set_vpn_config(policy: str = "system", interface: str = "") -> None:
 
 
 __all__ = [
-    "_set_vpn_config", "get_vpn_status", "vpn_requirement_satisfied",
+    "_set_vpn_config",
+    "get_vpn_status",
     "list_active_network_interfaces",
+    "vpn_requirement_satisfied",
 ]

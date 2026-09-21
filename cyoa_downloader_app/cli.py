@@ -8,14 +8,80 @@ sync supplies those names during the transition.
 
 from __future__ import annotations
 
+import argparse
 import importlib
+import json
 import os
 import pathlib
 import sys
 import tempfile
+import time
 from types import ModuleType
 
+from .app_info import _APP_DISPLAY_NAME, _APP_VERSION, _STABILIZATION_PATCH_ID, DEFAULT_MAX_WORKERS, DEFAULT_WAIT_TIME
+from .config.settings import (
+    _load_settings,
+    _save_settings,
+    export_settings,
+    import_settings,
+)
+from .core.feature_flags import (
+    _set_cheat_enabled,
+    _set_deep_scan_enabled,
+    _set_selenium_enabled,
+    _set_serve_enabled,
+)
+from .core.preview_token import (
+    _clear_preview_token,
+    _current_preview_token,
+    _new_preview_token,
+    _preview_token_valid,
+)
+from .core.progress import DownloadCancelledError
+from .diagnostics.dependency_check import dependency_check_report
+from .diagnostics.self_test import run_internal_self_test
+from .download.package import verify_output_package, write_package_manifest
+from .importers.batch import (
+    _derive_mode_flags,
+    import_queue_items_from_source,
+    write_failed_url_log,
+)
+from .integrations.ai_core import (
+    OLLAMA_DEFAULT_URL,
+    _clear_ai_api_key_storage,
+    _clear_ai_plain_keys,
+    _get_ai_model,
+    _normalize_ai_key_storage,
+    _normalize_ai_mode,
+    _normalize_ai_provider,
+    _resolve_ai_api_key,
+    _set_allow_internal_hosts,
+)
+from .integrations.gallery_dl import _set_gallery_dl_mode
+from .integrations.itch import (
+    _is_itch_url,
+    _set_itch_enabled,
+    download_itch_assets,
+    itch_test_connection,
+)
 from .integrations.offline_viewers.modernizer import modernize_collection
+from .integrations.offline_viewers.registry import _auto_register_bundled_viewers
+from .logging_setup import logger, setup_file_logging
+from .network.cloudflare import (
+    _display_cloudflare_mode,
+    _set_cloudflare_config,
+    flaresolverr_test_connection,
+)
+from .network.dns import _infer_dns_protocol, _set_active_dns
+from .network.proxy import _set_proxy_config
+from .network.throttle import _set_http2_enabled
+from .network.vpn import _set_vpn_config, get_vpn_status
+from .preview_assets import (
+    _BUNDLED_INTCYOAENHANCER_USERSCRIPT,
+    _INT_CYOA_ENHANCER_INFO,
+    userscript_integration_report,
+)
+from .runtime import state as runtime_state
 from .runtime.archive_preview import (
     extract_next_flight_stream,
     resolve_archived_page,
@@ -23,6 +89,9 @@ from .runtime.archive_preview import (
     select_archive_root,
 )
 
+# CLI job dispatch is a process boundary: individual jobs and optional helper
+# integrations must be reported without aborting the remaining CLI workflow.
+_CLI_BOUNDARY_ERRORS = (Exception,)
 
 _CONSOLE_ASCII_REPLACEMENTS = str.maketrans({
     "→": "->",
@@ -63,6 +132,20 @@ def _safe_console_print(value="", *, file=None) -> None:
         print(fallback, file=stream)
 
 
+def launch_gui() -> None:
+    """Load the GUI only when the CLI actually needs it."""
+    from .gui.app import launch_gui as _launch_gui
+
+    _launch_gui()
+
+
+def run_download(**kwargs):
+    """Load the compatibility-composed download entry point lazily."""
+    from .download.orchestrator import run_download as _run_download
+
+    return _run_download(**kwargs)
+
+
 def _legacy() -> ModuleType:
     mod = sys.modules.get("cyoa_downloader_app.runtime.surface")
     if mod is not None:
@@ -86,7 +169,7 @@ def _sync_runtime_globals_to_legacy() -> None:
     l = _legacy()
     try:
         from .runtime import state as _runtime_state
-    except Exception:
+    except ImportError:
         _runtime_state = None
     for name in ("wait_time", "_bandwidth_limit_kbps", "use_cloudscraper", "_ytdlp_enabled"):
         if name in globals():
@@ -94,23 +177,20 @@ def _sync_runtime_globals_to_legacy() -> None:
             if _runtime_state is not None and hasattr(_runtime_state, name):
                 try:
                     setattr(_runtime_state, name, value)
-                except Exception:
-                    pass
+                except (AttributeError, TypeError) as exc:
+                    logger.debug("Could not mirror CLI option to runtime state: %s", exc)
             try:
                 setattr(l, name, value)
-            except Exception:
-                pass
+            except (AttributeError, TypeError) as exc:
+                logger.debug("Could not mirror CLI option to compatibility facade: %s", exc)
     try:
         # The download orchestrator keeps a copied wait_time global for the
         # moved base implementation; refresh it if the module is loaded.
         orch = sys.modules.get("cyoa_downloader_app.download.orchestrator")
         if orch is not None and "wait_time" in globals():
-            setattr(orch, "wait_time", globals()["wait_time"])
-    except Exception:
-        pass
-
-
-_sync_legacy_globals()
+            orch.wait_time = globals()["wait_time"]
+    except (AttributeError, TypeError) as exc:
+        logger.debug("Could not mirror CLI wait time to orchestrator: %s", exc)
 
 
 def _batch_website_zip_output(mode: str, default_zip_output: bool) -> bool:
@@ -151,7 +231,7 @@ def main() -> None:
     # Auto-register bundled offline viewers (no-op if already registered)
     try:
         _auto_register_bundled_viewers()
-    except Exception as _ignored_exc:
+    except (ImportError, OSError, RuntimeError, TypeError, ValueError) as _ignored_exc:
         logger.debug("Ignored recoverable exception in main (line 16552): %s", _ignored_exc)
     global wait_time
 
@@ -473,14 +553,14 @@ def main() -> None:
         ) as probe:
             probe.write("ok")
             probe.flush()
-    except Exception as _e:
+    except (OSError, UnicodeError) as _e:
         _safe_console_print(
             f"ERROR: output folder tidak bisa ditulis: {args.output_dir}\n       {_e}",
             file=sys.stderr,
         )
         sys.exit(2)
     if args.bebasdns:
-        args.dns = BEBASDNS_DOH_VARIANTS[args.bebasdns]
+        args.dns = runtime_state.BEBASDNS_DOH_VARIANTS[args.bebasdns]
         args.dns_protocol = "doh"
     try:
         proxy_mode_eff = args.proxy_mode or str(_cli_saved_settings.get("proxy_mode", "inherit_env"))
@@ -543,20 +623,23 @@ def main() -> None:
     # (persist=False) — unlike --cloudflare, it does not save to settings.
     # Removed the dead computation; behavior unchanged.
     _set_gallery_dl_mode(gallery_dl_eff, path=args.gallery_dl_path, config=args.gallery_dl_config, persist=False)
-    global _bandwidth_limit_kbps, use_cloudscraper
+    global _bandwidth_limit_kbps
     _bandwidth_limit_kbps = max(0.0, float(args.bandwidth or 0.0))
     _sync_runtime_globals_to_legacy()
     _set_allow_internal_hosts(bool(getattr(args, "allow_internal_hosts", False)))
     cf_mode = "cloudscraper" if bool(args.cf_bypass) else args.cloudflare
     _cloudflare_cli_explicit = any(
-        a == "--cloudflare" or a.startswith("--cloudflare=") or
-        a in {"--cf-bypass", "--cloudscraper"} or
-        a == "--flaresolverr-url" or a.startswith("--flaresolverr-url=") or
-        a == "--flaresolverr-session" or a.startswith("--flaresolverr-session=") or
-        a == "--flaresolverr-timeout" or a.startswith("--flaresolverr-timeout=") or
-        a == "--flaresolverr-wait" or a.startswith("--flaresolverr-wait=") or
-        a == "--flaresolverr-proxy" or a.startswith("--flaresolverr-proxy=") or
-        a == "--cloudflare-priority" or a.startswith("--cloudflare-priority=")
+        a in {
+            "--cloudflare", "--cf-bypass", "--cloudscraper",
+            "--flaresolverr-url", "--flaresolverr-session",
+            "--flaresolverr-timeout", "--flaresolverr-wait",
+            "--flaresolverr-proxy", "--cloudflare-priority",
+        }
+        or a.startswith((
+            "--cloudflare=", "--flaresolverr-url=", "--flaresolverr-session=",
+            "--flaresolverr-timeout=", "--flaresolverr-wait=",
+            "--flaresolverr-proxy=", "--cloudflare-priority=",
+        ))
         for a in sys.argv[1:]
     )
     _set_cloudflare_config(
@@ -667,7 +750,7 @@ def main() -> None:
             raise RuntimeError("No valid URLs found in batch file.")
         logger.info(f"Batch file    : {args.list_file}")
         logger.info(f"Items         : {len(items)}")
-        failed_items: List[Dict[str, str]] = []
+        failed_items: list[dict[str, str]] = []
         ok = 0
         for idx, item in enumerate(items, 1):
             logger.info(f"Batch {idx}/{len(items)}: {item['url']}")
@@ -718,7 +801,9 @@ def main() -> None:
                     archive_max_depth=args.archive_max_depth,
                 )
                 ok += 1
-            except Exception as e:
+            except DownloadCancelledError:
+                raise
+            except _CLI_BOUNDARY_ERRORS as e:
                 failed_items.append({"url": item["url"], "error": str(e)})
                 logger.error(f"Failed: {e}")
         write_failed_url_log(failed_items, args.output_dir)
@@ -748,12 +833,17 @@ def main() -> None:
     logger.info(f"Fonts        : {'yes' if args.fonts else 'no'}")
     logger.info(f"Wait on 429  : {args.wait_time}s")
     logger.info(f"Output dir   : {args.output_dir}")
-    logger.info(f"HTTP/2       : {'yes' if (_HTTP2_ENABLED) else 'no'}")
+    logger.info(f"HTTP/2       : {'yes' if runtime_state._HTTP2_ENABLED else 'no'}")
     logger.info(f"gallery-dl   : {gallery_dl_eff}")
     logger.info(f"AI Assist    : {ai_mode_eff} | provider={ai_provider_eff} | model={ai_model_eff} | key={'not needed' if ai_provider_eff == 'ollama' else ('yes' if bool(resolved_ai_api_key) else 'no')} | storage={ai_storage_eff}")
-    logger.info(f"Cloudflare   : {_display_cloudflare_mode(_CLOUDFLARE_MODE)}")
-    if _CLOUDFLARE_MODE == "flaresolverr" or _CLOUDFLARE_MODE == "auto":
-        logger.info(f"FlareSolverr : {_FLARESOLVERR_URL} | session={_FLARESOLVERR_SESSION_POLICY} | timeout={_FLARESOLVERR_TIMEOUT}s")
+    logger.info(f"Cloudflare   : {_display_cloudflare_mode(runtime_state._CLOUDFLARE_MODE)}")
+    if runtime_state._CLOUDFLARE_MODE in {"flaresolverr", "auto"}:
+        logger.info(
+            "FlareSolverr : %s | session=%s | timeout=%ss",
+            runtime_state._FLARESOLVERR_URL,
+            runtime_state._FLARESOLVERR_SESSION_POLICY,
+            runtime_state._FLARESOLVERR_TIMEOUT,
+        )
     logger.info("Proxy        : mode=%s", proxy_mode_eff)
     logger.info("DNS          : %s | %s", dns_protocol_eff, dns_eff or "system")
     _vpn_log_status = get_vpn_status()
@@ -785,18 +875,20 @@ def main() -> None:
         archive_max_depth=args.archive_max_depth,
     )
     # ── v7.5.8 Item 8 (rewritten v7.6): optional itch.io pass via itch-dl ──
-    if _ITCH_ENABLED and _is_itch_url(args.url):
+    if runtime_state._ITCH_ENABLED and _is_itch_url(args.url):
         logger.info("itch.io downloader enabled — invoking itch-dl backend.")
         try:
             res = download_itch_assets(
                 args.url, args.output_dir, explicit_key="",
                 mirror_web=bool(getattr(args, "itch_mirror_web", False)))
             logger.info(f"[itch] {res.get('message','')}")
-        except Exception as e:
+        except DownloadCancelledError:
+            raise
+        except _CLI_BOUNDARY_ERRORS as e:
             logger.warning(f"[itch] downloader error (CYOA result unaffected): {e}")
     if args.serve:
         # Respect the serve toggle in the CLI path too (Item 6 parity with GUI).
-        if not _SERVE_ENABLED:
+        if not runtime_state._SERVE_ENABLED:
             logger.info("Serve preview disabled by toggle — not starting CLI server.")
             return
         import http.server as _http_server
@@ -862,7 +954,7 @@ def main() -> None:
   const ICE_REMOTE_URL = {json.dumps(remote)};
   const ICE_SOURCE_URL = {json.dumps(source)};
   const ICE_CREDIT = {json.dumps(credit)};
-  const CHEAT_ENABLED = {json.dumps(bool(_CHEAT_ENABLED))};
+  const CHEAT_ENABLED = {json.dumps(bool(runtime_state._CHEAT_ENABLED))};
   const qs = new URLSearchParams(location.search);
   if (qs.get('no_tools') === '1' || qs.get('tools') === '0' || qs.get('serve_tools') === '0') return;
   function css() {{
@@ -973,7 +1065,7 @@ def main() -> None:
                     "bundled_available": True,
                     "bundled_size_bytes": len(_BUNDLED_INTCYOAENHANCER_USERSCRIPT.encode('utf-8')),
                     "route": "/__userscripts__/intcyoaenhancer.user.js",
-                    "cheat_enabled": bool(_CHEAT_ENABLED),
+                    "cheat_enabled": bool(runtime_state._CHEAT_ENABLED),
                     "integration_policy": "Serve-only bundled helper. No network download required.",
                 })
                 self._send_text(json.dumps(payload, indent=2), ctype="application/json; charset=utf-8")
@@ -990,7 +1082,7 @@ def main() -> None:
                         try:
                             body = pathlib.Path(c).read_text(encoding="utf-8", errors="ignore")
                             return self._send_text(prefix + body, ctype="application/javascript; charset=utf-8")
-                        except Exception as e:
+                        except (OSError, UnicodeError) as e:
                             logger.warning(f"Local IntCyoaEnhancer override failed, serving bundled helper instead: {e}")
                 return self._send_text(prefix + _BUNDLED_INTCYOAENHANCER_USERSCRIPT, ctype="application/javascript; charset=utf-8", status=200)
 
@@ -1014,7 +1106,7 @@ def main() -> None:
                 if route == "/__userscripts__/intcyoaenhancer.meta.json":
                     return self._serve_userscript_meta()
                 if route == "/__userscripts__/intcyoaenhancer.user.js":
-                    if not _CHEAT_ENABLED:
+                    if not runtime_state._CHEAT_ENABLED:
                         return self._send_text(
                             "// Cheat panel disabled by toggle in CYOA Downloader settings.\n",
                             ctype="application/javascript; charset=utf-8")
@@ -1117,7 +1209,7 @@ def main() -> None:
                         if os.path.isfile(fs_path) and ext in {".html", ".htm", ""}:
                             raw = pathlib.Path(fs_path).read_text(encoding="utf-8", errors="ignore")
                             return self._send_text(self._inject_tools(raw), ctype="text/html; charset=utf-8")
-                    except Exception as e:
+                    except (OSError, UnicodeError, TypeError, ValueError) as e:
                         logger.debug(f"CLI Serve Tools injection skipped: {e}")
                 return super().do_GET()
 
@@ -1130,7 +1222,7 @@ def main() -> None:
             logger.info(f"Open {clear_url} to preview with cleared browser storage.")
             try:
                 _webbrowser.open(clear_url)
-            except Exception as _ignored_exc:
+            except (OSError, _webbrowser.Error) as _ignored_exc:
                 logger.debug("Ignored recoverable exception in main (line 17233): %s", _ignored_exc)
             try:
                 httpd.serve_forever()
@@ -1140,4 +1232,4 @@ def main() -> None:
                 _clear_preview_token()
 
 
-__all__ = ["main", "_sync_legacy_globals"]
+__all__ = ["_sync_legacy_globals", "main"]

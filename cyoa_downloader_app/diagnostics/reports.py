@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import pathlib
 from datetime import datetime
-from typing import Dict, List, Optional
 
 from ..core.paths import _safe_join
 from ..logging_setup import logger
@@ -26,16 +25,16 @@ def _remove_deprecated_broken_asset_report(output_dir: str) -> None:
         if os.path.exists(stale):
             os.remove(stale)
             logger.info(f"Removed deprecated report: {stale}")
-    except Exception as e:
+    except OSError as e:
         logger.debug(f"Could not remove deprecated broken asset report: {e}")
 
 def append_asset_failures_to_backup_report(
-    failed_items: List[Dict[str, str]],
+    failed_items: list[dict[str, str]],
     report_path: str,
     *,
     source_url: str = "",
     title: str = "Asset Download Failures",
-) -> Optional[str]:
+) -> str | None:
     """Append failed asset details to backup_report.txt.
 
     This is the canonical reporting path from v7.3.9 onward. No separate
@@ -45,7 +44,7 @@ def append_asset_failures_to_backup_report(
         return None
     try:
         os.makedirs(os.path.dirname(report_path) or os.getcwd(), exist_ok=True)
-        generated = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        generated = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
         lines = [
             "",
             "=" * 60,
@@ -70,18 +69,18 @@ def append_asset_failures_to_backup_report(
             f.write("\n" + "\n".join(lines))
         logger.info(f"Asset failure details appended to: {report_path}")
         return report_path
-    except Exception as e:
+    except (OSError, UnicodeError, TypeError, ValueError) as e:
         logger.debug(f"Could not append asset failure details to backup report: {e}")
         return None
 
 def write_failed_assets_log(
-    failed_items: List[Dict[str, str]],
+    failed_items: list[dict[str, str]],
     output_dir: str,
     *,
     source_url: str = "",
     title: str = "Asset Download Failures",
     filename: str = "failed_assets.txt",
-) -> Optional[str]:
+) -> str | None:
     """Write a plain text failed-assets log for non-ICC outputs.
 
     The old HTML report was intentionally removed because it created duplicate
@@ -93,7 +92,7 @@ def write_failed_assets_log(
         target_dir = output_dir if output_dir else os.getcwd()
         os.makedirs(target_dir, exist_ok=True)
         report_path = _safe_join(target_dir, filename, fallback="failed_assets.txt")
-        generated = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        generated = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
         lines = [
             title,
             "=" * len(title),
@@ -115,19 +114,19 @@ def write_failed_assets_log(
         pathlib.Path(report_path).write_text("\n".join(lines), encoding="utf-8")
         logger.info(f"Failed asset log saved: {report_path}")
         return report_path
-    except Exception as e:
+    except (OSError, UnicodeError, TypeError, ValueError) as e:
         logger.debug(f"Could not write failed asset log: {e}")
         return None
 
 def write_asset_failure_summary(
-    failed_items: List[Dict[str, str]],
+    failed_items: list[dict[str, str]],
     output_dir: str,
     *,
     source_url: str = "",
     title: str = "Asset Download Failures",
     filename: str = "failed_assets.txt",
     prefer_single_report: bool = True,
-) -> Optional[str]:
+) -> str | None:
     """Write failed asset details without creating an HTML report.
 
     Preferred behavior:
@@ -155,12 +154,12 @@ def format_backup_report_text(
     start_url: str,
     project_url: str = "",
     project_root: str = "",
-    project_aliases: Optional[List[str]] = None,
-    downloaded: Optional[List[Dict[str, str]]] = None,
-    failed: Optional[List[Dict[str, str]]] = None,
-    downloaded_groups: Optional[Dict[str, List[str]]] = None,
-    failed_groups: Optional[Dict[str, List[str]]] = None,
-    notes: Optional[List[str]] = None,
+    project_aliases: list[str] | None = None,
+    downloaded: list[dict[str, str]] | None = None,
+    failed: list[dict[str, str]] | None = None,
+    downloaded_groups: dict[str, list[str]] | None = None,
+    failed_groups: dict[str, list[str]] | None = None,
+    notes: list[str] | None = None,
 ) -> str:
     project_aliases = sorted(set(project_aliases or []))
     downloaded = downloaded or []
@@ -176,7 +175,7 @@ def format_backup_report_text(
         f"Start URL    : {start_url}",
         f"Project URL  : {project_url or '-'}",
         f"Project Root : {project_root or '-'}",
-        f"Generated    : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"Generated    : {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M:%S')}",
         "",
         f"Downloaded   : {len(downloaded)}",
         f"Failed       : {len(failed)}",
@@ -218,4 +217,4 @@ def format_backup_report_text(
 
     return "\n".join(lines) + "\n"
 
-__all__ = ['_DEPRECATED_BROKEN_ASSET_REPORT', '_remove_deprecated_broken_asset_report', 'append_asset_failures_to_backup_report', 'write_failed_assets_log', 'write_asset_failure_summary', 'format_backup_report_text']
+__all__ = ['_DEPRECATED_BROKEN_ASSET_REPORT', '_remove_deprecated_broken_asset_report', 'append_asset_failures_to_backup_report', 'format_backup_report_text', 'write_asset_failure_summary', 'write_failed_assets_log']

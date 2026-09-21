@@ -8,36 +8,41 @@ import time
 from types import SimpleNamespace
 from urllib.parse import quote
 
-import requests
 import pytest
+import requests
+
 import cyoa_downloader_app.download.website as website_module
 import cyoa_downloader_app.network.runtime_capture as runtime_capture_module
+from cyoa_downloader_app.cli import _safe_console_print
 from cyoa_downloader_app.core import cancellation
 from cyoa_downloader_app.core.progress import DownloadCancelledError
-
 from cyoa_downloader_app.download.archive_policy import ArchivePolicy
 from cyoa_downloader_app.download.archive_profiler import (
-    ArchiveProfile, profile_archive_target, project_archive_profile,
+    ArchiveProfile,
+    profile_archive_target,
+    project_archive_profile,
 )
 from cyoa_downloader_app.download.archive_runner import run_archive_extensions
-from cyoa_downloader_app.download.cyoa_cafe_static import download_cyoa_cafe_static_record
-from cyoa_downloader_app.download.package import verify_output_package
-from cyoa_downloader_app.download.route_crawler import RouteCrawler
-from cyoa_downloader_app.download.website import WebsiteDownloader
 from cyoa_downloader_app.download.asset_scan import (
     _infer_dynamic_asset_paths,
     _infer_generated_entry_images,
     _scan_file_for_assets,
 )
+from cyoa_downloader_app.download.cyoa_cafe_static import download_cyoa_cafe_static_record
+from cyoa_downloader_app.download.package import verify_output_package
+from cyoa_downloader_app.download.route_crawler import RouteCrawler
+from cyoa_downloader_app.download.website import WebsiteDownloader
+from cyoa_downloader_app.network.browser import BrowserFetchResult
 from cyoa_downloader_app.network.runtime_capture import (
-    RuntimeCaptureResult, _is_runtime_asset_response, _is_safe_interaction_label,
+    RuntimeCaptureResult,
+    _is_runtime_asset_response,
+    _is_safe_interaction_label,
     capture_runtime_assets,
 )
-from cyoa_downloader_app.network.browser import BrowserFetchResult
 from cyoa_downloader_app.project.cyoa_cafe import (
-    build_cyoa_cafe_file_url, classify_cyoa_cafe_record,
+    build_cyoa_cafe_file_url,
+    classify_cyoa_cafe_record,
 )
-from cyoa_downloader_app.cli import _safe_console_print
 
 
 def _bare_downloader(tmp_path: pathlib.Path) -> WebsiteDownloader:
@@ -387,7 +392,6 @@ def test_missing_icon_keeps_normal_failed_asset_behavior(tmp_path, monkeypatch):
     def fail_icon(value, *, referrer_url=None, **_kwargs):
         remote = downloader._normalize_remote_url(value, referrer_url)
         downloader._failed_items.append({"url": remote, "error": "404"})
-        return None
 
     monkeypatch.setattr(downloader, "_download_asset", fail_icon)
     monkeypatch.setattr(downloader, "_download_runtime_template_assets", lambda *_args: None)
@@ -575,7 +579,6 @@ def test_concurrent_failed_asset_wakes_follower_without_duplicate_request(tmp_pa
         calls.append(url)
         started.set()
         assert release.wait(timeout=5)
-        return None
 
     monkeypatch.setattr(downloader, "_fetch", delayed_failure)
     monkeypatch.setattr(website_module, "_ssrf_block_cross_origin", lambda *_a: False)

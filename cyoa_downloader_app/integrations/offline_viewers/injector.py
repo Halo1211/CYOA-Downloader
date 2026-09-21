@@ -6,15 +6,16 @@ while preserving the historical strategies and output layout.
 
 from __future__ import annotations
 
-import io
 import hashlib
+import io
 import json
 import os
 import pathlib
 import re
-from typing import Dict, Optional
+import zipfile
 from urllib.parse import unquote, urljoin, urlsplit
 
+import requests
 from bs4 import BeautifulSoup
 
 from ...core.archive import validate_zip_archive
@@ -43,6 +44,13 @@ from .registry import (
     _VIEWERS_DIR,
     _safe_viewer_archive_name,
     _safe_viewer_relative_path,
+)
+
+_RESPONSE_CLEANUP_ERRORS = (
+    AttributeError,
+    OSError,
+    RuntimeError,
+    requests.RequestException,
 )
 
 
@@ -82,7 +90,7 @@ def _localize_preserved_index_assets(
         re.IGNORECASE,
     )
 
-    def _safe_existing(reference: str, owner_path: str) -> Optional[str]:
+    def _safe_existing(reference: str, owner_path: str) -> str | None:
         parsed_ref = urlsplit(reference)
         if parsed_ref.scheme or parsed_ref.netloc:
             return None
@@ -116,7 +124,7 @@ def _localize_preserved_index_assets(
         return os.path.relpath(target_path, os.path.dirname(owner_path)).replace("\\", "/")
 
     def _process_css(text: str, css_url: str, css_path: str) -> str:
-        def localize_css_ref(reference: str, kind: str = "") -> Optional[str]:
+        def localize_css_ref(reference: str, kind: str = "") -> str | None:
             value = reference.strip().strip("\"'")
             if not value or value.lower().startswith(("data:", "blob:", "#")):
                 return None
@@ -163,7 +171,7 @@ def _localize_preserved_index_assets(
 
         return quoted_asset_re.sub(replace_asset, text)
 
-    def _download(absolute_url: str, kind: str = "") -> Optional[tuple[str, str]]:
+    def _download(absolute_url: str, kind: str = "") -> tuple[str, str] | None:
         parsed = urlsplit(absolute_url)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname:
             return None
@@ -297,8 +305,8 @@ def _localize_preserved_index_assets(
             if response is not None:
                 try:
                     response.close()
-                except Exception:
-                    pass
+                except _RESPONSE_CLEANUP_ERRORS as close_exc:
+                    logger.debug("Preserved asset response close failed for %s: %s", absolute_url, close_exc)
 
     soup = BeautifulSoup(html, "html.parser")
     for script in list(soup.find_all("script")):
@@ -423,12 +431,12 @@ def _inject_project_font_links(html: str, project: object) -> str:
 def _apply_offline_viewer(
     output_dir: str,
     project_json_str: str,
-    viewer_meta: Dict,
+    viewer_meta: dict,
     file_name: str = "project",
-    asset_source_dirs: Optional[Dict[str, str]] = None,
+    asset_source_dirs: dict[str, str] | None = None,
     source_html: str = "",
     source_url: str = "",
-) -> Optional[str]:
+) -> str | None:
     """
     Extract an offline viewer ZIP into output_dir and inject project data.
 
@@ -451,7 +459,8 @@ def _apply_offline_viewer(
     strategies; B is marker injection, and the interceptor lives in C and
     overrides fetch only (no XHR) â€” see deferred note in the handoff.
     """
-    import zipfile as _zf, shutil
+    import shutil
+    import zipfile as _zf
 
     zip_filename = _safe_viewer_archive_name(viewer_meta.get("zip_filename", ""))
     entry_point = _safe_viewer_relative_path(
@@ -539,7 +548,7 @@ def _apply_offline_viewer(
             if len(members) > 10000:
                 raise ValueError("Viewer archive contains too many members")
             # Detect if all files are under a single root folder (e.g. "Viewer 1.8/")
-            roots = set(m.split("/")[0] for m in members if m.strip("/"))
+            roots = {m.split("/")[0] for m in members if m.strip("/")}
             strip_prefix = ""
             if len(roots) == 1:
                 root_dir = next(iter(roots))
@@ -566,7 +575,7 @@ def _apply_offline_viewer(
                 # under-declare its real size).
                 try:
                     _declared = int(getattr(arc.getinfo(member), "file_size", 0) or 0)
-                except Exception:
+                except (KeyError, RuntimeError, TypeError, ValueError, zipfile.BadZipFile):
                     _declared = 0
                 if _declared > _MAX_MEMBER_BYTES:
                     raise ValueError(f"Viewer archive member too large (declared): {member} ({_declared} bytes)")
@@ -581,7 +590,7 @@ def _apply_offline_viewer(
                 atomic_write_bytes(target_path, data)
 
         logger.info(f"Offline viewer extracted: {site_folder}/")
-    except Exception as e:
+    except (EOFError, KeyError, OSError, RuntimeError, ValueError, zipfile.BadZipFile, zipfile.LargeZipFile) as e:
         logger.error(f"Failed to extract viewer: {e}")
         shutil.rmtree(site_folder, ignore_errors=True)
         return None
@@ -602,7 +611,7 @@ def _apply_offline_viewer(
 
     try:
         html = pathlib.Path(index_path).read_text(encoding="utf-8", errors="replace")
-    except Exception as e:
+    except (OSError, UnicodeError) as e:
         logger.error(f"Cannot read index.html: {e}")
         shutil.rmtree(site_folder, ignore_errors=True)
         return None
@@ -616,7 +625,7 @@ def _apply_offline_viewer(
             proj_obj.get("app", proj_obj).get("name") or
             file_name
         )
-    except Exception:
+    except (AttributeError, TypeError):
         proj_title = file_name
 
     data_js = json.dumps(parsed_project, ensure_ascii=False, separators=(",", ":"))
@@ -678,7 +687,7 @@ def _apply_offline_viewer(
                         icc_marker_file = _fp
                         icc_marker_js   = _jt
                         break
-                except Exception as _ignored_exc:
+                except (OSError, UnicodeError) as _ignored_exc:
                     logger.debug("Ignored recoverable exception in _apply_offline_viewer (line 2956): %s", _ignored_exc)
             if icc_marker_file:
                 break
@@ -697,7 +706,7 @@ def _apply_offline_viewer(
                 # We inject the full root object, NOT just proj["app"],
                 # because "app" sub-key only exists in some export formats.
                 _app_js = json.dumps(_proj, ensure_ascii=False, separators=(",", ":"))
-            except Exception:
+            except (TypeError, ValueError):
                 _app_js = data_js
 
             # â”€â”€ Balanced-brace injection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -784,7 +793,7 @@ def _apply_offline_viewer(
                         atomic_write_text(_fp, _preamble + _pj)
                         _patched_any = True
                         logger.info(f"  fetch() patched: {os.path.relpath(_fp, site_folder)}")
-                    except Exception as _e:
+                    except (OSError, RuntimeError, TypeError, UnicodeError, ValueError) as _e:
                         logger.warning(f"  Cannot patch {_fname}: {_e}")
 
             # The docstring has always promised a
@@ -1022,7 +1031,7 @@ setTimeout(function(){clearInterval(t);},30000);
     # â”€â”€ Copy images/ and audio/ folders directly into the offline viewer â”€â”€â”€
     # The caller passes temp asset folders explicitly. This avoids copying to or
     # deleting output_dir/images and output_dir/audio, which may belong to another run.
-    _asset_sources: Dict[str, str] = dict(asset_source_dirs or {})
+    _asset_sources: dict[str, str] = dict(asset_source_dirs or {})
     if not _asset_sources:
         # Backward-compatible fallback for older callers only. Never delete roots.
         for _asset_dir_name in ("images", "audio"):
@@ -1064,7 +1073,7 @@ setTimeout(function(){clearInterval(t);},30000);
             f"- double-click index.html to play offline."
         )
         return index_path
-    except Exception as e:
+    except (OSError, TypeError, ValueError) as e:
         logger.error(f"Cannot write patched index.html: {e}")
         shutil.rmtree(site_folder, ignore_errors=True)
         return None
@@ -1081,8 +1090,10 @@ def _v25_inject_into_viewer(*args, **kwargs):
 
 
 __all__ = [
-    "_apply_offline_viewer", "_localize_preserved_index_assets",
+    "_apply_offline_viewer",
     "_inject_project_font_links",
-    "_v25_manage_offline_viewers", "_v25_inject_into_viewer",
+    "_localize_preserved_index_assets",
+    "_v25_inject_into_viewer",
+    "_v25_manage_offline_viewers",
 ]
 

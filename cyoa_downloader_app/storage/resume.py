@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
-import hashlib
 from datetime import datetime as _dt
 
 from ..core.atomic_io import atomic_write_text
@@ -40,7 +40,7 @@ def load_resume_state(output_dir: str) -> dict:
         completed = [u for u in completed if isinstance(u, str)]
         failed = [u for u in failed if isinstance(u, str)]
         return {"completed": completed, "failed": failed}
-    except Exception:
+    except (OSError, UnicodeError, TypeError, ValueError):
         return {"completed": [], "failed": []}
 
 
@@ -55,13 +55,13 @@ def save_resume_state(output_dir: str, completed: list, failed: list) -> None:
                     "format_version": 2,
                     "completed": completed,
                     "failed": failed,
-                    "updated_at": _dt.now().isoformat(),
+                    "updated_at": _dt.now().astimezone().isoformat(),
                 },
                 indent=2,
                 ensure_ascii=False,
             ),
         )
-    except Exception as e:
+    except (OSError, UnicodeError, TypeError, ValueError) as e:
         logger.warning(f"Could not save resume state: {e}")
 
 
@@ -70,5 +70,5 @@ def clear_resume_state(output_dir: str) -> None:
     try:
         if os.path.exists(path):
             os.remove(path)
-    except Exception as _ignored_exc:
+    except OSError as _ignored_exc:
         logger.debug("Ignored recoverable exception in clear_resume_state: %s", _ignored_exc)

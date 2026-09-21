@@ -7,14 +7,23 @@ from ..config.settings import _detect_ffmpeg_path, _ffmpeg_install_guide
 from ..integrations.itch import itch_backend_status
 from ..network.throttle import http2_runtime_info
 
+# Optional backends execute third-party discovery code. The report records any
+# failure inline and continues so one broken probe cannot hide other results.
+_DEPENDENCY_PROBE_ERRORS = (Exception,)
+
 
 def dependency_check_report() -> str:
     """Return an offline dependency report for GUI, network, batch, AI, media, and fallback features."""
     import importlib.util
     import sys
+
     from .runtime import (
-        _dependency_install_hint, _installed_browser, _pip_install,
-        _playwright_chromium, _rar_backend, _selenium_manager_driver,
+        _dependency_install_hint,
+        _installed_browser,
+        _pip_install,
+        _playwright_chromium,
+        _rar_backend,
+        _selenium_manager_driver,
     )
 
     # module name, display name, requirement group, purpose, fallback
@@ -82,8 +91,8 @@ def dependency_check_report() -> str:
     # otherwise `--dependency-check` can claim the media stack is healthy while
     # the actual extractor has no Deno/Node runtime.
     try:
-        from .runtime import _first_executable, _installed_browser, _playwright_chromium, _rar_backend
         from ..download.audio_download import _yt_dlp_runtime_options
+        from .runtime import _first_executable, _installed_browser, _playwright_chromium, _rar_backend
         runtime_options = _yt_dlp_runtime_options()
         runtimes = runtime_options.get("js_runtimes", {})
         capability_total += 1
@@ -163,7 +172,7 @@ def dependency_check_report() -> str:
                 f"MISSING  {'RAR helper':18}  {'optional-viewer':22}  rarfile package not installed"
             )
             lines.append(f"         {'':18}  {'install':22}  {_dependency_install_hint('rarfile')} and winget install 7zip.7zip")
-    except Exception as _e:
+    except _DEPENDENCY_PROBE_ERRORS as _e:
         lines.append(f"WARN     {'runtime probes':18}  {'diagnostics':22}  probe error: {_e}")
     if http2["available"]:
         ok += 1
@@ -205,6 +214,6 @@ def dependency_check_report() -> str:
     # itch-dl is an external CLI backend (not a Python import), probed separately.
     try:
         lines.append(itch_backend_status())
-    except Exception as _e:
+    except _DEPENDENCY_PROBE_ERRORS as _e:
         lines.append(f"itch-dl backend: probe error ({_e})")
     return "\n".join(lines)

@@ -8,27 +8,26 @@ import time
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
+from typing import ClassVar
 
 import pytest
 import requests
 
-from cyoa_downloader_app.core.output import _cleanup_recent_part_files
 from cyoa_downloader_app.cli import _safe_console_print
+from cyoa_downloader_app.core.output import _cleanup_recent_part_files
 from cyoa_downloader_app.core.url_utils import canonicalize_url
 from cyoa_downloader_app.diagnostics import updates
-from cyoa_downloader_app.download import image_pipeline
+from cyoa_downloader_app.download import asset_scan, fonts, image_pipeline
 from cyoa_downloader_app.download.orchestrator import _classify_project_image_references
-from cyoa_downloader_app.download import asset_scan, fonts
 from cyoa_downloader_app.download.package import verify_output_package, write_package_manifest
 from cyoa_downloader_app.download.website import WebsiteDownloader
-from cyoa_downloader_app.importers.batch import _google_sheet_csv_export_url
-from cyoa_downloader_app.integrations import ai_core
-from cyoa_downloader_app.integrations.offline_viewers import registry
-from cyoa_downloader_app.integrations.offline_viewers import injector
-from cyoa_downloader_app.network import fetch_base
-from cyoa_downloader_app.network import fetch as fetch_wrapper
 from cyoa_downloader_app.gui.app import CYOADownloaderGUI
 from cyoa_downloader_app.importers import batch as batch_importer
+from cyoa_downloader_app.importers.batch import _google_sheet_csv_export_url
+from cyoa_downloader_app.integrations import ai_core
+from cyoa_downloader_app.integrations.offline_viewers import injector, registry
+from cyoa_downloader_app.network import fetch as fetch_wrapper
+from cyoa_downloader_app.network import fetch_base
 from cyoa_downloader_app.project import cyoa_cafe, discover
 from cyoa_downloader_app.project.cyoap_vue import BeautifulSoup
 from cyoa_downloader_app.project.parse import (
@@ -569,6 +568,7 @@ def test_gui_start_passes_default_mode_value_not_tk_variable(tmp_path, monkeypat
 
 def test_download_start_cookie_prepare_only_activates_saved_path(tmp_path, monkeypatch):
     import os
+
     from cyoa_downloader_app.gui import app as gui_app
 
     cookie_path = tmp_path / "cookies.txt"
@@ -607,7 +607,8 @@ def test_download_start_cookie_prepare_only_activates_saved_path(tmp_path, monke
 
 def test_download_all_surfaces_pre_worker_callback_failures(monkeypatch):
     import logging
-    import tkinter.messagebox as messagebox
+    from tkinter import messagebox
+
     from cyoa_downloader_app.gui import app as gui_app
 
     class Widget:
@@ -712,7 +713,10 @@ def test_website_css_root_fallback_recovers_viewer_root_asset(tmp_path, monkeypa
     calls = []
 
     class FakeResponse:
-        headers = {"Content-Type": "image/webp", "Content-Length": "5"}
+        headers: ClassVar[dict[str, str]] = {
+            "Content-Type": "image/webp",
+            "Content-Length": "5",
+        }
         url = "https://example.test/game/mafia_headquarters.webp"
 
         def iter_content(self, chunk_size=0):
@@ -1090,7 +1094,7 @@ def test_remote_batch_import_contains_malformed_csv_and_propagates_cancellation(
 
 def test_remote_batch_import_streams_and_stops_at_size_limit(monkeypatch):
     class StreamingResponse:
-        headers = {}
+        headers: ClassVar[dict] = {}
         encoding = "utf-8"
 
         def __init__(self):
@@ -1414,8 +1418,6 @@ def test_cloudflare_auto_fallback_honors_priority(monkeypatch, priority, expecte
         calls.append("flaresolverr")
         return "CF_CHALLENGE"
 
-    original_request = fetch_base._get_shared_session
-
     def request_with_backend_marker(*, use_cf=False):
         if use_cf:
             calls.append("cloudscraper")
@@ -1587,7 +1589,6 @@ def test_exhausted_transport_retries_do_not_repeat_outer_image_loop(
 
     def exhausted(*_args, **_kwargs):
         calls["http"] += 1
-        return None
 
     def headless(candidate, **_kwargs):
         assert candidate == url
@@ -1629,11 +1630,9 @@ def test_transport_failed_domain_coalesces_failed_headless_probes(
 
     def exhausted(*_args, **_kwargs):
         calls["http"] += 1
-        return None
 
     def failed_headless(*_args, **_kwargs):
         calls["headless"] += 1
-        return None
 
     monkeypatch.setattr(image_pipeline, "fetch_response", exhausted)
     monkeypatch.setattr(image_pipeline, "_cancel_aware_sleep", lambda *_a: pytest.fail("outer loop slept"))
@@ -1667,11 +1666,9 @@ def test_failed_domain_skips_later_transport_calls(monkeypatch, tmp_path):
 
     def exhausted(*_args, **_kwargs):
         calls["http"] += 1
-        return None
 
     def failed_headless(*_args, **_kwargs):
         calls["headless"] += 1
-        return None
 
     monkeypatch.setattr(image_pipeline, "fetch_response", exhausted)
     monkeypatch.setattr(image_pipeline, "_cancel_aware_sleep", lambda *_a: pytest.fail("outer loop slept"))
@@ -1990,8 +1987,7 @@ def test_deep_scan_coalesces_cachebusters_but_keeps_query_variants(monkeypatch, 
 
     monkeypatch.setattr(image_pipeline, "run_asset_scanner_plugins", lambda *_a: candidates)
     monkeypatch.setattr(image_pipeline, "fetch_response", fake_fetch)
-    monkeypatch.setattr(image_pipeline, "_get_active_proxy", lambda: "")
-    monkeypatch.setattr(image_pipeline, "_legacy", lambda: SimpleNamespace(_HTTP2_ENABLED=False))
+    monkeypatch.setattr(image_pipeline.runtime_state, "_HTTP2_ENABLED", False)
     monkeypatch.setattr(image_pipeline, "_ssrf_block_cross_origin", lambda *_a: False)
     monkeypatch.setattr(image_pipeline, "_throttle_bandwidth", lambda *_a, **_k: None)
 
@@ -2016,8 +2012,7 @@ def test_deep_scan_keeps_valid_json_assets(monkeypatch, tmp_path):
 
     monkeypatch.setattr(image_pipeline, "run_asset_scanner_plugins", lambda *_a: {project_url})
     monkeypatch.setattr(image_pipeline, "fetch_response", fake_fetch)
-    monkeypatch.setattr(image_pipeline, "_get_active_proxy", lambda: "")
-    monkeypatch.setattr(image_pipeline, "_legacy", lambda: SimpleNamespace(_HTTP2_ENABLED=False))
+    monkeypatch.setattr(image_pipeline.runtime_state, "_HTTP2_ENABLED", False)
     monkeypatch.setattr(image_pipeline, "_ssrf_block_cross_origin", lambda *_a: False)
     monkeypatch.setattr(image_pipeline, "_throttle_bandwidth", lambda *_a, **_k: None)
 
@@ -2043,8 +2038,7 @@ def test_deep_scan_flattens_external_assets_into_type_folder(monkeypatch, tmp_pa
 
     monkeypatch.setattr(image_pipeline, "run_asset_scanner_plugins", lambda *_a: candidates)
     monkeypatch.setattr(image_pipeline, "fetch_response", fake_fetch)
-    monkeypatch.setattr(image_pipeline, "_get_active_proxy", lambda: "")
-    monkeypatch.setattr(image_pipeline, "_legacy", lambda: SimpleNamespace(_HTTP2_ENABLED=False))
+    monkeypatch.setattr(image_pipeline.runtime_state, "_HTTP2_ENABLED", False)
     monkeypatch.setattr(image_pipeline, "_ssrf_block_cross_origin", lambda *_a: False)
     monkeypatch.setattr(image_pipeline, "_throttle_bandwidth", lambda *_a, **_k: None)
 
@@ -2079,10 +2073,7 @@ def test_deep_scan_returns_the_actual_bounded_unicode_output_path(monkeypatch, t
             200, {"Content-Type": "image/png"}, b"\x89PNG\r\n\x1a\npayload"
         ),
     )
-    monkeypatch.setattr(image_pipeline, "_get_active_proxy", lambda: "")
-    monkeypatch.setattr(
-        image_pipeline, "_legacy", lambda: SimpleNamespace(_HTTP2_ENABLED=False)
-    )
+    monkeypatch.setattr(image_pipeline.runtime_state, "_HTTP2_ENABLED", False)
     monkeypatch.setattr(
         image_pipeline, "_ssrf_block_cross_origin", lambda *_a: False
     )
@@ -2120,8 +2111,7 @@ def test_deep_scan_never_saves_html_as_bin_and_detects_extensionless_images(monk
 
     monkeypatch.setattr(image_pipeline, "run_asset_scanner_plugins", lambda *_a: candidates)
     monkeypatch.setattr(image_pipeline, "fetch_response", fake_fetch)
-    monkeypatch.setattr(image_pipeline, "_get_active_proxy", lambda: "")
-    monkeypatch.setattr(image_pipeline, "_legacy", lambda: SimpleNamespace(_HTTP2_ENABLED=False))
+    monkeypatch.setattr(image_pipeline.runtime_state, "_HTTP2_ENABLED", False)
     monkeypatch.setattr(image_pipeline, "_ssrf_block_cross_origin", lambda *_a: False)
     monkeypatch.setattr(image_pipeline, "_throttle_bandwidth", lambda *_a, **_k: None)
 
@@ -2147,8 +2137,7 @@ def test_deep_scan_reports_missing_image_without_creating_local_placeholder(monk
         "fetch_response",
         lambda url, **_kwargs: FakeResponse(404, {"Content-Type": "text/html"}, b"not found"),
     )
-    monkeypatch.setattr(image_pipeline, "_get_active_proxy", lambda: "")
-    monkeypatch.setattr(image_pipeline, "_legacy", lambda: SimpleNamespace(_HTTP2_ENABLED=False))
+    monkeypatch.setattr(image_pipeline.runtime_state, "_HTTP2_ENABLED", False)
     monkeypatch.setattr(image_pipeline, "_ssrf_block_cross_origin", lambda *_a: False)
     monkeypatch.setattr(image_pipeline, "_throttle_bandwidth", lambda *_a, **_k: None)
     monkeypatch.setattr(
@@ -2284,5 +2273,6 @@ def test_domain_modules_import_in_fresh_interpreter(module_name):
         capture_output=True,
         text=True,
         timeout=30,
+        check=False,
     )
     assert result.returncode == 0, result.stderr

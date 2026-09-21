@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
 import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
 from cyoa_downloader_app.network.runtime_capture import capture_runtime_assets
-
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("CYOA_RUNTIME_SMOKE") != "1",

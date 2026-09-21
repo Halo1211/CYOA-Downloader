@@ -12,7 +12,6 @@ import os
 import subprocess as _sp
 import sys
 import tempfile
-from typing import Dict, Optional, Set
 from urllib.parse import urlparse
 
 from ..config.settings import _load_settings, _update_setting
@@ -20,7 +19,7 @@ from ..download.asset_scan import _is_probable_raw_cdn_asset
 from ..logging_setup import logger
 from ..network.proxy import _get_active_proxy, _should_bypass_manual_proxy
 
-_GALLERY_DL_HOSTS: Dict[str, str] = {
+_GALLERY_DL_HOSTS: dict[str, str] = {
     "www.pixiv.net": "pixiv", "pixiv.net": "pixiv",
     "www.deviantart.com": "deviantart", "deviantart.com": "deviantart",
     "danbooru.donmai.us": "danbooru", "donmai.us": "danbooru",
@@ -31,7 +30,7 @@ _GALLERY_DL_HOSTS: Dict[str, str] = {
     "chan.sankakucomplex.com": "sankaku",
     "x.com": "twitter", "twitter.com": "twitter", "www.twitter.com": "twitter",
 }
-_GALLERY_DL_CDN_HOSTS: Set[str] = {
+_GALLERY_DL_CDN_HOSTS: set[str] = {
     "i.pximg.net", "img-original.pximg.net", "img-zip-ugoira.pximg.net",
     "pbs.twimg.com", "c.deviantart.com", "a.deviantart.net", "wixmp.com",
     "cdn.donmai.us", "static1.e621.net", "static1.e926.net",
@@ -39,7 +38,7 @@ _GALLERY_DL_CDN_HOSTS: Set[str] = {
     "img1.gelbooru.com", "img2.gelbooru.com", "img.hypnohub.net",
     "img.rule34.xxx", "img3.rule34.xxx", "img.rule34.paheal.net",
 }
-_gdl_available: Optional[bool] = None   # cached
+_gdl_available: bool | None = None   # cached
 _gallery_dl_mode: str = str(_load_settings().get("gallery_dl_mode", "off") or "off").lower()
 _gallery_dl_path: str = "gallery-dl"
 _gallery_dl_config: str = ""
@@ -52,8 +51,8 @@ def _sync_legacy_state() -> None:
     for name in ("_gdl_available", "_gallery_dl_mode", "_gallery_dl_path", "_gallery_dl_config"):
         try:
             setattr(mod, name, globals()[name])
-        except Exception:
-            pass
+        except (AttributeError, KeyError, TypeError) as exc:
+            logger.debug("Could not mirror gallery-dl state %s: %s", name, exc)
 
 
 def _set_gallery_dl_mode(mode: str = "off", *, path: str = "", config: str = "", persist: bool = False) -> None:
@@ -75,7 +74,7 @@ def _set_gallery_dl_mode(mode: str = "off", *, path: str = "", config: str = "",
     if persist:
         try:
             _update_setting("gallery_dl_mode", m)
-        except Exception as _ignored_exc:
+        except (OSError, TypeError, ValueError) as _ignored_exc:
             logger.debug("Ignored recoverable exception in _set_gallery_dl_mode (line 4178): %s", _ignored_exc)
     _sync_legacy_state()
 
@@ -92,18 +91,18 @@ def _gallery_dl_is_available() -> bool:
     except ImportError as _ignored_exc:
         logger.debug("Ignored recoverable exception in _gallery_dl_is_available (line 4190): %s", _ignored_exc)
     try:
-        r = _sp.run([_gallery_dl_path or "gallery-dl", "--version"], capture_output=True, timeout=5)
+        r = _sp.run([_gallery_dl_path or "gallery-dl", "--version"], capture_output=True, timeout=5, check=False)
         _gdl_available = (r.returncode == 0)
         _sync_legacy_state()
         return _gdl_available
-    except Exception as exc:
+    except (OSError, _sp.SubprocessError) as exc:
         logger.debug(f"gallery-dl availability probe failed: {exc}")
         _gdl_available = False
         _sync_legacy_state()
         return False
 
 
-def _is_gallery_dl_candidate(url: str) -> Optional[str]:
+def _is_gallery_dl_candidate(url: str) -> str | None:
     """Return extractor key only when gallery-dl is appropriate for this URL."""
     if _gallery_dl_mode == "off":
         return None
@@ -115,24 +114,23 @@ def _is_gallery_dl_candidate(url: str) -> Optional[str]:
             return None
         if host in _GALLERY_DL_HOSTS:
             return _GALLERY_DL_HOSTS[host]
-        if _gallery_dl_mode == "force":
+        if _gallery_dl_mode == "force" and parsed.scheme in {"http", "https"}:
             # Force is an advanced/manual mode. Still avoid obviously local/data URLs.
-            if parsed.scheme in {"http", "https"}:
-                return host or "custom"
+            return host or "custom"
         # Common page patterns. Keep this conservative.
         if any(token in path for token in ("/artworks/", "/posts/", "/post/", "/view/", "/gallery/", "/status/")):
             return host or "page"
-    except Exception as _ignored_exc:
+    except (AttributeError, TypeError, ValueError) as _ignored_exc:
         logger.debug("Ignored recoverable exception in _is_gallery_dl_candidate (line 4231): %s", _ignored_exc)
     return None
 
 
 # Backwards-compatible name used by older code paths.
-def _is_gallery_dl_site(url: str) -> Optional[str]:
+def _is_gallery_dl_site(url: str) -> str | None:
     return _is_gallery_dl_candidate(url)
 
 
-def _fetch_via_gallery_dl(url: str) -> Optional[bytes]:
+def _fetch_via_gallery_dl(url: str) -> bytes | None:
     """
     Download a single file through gallery-dl only when explicitly enabled.
     Uses gallery/page URLs best. Raw CDN image URLs are skipped in smart mode.
@@ -161,7 +159,7 @@ def _fetch_via_gallery_dl(url: str) -> Optional[bytes]:
             cmd.extend(["--proxy", proxy])
         cmd.append(url)
 
-        r = _sp.run(cmd, capture_output=True, timeout=90, text=True)
+        r = _sp.run(cmd, capture_output=True, timeout=90, text=True, check=False)
         image_files = _gdl_collect_files(tmpdir)
 
         if not image_files:
@@ -179,14 +177,14 @@ def _fetch_via_gallery_dl(url: str) -> Optional[bytes]:
     except _sp.TimeoutExpired:
         logger.warning(f"[gallery-dl] Timeout: {url}")
         return None
-    except Exception as e:
+    except (OSError, RuntimeError, TypeError, ValueError, _sp.SubprocessError) as e:
         logger.debug(f"[gallery-dl] {e}")
         return None
     finally:
         import shutil as _sh
         try:
             _sh.rmtree(tmpdir, ignore_errors=True)
-        except Exception as _ignored_exc:
+        except OSError as _ignored_exc:
             logger.debug("Ignored recoverable exception in _fetch_via_gallery_dl (line 4296): %s", _ignored_exc)
 
 
@@ -201,9 +199,16 @@ def _gdl_collect_files(directory: str):
 
 
 __all__ = [
-    "_GALLERY_DL_HOSTS", "_GALLERY_DL_CDN_HOSTS", "_gdl_available",
-    "_gallery_dl_mode", "_gallery_dl_path", "_gallery_dl_config",
-    "_set_gallery_dl_mode", "_gallery_dl_is_available",
-    "_is_gallery_dl_candidate", "_is_gallery_dl_site",
-    "_fetch_via_gallery_dl", "_gdl_collect_files",
+    "_GALLERY_DL_CDN_HOSTS",
+    "_GALLERY_DL_HOSTS",
+    "_fetch_via_gallery_dl",
+    "_gallery_dl_config",
+    "_gallery_dl_is_available",
+    "_gallery_dl_mode",
+    "_gallery_dl_path",
+    "_gdl_available",
+    "_gdl_collect_files",
+    "_is_gallery_dl_candidate",
+    "_is_gallery_dl_site",
+    "_set_gallery_dl_mode",
 ]

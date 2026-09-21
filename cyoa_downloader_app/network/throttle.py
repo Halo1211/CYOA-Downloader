@@ -6,6 +6,7 @@ legacy facade is mirrored only when compatibility-visible globals change.
 
 from __future__ import annotations
 
+import logging
 import random
 import sys
 import time
@@ -38,14 +39,14 @@ def http2_runtime_info() -> dict:
         import httpx  # type: ignore
         info["httpx_version"] = str(getattr(httpx, "__version__", "unknown"))
         info["httpx_path"] = str(getattr(httpx, "__file__", "") or "")
-    except Exception as exc:
+    except ImportError as exc:
         info["detail"] = f"httpx import failed: {exc}"
         return info
     try:
         import h2  # type: ignore
         info["h2_version"] = str(getattr(h2, "__version__", "unknown"))
         info["h2_path"] = str(getattr(h2, "__file__", "") or "")
-    except Exception as exc:
+    except ImportError as exc:
         info["detail"] = (
             f"h2 import failed: {exc}; install with "
             f'"{sys.executable}" -m pip install "httpx[http2]"'
@@ -54,7 +55,7 @@ def http2_runtime_info() -> dict:
     try:
         client = httpx.Client(http2=True)
         client.close()
-    except Exception as exc:
+    except (ImportError, OSError, RuntimeError, TypeError, ValueError) as exc:
         info["detail"] = f"HTTP/2 client creation failed: {exc}"
         return info
     info["available"] = True
@@ -88,8 +89,12 @@ def _set_http2_enabled(enabled: bool) -> bool:
 
 
 __all__ = [
-    "http2_runtime_info", "_set_http2_enabled", "_throttle_bandwidth",
-    "_domain_record_success", "_domain_throttle", "_domain_record_failure",
+    "_domain_record_failure",
+    "_domain_record_success",
+    "_domain_throttle",
+    "_set_http2_enabled",
+    "_throttle_bandwidth",
+    "http2_runtime_info",
 ]
 
 
@@ -98,8 +103,10 @@ def _throttle_bandwidth(bytes_downloaded: int, *, record_gui: bool = True) -> No
     if record_gui and state._gui_speed_cb is not None:
         try:
             state._gui_speed_cb(bytes_downloaded)
-        except Exception as exc:
-            logger.debug("Ignored recoverable exception in _throttle_bandwidth: %s", exc)
+        except Exception:
+            # User-provided GUI callbacks are a trust boundary: report the full
+            # failure while keeping bandwidth enforcement independent of the UI.
+            logging.getLogger("cyoa_downloader").exception("GUI speed callback failed")
     limit = state._bandwidth_limit_kbps
     if limit <= 0:
         return
@@ -134,7 +141,7 @@ def _domain_record_success(url: str) -> None:
             if domain in state._domain_backoff:
                 state._domain_backoff[domain] = max(0.0, state._domain_backoff[domain] / 2)
                 state._domain_fail_count[domain] = max(0, state._domain_fail_count.get(domain, 0) - 1)
-    except Exception as exc:
+    except (AttributeError, TypeError, ValueError) as exc:
         logger.debug("Ignored recoverable exception in _domain_record_success: %s", exc)
 
 
@@ -160,7 +167,7 @@ def _domain_throttle(url: str) -> None:
             _cancel_aware_sleep(wait)
     except DownloadCancelledError:
         raise
-    except Exception as exc:
+    except (AttributeError, TypeError, ValueError) as exc:
         logger.debug(f"Domain throttle failed for {url}: {exc}")
 
 
@@ -180,6 +187,6 @@ def _domain_record_failure(url: str, status: int = 0) -> float:
             state._domain_backoff[domain] = new_backoff
         logger.debug(f"Backoff [{domain}] fails={fails} → {new_backoff:.1f}s (status={status})")
         return new_backoff
-    except Exception as exc:
+    except (AttributeError, TypeError, ValueError) as exc:
         logger.debug(f"Could not update domain backoff for {url}: {exc}")
         return 0.0

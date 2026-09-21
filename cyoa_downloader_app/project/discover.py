@@ -12,31 +12,40 @@ import os
 import re
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 from urllib.parse import urljoin, urlparse, urlunparse
 
+import requests
+
 from ..config.settings import _load_settings
-from ..core.url_utils import canonicalize_url, _directory_base_url
 from ..core.atomic_io import validate_response_content_length
 from ..core.cancellation import _emit_progress_event, _raise_if_cancelled
 from ..core.progress import DownloadCancelledError
+from ..core.url_utils import _directory_base_url, canonicalize_url
+from ..download.asset_scan import _safe_response_text
+from ..integrations.ai_calls import _ai_detect_project_json
+from ..integrations.ai_core import (
+    AIUsageBudget,
+    _ai_is_available,
+    _ai_mode_allows,
+    _get_ai_provider,
+    _normalize_ai_mode,
+    _normalize_ai_provider,
+    _ssrf_block_cross_origin,
+)
 from ..logging_setup import logger
 from ..network.fetch import fetch_response
 from ..network.throttle import _throttle_bandwidth
-from ..download.asset_scan import _safe_response_text
-from ..integrations.ai_core import (
-    AIUsageBudget, _ai_is_available, _ai_mode_allows, _get_ai_provider,
-    _normalize_ai_mode, _normalize_ai_provider, _ssrf_block_cross_origin,
-)
-from ..integrations.ai_calls import _ai_detect_project_json
 from .parse import (
-    try_decode_bytes, extract_embedded_project_from_js,
-    extract_project_from_archive_bytes, extract_project_text_from_payload,
+    extract_embedded_project_from_js,
+    extract_project_from_archive_bytes,
+    extract_project_text_from_payload,
+    try_decode_bytes,
 )
 
 try:
     from bs4 import BeautifulSoup  # type: ignore
-except Exception:  # pragma: no cover - mirrors legacy fallback behavior
+except ImportError:  # pragma: no cover - mirrors legacy fallback behavior
     def BeautifulSoup(*_args, **_kwargs):  # type: ignore
         raise RuntimeError(
             "Missing dependency: beautifulsoup4 is required for HTML/ICC parsing. "
@@ -45,6 +54,28 @@ except Exception:  # pragma: no cover - mirrors legacy fallback behavior
 
 
 _MAX_PROJECT_CANDIDATE_BYTES = 512 * 1024 * 1024
+
+_NETWORK_OPERATION_ERRORS = (
+    AttributeError,
+    KeyError,
+    OSError,
+    RecursionError,
+    RuntimeError,
+    TypeError,
+    UnicodeError,
+    ValueError,
+    requests.RequestException,
+)
+_RESPONSE_CLEANUP_ERRORS = (
+    AttributeError,
+    OSError,
+    RuntimeError,
+    requests.RequestException,
+)
+
+# Batch auto-detect workers are top-level independent jobs. One malformed or
+# custom detector must not abort sibling jobs; cancellation remains explicit.
+_AUTO_DETECT_JOB_ERRORS = (Exception,)
 
 
 class _ProjectCandidateTooLargeError(ValueError):
@@ -63,12 +94,12 @@ def _legacy():
     return _surface
 
 
-def _get_source(url: str, extra_headers: Optional[Dict] = None) -> Optional[str]:
+def _get_source(url: str, extra_headers: dict | None = None) -> str | None:
     """Internal indirection used by script discovery; points to the domain implementation."""
     return get_source(url, extra_headers=extra_headers)
 
 
-def extract_placeholder_url(source: str) -> List[str]:
+def extract_placeholder_url(source: str) -> list[str]:
     p = r'\$store\.commit\("loadApp",.*?\)\}\},e\.open\("GET","(.*?)",!0\)'
     result = re.findall(p, source)
     if result:
@@ -76,9 +107,9 @@ def extract_placeholder_url(source: str) -> List[str]:
     return re.findall(r'e\.open\(\s*["\']GET["\']\s*,\s*["\']([^"\']+)["\']', source)
 
 
-def find_candidate_urls_in_text(text: str, base_url: str) -> List[str]:
-    candidates: List[str] = []
-    seen: Set[str] = set()
+def find_candidate_urls_in_text(text: str, base_url: str) -> list[str]:
+    candidates: list[str] = []
+    seen: set[str] = set()
 
     def add(candidate: str) -> None:
         # Minified JS/JSON commonly escapes slashes as \/
@@ -113,9 +144,7 @@ def find_candidate_urls_in_text(text: str, base_url: str) -> List[str]:
         # Only accept candidates with a recognised data extension, or paths that
         # literally end with "project.json" / "project.txt" / "project.zip".
         # Avoid false positives like "Load/Save Project" or UI label strings.
-        if ext in {".json", ".txt", ".zip"}:
-            add(candidate)
-        elif _PROJECT_FILENAME_RE.search(path) and "/" in path:
+        if ext in {".json", ".txt", ".zip"} or _PROJECT_FILENAME_RE.search(path) and "/" in path:
             add(candidate)
 
     for candidate in extract_placeholder_url(text):
@@ -146,7 +175,7 @@ def find_candidate_urls_in_text(text: str, base_url: str) -> List[str]:
     return candidates[:80]
 
 
-def _script_priority(label: str) -> Tuple[int, str]:
+def _script_priority(label: str) -> tuple[int, str]:
     lower = label.lower()
     if any(part in lower for part in ["app.", "/app.", "app.js", "/js/app", "main.", "/main.", "main.js", "/index.", "runtime."]):
         return (0, lower)
@@ -162,9 +191,9 @@ def extract_app_js_path(code: str) -> str:
     return m.group(0) if m else ""
 
 
-def find_script_sources(html_source: str, base_url: Optional[str] = None) -> List[Tuple[str, str]]:
+def find_script_sources(html_source: str, base_url: str | None = None) -> list[tuple[str, str]]:
     soup = BeautifulSoup(html_source, "html.parser")
-    results: List[Tuple[str, str]] = []
+    results: list[tuple[str, str]] = []
 
     for index, script in enumerate(soup.find_all("script"), start=1):
         if "document.createElement" in str(script):
@@ -210,7 +239,7 @@ def find_script_sources(html_source: str, base_url: Optional[str] = None) -> Lis
     }
     pending = list(results)
     while pending and len(results) < 64:
-        owner_label, owner_source = pending.pop(0)
+        _owner_label, owner_source = pending.pop(0)
         dynamic_path = extract_app_js_path(owner_source)
         if not dynamic_path:
             continue
@@ -235,11 +264,11 @@ def find_script_sources(html_source: str, base_url: Optional[str] = None) -> Lis
     return results
 
 
-def find_scripts(html_source: str, base_url: Optional[str] = None) -> List[str]:
+def find_scripts(html_source: str, base_url: str | None = None) -> list[str]:
     return [content for _, content in find_script_sources(html_source, base_url)]
 
 
-def extract_iframe_urls(html_source: str) -> List[str]:
+def extract_iframe_urls(html_source: str) -> list[str]:
     soup = BeautifulSoup(html_source, "html.parser")
     return [t.get("src") for t in soup.find_all("iframe") if t.get("src")]
 
@@ -258,15 +287,15 @@ def strip_document_from_url(url: str) -> str:
     return urlunparse(parsed._replace(path=path, query=""))
 
 
-def _scan_html_for_project_hints(html: str, page_url: str, base_url: str) -> List[str]:
+def _scan_html_for_project_hints(html: str, page_url: str, base_url: str) -> list[str]:
     """
     Fast scan of HTML for strong clues about the project file location.
     Returns deduplicated candidate URLs to try *before* brute-forcing.
     Covers: <meta>, data-* attrs, <link rel="preload">, inline window.__ assignments,
     and inline fetch()/axios() calls pointing at .json/.txt/.zip files.
     """
-    hints: List[str] = []
-    seen: Set[str] = set()
+    hints: list[str] = []
+    seen: set[str] = set()
 
     def add(raw: str) -> None:
         # Unescape JSON-escaped slashes from inline JS
@@ -317,7 +346,7 @@ def _scan_html_for_project_hints(html: str, page_url: str, base_url: str) -> Lis
     return hints
 
 
-def build_default_project_candidates(url: str) -> List[str]:
+def build_default_project_candidates(url: str) -> list[str]:
     """
     Build a prioritised list of candidate project.json URLs for Phase 1.
 
@@ -343,8 +372,6 @@ def build_default_project_candidates(url: str) -> List[str]:
         "game.json", "story.json", "adventure.json", "choices.json",
         "app.data.json", "project.data.json",
     ]
-    ALL_NAMES = PRIMARY_NAMES + ALT_NAMES
-
     # ── sub-directories to probe at each level ─────────────────────────
     PRIMARY_SUBDIRS = [
         "",            # root of current dir (first!)
@@ -371,10 +398,8 @@ def build_default_project_candidates(url: str) -> List[str]:
         "scripts/",
         "config/",
     ]
-    ALL_SUBDIRS = PRIMARY_SUBDIRS + EXTRA_SUBDIRS
-
-    seen: Set[str] = set()
-    result: List[str] = []
+    seen: set[str] = set()
+    result: list[str] = []
 
     def add(u: str) -> None:
         u = u.split("?")[0].split("#")[0]   # strip query/fragment
@@ -392,7 +417,7 @@ def build_default_project_candidates(url: str) -> List[str]:
     # Strip trailing filename (e.g. index.html) — only keep directory components
     if path_parts and "." in path_parts[-1] and not path_parts[-1].startswith("."):
         path_parts = path_parts[:-1]
-    ancestor_bases: List[str] = []
+    ancestor_bases: list[str] = []
 
     for depth in range(len(path_parts), 0, -1):
         ancestor_path = "/" + "/".join(path_parts[:depth]) + "/"
@@ -486,7 +511,7 @@ def try_project_candidate(
     label: str = "",
     quiet: bool = False,
     source_url: str = "",
-) -> Tuple[Optional[str], str]:
+) -> tuple[str | None, str]:
     """Fetch and validate a project candidate with live transfer telemetry.
 
     v46.8 streams candidate payloads instead of reading ``response.content`` in
@@ -568,7 +593,9 @@ def try_project_candidate(
             error="Project candidate exceeds the 512 MiB size limit",
         )
         return None, ""
-    except Exception:
+    except DownloadCancelledError:
+        raise
+    except _NETWORK_OPERATION_ERRORS:
         _emit_progress_event(
             "file_failed",
             name=os.path.basename(urlparse(display_url).path) or display_url,
@@ -579,7 +606,7 @@ def try_project_candidate(
     finally:
         try:
             response.close()
-        except Exception as close_exc:
+        except _RESPONSE_CLEANUP_ERRORS as close_exc:
             logger.debug(f"Could not close project candidate response: {close_exc}")
 
     archived = extract_project_from_archive_bytes(raw, candidate_url)
@@ -598,7 +625,7 @@ def try_project_candidate(
 
 def get_project_source(url: str, depth: int = 0, ai_api_key: str = "",
                        ai_provider: str = "", ai_mode: str = "auto_fallback",
-                       ai_budget: Optional[AIUsageBudget] = None) -> Tuple[Optional[str], str]:
+                       ai_budget: AIUsageBudget | None = None) -> tuple[str | None, str]:
     _raise_if_cancelled()
     if depth > 4:
         logger.warning(f"Max recursion depth at {url}")
@@ -618,7 +645,7 @@ def get_project_source(url: str, depth: int = 0, ai_api_key: str = "",
                 resolved = get_iframe_url_from_cyoa_cafe(url)
             except DownloadCancelledError:
                 raise
-            except Exception as e:
+            except _NETWORK_OPERATION_ERRORS as e:
                 logger.error(f"cyoa.cafe resolve error: {e}")
                 return None, ""
 
@@ -663,14 +690,14 @@ def get_project_source(url: str, depth: int = 0, ai_api_key: str = "",
             url = _game_url
     except DownloadCancelledError:
         raise
-    except Exception as _se:
+    except _NETWORK_OPERATION_ERRORS as _se:
         logger.debug(f"cyoa.cafe shell check failed: {_se}")
     finally:
         if _shell_r is not None:
             try:
                 _shell_r.close()
-            except Exception:
-                pass
+            except _RESPONSE_CLEANUP_ERRORS as exc:
+                logger.debug("Could not close CYOA.CAFE shell response: %s", exc)
 
     logger.info(f"Project search start: {url}")
     base_url = strip_document_from_url(url)
@@ -696,7 +723,7 @@ def get_project_source(url: str, depth: int = 0, ai_api_key: str = "",
     # latency (and can make the download look stuck on hosts that time out).
     # Probe runtime-looking script loaders early and keep the result for the
     # full script phase below.
-    script_sources: List[Tuple[str, str]] = []
+    script_sources: list[tuple[str, str]] = []
     if source and re.search(
         r"core\.js|document\.createElement|<script\b[^>]*\btype\s*=\s*[\"']module",
         source,
@@ -708,7 +735,7 @@ def get_project_source(url: str, depth: int = 0, ai_api_key: str = "",
     # This makes the control flow match user expectations and avoids waiting
     # for a large brute-force sweep when /project.json exists.
     default_candidates = build_default_project_candidates(url)
-    canonical_defaults: List[str] = []
+    canonical_defaults: list[str] = []
     for _candidate in default_candidates:
         _path = urlparse(_candidate).path.lower().rstrip("/")
         if _path.endswith(("/project.json", "/project.txt", "/project.zip")):
@@ -813,20 +840,20 @@ def get_project_source(url: str, depth: int = 0, ai_api_key: str = "",
                     return txt, ai_candidate
             except DownloadCancelledError:
                 raise
-            except Exception as e:
+            except _NETWORK_OPERATION_ERRORS as e:
                 logger.debug(f"  AI candidate failed: {e}")
             finally:
                 if r is not None:
                     try:
                         r.close()
-                    except Exception:
-                        pass
+                    except _RESPONSE_CLEANUP_ERRORS as exc:
+                        logger.debug("Could not close AI candidate response: %s", exc)
 
     logger.warning("Project search finished without result.")
     return None, ""
 
 
-def get_source(url: str, extra_headers: Optional[Dict] = None) -> Optional[str]:
+def get_source(url: str, extra_headers: dict | None = None) -> str | None:
     """Fetch URL and return text content using explicit byte decoding.
 
     requests.response.text can default to ISO-8859-1 when a server omits a
@@ -841,8 +868,8 @@ def get_source(url: str, extra_headers: Optional[Dict] = None) -> Optional[str]:
     finally:
         try:
             response.close()
-        except Exception:
-            pass
+        except _RESPONSE_CLEANUP_ERRORS as exc:
+            logger.debug("Could not close source response for %s: %s", url, exc)
 
 
 def url_file_exists(url: str, timeout: int = 5) -> bool:
@@ -857,22 +884,24 @@ def url_file_exists(url: str, timeout: int = 5) -> bool:
             close = getattr(r, "close", None) if r is not None else None
             if callable(close):
                 close()
-    except Exception:
+    except DownloadCancelledError:
+        raise
+    except _NETWORK_OPERATION_ERRORS:
         return False
 
 
 def _parallel_head_check(
-    candidates: List[str],
+    candidates: list[str],
     max_workers: int = 12,
     timeout: int = 5,
-) -> List[str]:
+) -> list[str]:
     """Check candidate URLs through the unified fetch wrapper.
 
     This intentionally uses lightweight GET through fetch_response instead of
     raw HEAD so Cloudflare/FlareSolverr, proxy, DNS, and retry policy are
     consistent.
     """
-    results: Dict[str, bool] = {}
+    results: dict[str, bool] = {}
     lock = threading.Lock()
     if not candidates:
         return []
@@ -892,7 +921,7 @@ def _parallel_head_check(
             ok = bool(r is not None and r.status_code in {200, 206})
         except DownloadCancelledError:
             raise
-        except Exception:
+        except _NETWORK_OPERATION_ERRORS:
             ok = False
         finally:
             if r is not None:
@@ -900,22 +929,21 @@ def _parallel_head_check(
                     close = getattr(r, "close", None)
                     if callable(close):
                         close()
-                except Exception:
-                    pass
+                except _RESPONSE_CLEANUP_ERRORS as exc:
+                    logger.debug("Could not close project probe response: %s", exc)
         with lock:
             results[url] = ok
 
     ex = ThreadPoolExecutor(max_workers=max_workers)
     futures = [ex.submit(check, url) for url in candidates]
+    completed_normally = False
     try:
         for future in as_completed(futures):
             _raise_if_cancelled()
             future.result()
-    except BaseException:
-        ex.shutdown(wait=True, cancel_futures=True)
-        raise
-    else:
-        ex.shutdown(wait=False, cancel_futures=True)
+        completed_normally = True
+    finally:
+        ex.shutdown(wait=not completed_normally, cancel_futures=True)
 
     return [u for u in candidates if results.get(u)]
 
@@ -928,7 +956,7 @@ def _normalize_auto_detect_output(value: Any) -> str:
     return "folder"
 
 
-def _auto_detect_output_variant(kind: str, output_pref: Optional[str] = None) -> str:
+def _auto_detect_output_variant(kind: str, output_pref: str | None = None) -> str:
     """Return the concrete Auto mode variant for a detected engine kind."""
     pref = _normalize_auto_detect_output(
         output_pref if output_pref is not None else _load_settings().get("auto_detect_output", "folder")
@@ -966,7 +994,7 @@ def auto_detect_mode(url: str, timeout: int = 6) -> str:
                 return detected_mode
         except DownloadCancelledError:
             raise
-        except Exception as exc:
+        except _NETWORK_OPERATION_ERRORS as exc:
             logger.debug("CYOA.CAFE static record probe skipped: %s", exc)
 
     if is_cafe:
@@ -978,7 +1006,7 @@ def auto_detect_mode(url: str, timeout: int = 6) -> str:
                     logger.info(f"[Auto-detect] Resolved cyoa.cafe target → {probe_url}")
         except DownloadCancelledError:
             raise
-        except Exception as exc:
+        except _NETWORK_OPERATION_ERRORS as exc:
             logger.warning(f"[Auto-detect] cyoa.cafe resolver unavailable: {exc}")
             if is_cafe_metadata:
                 detected_mode = _auto_detect_output_variant("website")
@@ -1006,7 +1034,7 @@ def auto_detect_mode(url: str, timeout: int = 6) -> str:
             return detected_mode
     except DownloadCancelledError:
         raise
-    except Exception as exc:
+    except _NETWORK_OPERATION_ERRORS as exc:
         logger.warning(f"[Auto-detect] Standard project probe failed: {exc}")
 
     detected_mode = _auto_detect_output_variant("website")
@@ -1015,10 +1043,10 @@ def auto_detect_mode(url: str, timeout: int = 6) -> str:
 
 
 def auto_detect_modes_batch(
-    items: List[Dict],
+    items: list[dict],
     max_workers: int = 4,
     progress_cb=None,
-) -> List[Dict]:
+) -> list[dict]:
     """Run auto_detect_mode for every item in the batch that has mode == 'auto'."""
     try:
         safe_workers = max(1, min(32, int(max_workers or 1)))
@@ -1029,12 +1057,12 @@ def auto_detect_modes_batch(
     done = {"n": 0}
     lock = threading.Lock()
 
-    def probe_one(item: Dict) -> None:
+    def probe_one(item: dict) -> None:
         try:
             detected = auto_detect_mode(item["url"])
         except DownloadCancelledError:
             raise
-        except Exception as e:
+        except _AUTO_DETECT_JOB_ERRORS as e:
             logger.warning(f"[Auto-detect] Error for {item['url']}: {e}")
             detected = "embed"
         item["mode"] = detected
@@ -1048,42 +1076,41 @@ def auto_detect_modes_batch(
         logger.info(f"[Auto-detect] Probing {total} URL(s) in parallel (workers={max_workers})…")
         ex = ThreadPoolExecutor(max_workers=safe_workers)
         futures = [ex.submit(probe_one, item) for item in to_probe]
+        completed_normally = False
         try:
             for future in as_completed(futures):
                 _raise_if_cancelled()
                 future.result()
-        except BaseException:
+            completed_normally = True
+        finally:
             # Do not clear the process cancellation bridge while probe workers
             # are still alive. Running requests observe the active event and
             # close their responses before this function unwinds.
-            ex.shutdown(wait=True, cancel_futures=True)
-            raise
-        else:
-            ex.shutdown(wait=False, cancel_futures=True)
+            ex.shutdown(wait=not completed_normally, cancel_futures=True)
         logger.info("[Auto-detect] Done.")
 
     return items
 
 
 __all__ = [
-    "find_candidate_urls_in_text",
-    "try_project_candidate",
-    "_script_priority",
-    "find_script_sources",
-    "_scan_html_for_project_hints",
-    "get_project_source",
-    "get_source",
-    "url_file_exists",
-    "_parallel_head_check",
-    "_normalize_auto_detect_output",
     "_auto_detect_output_variant",
+    "_normalize_auto_detect_output",
+    "_parallel_head_check",
+    "_scan_html_for_project_hints",
+    "_script_priority",
     "auto_detect_mode",
     "auto_detect_modes_batch",
-    "find_scripts",
-    "extract_placeholder_url",
-    "extract_iframe_urls",
-    "get_first_folder_from_url",
-    "extract_app_js_path",
     "build_default_project_candidates",
+    "extract_app_js_path",
+    "extract_iframe_urls",
+    "extract_placeholder_url",
+    "find_candidate_urls_in_text",
+    "find_script_sources",
+    "find_scripts",
+    "get_first_folder_from_url",
+    "get_project_source",
+    "get_source",
     "strip_document_from_url",
+    "try_project_candidate",
+    "url_file_exists",
 ]

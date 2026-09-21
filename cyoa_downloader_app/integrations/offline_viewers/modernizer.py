@@ -44,7 +44,7 @@ class SiteFamily(str, Enum):
     ICC_ORIGINAL = "icc_original"
     ICC_PLUS_LEGACY = "icc_plus_legacy"
     # Source compatibility for callers that used the old combined name.
-    ICC_LEGACY = "icc_original"
+    ICC_LEGACY = "icc_original"  # noqa: PIE796 - public compatibility alias
     ICC_PLUS_2 = "icc_plus_2"
     ICC_REMIX = "icc_remix"
     LT_OUROUMOV = "lt_ouroumov"
@@ -1692,10 +1692,10 @@ __all__ = [
     "analyze_site",
     "build_preserved_index",
     "externalize_inline_project_interceptor",
-    "remove_redundant_project_interceptor",
     "merge_legacy_index_customizations",
     "modernize_collection",
     "modernize_site",
+    "remove_redundant_project_interceptor",
     "resolve_registered_viewer_templates",
     "resolve_viewer_templates",
 ]

@@ -4,11 +4,12 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
 import cyoa_downloader
-from cyoa_downloader_app.core import cancellation, progress, output, atomic_io
+from cyoa_downloader_app.core import atomic_io, cancellation, output, progress
 
 ROOT = Path(__file__).resolve().parents[1]
 LEGACY = ROOT / "cyoa_downloader_app" / "runtime" / "surface.py"
@@ -40,7 +41,7 @@ def test_cancellation_event_helpers_moved_out_of_legacy():
     assert events and events[0]["type"] == "unit" and events[0]["value"] == 123
 
     names = _legacy_defined_symbols()
-    for name in {"_emit_progress_event", "_cancel_requested", "_raise_if_cancelled", "_cancel_aware_sleep"}:
+    for name in ("_emit_progress_event", "_cancel_requested", "_raise_if_cancelled", "_cancel_aware_sleep"):
         assert name not in names
 
 
@@ -77,7 +78,7 @@ def test_content_length_validator_moved_out_of_legacy():
     assert cyoa_downloader.validate_response_content_length is atomic_io.validate_response_content_length
 
     class Resp:
-        headers = {"Content-Length": "4"}
+        headers: ClassVar[dict[str, str]] = {"Content-Length": "4"}
 
     assert atomic_io.validate_response_content_length(Resp(), 4) == 4
     with pytest.raises(IOError):

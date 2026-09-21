@@ -3,23 +3,27 @@
 from __future__ import annotations
 
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
 import os
 import re
-from typing import Dict, Iterable, List
+from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
+from functools import lru_cache
 from urllib.parse import urlparse
 
 from ..constants.assets import (
-    AUDIO_EXTENSIONS, FONT_EXTENSIONS, IMAGE_EXTENSIONS, SCRIPT_EXTENSIONS,
-    STYLE_EXTENSIONS, VIDEO_EXTENSIONS,
+    AUDIO_EXTENSIONS,
+    FONT_EXTENSIONS,
+    IMAGE_EXTENSIONS,
+    SCRIPT_EXTENSIONS,
+    STYLE_EXTENSIONS,
+    VIDEO_EXTENSIONS,
 )
-from ..logging_setup import logger
 from ..core.cancellation import _raise_if_cancelled
 from ..core.progress import DownloadCancelledError
+from ..logging_setup import logger
 from .proxy import _get_browser_proxy_config
 from .vpn import vpn_requirement_satisfied
-
 
 _RUNTIME_ASSET_EXTENSIONS = (
     IMAGE_EXTENSIONS | AUDIO_EXTENSIONS | VIDEO_EXTENSIONS | FONT_EXTENSIONS |
@@ -37,6 +41,16 @@ _ARCHIVE_NOISE_HOSTS = {
     "www.clarity.ms", "clarity.ms", "browser.sentry-cdn.com",
     "static.cloudflareinsights.com",
 }
+
+
+@lru_cache(maxsize=1)
+def _playwright_runtime_errors() -> tuple[type[BaseException], ...]:
+    """Return the optional browser transport's recoverable exception types."""
+    try:
+        from playwright.sync_api import Error as PlaywrightError
+    except ImportError:
+        return (OSError, RuntimeError, TypeError, ValueError)
+    return (OSError, PlaywrightError, RuntimeError, TypeError, ValueError)
 
 
 def _is_archive_noise_url(url: str) -> bool:
@@ -81,14 +95,14 @@ def _is_runtime_asset_response(url: str, content_type: str, status: int = 200) -
 
 @dataclass
 class RuntimeCaptureResult:
-    discovered: List[str] = field(default_factory=list)
-    downloaded: List[str] = field(default_factory=list)
-    failed: List[str] = field(default_factory=list)
+    discovered: list[str] = field(default_factory=list)
+    downloaded: list[str] = field(default_factory=list)
+    failed: list[str] = field(default_factory=list)
     pages_rendered: int = 0
     scroll_steps: int = 0
     interactions_attempted: int = 0
     interactions_productive: int = 0
-    blocked_requests: List[Dict[str, str]] = field(default_factory=list)
+    blocked_requests: list[dict[str, str]] = field(default_factory=list)
     stop_reason: str = ""
 
 
@@ -129,7 +143,7 @@ def _incremental_scroll(page, settle_time_ms: int, max_steps: int) -> int:
     delay = max(80, min(300, int(settle_time_ms) // 6))
     try:
         page.evaluate("window.scrollTo(0, 0)")
-    except Exception:
+    except _playwright_runtime_errors():
         return 0
     while steps < max(1, int(max_steps)):
         _raise_if_cancelled()
@@ -148,7 +162,7 @@ def _incremental_scroll(page, settle_time_ms: int, max_steps: int) -> int:
             page.wait_for_timeout(delay)
         except DownloadCancelledError:
             raise
-        except Exception:
+        except _playwright_runtime_errors():
             break
     try:
         page.wait_for_timeout(max(250, int(settle_time_ms) // 2))
@@ -156,12 +170,12 @@ def _incremental_scroll(page, settle_time_ms: int, max_steps: int) -> int:
         # moving downward, without requiring unsafe clicks.
         page.evaluate("window.scrollTo(0, 0)")
         page.wait_for_timeout(max(120, delay))
-    except Exception:
-        pass
+    except _playwright_runtime_errors() as exc:
+        logger.debug("Runtime scroll reset failed: %s", exc)
     return steps
 
 
-def _candidate_snapshot(page) -> List[Dict[str, object]]:
+def _candidate_snapshot(page) -> list[dict[str, object]]:
     try:
         return list(page.evaluate(
             r"""() => { let n=0; return Array.from(document.querySelectorAll(
@@ -175,7 +189,7 @@ def _candidate_snapshot(page) -> List[Dict[str, object]]:
                     expanded:el.getAttribute('aria-expanded')==='false',
                     type:(el.getAttribute('type')||'button').toLowerCase()}; }); }"""
         ))
-    except Exception:
+    except _playwright_runtime_errors():
         return []
 
 
@@ -188,14 +202,14 @@ def _dom_asset_score(page) -> int:
                     const v=el.getAttribute&&el.getAttribute(k); if(v) values.add(v); }); });
                 return values.size; }"""
         ))
-    except Exception:
+    except _playwright_runtime_errors():
         return 0
 
 
 def _run_safe_interactions(
     page,
-    observed: Dict[str, str],
-    interaction_state: Dict[str, object],
+    observed: dict[str, str],
+    interaction_state: dict[str, object],
     *,
     settle_time_ms: int,
     max_interactions: int,
@@ -234,7 +248,8 @@ def _run_safe_interactions(
                     page.wait_for_timeout(max(120, min(500, settle_time_ms // 4)))
                 except DownloadCancelledError:
                     raise
-                except Exception:
+                except _playwright_runtime_errors() as exc:
+                    logger.debug("Runtime auto-click candidate failed: %s", exc)
                     continue
         finally:
             interaction_state["active"] = False
@@ -319,7 +334,7 @@ def _capture_runtime_assets_sync(
             "VPN guard blocked runtime browser capture; required interface not detected"
         )
         return result
-    observed: Dict[str, str] = {}
+    observed: dict[str, str] = {}
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
@@ -345,7 +360,7 @@ def _capture_runtime_assets_sync(
                     ignore_https_errors=True,
                 )
                 page = context.new_page()
-                interaction_state: Dict[str, object] = {"active": False, "page_url": ""}
+                interaction_state: dict[str, object] = {"active": False, "page_url": ""}
 
                 def route_request(route, request) -> None:
                     try:
@@ -373,11 +388,12 @@ def _capture_runtime_assets_sync(
                             route.abort()
                         else:
                             route.continue_()
-                    except Exception:
+                    except _playwright_runtime_errors() as exc:
+                        logger.debug("Runtime request routing failed: %s", exc)
                         try:
                             route.abort()
-                        except Exception:
-                            pass
+                        except _playwright_runtime_errors() as abort_exc:
+                            logger.debug("Runtime request abort failed: %s", abort_exc)
 
                 context.route("**/*", route_request)
                 page.on("dialog", lambda dialog: dialog.dismiss())
@@ -390,8 +406,8 @@ def _capture_runtime_assets_sync(
                             response.url, content_type, response.status,
                         ):
                             observed.setdefault(response.url, content_type)
-                    except Exception:
-                        pass
+                    except _playwright_runtime_errors() as exc:
+                        logger.debug("Runtime response observation failed: %s", exc)
 
                 page.on("response", on_response)
                 for url in urls:
@@ -420,13 +436,13 @@ def _capture_runtime_assets_sync(
                                 )
                     except DownloadCancelledError:
                         raise
-                    except Exception as exc:
+                    except _playwright_runtime_errors() as exc:
                         logger.warning("Runtime capture page failed (%s): %s", url, exc)
             finally:
                 browser.close()
     except DownloadCancelledError:
         raise
-    except Exception as exc:
+    except _playwright_runtime_errors() as exc:
         logger.warning("Runtime browser capture unavailable: %s", exc)
         return result
 

@@ -10,7 +10,7 @@ import math
 import time
 from collections import deque
 from enum import Enum
-from typing import Any, Dict, Optional, Set, Tuple
+from typing import Any
 
 
 class DownloadCancelledError(RuntimeError):
@@ -34,7 +34,7 @@ class DownloadState(str, Enum):
     CANCELLED = "CANCELLED"
 
 
-_V46_STAGE_BANDS: Dict[str, Tuple[float, float]] = {
+_V46_STAGE_BANDS: dict[str, tuple[float, float]] = {
     DownloadState.IDLE.value: (0.0, 0.0),
     DownloadState.RESOLVING.value: (0.0, 0.05),
     DownloadState.FETCHING_ENTRY.value: (0.05, 0.10),
@@ -52,7 +52,7 @@ _V46_STAGE_BANDS: Dict[str, Tuple[float, float]] = {
 }
 
 
-def format_bytes(value: Optional[float]) -> str:
+def format_bytes(value: float | None) -> str:
     """Format a byte count without inventing an unavailable total."""
     if value is None:
         return "Unknown"
@@ -74,7 +74,7 @@ def format_bytes(value: Optional[float]) -> str:
     return f"{n:.2f} {units[idx]}"
 
 
-def format_speed(bytes_per_second: Optional[float]) -> str:
+def format_speed(bytes_per_second: float | None) -> str:
     """Format transfer speed using binary byte units."""
     if bytes_per_second is None:
         return "0 B/s"
@@ -87,7 +87,7 @@ def format_speed(bytes_per_second: Optional[float]) -> str:
     return f"{format_bytes(speed)}/s"
 
 
-def format_duration(seconds: Optional[float]) -> str:
+def format_duration(seconds: float | None) -> str:
     """Format a duration as HH:MM:SS; invalid values become Unknown."""
     if seconds is None:
         return "Unknown"
@@ -97,15 +97,15 @@ def format_duration(seconds: Optional[float]) -> str:
         return "Unknown"
     if not math.isfinite(sec) or sec < 0:
         return "Unknown"
-    total = int(round(sec))
+    total = round(sec)
     hours, rem = divmod(total, 3600)
     minutes, secs = divmod(rem, 60)
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 
 def calculate_smoothed_speed(
-    previous_speed: Optional[float],
-    instant_speed: Optional[float],
+    previous_speed: float | None,
+    instant_speed: float | None,
     alpha: float = 0.25,
 ) -> float:
     """Return an EWMA speed sample with finite/non-negative safeguards."""
@@ -128,13 +128,13 @@ def calculate_smoothed_speed(
 
 
 def calculate_eta(
-    remaining_bytes: Optional[float],
-    smoothed_speed: Optional[float],
+    remaining_bytes: float | None,
+    smoothed_speed: float | None,
     sample_count: int = 0,
     *,
     minimum_samples: int = 3,
     max_seconds: float = 365 * 24 * 3600,
-) -> Optional[float]:
+) -> float | None:
     """Calculate a bounded ETA or return None when the estimate is unsafe."""
     if sample_count < minimum_samples:
         return None
@@ -156,7 +156,7 @@ def calculate_eta(
 def calculate_stage_progress(
     stage: Any,
     finished_assets: int = 0,
-    total_assets: Optional[int] = None,
+    total_assets: int | None = None,
     previous: float = 0.0,
 ) -> float:
     """Map an explicit stage to a monotonic 0..1 representational progress."""
@@ -187,7 +187,7 @@ class DownloadTelemetry:
         # failed.  Those failures must remain inspectable after the progress
         # queue has been drained.
         self.failure_details = deque(maxlen=500)
-        self._known_urls: Set[str] = set()
+        self._known_urls: set[str] = set()
         self.reset(0)
 
     def reset(self, total_jobs: int = 0) -> None:
@@ -201,20 +201,20 @@ class DownloadTelemetry:
         self.source_url = ""
         self.resolved_url = ""
         self.current_file = ""
-        self.assets_total: Optional[int] = None
+        self.assets_total: int | None = None
         self.assets_finished = 0
         self.assets_success = 0
         self.assets_failed = 0
         self.assets_skipped = 0
         self.assets_retried = 0
         self.file_downloaded = 0
-        self.file_total: Optional[int] = None
+        self.file_total: int | None = None
         self.total_downloaded = 0
         self.total_known = 0
         self.total_size_complete = True
-        self.started_at: Optional[float] = None
-        self.job_started_at: Optional[float] = None
-        self.last_sample_at: Optional[float] = None
+        self.started_at: float | None = None
+        self.job_started_at: float | None = None
+        self.last_sample_at: float | None = None
         self.sample_bytes = 0
         self.smoothed_speed = 0.0
         self.average_speed = 0.0
@@ -229,7 +229,7 @@ class DownloadTelemetry:
     def set_state(self, state: Any) -> None:
         try:
             new_state = state if isinstance(state, DownloadState) else DownloadState(str(state).upper())
-        except Exception:
+        except (TypeError, ValueError):
             return
         self.state = new_state
         self.job_progress = calculate_stage_progress(
@@ -244,7 +244,7 @@ class DownloadTelemetry:
         elif new_state in {DownloadState.FAILED, DownloadState.CANCELLED}:
             self.smoothed_speed = 0.0
 
-    def apply(self, event: Dict[str, Any]) -> None:
+    def apply(self, event: dict[str, Any]) -> None:
         typ = str(event.get("type", ""))
         now = float(event.get("time") or time.monotonic())
         if typ == "queue_started":
@@ -303,14 +303,14 @@ class DownloadTelemetry:
                 else:
                     try:
                         self.total_known += max(0, int(total))
-                    except Exception:
+                    except (TypeError, ValueError, OverflowError):
                         self.total_size_complete = False
             if url:
                 self.current_file = url
             if total is not None:
                 try:
                     self.file_total = max(0, int(total))
-                except Exception:
+                except (TypeError, ValueError, OverflowError):
                     self.file_total = None
         elif typ in {"bytes_transferred", "speed_bytes"}:
             n = max(0, int(event.get("bytes") or 0))
@@ -373,7 +373,7 @@ class DownloadTelemetry:
             self.set_state(DownloadState.CANCELLING)
         self.sample_speed(now)
 
-    def sample_speed(self, now: Optional[float] = None, force: bool = False) -> None:
+    def sample_speed(self, now: float | None = None, force: bool = False) -> None:
         current = float(now or time.monotonic())
         if self.last_sample_at is None:
             self.last_sample_at = current
@@ -394,7 +394,7 @@ class DownloadTelemetry:
         if start is not None and current > start:
             self.average_speed = float(self.total_downloaded) / (current - start)
 
-    def snapshot(self, now: Optional[float] = None) -> Dict[str, Any]:
+    def snapshot(self, now: float | None = None) -> dict[str, Any]:
         current = float(now or time.monotonic())
         self.sample_speed(current)
         start = self.job_started_at or self.started_at
@@ -441,14 +441,14 @@ class DownloadTelemetry:
 
 
 __all__ = [
+    "_V46_STAGE_BANDS",
     "DownloadCancelledError",
     "DownloadState",
-    "_V46_STAGE_BANDS",
-    "format_bytes",
-    "format_speed",
-    "format_duration",
-    "calculate_smoothed_speed",
-    "calculate_eta",
-    "calculate_stage_progress",
     "DownloadTelemetry",
+    "calculate_eta",
+    "calculate_smoothed_speed",
+    "calculate_stage_progress",
+    "format_bytes",
+    "format_duration",
+    "format_speed",
 ]

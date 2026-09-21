@@ -5,8 +5,9 @@ import pytest
 
 import cyoa_downloader
 from cyoa_downloader_app.core.progress import DownloadCancelledError
-from cyoa_downloader_app.project import discover as discover_mod
 from cyoa_downloader_app.download import website as website_mod
+from cyoa_downloader_app.project import cyoa_cafe
+from cyoa_downloader_app.project import discover as discover_mod
 
 ROOT = Path(__file__).resolve().parents[1]
 LEGACY = ROOT / "cyoa_downloader_app" / "runtime" / "surface.py"
@@ -38,18 +39,18 @@ def test_phase17_live_discovery_helpers_are_real_module_exports():
 
 def test_phase17_live_discovery_helpers_moved_out_of_legacy():
     names = _legacy_defined_functions()
-    for name in {
+    for name in (
         "get_source", "url_file_exists", "_parallel_head_check",
         "_normalize_auto_detect_output", "_auto_detect_output_variant",
         "auto_detect_mode", "auto_detect_modes_batch",
-    }:
+    ):
         assert name not in names
 
 
 def test_get_source_decodes_response_content_with_project_parser(monkeypatch):
     def fake_fetch(url, **kwargs):
         assert url == "https://example.test/project.json"
-        return FakeResponse("日本語".encode("utf-8"), 200)
+        return FakeResponse("日本語".encode(), 200)
 
     monkeypatch.setattr(discover_mod, "fetch_response", fake_fetch)
 
@@ -75,6 +76,16 @@ def test_url_file_exists_and_parallel_head_check_use_fetch_wrapper(monkeypatch):
     assert live == ["https://example.test/ok.json"]
     assert all(call[1].get("stream") is True for call in calls)
     assert all(call[1].get("as_bytes") is not True for call in calls)
+
+
+def test_url_file_exists_propagates_cancellation(monkeypatch):
+    def cancelled_fetch(*_args, **_kwargs):
+        raise DownloadCancelledError("cancelled existence probe")
+
+    monkeypatch.setattr(discover_mod, "fetch_response", cancelled_fetch)
+
+    with pytest.raises(DownloadCancelledError, match="cancelled existence probe"):
+        discover_mod.url_file_exists("https://example.test/project.json")
 
 
 def test_auto_detect_mode_selects_cyoap_or_standard_without_network(monkeypatch):
@@ -109,3 +120,19 @@ def test_cafe_discovery_helpers_never_swallow_cancellation(monkeypatch):
     monkeypatch.setattr(discover_mod, "_legacy", lambda: LegacyResolver())
     with pytest.raises(DownloadCancelledError, match="cancelled auto-detect"):
         discover_mod.auto_detect_mode("https://creator.cyoa.cafe/story")
+
+
+def test_cafe_resolver_and_record_fetch_never_swallow_cancellation():
+    def cancelled_fetch(*_args, **_kwargs):
+        raise DownloadCancelledError("cancelled cafe fetch")
+
+    with pytest.raises(DownloadCancelledError, match="cancelled cafe fetch"):
+        cyoa_cafe.fetch_cyoa_cafe_record(
+            "https://cyoa.cafe/game/example",
+            fetcher=cancelled_fetch,
+            refresh=True,
+        )
+
+    resolver = cyoa_cafe.CYOACafeResolver(fetcher=cancelled_fetch)
+    with pytest.raises(DownloadCancelledError, match="cancelled cafe fetch"):
+        resolver.resolve("https://cyoa.cafe/game/example")

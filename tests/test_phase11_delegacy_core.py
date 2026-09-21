@@ -37,11 +37,11 @@ def test_progress_helpers_moved_out_of_legacy():
     assert progress.format_speed(2048) == "2.00 KB/s"
     assert progress.calculate_eta(100, 10, sample_count=3) == 10
     names = _legacy_defined_symbols()
-    for name in {
+    for name in (
         "DownloadState", "DownloadCancelledError", "format_bytes",
         "format_speed", "format_duration", "calculate_smoothed_speed",
         "calculate_eta", "calculate_stage_progress",
-    }:
+    ):
         assert name not in names
 
 

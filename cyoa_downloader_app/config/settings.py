@@ -8,7 +8,7 @@ import re
 import shutil
 import threading
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from ..app_info import _APP_VERSION
 from ..core.atomic_io import atomic_write_text, interprocess_file_lock
@@ -23,7 +23,7 @@ from .secrets import (
 _SETTINGS_FILE = os.path.join(
     os.path.expanduser("~"), ".cyoa_downloader", "settings.json"
 )
-_SETTINGS_DEFAULTS: Dict[str, Any] = {
+_SETTINGS_DEFAULTS: dict[str, Any] = {
     "cyoa_mgr_enabled": None,
     "cyoa_mgr_db_path": "",
     "ai_api_key": "",
@@ -202,7 +202,7 @@ _SETTINGS_INT_RANGES = {
 }
 
 
-def _settings_metadata() -> Dict[str, Any]:
+def _settings_metadata() -> dict[str, Any]:
     return {
         "format": "CYOA Downloader settings (flat compatibility format)",
         "schema_version": _SETTINGS_SCHEMA_VERSION,
@@ -258,7 +258,7 @@ def _coerce_bool(value: Any, default: bool) -> bool:
     return default
 
 
-def _normalize_loaded_settings(data: Dict[str, Any]) -> Dict[str, Any]:
+def _normalize_loaded_settings(data: dict[str, Any]) -> dict[str, Any]:
     """Normalize hand-edited settings without changing the public flat shape."""
     metadata = data.get("_meta") if isinstance(data.get("_meta"), dict) else {}
     try:
@@ -324,14 +324,14 @@ def _normalize_loaded_settings(data: Dict[str, Any]) -> Dict[str, Any]:
     return merged
 
 
-def _ordered_settings_payload(settings: Dict[str, Any]) -> Dict[str, Any]:
+def _ordered_settings_payload(settings: dict[str, Any]) -> dict[str, Any]:
     clean = {
         k: v for k, v in settings.items()
         if k != "_meta"
         and not str(k).startswith("_section_")
         and k not in _OBSOLETE_SETTINGS_KEYS
     }
-    payload: Dict[str, Any] = {"_meta": _settings_metadata()}
+    payload: dict[str, Any] = {"_meta": _settings_metadata()}
     seen = set()
     for index, (section, keys) in enumerate(_SETTINGS_GROUPS, 1):
         slug = re.sub(r"[^a-z0-9]+", "_", section.lower().split("/")[0]).strip("_")
@@ -348,7 +348,7 @@ def _ordered_settings_payload(settings: Dict[str, Any]) -> Dict[str, Any]:
     return payload
 
 
-def _format_settings_json(settings: Dict[str, Any]) -> str:
+def _format_settings_json(settings: dict[str, Any]) -> str:
     text = json.dumps(_ordered_settings_payload(settings), indent=2, ensure_ascii=False)
     section_keys = re.findall(r'^  "(_section_[^"]+)":', text, flags=re.MULTILINE)
     for key in section_keys:
@@ -356,7 +356,7 @@ def _format_settings_json(settings: Dict[str, Any]) -> str:
     return text + "\n"
 
 
-def _load_settings() -> Dict[str, Any]:
+def _load_settings() -> dict[str, Any]:
     try:
         if os.path.exists(_SETTINGS_FILE):
             with open(_SETTINGS_FILE, encoding="utf-8") as f:
@@ -380,31 +380,31 @@ def _load_settings() -> Dict[str, Any]:
                         merged["discord_bot_token"] = str(
                             keyring.get_password("CYOA Downloader", "discord_bot_token") or ""
                         ).strip()
-                    except Exception as exc:
+                    except (OSError, RuntimeError) as exc:
                         logger.debug("Legacy Discord keyring migration unavailable: %s", exc)
             # Migration: old versions stored Anthropic keys directly in settings.json.
             # Preserve old behavior only when an old key exists and no explicit storage mode was saved.
             if source.get("ai_api_key") and "ai_key_storage" not in source:
                 merged["ai_key_storage"] = "plain"
             return merged
-    except Exception as e:
+    except (OSError, UnicodeError, TypeError, ValueError) as e:
         logger.warning(f"settings.json unreadable ({e}) — using defaults; "
                        f"backup saved as settings.json.corrupt")
         try:
             shutil.copy2(_SETTINGS_FILE, _SETTINGS_FILE + ".corrupt")
-        except Exception as _ignored_exc:
+        except OSError as _ignored_exc:
             logger.debug("Ignored recoverable exception in _load_settings: %s", _ignored_exc)
     return dict(_SETTINGS_DEFAULTS)
 
 
-def _save_settings(settings: Dict[str, Any]) -> None:
+def _save_settings(settings: dict[str, Any]) -> None:
     try:
         os.makedirs(os.path.dirname(os.path.abspath(_SETTINGS_FILE)) or ".", exist_ok=True)
         atomic_write_text(
             _SETTINGS_FILE,
             _format_settings_json(_normalize_loaded_settings(settings)),
         )
-    except Exception as e:
+    except (OSError, UnicodeError, TypeError, ValueError) as e:
         logger.warning(f"Could not save settings: {e}")
 
 
@@ -413,20 +413,18 @@ _SETTINGS_LOCK = threading.Lock()
 
 def _update_setting(key: str, value: Any) -> None:
     """Thread-safe single-key update that never drops a concurrent change."""
-    with _SETTINGS_LOCK:
-        with interprocess_file_lock(_SETTINGS_FILE):
-            s = _load_settings()
-            s[key] = value
-            _save_settings(s)
+    with _SETTINGS_LOCK, interprocess_file_lock(_SETTINGS_FILE):
+        s = _load_settings()
+        s[key] = value
+        _save_settings(s)
 
 
-def _update_settings(updates: Dict[str, Any]) -> None:
+def _update_settings(updates: dict[str, Any]) -> None:
     """Thread-safe multi-key update under one lock acquisition."""
-    with _SETTINGS_LOCK:
-        with interprocess_file_lock(_SETTINGS_FILE):
-            s = _load_settings()
-            s.update(updates)
-            _save_settings(s)
+    with _SETTINGS_LOCK, interprocess_file_lock(_SETTINGS_FILE):
+        s = _load_settings()
+        s.update(updates)
+        _save_settings(s)
 
 
 _THEME_MODE_CANONICAL = {
@@ -464,17 +462,17 @@ def _system_prefers_dark() -> bool:
                 )
                 value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
                 return int(value) == 0
-            except Exception:
+            except (OSError, TypeError, ValueError):
                 return True
         if system == "darwin":
             try:
                 import subprocess as _sp
                 r = _sp.run(
                     ["defaults", "read", "-g", "AppleInterfaceStyle"],
-                    stdout=_sp.PIPE, stderr=_sp.DEVNULL, timeout=2, text=True,
+                    stdout=_sp.PIPE, stderr=_sp.DEVNULL, timeout=2, text=True, check=False,
                 )
                 return "dark" in (r.stdout or "").lower()
-            except Exception:
+            except (_sp.SubprocessError, OSError):
                 return True
         env_theme = (
             os.environ.get("GTK_THEME")
@@ -486,8 +484,8 @@ def _system_prefers_dark() -> bool:
             return False
         if "dark" in env_theme:
             return True
-    except Exception:
-        pass
+    except (OSError, TypeError, ValueError) as exc:
+        logger.debug("System theme detection failed: %s", exc)
     return True
 
 
@@ -500,11 +498,11 @@ def _resolve_theme_is_dark(mode: Any) -> bool:
     return True
 
 
-def _detect_ffmpeg_path() -> Optional[str]:
+def _detect_ffmpeg_path() -> str | None:
     """Return ffmpeg executable path if available on PATH; never raises."""
     try:
         return shutil.which("ffmpeg")
-    except Exception:
+    except OSError:
         return None
 
 
@@ -519,7 +517,7 @@ def _ffmpeg_install_guide() -> str:
     )
 
 
-def export_settings(path: str) -> Tuple[bool, str]:
+def export_settings(path: str) -> tuple[bool, str]:
     """Write a redacted settings.json copy. Secrets are dropped, not masked-in.
 
     Returns (ok, message). Never raises. Never writes a secret value. A
@@ -529,7 +527,7 @@ def export_settings(path: str) -> Tuple[bool, str]:
     try:
         with _SETTINGS_LOCK:
             current = _load_settings()
-        safe: Dict[str, Any] = {}
+        safe: dict[str, Any] = {}
         redacted = []
         for k, v in current.items():
             if _is_secret_setting_key(k):
@@ -552,11 +550,11 @@ def export_settings(path: str) -> Tuple[bool, str]:
         )
         return True, (f"Settings exported to {path} "
                       f"({len(safe)} keys, {len(redacted)} secret keys withheld).")
-    except Exception as e:
+    except (OSError, UnicodeError, TypeError, ValueError) as e:
         return False, f"Settings export failed: {e}"
 
 
-def import_settings(path: str) -> Tuple[bool, str]:
+def import_settings(path: str) -> tuple[bool, str]:
     """Merge a settings export back in, validating and ignoring secrets.
 
     Import MERGES (existing unspecified keys are preserved). Never raises.
@@ -568,7 +566,7 @@ def import_settings(path: str) -> Tuple[bool, str]:
             raw = json.load(f)
     except json.JSONDecodeError as e:
         return False, f"Import failed: invalid JSON ({e})."
-    except Exception as e:
+    except (OSError, UnicodeError) as e:
         return False, f"Import failed: {e}"
 
     if isinstance(raw, dict) and isinstance(raw.get("settings"), dict):
@@ -578,7 +576,7 @@ def import_settings(path: str) -> Tuple[bool, str]:
     else:
         return False, "Import failed: unexpected JSON structure (expected an object)."
 
-    accepted: Dict[str, Any] = {}
+    accepted: dict[str, Any] = {}
     skipped_secret = 0
     skipped_unknown = 0
     skipped_type = 0
@@ -606,10 +604,9 @@ def import_settings(path: str) -> Tuple[bool, str]:
             if not isinstance(v, int) or isinstance(v, bool):
                 skipped_type += 1
                 continue
-        elif isinstance(default_v, str):
-            if not isinstance(v, str):
-                skipped_type += 1
-                continue
+        elif isinstance(default_v, str) and not isinstance(v, str):
+            skipped_type += 1
+            continue
         accepted[k] = v
 
     if extra_in:

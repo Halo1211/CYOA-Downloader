@@ -8,7 +8,6 @@ import json as _json_cache
 import pathlib
 import threading
 import time as _time
-from typing import Dict, Optional
 
 from ..config.settings import _load_settings
 from ..core.atomic_io import atomic_write_bytes, atomic_write_text, interprocess_file_lock
@@ -17,8 +16,8 @@ from ..logging_setup import logger
 _CACHE_DIR = pathlib.Path.home() / ".cyoa_downloader" / "image_cache"
 _CACHE_IDX = _CACHE_DIR / "index.json"
 _DEFAULT_CACHE_MAX_MB = 2048
-_cache_index: Dict[str, str] = {}
-_cache_dirty: Dict[str, str] = {}
+_cache_index: dict[str, str] = {}
+_cache_dirty: dict[str, str] = {}
 _cache_removed = set()
 _cache_replace_generation = 0
 _cache_flushed_replace_generation = 0
@@ -49,7 +48,7 @@ def _cache_load() -> None:
                     })
             _cache_loaded = True
             logger.debug(f"Image cache: {len(_cache_index)} entries loaded")
-        except Exception as e:
+        except (OSError, UnicodeError, TypeError, ValueError) as e:
             logger.debug(f"Image cache load failed: {e}")
             # Treat a malformed/unavailable index as an empty loaded cache for
             # this process. Re-parsing the same broken JSON on every image
@@ -58,7 +57,7 @@ def _cache_load() -> None:
             _cache_loaded = True
 
 
-def _cache_get(url: str) -> Optional[bytes]:
+def _cache_get(url: str) -> bytes | None:
     """Return cached bytes for URL if available and valid."""
     _cache_load()
     with _cache_lock:
@@ -77,7 +76,7 @@ def _cache_get(url: str) -> Optional[bytes]:
                 except OSError:
                     pass
                 return data
-        except Exception as _ignored_exc:
+        except OSError as _ignored_exc:
             logger.debug("Ignored recoverable exception in _cache_get: %s", _ignored_exc)
     with _cache_lock:
         _cache_index.pop(url, None)
@@ -87,7 +86,7 @@ def _cache_get(url: str) -> Optional[bytes]:
     return None
 
 
-def _cache_stats() -> Dict[str, int]:
+def _cache_stats() -> dict[str, int]:
     _cache_load()
     with _cache_lock:
         digests = set(_cache_index.values())
@@ -162,7 +161,7 @@ def _enforce_cache_limit() -> int:
         if removed:
             _v465_schedule_cache_save()
             logger.info("Image cache auto-cleaned: %s file(s) removed", removed)
-    except Exception as exc:
+    except (OSError, TypeError, ValueError) as exc:
         logger.debug("Image cache auto-cleanup failed: %s", exc)
     return removed
 
@@ -172,41 +171,40 @@ def _clear_image_cache() -> int:
     global _cache_index, _cache_replace_generation
     count = 0
     try:
-        with interprocess_file_lock(str(_CACHE_IDX)):
-            with _cache_lock:
-                if _CACHE_DIR.exists():
-                    for item in _CACHE_DIR.iterdir():
-                        if item.is_dir():
-                            for f in item.iterdir():
-                                try:
-                                    f.unlink()
-                                    count += 1
-                                except FileNotFoundError:
-                                    pass
-                                except OSError as _ignored_exc:
-                                    logger.debug("Ignored recoverable exception in _clear_image_cache: %s", _ignored_exc)
+        with interprocess_file_lock(str(_CACHE_IDX)), _cache_lock:
+            if _CACHE_DIR.exists():
+                for item in _CACHE_DIR.iterdir():
+                    if item.is_dir():
+                        for f in item.iterdir():
                             try:
-                                item.rmdir()
+                                f.unlink()
+                                count += 1
+                            except FileNotFoundError:
+                                pass
                             except OSError as _ignored_exc:
                                 logger.debug("Ignored recoverable exception in _clear_image_cache: %s", _ignored_exc)
-                    if _CACHE_IDX.exists():
-                        _CACHE_IDX.unlink()
-                _cache_index = {}
-                _cache_dirty.clear()
-                _cache_removed.clear()
-                _cache_replace_generation += 1
+                        try:
+                            item.rmdir()
+                        except OSError as _ignored_exc:
+                            logger.debug("Ignored recoverable exception in _clear_image_cache: %s", _ignored_exc)
+                if _CACHE_IDX.exists():
+                    _CACHE_IDX.unlink()
+            _cache_index = {}
+            _cache_dirty.clear()
+            _cache_removed.clear()
+            _cache_replace_generation += 1
         if "_v465_cache_save_event" in globals():
             _v465_cache_save_event.clear()
             _v465_flush_cache_index()
         logger.info(f"Image cache cleared — {count} file(s) removed")
-    except Exception as e:
+    except (OSError, TypeError, ValueError) as e:
         logger.warning(f"Cache clear error: {e}")
     return count
 
 
 _v465_cache_save_event = threading.Event()
 _v465_cache_writer_lock = threading.Lock()
-_v465_cache_writer_thread: Optional[threading.Thread] = None
+_v465_cache_writer_thread: threading.Thread | None = None
 
 
 def _v465_flush_cache_index() -> None:
@@ -223,7 +221,7 @@ def _v465_flush_cache_index() -> None:
             return
 
         with interprocess_file_lock(str(_CACHE_IDX)):
-            merged: Dict[str, str] = {}
+            merged: dict[str, str] = {}
             if not force_replace and _CACHE_IDX.exists():
                 try:
                     with open(_CACHE_IDX, encoding="utf-8") as fh:
@@ -237,7 +235,7 @@ def _v465_flush_cache_index() -> None:
                             and len(digest) == 64
                             and all(ch in "0123456789abcdefABCDEF" for ch in digest)
                         })
-                except Exception as exc:
+                except (OSError, UnicodeError, TypeError, ValueError) as exc:
                     logger.debug(f"Image cache disk index merge failed: {exc}")
             if force_replace:
                 merged = snapshot
@@ -261,7 +259,7 @@ def _v465_flush_cache_index() -> None:
                 _cache_flushed_replace_generation,
                 replace_generation,
             )
-    except Exception as exc:
+    except (OSError, UnicodeError, TypeError, ValueError) as exc:
         logger.debug(f"Image cache index flush failed: {exc}")
 
 
@@ -307,7 +305,7 @@ def _cache_put(url: str, data: bytes) -> None:
             _cache_removed.discard(url)
         _v465_schedule_cache_save()
         _enforce_cache_limit()
-    except Exception as exc:
+    except (OSError, TypeError, ValueError) as exc:
         logger.debug(f"Image cache put failed: {exc}")
 
 

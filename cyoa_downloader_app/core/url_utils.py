@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pathlib
 import re
-from typing import List, Optional, Set, Tuple
 from urllib.parse import quote, unquote, urljoin, urlparse, urlunparse
 
 from .paths import _safe_join
@@ -35,7 +34,7 @@ def _same_origin(url_a: str, url_b: str) -> bool:
     # no port. The old netloc string compare returned false negatives for
     # "https://Example.com/..." or "https://host:443/...", silently skipping
     # same-site assets in the cyoap_vue downloader.
-    def _key(u: str) -> Tuple[str, str, Optional[int]]:
+    def _key(u: str) -> tuple[str, str, int | None]:
         p = urlparse(u)
         scheme = (p.scheme or "").lower()
         host = (p.hostname or "").lower()
@@ -55,7 +54,7 @@ def _same_origin(url_a: str, url_b: str) -> bool:
     )
 
 
-def _candidate_urls_for_cyoap_asset(base_url: str, value: str, kind: str) -> List[str]:
+def _candidate_urls_for_cyoap_asset(base_url: str, value: str, kind: str) -> list[str]:
     value = (value or "").strip()
     if not value or value.startswith("data:"):
         return []
@@ -70,7 +69,7 @@ def _candidate_urls_for_cyoap_asset(base_url: str, value: str, kind: str) -> Lis
         pass
 
     norm = value.lstrip("/")
-    candidates: List[str] = [
+    candidates: list[str] = [
         urljoin(base_url, norm),
         urljoin(base_url, quote(norm, safe="/:_.-")),
     ]
@@ -88,8 +87,8 @@ def _candidate_urls_for_cyoap_asset(base_url: str, value: str, kind: str) -> Lis
                     urljoin(base_url, folder + quote(norm, safe="/:_.-")),
                 ])
 
-    dedup: List[str] = []
-    seen: Set[str] = set()
+    dedup: list[str] = []
+    seen: set[str] = set()
     for item in candidates:
         if item not in seen:
             seen.add(item)
@@ -191,19 +190,17 @@ def canonicalize_url(url: str) -> str:
         urljoin("https://canonical.invalid/", marker + path)
     ).path
     path = (
-        normalized_path[len(marker):]
-        if normalized_path.startswith(marker)
-        else normalized_path
+        normalized_path.removeprefix(marker)
     ) or "/"
     return urlunparse((scheme, netloc, path, "", parsed.query, ""))
 
 
 __all__ = [
-    "is_probable_url",
-    "_cyoap_local_path",
-    "_same_origin",
     "_candidate_urls_for_cyoap_asset",
+    "_cyoap_local_path",
     "_directory_base_url",
-    "truncate_display_url",
+    "_same_origin",
     "canonicalize_url",
+    "is_probable_url",
+    "truncate_display_url",
 ]

@@ -1,10 +1,10 @@
 import json
 
 import cyoa_downloader
-from cyoa_downloader_app.project import parse as parse_mod
-from cyoa_downloader_app.project import discover as discover_mod
-from cyoa_downloader_app.project import cyoap_vue as cyoap_mod
 from cyoa_downloader_app.project import cyoa_cafe as cafe_mod
+from cyoa_downloader_app.project import cyoap_vue as cyoap_mod
+from cyoa_downloader_app.project import discover as discover_mod
+from cyoa_downloader_app.project import parse as parse_mod
 
 
 def test_phase4_facade_project_names_still_match_modules():
@@ -18,7 +18,7 @@ def test_phase4_facade_project_names_still_match_modules():
 
 
 def test_phase4_parse_helpers_smoke():
-    assert parse_mod.try_decode_bytes("héllo".encode("utf-8")) == "héllo"
+    assert parse_mod.try_decode_bytes("héllo".encode()) == "héllo"
     payload = json.dumps({"rows": [], "pointTypes": []})
     assert parse_mod.looks_like_project_payload(payload) is True
     assert parse_mod.extract_project_text_from_payload(payload) == '{"rows":[],"pointTypes":[]}'

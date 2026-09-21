@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
 import pathlib
 import re
-from typing import Any, Dict
+from dataclasses import asdict, dataclass, field
+from typing import Any
 from urllib.parse import urljoin, urlparse
 
 from ..logging_setup import logger
@@ -14,7 +14,7 @@ from ..project.parse import looks_like_project_payload
 
 try:
     from bs4 import BeautifulSoup  # type: ignore
-except Exception:  # pragma: no cover
+except ImportError:  # pragma: no cover
     BeautifulSoup = None  # type: ignore
 
 
@@ -23,9 +23,9 @@ class ArchiveProfile:
     detected_engine: str
     effective_strategy: str
     reason: str
-    signals: Dict[str, Any] = field(default_factory=dict)
+    signals: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -77,7 +77,7 @@ def _has_local_project(downloader) -> bool:
     return False
 
 
-def _bounded_bundle_signals(folder: str) -> Dict[str, int]:
+def _bounded_bundle_signals(folder: str) -> dict[str, int]:
     signals = {"fetch": 0, "intersection_observer": 0, "dynamic_import": 0, "new_image": 0}
     scanned = 0
     try:
@@ -151,7 +151,7 @@ def profile_archive_target(downloader) -> ArchiveProfile:
                 if candidate.path.rstrip("/") == start.path.rstrip("/") or candidate.path.startswith(scope):
                     seen.add((candidate.path, candidate.query))
             route_count = len(seen)
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             route_count = 0
     bundles = _bounded_bundle_signals(downloader.output_folder)
     runtime_score = sum((
@@ -163,7 +163,7 @@ def profile_archive_target(downloader) -> ArchiveProfile:
         1 if bundles["intersection_observer"] else 0,
         1 if bundles["new_image"] else 0,
     ))
-    signals: Dict[str, Any] = {
+    signals: dict[str, Any] = {
         "script_count": script_count,
         "module_script_count": module_count,
         "lazy_attribute_count": lazy_count,

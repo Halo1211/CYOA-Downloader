@@ -10,16 +10,20 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Any, Optional
+from typing import Any
 
 from ..logging_setup import logger
+
+# Progress sinks are user/UI callbacks. Their failures are isolated and logged
+# so cancellation/progress state remains owned by the download worker.
+_PROGRESS_SINK_ERRORS = (Exception,)
 from .progress import DownloadCancelledError
 
-_PROGRESS_EVENT_SINK: Optional[Any] = None
-_ACTIVE_CANCEL_EVENT: Optional[threading.Event] = None
+_PROGRESS_EVENT_SINK: Any | None = None
+_ACTIVE_CANCEL_EVENT: threading.Event | None = None
 
 
-def set_progress_event_sink(sink: Optional[Any], cancel_event: Optional[threading.Event] = None) -> None:
+def set_progress_event_sink(sink: Any | None, cancel_event: threading.Event | None = None) -> None:
     """Install the active GUI/event sink and optional cancellation event."""
     global _PROGRESS_EVENT_SINK, _ACTIVE_CANCEL_EVENT
     _PROGRESS_EVENT_SINK = sink
@@ -38,7 +42,9 @@ def _emit_progress_event(event_type: str, **payload: Any) -> None:
     event = {"type": str(event_type), "time": time.monotonic(), **payload}
     try:
         sink(event)
-    except Exception as exc:
+    except DownloadCancelledError:
+        raise
+    except _PROGRESS_SINK_ERRORS as exc:
         logger.debug(f"Progress event sink rejected {event_type}: {exc}")
 
 
@@ -63,12 +69,12 @@ def _cancel_aware_sleep(seconds: float) -> None:
 
 
 __all__ = [
-    "_PROGRESS_EVENT_SINK",
     "_ACTIVE_CANCEL_EVENT",
-    "set_progress_event_sink",
-    "clear_progress_event_sink",
-    "_emit_progress_event",
-    "_cancel_requested",
-    "_raise_if_cancelled",
+    "_PROGRESS_EVENT_SINK",
     "_cancel_aware_sleep",
+    "_cancel_requested",
+    "_emit_progress_event",
+    "_raise_if_cancelled",
+    "clear_progress_event_sink",
+    "set_progress_event_sink",
 ]

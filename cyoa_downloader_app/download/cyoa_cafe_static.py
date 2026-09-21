@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from html import escape
 import json
 import os
-from typing import Any, Dict, Iterable, List, Tuple
+from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from html import escape
+from typing import Any
 
-from .package import atomic_stream_response_to_file, clean_url_path_component
 from ..constants.assets import IMAGE_EXTENSIONS
 from ..core.atomic_io import atomic_write_text
 from ..core.cancellation import _raise_if_cancelled
@@ -16,11 +16,17 @@ from ..core.progress import DownloadCancelledError
 from ..logging_setup import logger
 from ..network.fetch import fetch_response
 from ..project.cyoa_cafe import build_cyoa_cafe_file_url, classify_cyoa_cafe_record
+from .package import atomic_stream_response_to_file, clean_url_path_component
+
+# Each future is an independent network/file job.  Isolate a failed asset so
+# the remaining static pages can still form an archive; cancellation is raised
+# before this boundary.
+_STATIC_ASSET_JOB_ERRORS = (Exception,)
 
 
-def _record_files(record: Dict[str, Any]) -> List[Tuple[str, str, str]]:
+def _record_files(record: dict[str, Any]) -> list[tuple[str, str, str]]:
     """Return unique (kind, remote filename, relative local path) entries."""
-    entries: List[Tuple[str, str, str]] = []
+    entries: list[tuple[str, str, str]] = []
     seen = set()
 
     def add(kind: str, names: Iterable[Any], folder: str) -> None:
@@ -51,7 +57,7 @@ def _record_files(record: Dict[str, Any]) -> List[Tuple[str, str, str]]:
     return entries
 
 
-def _download_one(record: Dict[str, Any], folder: str, entry: Tuple[str, str, str]) -> Dict[str, Any]:
+def _download_one(record: dict[str, Any], folder: str, entry: tuple[str, str, str]) -> dict[str, Any]:
     _raise_if_cancelled()
     kind, remote_name, relative = entry
     url = build_cyoa_cafe_file_url(record, remote_name)
@@ -70,11 +76,11 @@ def _download_one(record: Dict[str, Any], folder: str, entry: Tuple[str, str, st
         status = int(getattr(response, "status_code", 0) or 0) if response is not None else 0
         if response is not None:
             response.close()
-        raise IOError(f"HTTP {status or 'request failed'}")
+        raise OSError(f"HTTP {status or 'request failed'}")
     content_type = str(response.headers.get("Content-Type") or "").split(";", 1)[0].lower()
     if content_type and not content_type.startswith("image/"):
         response.close()
-        raise IOError(f"unexpected content type {content_type}")
+        raise OSError(f"unexpected content type {content_type}")
     try:
         size = atomic_stream_response_to_file(response, target)
     finally:
@@ -89,7 +95,7 @@ def _download_one(record: Dict[str, Any], folder: str, entry: Tuple[str, str, st
     }
 
 
-def _gallery_html(record: Dict[str, Any], pages: List[Dict[str, Any]], cover: str) -> str:
+def _gallery_html(record: dict[str, Any], pages: list[dict[str, Any]], cover: str) -> str:
     title = escape(str(record.get("title") or "CYOA.CAFE Static Archive"))
     source = escape(f"https://cyoa.cafe/game/{record.get('id', '')}", quote=True)
     figures = "\n".join(
@@ -114,12 +120,12 @@ figure img{{display:block;width:100%;height:auto}}figcaption{{padding:8px 12px;c
 
 
 def download_cyoa_cafe_static_record(
-    record: Dict[str, Any],
+    record: dict[str, Any],
     folder: str,
     *,
     source_url: str,
     max_workers: int = 4,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Download a static-page record and build a backend-free offline viewer."""
     if classify_cyoa_cafe_record(record) != "static_pages":
         raise ValueError("cyoa.cafe record does not contain static pages")
@@ -128,11 +134,12 @@ def download_cyoa_cafe_static_record(
     _raise_if_cancelled()
     if not any(kind == "page" for kind, _name, _local in entries):
         raise ValueError("cyoa.cafe record contains no supported image pages")
-    downloaded: List[Dict[str, Any]] = []
-    failures: List[Dict[str, str]] = []
+    downloaded: list[dict[str, Any]] = []
+    failures: list[dict[str, str]] = []
     workers = max(1, min(16, int(max_workers or 4)))
     executor = ThreadPoolExecutor(max_workers=workers)
     future_map = {executor.submit(_download_one, record, folder, entry): entry for entry in entries}
+    completed_normally = False
     try:
         for future in as_completed(future_map):
             _raise_if_cancelled()
@@ -141,18 +148,16 @@ def download_cyoa_cafe_static_record(
                 downloaded.append(future.result())
             except DownloadCancelledError:
                 raise
-            except Exception as exc:
+            except _STATIC_ASSET_JOB_ERRORS as exc:
                 failures.append({"kind": kind, "source_name": remote_name, "error": str(exc)})
                 logger.warning("cyoa.cafe static file failed (%s): %s", remote_name, exc)
-    except BaseException:
+        completed_normally = True
+    finally:
         # Keep the active cancellation event installed until running workers
         # have observed it and closed their response/partial files. Returning
         # early allowed the GUI to clear the global event while worker threads
         # were still writing into a cancelled output folder.
-        executor.shutdown(wait=True, cancel_futures=True)
-        raise
-    else:
-        executor.shutdown(wait=False, cancel_futures=True)
+        executor.shutdown(wait=not completed_normally, cancel_futures=True)
     _raise_if_cancelled()
     downloaded.sort(key=lambda item: (item["kind"] != "page", item["local"]))
     pages = [item for item in downloaded if item["kind"] == "page"]

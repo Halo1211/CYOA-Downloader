@@ -14,12 +14,13 @@ import re
 import shutil
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, List, Optional, Set, Tuple
 from urllib.parse import urljoin, urlparse
+
+import requests
 
 try:
     from bs4 import BeautifulSoup  # type: ignore
-except Exception:  # pragma: no cover - mirrors the other HTML modules
+except ImportError:  # pragma: no cover - mirrors the other HTML modules
     def BeautifulSoup(*_args, **_kwargs):  # type: ignore
         raise RuntimeError(
             "Missing dependency: beautifulsoup4 is required for CYOAP Vue HTML parsing. "
@@ -28,22 +29,45 @@ except Exception:  # pragma: no cover - mirrors the other HTML modules
 
 from ..app_info import DEFAULT_MAX_WORKERS
 from ..constants.assets import (
-    AUDIO_EXTENSIONS, FONT_EXTENSIONS, IMAGE_EXTENSIONS, IMAGE_FIELDS,
-    SCRIPT_EXTENSIONS, VIDEO_EXTENSIONS,
+    AUDIO_EXTENSIONS,
+    FONT_EXTENSIONS,
+    IMAGE_EXTENSIONS,
+    IMAGE_FIELDS,
+    SCRIPT_EXTENSIONS,
+    VIDEO_EXTENSIONS,
 )
-from ..core.url_utils import (
-    _candidate_urls_for_cyoap_asset, _cyoap_local_path, _directory_base_url,
-    _same_origin,
-)
-from ..logging_setup import logger
 from ..core.atomic_io import atomic_write_bytes, atomic_write_text
 from ..core.output import prepare_clean_output_folder
+from ..core.progress import DownloadCancelledError
+from ..core.url_utils import (
+    _candidate_urls_for_cyoap_asset,
+    _cyoap_local_path,
+    _directory_base_url,
+    _same_origin,
+)
 from ..diagnostics.reports import format_backup_report_text, write_asset_failure_summary
+from ..download.asset_scan import _safe_response_text
 from ..download.headers import get_headers_for_url
 from ..download.package import zip_temp_folder
-from ..download.asset_scan import _safe_response_text
-from ..network.fetch import fetch_response
 from ..integrations.ai_core import _ssrf_block_cross_origin
+from ..logging_setup import logger
+from ..network.fetch import fetch_response
+
+_NETWORK_OPERATION_ERRORS = (
+    AttributeError,
+    OSError,
+    RuntimeError,
+    TypeError,
+    UnicodeError,
+    ValueError,
+    requests.RequestException,
+)
+_RESPONSE_CLEANUP_ERRORS = (
+    AttributeError,
+    OSError,
+    RuntimeError,
+    requests.RequestException,
+)
 
 
 def _legacy():
@@ -65,7 +89,7 @@ def _response_text(response) -> str:
         return raw.decode("utf-8", errors="replace")
 
 
-def _scan_cyoap_assets(obj, image_set: Set[str], media_set: Set[str]) -> None:
+def _scan_cyoap_assets(obj, image_set: set[str], media_set: set[str]) -> None:
     if obj is None:
         return
     if isinstance(obj, list):
@@ -136,14 +160,16 @@ def _probe_cyoap_vue_structure(base_url: str, timeout: int = 6) -> bool:
                     f"{endpoint}: expected {expected_type.__name__}, got {type(payload).__name__}"
                 )
                 return False
-        except Exception as exc:
+        except DownloadCancelledError:
+            raise
+        except _NETWORK_OPERATION_ERRORS as exc:
             logger.debug(f"[Auto-detect] CYOAP structure probe failed: {endpoint}: {exc}")
             return False
         finally:
             if response is not None:
                 try:
                     response.close()
-                except Exception as exc:
+                except _RESPONSE_CLEANUP_ERRORS as exc:
                     logger.debug(f"[Auto-detect] Probe response close failed: {endpoint}: {exc}")
     return True
 
@@ -165,14 +191,14 @@ def try_download_cyoap_vue_site(
 
     # v7.5.5: removed unused `session = create_retry_session()` — this function
     # routes all requests through fetch_response(), the session was never used.
-    success_items: List[Dict[str, str]] = []
-    failed_items: List[Dict[str, str]] = []
-    downloaded_by_kind: Dict[str, List[str]] = {}
-    failed_by_kind: Dict[str, List[str]] = {}
-    seen_downloads: Set[str] = set()
+    success_items: list[dict[str, str]] = []
+    failed_items: list[dict[str, str]] = []
+    downloaded_by_kind: dict[str, list[str]] = {}
+    failed_by_kind: dict[str, list[str]] = {}
+    seen_downloads: set[str] = set()
     seen_lock = threading.Lock()
-    image_set: Set[str] = set()
-    media_set: Set[str] = set()
+    image_set: set[str] = set()
+    media_set: set[str] = set()
     report_lock = threading.Lock()
 
     def record_success(remote_url: str, local_path: str, kind: str) -> None:
@@ -211,22 +237,24 @@ def try_download_cyoap_vue_site(
                 record_failed(remote_url, kind, f"HTTP {r.status_code}")
                 return None
             return r.content if binary else _safe_response_text(r)
-        except Exception as e:
+        except DownloadCancelledError:
+            raise
+        except _NETWORK_OPERATION_ERRORS as e:
             record_failed(remote_url, kind, str(e))
             return None
         finally:
             if r is not None:
                 try:
                     r.close()
-                except Exception:
-                    pass
+                except _RESPONSE_CLEANUP_ERRORS as exc:
+                    logger.debug("CYOAP response close failed for %s: %s", remote_url, exc)
 
     platform_text = fetch_remote(platform_url, kind="json", binary=False, referrer=base_url)
     if platform_text is None:
         return False
     try:
         platform_obj = json.loads(platform_text)
-    except Exception:
+    except (json.JSONDecodeError, TypeError, ValueError):
         return False
 
     list_text = fetch_remote(list_url, kind="json", binary=False, referrer=base_url)
@@ -246,8 +274,8 @@ def try_download_cyoap_vue_site(
     try:
         file_list = json.loads(list_text)
         if not isinstance(file_list, list):
-            raise ValueError("list.json is not a list")
-    except Exception as e:
+            raise TypeError("list.json is not a list")
+    except (json.JSONDecodeError, TypeError, ValueError) as e:
         raise RuntimeError(f"cyoap_vue list.json invalid: {e}")
 
     list_local = _cyoap_local_path(output_folder, list_url)
@@ -270,10 +298,10 @@ def try_download_cyoap_vue_site(
         record_success(node_url, node_local, "json")
         try:
             _scan_cyoap_assets(json.loads(text), image_set, media_set)
-        except Exception as _ignored_exc:
+        except (AttributeError, json.JSONDecodeError, RecursionError, TypeError, ValueError) as _ignored_exc:
             logger.debug("Ignored recoverable exception in try_download_cyoap_vue_site (line 1226): %s", _ignored_exc)
 
-    def _download_one_cyoap_asset(args: Tuple[str, str]) -> None:
+    def _download_one_cyoap_asset(args: tuple[str, str]) -> None:
         """Download a single cyoap_vue asset (image or media), trying candidate URLs in order."""
         item, bucket = args
         if item.startswith("data:"):
@@ -291,7 +319,7 @@ def try_download_cyoap_vue_site(
             return
         record_failed(item, bucket, "asset not found in candidate cyoap_vue locations")
 
-    all_assets: List[Tuple[str, str]] = (
+    all_assets: list[tuple[str, str]] = (
         [(item, "images") for item in sorted(image_set) if not item.startswith("data:")] +
         [(item, "media")  for item in sorted(media_set)  if not item.startswith("data:")]
     )
@@ -313,7 +341,7 @@ def try_download_cyoap_vue_site(
         record_success(start_url, page_local, "html")
 
         soup = BeautifulSoup(page_text, "html.parser")
-        site_assets: List[str] = []
+        site_assets: list[str] = []
         for tag in soup.find_all("link"):
             href = tag.get("href", "").strip()
             if href:
@@ -328,7 +356,7 @@ def try_download_cyoap_vue_site(
                     site_assets.append(full)
         site_assets.append(urljoin(base_url, "favicon.ico"))
 
-        seen_site: Set[str] = set()
+        seen_site: set[str] = set()
         while site_assets:
             remote_url = site_assets.pop(0)
             if remote_url in seen_site:
@@ -389,7 +417,7 @@ def try_download_cyoap_vue_site(
                 failed_items, output_folder, source_url=start_url,
                 title="Broken cyoap_vue Asset Report"
             )
-        except Exception as e:
+        except (OSError, TypeError, ValueError) as e:
             logger.debug(f"Broken asset report could not be written: {e}")
 
     if website_zip_output:
@@ -405,7 +433,7 @@ def try_download_cyoap_vue_site(
 
 
 __all__ = [
+    "_probe_cyoap_vue_structure",
     "_scan_cyoap_assets",
     "try_download_cyoap_vue_site",
-    "_probe_cyoap_vue_structure",
 ]

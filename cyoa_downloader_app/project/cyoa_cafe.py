@@ -11,7 +11,7 @@ import os
 import re
 import threading
 import time
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 from urllib.parse import quote, urljoin, urlparse, urlunparse
 
 import requests
@@ -22,6 +22,7 @@ from ..constants.assets import (
     IMAGE_EXTENSIONS,
     VIDEO_EXTENSIONS,
 )
+from ..core.progress import DownloadCancelledError
 from ..core.url_utils import canonicalize_url, is_probable_url
 from ..download.asset_scan import _safe_response_text
 from ..integrations.ai import _host_resolves_internal
@@ -34,7 +35,7 @@ from ..project.parse import (
 
 try:
     from bs4 import BeautifulSoup  # type: ignore
-except Exception:
+except ImportError:
     def BeautifulSoup(*_args, **_kwargs):  # type: ignore
         raise RuntimeError(
             "Missing dependency: beautifulsoup4 is required for HTML/ICC parsing. "
@@ -42,17 +43,43 @@ except Exception:
         )
 
 
-_CYOA_CAFE_FIELDS: Tuple[str, ...] = (
+_CYOA_CAFE_FIELDS: tuple[str, ...] = (
     "iframe_url", "iframeUrl", "url", "link", "source", "embed",
     "project_url", "game_url",
 )
 _CYOA_CAFE_CACHE_TTL = 6 * 3600.0
 _CYOA_CAFE_CACHE_MAX = 256
 _CYOA_CAFE_RECORD_MISS_TTL = 60.0
-_CYOA_CAFE_CACHE: Dict[str, Tuple[float, str]] = {}
+_CYOA_CAFE_CACHE: dict[str, tuple[float, str]] = {}
 _CYOA_CAFE_CACHE_LOCK = threading.RLock()
-_CYOA_CAFE_RECORD_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
-_CYOA_CAFE_RECORD_MISS_CACHE: Dict[str, float] = {}
+_CYOA_CAFE_RECORD_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_CYOA_CAFE_RECORD_MISS_CACHE: dict[str, float] = {}
+
+# Resolver instances accept an injected fetch callable. Treat it as a dynamic
+# callback boundary, report failures, and preserve cancellation before it.
+_FETCHER_CALLBACK_ERRORS = (Exception,)
+_RESPONSE_OPERATION_ERRORS = (
+    AttributeError,
+    OSError,
+    RuntimeError,
+    TypeError,
+    UnicodeError,
+    ValueError,
+    requests.RequestException,
+)
+_RESPONSE_CLEANUP_ERRORS = (
+    AttributeError,
+    OSError,
+    RuntimeError,
+    requests.RequestException,
+)
+_JSON_PAYLOAD_ERRORS = (
+    AttributeError,
+    json.JSONDecodeError,
+    TypeError,
+    UnicodeError,
+    ValueError,
+)
 
 
 def _looks_like_custom_viewer_html(text: str) -> bool:
@@ -79,7 +106,7 @@ def _cyoa_cafe_record_id(url: str) -> str:
     try:
         normalized = canonicalize_url(str(url or "").strip())
         parsed = urlparse(normalized)
-    except Exception:
+    except (TypeError, ValueError):
         return ""
     parts = [part for part in parsed.path.split("/") if part]
     if parsed.netloc.lower() != "cyoa.cafe" or len(parts) != 2 or parts[0].lower() != "game":
@@ -101,9 +128,9 @@ def fetch_cyoa_cafe_record(
     url: str,
     *,
     timeout: int = 15,
-    fetcher: Optional[Any] = None,
+    fetcher: Any | None = None,
     refresh: bool = False,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     """Fetch and TTL-cache a public cyoa.cafe game record.
 
     This is deliberately separate from viewer resolution: records whose
@@ -153,15 +180,17 @@ def fetch_cyoa_cafe_record(
             if response is None or CYOACafeResolver._response_status(response) >= 400:
                 continue
             data = CYOACafeResolver._json_from_response(response)
-        except Exception as exc:
+        except DownloadCancelledError:
+            raise
+        except _RESPONSE_OPERATION_ERRORS as exc:
             logger.debug("cyoa.cafe record fetch failed for %s via %s: %s", record_id, api_url, exc)
             continue
         finally:
             if response is not None:
                 try:
                     response.close()
-                except Exception:
-                    pass
+                except _RESPONSE_CLEANUP_ERRORS as exc:
+                    logger.debug("cyoa.cafe record response close failed for %s: %s", api_url, exc)
 
         if isinstance(data, dict) and str(data.get("id") or "") == record_id:
             break
@@ -203,7 +232,7 @@ def fetch_cyoa_cafe_record(
     return dict(data)
 
 
-def classify_cyoa_cafe_record(record: Optional[Dict[str, Any]]) -> str:
+def classify_cyoa_cafe_record(record: dict[str, Any] | None) -> str:
     """Classify a catalogue record as static pages, linked viewer, or unknown."""
     if not isinstance(record, dict):
         return "unknown"
@@ -217,7 +246,7 @@ def classify_cyoa_cafe_record(record: Optional[Dict[str, Any]]) -> str:
     return "unknown"
 
 
-def build_cyoa_cafe_file_url(record: Dict[str, Any], filename: str) -> str:
+def build_cyoa_cafe_file_url(record: dict[str, Any], filename: str) -> str:
     """Build a same-origin PocketBase file URL from validated record metadata."""
     collection = str(record.get("collectionId") or "").strip()
     record_id = str(record.get("id") or "").strip()
@@ -242,8 +271,8 @@ class CYOACafeResolver:
 
     def __init__(
         self,
-        fetcher: Optional[Any] = None,
-        validator: Optional[Any] = None,
+        fetcher: Any | None = None,
+        validator: Any | None = None,
         *,
         timeout: int = 15,
         max_hops: int = 6,
@@ -255,14 +284,14 @@ class CYOACafeResolver:
         self.timeout = max(3, int(timeout))
         self.max_hops = max(1, int(max_hops))
         self.max_depth = max(1, int(max_depth))
-        self.visited: Set[str] = set()
-        self.rejections: List[Tuple[str, str]] = []
+        self.visited: set[str] = set()
+        self.rejections: list[tuple[str, str]] = []
         # Per-resolution response cache prevents duplicate GETs when a direct
         # creator URL is first validated and then parsed for iframe/JSON fallback.
-        self._responses: Dict[str, Any] = {}
+        self._responses: dict[str, Any] = {}
 
     @staticmethod
-    def _default_fetch(url: str, timeout: int = 15) -> Optional[requests.Response]:
+    def _default_fetch(url: str, timeout: int = 15) -> requests.Response | None:
         return fetch_response(
             url,
             extra_headers={"User-Agent": "Mozilla/5.0", "Accept": "text/html,application/json,*/*"},
@@ -280,7 +309,7 @@ class CYOACafeResolver:
         return normalized
 
     @staticmethod
-    def _cache_get(key: str) -> Optional[str]:
+    def _cache_get(key: str) -> str | None:
         now = time.monotonic()
         with _CYOA_CAFE_CACHE_LOCK:
             item = _CYOA_CAFE_CACHE.get(key)
@@ -304,7 +333,7 @@ class CYOACafeResolver:
     def invalidate(url: str) -> None:
         try:
             key = CYOACafeResolver.normalize_input(url)
-        except Exception:
+        except (TypeError, ValueError):
             key = str(url or "")
         with _CYOA_CAFE_CACHE_LOCK:
             _CYOA_CAFE_CACHE.pop(key, None)
@@ -320,7 +349,7 @@ class CYOACafeResolver:
     def _response_status(resp: Any) -> int:
         try:
             return int(getattr(resp, "status_code", 0) or 0)
-        except Exception:
+        except (TypeError, ValueError):
             return 0
 
     @staticmethod
@@ -329,21 +358,21 @@ class CYOACafeResolver:
             return ""
         try:
             return _safe_response_text(resp)
-        except Exception:
+        except _RESPONSE_OPERATION_ERRORS:
             try:
                 return str(resp.text or "")
-            except Exception:
+            except _RESPONSE_OPERATION_ERRORS:
                 return ""
 
     @staticmethod
     def _json_from_response(resp: Any) -> Any:
         try:
             return resp.json()
-        except Exception:
+        except _JSON_PAYLOAD_ERRORS:
             text = CYOACafeResolver._response_text(resp)
             return json.loads(text)
 
-    def _fetch(self, url: str) -> Optional[Any]:
+    def _fetch(self, url: str) -> Any | None:
         if url in self._responses:
             return self._responses[url]
         if len(self.visited) >= self.max_hops * 8:
@@ -352,7 +381,9 @@ class CYOACafeResolver:
             response = self.fetcher(url, timeout=self.timeout)
         except TypeError:
             response = self.fetcher(url)
-        except Exception as exc:
+        except DownloadCancelledError:
+            raise
+        except _FETCHER_CALLBACK_ERRORS as exc:
             logger.debug(f"cyoa.cafe fetch failed: {url}: {exc}")
             return None
         if response is not None:
@@ -382,7 +413,7 @@ class CYOACafeResolver:
                 fetcher=self.fetcher,
                 refresh=refresh,
             )
-        except Exception as exc:
+        except _RESPONSE_OPERATION_ERRORS as exc:
             logger.debug("Authoritative CYOA.CAFE record check skipped: %s", exc)
             return ""
         if not isinstance(record, dict):
@@ -393,7 +424,8 @@ class CYOACafeResolver:
                 continue
             try:
                 candidate = canonicalize_url(value)
-            except Exception:
+            except (TypeError, ValueError) as exc:
+                logger.debug("Ignoring invalid CYOA.CAFE metadata field %s: %s", field, exc)
                 continue
             allowed, _reason = self._candidate_allowed(candidate)
             if allowed:
@@ -404,10 +436,10 @@ class CYOACafeResolver:
         self.rejections.append((url, reason))
         logger.debug(f"cyoa.cafe candidate rejected: {url} — {reason}")
 
-    def _candidate_allowed(self, url: str) -> Tuple[bool, str]:
+    def _candidate_allowed(self, url: str) -> tuple[bool, str]:
         try:
             parsed = urlparse(url)
-        except Exception:
+        except (TypeError, ValueError):
             return False, "unparseable URL"
         if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
             return False, "not an HTTP(S) URL"
@@ -429,10 +461,10 @@ class CYOACafeResolver:
             return False, "profile/documentation/tracking URL"
         return True, ""
 
-    def _extract_json_candidates(self, value: Any, depth: int = 0) -> List[str]:
+    def _extract_json_candidates(self, value: Any, depth: int = 0) -> list[str]:
         if depth > self.max_depth:
             return []
-        out: List[str] = []
+        out: list[str] = []
         if isinstance(value, dict):
             for key, item in value.items():
                 if key in _CYOA_CAFE_FIELDS and isinstance(item, str) and is_probable_url(item):
@@ -444,11 +476,11 @@ class CYOACafeResolver:
                 out.extend(self._extract_json_candidates(item, depth + 1))
         return out
 
-    def _api_candidates(self, normalized: str) -> List[Tuple[str, str]]:
+    def _api_candidates(self, normalized: str) -> list[tuple[str, str]]:
         parsed = urlparse(normalized)
         host = parsed.netloc.lower()
         parts = [p for p in parsed.path.split("/") if p]
-        api_urls: List[str] = []
+        api_urls: list[str] = []
         if host == "cyoa.cafe" and len(parts) >= 2 and parts[0] == "game":
             if self._uses_default_fetcher:
                 record = fetch_cyoa_cafe_record(normalized, timeout=self.timeout)
@@ -471,7 +503,7 @@ class CYOACafeResolver:
                         "https://cyoa.cafe/api/collections/games/records"
                         f"?filter={quote(expression, safe='')}&perPage=10"
                     )
-        out: List[Tuple[str, str]] = []
+        out: list[tuple[str, str]] = []
         for api_url in api_urls:
             resp = self._fetch(api_url)
             if resp is None:
@@ -483,14 +515,14 @@ class CYOACafeResolver:
                 continue
             try:
                 data = self._json_from_response(resp)
-            except Exception as exc:
+            except _JSON_PAYLOAD_ERRORS as exc:
                 logger.debug(f"cyoa.cafe API JSON invalid: {api_url}: {exc}")
                 continue
             for candidate in self._extract_json_candidates(data):
                 out.append((candidate, "PocketBase API"))
         return out
 
-    def _html_candidates(self, normalized: str) -> List[Tuple[str, str]]:
+    def _html_candidates(self, normalized: str) -> list[tuple[str, str]]:
         resp = self._fetch(normalized)
         if resp is None:
             return []
@@ -500,7 +532,7 @@ class CYOACafeResolver:
         if not html:
             return []
         soup = BeautifulSoup(html, "html.parser")
-        out: List[Tuple[str, str]] = []
+        out: list[tuple[str, str]] = []
         for iframe in soup.find_all("iframe"):
             src = str(iframe.get("src") or "").strip()
             if src:
@@ -512,7 +544,7 @@ class CYOACafeResolver:
                 try:
                     data = json.loads(script_text)
                     out.extend((u, "embedded JSON") for u in self._extract_json_candidates(data))
-                except Exception as exc:
+                except (json.JSONDecodeError, TypeError, ValueError) as exc:
                     logger.debug(f"cyoa.cafe embedded JSON parse skipped: {exc}")
             for field in _CYOA_CAFE_FIELDS:
                 pattern = re.compile(
@@ -540,12 +572,12 @@ class CYOACafeResolver:
         if path.endswith("dist/nodes/list.json"):
             try:
                 return isinstance(json.loads(text), list)
-            except Exception:
+            except (json.JSONDecodeError, TypeError, ValueError):
                 return False
         if path.endswith("dist/platform.json"):
             try:
                 return isinstance(json.loads(text), dict)
-            except Exception:
+            except (json.JSONDecodeError, TypeError, ValueError):
                 return False
         if path.endswith(("project.json", "project.txt")):
             return bool(extract_project_text_from_payload(text) or looks_like_project_payload(text))
@@ -560,7 +592,7 @@ class CYOACafeResolver:
             return False
         try:
             canonical = canonicalize_url(candidate)
-        except Exception as exc:
+        except (TypeError, ValueError) as exc:
             self._reject(candidate, str(exc))
             return False
         if canonical in self.visited:
@@ -586,12 +618,12 @@ class CYOACafeResolver:
             if path.endswith("dist/nodes/list.json"):
                 try:
                     return isinstance(json.loads(text), list)
-                except Exception:
+                except (json.JSONDecodeError, TypeError, ValueError):
                     return False
             if path.endswith("dist/platform.json"):
                 try:
                     return isinstance(json.loads(text), dict)
-                except Exception:
+                except (json.JSONDecodeError, TypeError, ValueError):
                     return False
             if extract_project_text_from_payload(text) or looks_like_project_payload(text):
                 return True
@@ -603,11 +635,14 @@ class CYOACafeResolver:
         )
         if any(marker in lower for marker in viewer_markers) or _looks_like_custom_viewer_html(text):
             # Exclude the metadata/catalog shell unless a viewer marker is strong.
-            if urlparse(canonical).netloc.lower() == "cyoa.cafe" and "/game/" in path:
-                if not any(marker in lower for marker in ("iframe", "project.json", "interactive cyoa creator")) \
-                    and not _looks_like_custom_viewer_html(text):
-                    self._reject(canonical, "metadata page, not viewer")
-                    return False
+            if (
+                urlparse(canonical).netloc.lower() == "cyoa.cafe"
+                and "/game/" in path
+                and not any(marker in lower for marker in ("iframe", "project.json", "interactive cyoa creator"))
+                and not _looks_like_custom_viewer_html(text)
+            ):
+                self._reject(canonical, "metadata page, not viewer")
+                return False
             return True
 
         # The CYOA.CAFE core can also publish a self-contained, CSS/HTML-only
@@ -652,8 +687,8 @@ class CYOACafeResolver:
         for response in responses:
             try:
                 response.close()
-            except Exception:
-                pass
+            except _RESPONSE_CLEANUP_ERRORS as exc:
+                logger.debug("Could not close CYOA.CAFE resolver response: %s", exc)
 
     def resolve(self, url: str) -> str:
         """Resolve a CYOA.CAFE URL and release all probe responses."""
@@ -674,18 +709,17 @@ class CYOACafeResolver:
             normalized,
             refresh=bool(cached_target),
         )
-        if authoritative_target:
-            if cached_target:
-                try:
-                    cached_key = canonicalize_url(cached_target)
-                except Exception:
-                    cached_key = cached_target
-                if cached_key != authoritative_target:
-                    logger.info(
-                        "Discarding stale CYOA.CAFE resolver cache: "
-                        f"{cached_target} (record says {authoritative_target})"
-                    )
-                    self.invalidate(normalized)
+        if authoritative_target and cached_target:
+            try:
+                cached_key = canonicalize_url(cached_target)
+            except (TypeError, ValueError):
+                cached_key = cached_target
+            if cached_key != authoritative_target:
+                logger.info(
+                    "Discarding stale CYOA.CAFE resolver cache: "
+                    f"{cached_target} (record says {authoritative_target})"
+                )
+                self.invalidate(normalized)
 
         cached = self._cache_get(normalized)
         if cached:
@@ -700,15 +734,14 @@ class CYOACafeResolver:
                 authoritative_target,
             )
             return authoritative_target
-        candidates: List[Tuple[str, str]] = []
+        candidates: list[tuple[str, str]] = []
         # Creator subdomain URLs are normally the real viewer. Validate and
         # return before querying the central catalog API; the API is only a
         # fallback when the direct viewer signature is absent.
-        if host.endswith(".cyoa.cafe") and host != "cyoa.cafe":
-            if self.validate_candidate(normalized):
-                self._cache_put(normalized, normalized)
-                logger.info(f"cyoa.cafe resolved via direct creator URL: {normalized}")
-                return normalized
+        if host.endswith(".cyoa.cafe") and host != "cyoa.cafe" and self.validate_candidate(normalized):
+            self._cache_put(normalized, normalized)
+            logger.info(f"cyoa.cafe resolved via direct creator URL: {normalized}")
+            return normalized
         candidates.extend(self._api_candidates(normalized))
         candidates.extend(self._html_candidates(normalized))
         # Common subdomain route. Add after metadata/API candidates and validate.
@@ -716,11 +749,11 @@ class CYOACafeResolver:
             base = normalized.rstrip("/") + "/"
             if not urlparse(base).path.rstrip("/").endswith("/game"):
                 candidates.append((urljoin(base, "game/"), "common /game/ route"))
-        seen: Set[str] = set()
+        seen: set[str] = set()
         for raw, method in candidates[: self.max_hops * 8]:
             try:
                 candidate = canonicalize_url(urljoin(normalized, raw))
-            except Exception as exc:
+            except (TypeError, ValueError) as exc:
                 self._reject(str(raw), f"normalization failed: {exc}")
                 continue
             if candidate in seen:
@@ -782,14 +815,27 @@ def _v466_is_cafe_metadata_game_url(*args, **kwargs):
 
 
 __all__ = [
-    "CYOACafeResolutionError", "CYOACafeResolver", "get_iframe_url_from_cyoa_cafe",
-    "fetch_cyoa_cafe_record", "classify_cyoa_cafe_record", "_looks_like_custom_viewer_html",
+    "_CYOA_CAFE_CACHE",
+    "_CYOA_CAFE_CACHE_LOCK",
+    "_CYOA_CAFE_CACHE_MAX",
+    "_CYOA_CAFE_CACHE_TTL",
+    "_CYOA_CAFE_FIELDS",
+    "_CYOA_CAFE_RECORD_CACHE",
+    "_CYOA_CAFE_RECORD_MISS_CACHE",
+    "_CYOA_CAFE_RECORD_MISS_TTL",
+    "CYOACafeResolutionError",
+    "CYOACafeResolver",
+    "_looks_like_custom_viewer_html",
+    "_v462_auto_detect_mode",
+    "_v462_auto_detect_output_variant",
+    "_v462_default_cafe_fetch",
+    "_v462_invalidate_cafe_cache",
+    "_v462_is_cafe_url",
+    "_v462_resolve_cafe",
+    "_v462_validate_pure_website_candidate",
+    "_v466_is_cafe_metadata_game_url",
     "build_cyoa_cafe_file_url",
-    "_CYOA_CAFE_FIELDS", "_CYOA_CAFE_CACHE_TTL", "_CYOA_CAFE_CACHE_MAX",
-    "_CYOA_CAFE_CACHE", "_CYOA_CAFE_CACHE_LOCK", "_CYOA_CAFE_RECORD_CACHE",
-    "_CYOA_CAFE_RECORD_MISS_CACHE", "_CYOA_CAFE_RECORD_MISS_TTL",
-    "_v462_default_cafe_fetch", "_v462_invalidate_cafe_cache",
-    "_v462_validate_pure_website_candidate", "_v462_resolve_cafe",
-    "_v462_auto_detect_output_variant", "_v462_auto_detect_mode",
-    "_v462_is_cafe_url", "_v466_is_cafe_metadata_game_url",
+    "classify_cyoa_cafe_record",
+    "fetch_cyoa_cafe_record",
+    "get_iframe_url_from_cyoa_cafe",
 ]

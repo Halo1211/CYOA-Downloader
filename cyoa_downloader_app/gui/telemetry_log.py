@@ -6,7 +6,7 @@ import logging
 import re
 import time
 import weakref
-from typing import Any, Dict, Optional
+from typing import Any
 
 from ..core.progress import DownloadState
 from ..logging_setup import logger
@@ -32,7 +32,7 @@ class _V46TelemetryLogHandler(logging.Handler):
         try:
             msg = record.getMessage()
             low = msg.lower()
-            event: Optional[Dict[str, Any]] = None
+            event: dict[str, Any] | None = None
             if "resolving project source" in low or "project search start" in low or "cyoa.cafe detected" in low:
                 event = {"type": "stage_changed", "state": DownloadState.RESOLVING.value}
             elif "fetching page html" in low or "website download started" in low:

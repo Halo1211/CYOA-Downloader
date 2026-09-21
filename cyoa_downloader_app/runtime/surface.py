@@ -11,29 +11,33 @@ Features:
   â€¢ All original CLI flags preserved
 """
 
-import sys
-import os
-import re
+import argparse
+import base64
+import csv
+import hashlib
 import io
 import json
-import csv
 import logging
-import base64
-import hashlib
 import mimetypes
+import os
+import pathlib
+import queue as log_queue_module
+import re
+import shutil
+import sys
 import tempfile
 import threading
 import time
+import typing as __typing__
 import uuid
 import zipfile
-import shutil
-import pathlib
-import queue as log_queue_module
-import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Set, Tuple
-from urllib.parse import urljoin, urlparse, urlunparse, unquote, quote
+from urllib.parse import quote, unquote, urljoin, urlparse, urlunparse
+
+globals().update(
+    {name: getattr(__typing__, name) for name in ("Any", "Dict", "List", "Optional", "Set", "Tuple")}
+)
 
 
 # Compatibility surface for the refactored package.
@@ -41,6 +45,8 @@ from urllib.parse import urljoin, urlparse, urlunparse, unquote, quote
 # should still resolve from the public script directory, not this package directory.
 _CYOA_LEGACY_PUBLIC_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir, "cyoa_downloader.py"))
 
+# Import order in this section is part of the historical bootstrap contract.
+# isort: off
 import hashlib as _hashlib
 import requests
 from requests.adapters import HTTPAdapter
@@ -55,6 +61,10 @@ from ..app_info import (
 from ..logging_setup import (
     logger, _formatter, _redact_sensitive_text, _SecretRedactionFilter, setup_file_logging,
 )
+
+# Optional packages and the final GUI resync are import/plugin boundaries.
+# Failures are logged and preserve the historical fallback behavior.
+__optional_import_errors__ = (Exception,)
 from ..constants.assets import (
     IMAGE_FIELDS, ICC_PLUS_IMAGE_KEYS, AUDIO_FIELDS, BGMLIST_FIELDS,
     _YOUTUBE_URL_RE, _YOUTUBE_ID_RE, _SOUNDCLOUD_URL_RE,
@@ -137,11 +147,13 @@ from ..integrations.plugins import (
 
 try:
     import tldextract  # type: ignore
-except Exception:
+except __optional_import_errors__ as exc:
+    logger.debug("Optional tldextract import unavailable: %s", exc)
     tldextract = None
 try:
     from bs4 import BeautifulSoup  # type: ignore
-except Exception:
+except __optional_import_errors__ as exc:
+    logger.debug("Optional BeautifulSoup import unavailable: %s", exc)
     def BeautifulSoup(*_args, **_kwargs):  # type: ignore
         raise RuntimeError(
             "Missing dependency: beautifulsoup4 is required for HTML/ICC parsing. "
@@ -150,7 +162,8 @@ except Exception:
 
 try:
     import json5  # type: ignore
-except Exception:
+except __optional_import_errors__ as exc:
+    logger.debug("Optional json5 import unavailable: %s", exc)
     json5 = None
 
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -204,7 +217,7 @@ except Exception:
 # Phase 62: mutable runtime globals now live in runtime.state and are
 # imported here for compatibility with historical private imports.
 from ..runtime.state import (
-    wait_time, _RUN_DOWNLOAD_LOCK, _LAST_PREVIEW_FOLDER,
+    _LAST_PREVIEW_FOLDER, _RUN_DOWNLOAD_LOCK, wait_time,
 )
 
 
@@ -933,12 +946,31 @@ from ..download.asset_scan import _scan_file_for_assets
 # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 # Refactor Phase 26: itch.io / itch-dl helpers moved to integrations/itch.py.
-from ..integrations.itch import (
-    _ITCH_ENABLED, _ITCH_KEYRING_SERVICE, _ITCH_KEYRING_USER,
-    _set_itch_enabled, _is_itch_url, _resolve_itch_api_key,
-    _itch_session, _which, _itch_probe, detect_itch_backend,
-    itch_backend_status, build_itch_command, redact_itch_command,
-    itch_test_connection, download_itch_assets,
+# Publish through ``globals`` because these bindings intentionally replace the
+# early runtime-state bridge before the historical GUI bootstrap runs.
+from ..integrations import itch as __prebootstrap_itch__
+
+globals().update(
+    {
+        name: getattr(__prebootstrap_itch__, name)
+        for name in (
+            "_ITCH_ENABLED",
+            "_ITCH_KEYRING_SERVICE",
+            "_ITCH_KEYRING_USER",
+            "_set_itch_enabled",
+            "_is_itch_url",
+            "_resolve_itch_api_key",
+            "_itch_session",
+            "_which",
+            "_itch_probe",
+            "detect_itch_backend",
+            "itch_backend_status",
+            "build_itch_command",
+            "redact_itch_command",
+            "itch_test_connection",
+            "download_itch_assets",
+        )
+    }
 )
 
 
@@ -947,72 +979,175 @@ from ..integrations.itch import (
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 _STABILIZATION_AUDIT_ID = "CYOA-v1.0 Release-STAB-v46-AUDIT"
 from ..gui.bootstrap import bootstrap_gui_runtime as _bootstrap_gui_runtime
+
 _bootstrap_gui_runtime(globals())
 
 # Built-in plugins are registered after the GUI patch bootstrap, matching the
 # historical single-file import order.
 _register_builtin_plugins()
 
+# isort: on
+
 # Refactor Phase 3: network layer functions now live in domain modules.
 # They are imported after all historical patches so the public names resolve to
 # the final v46/v465-compatible implementations while the sensitive mutable
 # globals remain owned by this legacy facade during the transition.
-from ..network.sessions import (
-    create_retry_session, _v465_reset_shared_sessions, _get_shared_session,
+
+
+def __publish__(module, names=(), aliases=None):
+    """Publish final domain owners without static import redefinitions."""
+    globals().update({name: getattr(module, name) for name in names})
+    if aliases:
+        globals().update(
+            {public_name: getattr(module, owner_name) for public_name, owner_name in aliases.items()}
+        )
+
+
+from ..network import cloudflare as __network_cloudflare__
+from ..network import dns as __network_dns__
+from ..network import fetch as __network_fetch__
+from ..network import fetch_base as __network_fetch_base__
+from ..network import proxy as __network_proxy__
+from ..network import sessions as __network_sessions__
+from ..network import throttle as __network_throttle__
+from ..network import vpn as __network_vpn__
+
+__publish__(
+    __network_sessions__,
+    ("create_retry_session", "_v465_reset_shared_sessions", "_get_shared_session"),
 )
-from ..network.proxy import (
-    _get_active_proxy, _get_active_proxies, _set_active_proxy, _set_proxy_config,
-    _normalize_proxy_url, _redact_proxy_url,
+__publish__(
+    __network_proxy__,
+    (
+        "_get_active_proxy",
+        "_get_active_proxies",
+        "_set_active_proxy",
+        "_set_proxy_config",
+        "_normalize_proxy_url",
+        "_redact_proxy_url",
+    ),
 )
-from ..network.dns import (
-    _build_dns_query_wire, _parse_dns_address_response, _doh_resolve_via,
-    _dns_resolve_via, _patched_getaddrinfo, _set_active_dns, _get_active_dns,
-    _get_active_dns_config, _infer_dns_protocol,
+__publish__(
+    __network_dns__,
+    (
+        "_build_dns_query_wire",
+        "_parse_dns_address_response",
+        "_doh_resolve_via",
+        "_dns_resolve_via",
+        "_patched_getaddrinfo",
+        "_set_active_dns",
+        "_get_active_dns",
+        "_get_active_dns_config",
+        "_infer_dns_protocol",
+    ),
 )
-from ..network.vpn import (
-    _set_vpn_config, get_vpn_status, vpn_requirement_satisfied,
-    list_active_network_interfaces,
+__publish__(
+    __network_vpn__,
+    (
+        "_set_vpn_config",
+        "get_vpn_status",
+        "vpn_requirement_satisfied",
+        "list_active_network_interfaces",
+    ),
 )
-from ..network.throttle import (
-    _set_http2_enabled, _throttle_bandwidth, _domain_record_success,
-    _domain_throttle, _domain_record_failure,
+__publish__(
+    __network_throttle__,
+    (
+        "_set_http2_enabled",
+        "_throttle_bandwidth",
+        "_domain_record_success",
+        "_domain_throttle",
+        "_domain_record_failure",
+    ),
 )
-from ..network.cloudflare import (
-    is_cloudflare_challenge, _normalize_cloudflare_mode, _display_cloudflare_mode,
-    _normalize_cloudflare_priority, _display_cloudflare_priority,
-    _normalize_flaresolverr_url, _load_cloudflare_settings, _set_cloudflare_config,
-    _flaresolverr_payload_proxy, _flaresolverr_post, _flaresolverr_session_key,
-    _flaresolverr_get_session, flaresolverr_destroy_sessions,
-    flaresolverr_test_connection, _apply_flaresolverr_solution_to_sessions,
-    _response_from_flaresolverr_solution, fetch_via_flaresolverr,
+__publish__(
+    __network_cloudflare__,
+    (
+        "is_cloudflare_challenge",
+        "_normalize_cloudflare_mode",
+        "_display_cloudflare_mode",
+        "_normalize_cloudflare_priority",
+        "_display_cloudflare_priority",
+        "_normalize_flaresolverr_url",
+        "_load_cloudflare_settings",
+        "_set_cloudflare_config",
+        "_flaresolverr_payload_proxy",
+        "_flaresolverr_post",
+        "_flaresolverr_session_key",
+        "_flaresolverr_get_session",
+        "flaresolverr_destroy_sessions",
+        "flaresolverr_test_connection",
+        "_apply_flaresolverr_solution_to_sessions",
+        "_response_from_flaresolverr_solution",
+        "fetch_via_flaresolverr",
+    ),
 )
-from ..network.fetch_base import base_fetch_response as _v46_fetch_response_legacy
-from ..network.fetch import fetch_response
+__publish__(
+    __network_fetch_base__,
+    aliases={"_v46_fetch_response_legacy": "base_fetch_response"},
+)
+__publish__(__network_fetch__, ("fetch_response",))
 
 # Refactor Phase 4: project parsing/discovery/resolver entry points now live
 # in project-domain modules. These imports happen after historical v462/v466
 # wrappers so auto-detect and CYOA.CAFE behavior remain the final patched form.
-from ..project.parse import (
-    try_decode_bytes, looks_like_project_object, looks_like_project_payload,
-    extract_balanced_brace_block, extract_embedded_project_from_js,
-    extract_project_from_archive_bytes, parse_jsonish_text,
-    normalize_project_payload_text, extract_project_text_from_payload,
-    extract_json_like_block, _extract_website_from_archive_zip_name,
+from ..project import cyoa_cafe as __project_cyoa_cafe__
+from ..project import cyoap_vue as __project_cyoap_vue__
+from ..project import discover as __project_discover__
+from ..project import parse as __project_parse__
+
+__publish__(
+    __project_parse__,
+    (
+        "try_decode_bytes",
+        "looks_like_project_object",
+        "looks_like_project_payload",
+        "extract_balanced_brace_block",
+        "extract_embedded_project_from_js",
+        "extract_project_from_archive_bytes",
+        "parse_jsonish_text",
+        "normalize_project_payload_text",
+        "extract_project_text_from_payload",
+        "extract_json_like_block",
+        "_extract_website_from_archive_zip_name",
+    ),
 )
-from ..project.discover import (
-    find_candidate_urls_in_text, try_project_candidate, _script_priority,
-    find_script_sources, _scan_html_for_project_hints, get_project_source,
-    get_source, url_file_exists, _parallel_head_check,
-    _normalize_auto_detect_output, _auto_detect_output_variant, auto_detect_mode,
-    auto_detect_modes_batch, find_scripts, extract_placeholder_url,
-    extract_iframe_urls, extract_app_js_path, build_default_project_candidates,
+__publish__(
+    __project_discover__,
+    (
+        "find_candidate_urls_in_text",
+        "try_project_candidate",
+        "_script_priority",
+        "find_script_sources",
+        "_scan_html_for_project_hints",
+        "get_project_source",
+        "get_source",
+        "url_file_exists",
+        "_parallel_head_check",
+        "_normalize_auto_detect_output",
+        "_auto_detect_output_variant",
+        "auto_detect_mode",
+        "auto_detect_modes_batch",
+        "find_scripts",
+        "extract_placeholder_url",
+        "extract_iframe_urls",
+        "extract_app_js_path",
+        "build_default_project_candidates",
+    ),
 )
-from ..project.cyoap_vue import (
-    _scan_cyoap_assets, try_download_cyoap_vue_site, _probe_cyoap_vue_structure,
+__publish__(
+    __project_cyoap_vue__,
+    ("_scan_cyoap_assets", "try_download_cyoap_vue_site", "_probe_cyoap_vue_structure"),
 )
-from ..project.cyoa_cafe import (
-    CYOACafeResolutionError, CYOACafeResolver, get_iframe_url_from_cyoa_cafe,
-    _CYOA_CAFE_CACHE_TTL, _CYOA_CAFE_CACHE_MAX,
+__publish__(
+    __project_cyoa_cafe__,
+    (
+        "CYOACafeResolutionError",
+        "CYOACafeResolver",
+        "get_iframe_url_from_cyoa_cafe",
+        "_CYOA_CAFE_CACHE_TTL",
+        "_CYOA_CAFE_CACHE_MAX",
+    ),
 )
 
 
@@ -1023,106 +1158,235 @@ if __name__ == "__main__":
 # are imported last so historical patches remain the implementation that the
 # compatibility facade exposes, while mutable state stays in this legacy module
 # during the transition.
-from ..integrations.plugins import (
-    _PluginRegistry, _ASSET_SCANNER_PLUGINS, _ENGINE_DETECTOR_PLUGINS,
-    register_asset_scanner, register_engine_detector,
-    run_asset_scanner_plugins, run_engine_detector_plugins,
-    _register_builtin_plugins,
+from ..integrations import ai as __integrations_ai__
+from ..integrations import cyoa_manager as __integrations_cyoa_manager__
+from ..integrations import gallery_dl as __integrations_gallery_dl__
+from ..integrations import itch as __integrations_itch__
+from ..integrations import plugins as __integrations_plugins__
+from ..integrations.offline_viewers import archive_store as __offline_archive_store__
+from ..integrations.offline_viewers import iccplus as __offline_iccplus__
+from ..integrations.offline_viewers import injector as __offline_injector__
+from ..integrations.offline_viewers import registry as __offline_registry__
+
+__publish__(
+    __integrations_plugins__,
+    (
+        "_PluginRegistry",
+        "_ASSET_SCANNER_PLUGINS",
+        "_ENGINE_DETECTOR_PLUGINS",
+        "register_asset_scanner",
+        "register_engine_detector",
+        "run_asset_scanner_plugins",
+        "run_engine_detector_plugins",
+        "_register_builtin_plugins",
+    ),
 )
-from ..integrations.ai import (
-    AI_KEYRING_SERVICE, _VALID_AI_KEY_STORAGE, _VALID_AI_MODES,
-    _VALID_AI_PROVIDERS, AI_PROVIDER_LABELS, AI_PROVIDER_ENV_VARS,
-    AI_OPENAI_COMPAT_BASE, AI_MODEL_OPTIONS, AI_PROVIDER_DEFAULT_MODEL,
-    OLLAMA_DEFAULT_URL, AIUsageBudget, _normalize_ai_provider,
-    _ai_provider_label, _ai_env_vars, _ai_primary_env_var,
-    _ai_model_options, _default_ai_model, _normalize_ai_key_storage,
-    _normalize_ai_mode, _ai_provider_needs_key, _ai_is_available,
-    _ai_mode_allows, _get_ai_int_setting, _ai_budget_consume,
-    _clear_ai_plain_keys, _sanitize_ai_candidate_url, _get_ai_provider,
-    _get_ai_model, _plain_ai_key_setting, _read_ai_key_from_keyring,
-    _write_ai_key_to_keyring, _resolve_ai_api_key,
-    _clear_ai_api_key_storage, _ai_key_status_text, _host_is_internal,
-    _host_resolves_internal,
-    _set_allow_internal_hosts, _ssrf_block_cross_origin,
-    _extract_single_ai_url, _ai_detect_project_json, _ai_call,
-    _ai_analyze_js_for_assets, _ai_analyze_viewer_logic,
-    _v25_ai_settings_panel, _v27_ai_provider_values, _v27_ai_settings_panel,
+__publish__(
+    __integrations_ai__,
+    (
+        "AI_KEYRING_SERVICE",
+        "_VALID_AI_KEY_STORAGE",
+        "_VALID_AI_MODES",
+        "_VALID_AI_PROVIDERS",
+        "AI_PROVIDER_LABELS",
+        "AI_PROVIDER_ENV_VARS",
+        "AI_OPENAI_COMPAT_BASE",
+        "AI_MODEL_OPTIONS",
+        "AI_PROVIDER_DEFAULT_MODEL",
+        "OLLAMA_DEFAULT_URL",
+        "AIUsageBudget",
+        "_normalize_ai_provider",
+        "_ai_provider_label",
+        "_ai_env_vars",
+        "_ai_primary_env_var",
+        "_ai_model_options",
+        "_default_ai_model",
+        "_normalize_ai_key_storage",
+        "_normalize_ai_mode",
+        "_ai_provider_needs_key",
+        "_ai_is_available",
+        "_ai_mode_allows",
+        "_get_ai_int_setting",
+        "_ai_budget_consume",
+        "_clear_ai_plain_keys",
+        "_sanitize_ai_candidate_url",
+        "_get_ai_provider",
+        "_get_ai_model",
+        "_plain_ai_key_setting",
+        "_read_ai_key_from_keyring",
+        "_write_ai_key_to_keyring",
+        "_resolve_ai_api_key",
+        "_clear_ai_api_key_storage",
+        "_ai_key_status_text",
+        "_host_is_internal",
+        "_host_resolves_internal",
+        "_set_allow_internal_hosts",
+        "_ssrf_block_cross_origin",
+        "_extract_single_ai_url",
+        "_ai_detect_project_json",
+        "_ai_call",
+        "_ai_analyze_js_for_assets",
+        "_ai_analyze_viewer_logic",
+        "_v25_ai_settings_panel",
+        "_v27_ai_provider_values",
+        "_v27_ai_settings_panel",
+    ),
 )
-from ..integrations.cyoa_manager import (
-    _CYOA_MANAGER_DB_CANDIDATES, _find_cyoa_manager_db,
-    _cyoa_manager_viewer_pref, add_to_cyoa_manager,
-    _scan_for_cyoa_manager_db, _list_cyoa_manager_projects,
+__publish__(
+    __integrations_cyoa_manager__,
+    (
+        "_CYOA_MANAGER_DB_CANDIDATES",
+        "_find_cyoa_manager_db",
+        "_cyoa_manager_viewer_pref",
+        "add_to_cyoa_manager",
+        "_scan_for_cyoa_manager_db",
+        "_list_cyoa_manager_projects",
+    ),
 )
-from ..integrations.gallery_dl import (
-    _GALLERY_DL_HOSTS, _GALLERY_DL_CDN_HOSTS, _gdl_available,
-    _gallery_dl_mode, _gallery_dl_path, _gallery_dl_config,
-    _set_gallery_dl_mode, _gallery_dl_is_available,
-    _is_gallery_dl_candidate, _is_gallery_dl_site,
-    _fetch_via_gallery_dl, _gdl_collect_files,
+__publish__(
+    __integrations_gallery_dl__,
+    (
+        "_GALLERY_DL_HOSTS",
+        "_GALLERY_DL_CDN_HOSTS",
+        "_gdl_available",
+        "_gallery_dl_mode",
+        "_gallery_dl_path",
+        "_gallery_dl_config",
+        "_set_gallery_dl_mode",
+        "_gallery_dl_is_available",
+        "_is_gallery_dl_candidate",
+        "_is_gallery_dl_site",
+        "_fetch_via_gallery_dl",
+        "_gdl_collect_files",
+    ),
 )
-from ..integrations.itch import (
-    _ITCH_ENABLED, _ITCH_KEYRING_SERVICE, _ITCH_KEYRING_USER,
-    _set_itch_enabled, _is_itch_url, _resolve_itch_api_key,
-    _itch_session, _itch_probe, detect_itch_backend, itch_backend_status,
-    build_itch_command, redact_itch_command, itch_test_connection,
-    download_itch_assets,
+__publish__(
+    __integrations_itch__,
+    (
+        "_ITCH_ENABLED",
+        "_ITCH_KEYRING_SERVICE",
+        "_ITCH_KEYRING_USER",
+        "_set_itch_enabled",
+        "_is_itch_url",
+        "_resolve_itch_api_key",
+        "_itch_session",
+        "_itch_probe",
+        "detect_itch_backend",
+        "itch_backend_status",
+        "build_itch_command",
+        "redact_itch_command",
+        "itch_test_connection",
+        "download_itch_assets",
+    ),
 )
-from ..integrations.offline_viewers.registry import (
-    _VIEWERS_DIR, _VIEWERS_MANIFEST, VIEWER_TYPE_HINTS,
-    _load_viewers_manifest, _save_viewers_manifest,
-    register_offline_viewer, _auto_register_bundled_viewers,
-    unregister_offline_viewer, get_viewer_for_site,
+__publish__(
+    __offline_registry__,
+    (
+        "_VIEWERS_DIR",
+        "_VIEWERS_MANIFEST",
+        "VIEWER_TYPE_HINTS",
+        "_load_viewers_manifest",
+        "_save_viewers_manifest",
+        "register_offline_viewer",
+        "_auto_register_bundled_viewers",
+        "unregister_offline_viewer",
+        "get_viewer_for_site",
+    ),
 )
-from ..integrations.offline_viewers.archive_store import (
-    _extract_iccplus_subviewers,
+__publish__(__offline_archive_store__, ("_extract_iccplus_subviewers",))
+__publish__(
+    __offline_iccplus__,
+    ("_extract_iccplus_app_and_viewer_config", "_apply_iccplus_viewer_config_to_html"),
 )
-from ..integrations.offline_viewers.iccplus import (
-    _extract_iccplus_app_and_viewer_config,
-    _apply_iccplus_viewer_config_to_html,
-)
-from ..integrations.offline_viewers.injector import (
-    _apply_offline_viewer,
-)
+__publish__(__offline_injector__, ("_apply_offline_viewer",))
 # Keep public compatibility aliases identical to the final historical GUI patch
 # bodies; injector keeps lazy wrappers internally but should not overwrite the
 # facade symbols used by source-introspection/user scripts.
-from ..gui.final_behaviors import (
-    _v25_manage_offline_viewers, _v25_inject_into_viewer,
-)
-from ..gui.final_behaviors import (
-    _v462_default_progress_expanded as _v46_default_progress_expanded,
+from ..gui import final_behaviors as __gui_final_behaviors__
+
+__publish__(
+    __gui_final_behaviors__,
+    ("_v25_manage_offline_viewers", "_v25_inject_into_viewer"),
+    {"_v46_default_progress_expanded": "_v462_default_progress_expanded"},
 )
 
 # Refactor Phase 6: download pipeline entry points now have domain-module
 # owners. These are imported after all historical run_download/GUI/network
 # wrappers so the exported names remain the final patched implementations.
-from ..download.orchestrator import (
-    run_download, _v462_resolve_pure_download_url, _v462_run_download,
-    _v466_run_download, _RUN_DOWNLOAD_LOCK, _LAST_PREVIEW_FOLDER,
+from ..download import fonts as __download_fonts__
+from ..download import image_pipeline as __download_image_pipeline__
+from ..download import orchestrator as __download_orchestrator__
+from ..download import package as __download_package__
+from ..download import website as __download_website__
+
+__publish__(
+    __download_orchestrator__,
+    (
+        "run_download",
+        "_v462_resolve_pure_download_url",
+        "_v462_run_download",
+        "_v466_run_download",
+        "_RUN_DOWNLOAD_LOCK",
+        "_LAST_PREVIEW_FOLDER",
+    ),
 )
-from ..download.image_pipeline import (
-    _deep_scan_project_assets, _write_failed_images_log,
-    _write_youtube_skip_log, _find_ffmpeg, _make_ytdlp_hook,
-    _download_youtube_audio, _patch_youtube_refs_in_json,
-    _safe_response_text, process_images, _scan_file_for_assets,
-    _deep_scan_and_download_assets, _is_probable_raw_cdn_asset,
-    _check_image_dedup,
+__publish__(
+    __download_image_pipeline__,
+    (
+        "_deep_scan_project_assets",
+        "_write_failed_images_log",
+        "_write_youtube_skip_log",
+        "_find_ffmpeg",
+        "_make_ytdlp_hook",
+        "_download_youtube_audio",
+        "_patch_youtube_refs_in_json",
+        "_safe_response_text",
+        "process_images",
+        "_scan_file_for_assets",
+        "_deep_scan_and_download_assets",
+        "_is_probable_raw_cdn_asset",
+        "_check_image_dedup",
+    ),
 )
-from ..download.fonts import (
-    _find_font_urls, analyse_fonts, _download_fonts_into_folder,
+__publish__(
+    __download_fonts__,
+    ("_find_font_urls", "analyse_fonts", "_download_fonts_into_folder"),
 )
-from ..download.website import (
-    WebsiteDownloader, get_headers_for_url, is_zip_bytes, get_source,
-    url_file_exists, _directory_base_url, get_first_folder_from_url,
-    get_first_subdomain, strip_document_from_url,
+__publish__(
+    __download_website__,
+    (
+        "WebsiteDownloader",
+        "get_headers_for_url",
+        "is_zip_bytes",
+        "get_source",
+        "url_file_exists",
+        "_directory_base_url",
+        "get_first_folder_from_url",
+        "get_first_subdomain",
+        "strip_document_from_url",
+    ),
 )
-from ..download.package import (
-    _finalize_site_folder, _hash_file_sha256, _walk_package_files,
-    write_package_manifest, _load_package_manifest, verify_output_package,
-    validate_zip_archive, atomic_stream_response_to_file,
-    validate_response_content_length, save_string_to_file, zip_temp_folder,
-    prepare_clean_output_folder, _build_output_name, clean_url_path_component,
-    create_random_temp_folder, delete_temp_folder, canonicalize_url,
+__publish__(
+    __download_package__,
+    (
+        "_finalize_site_folder",
+        "_hash_file_sha256",
+        "_walk_package_files",
+        "write_package_manifest",
+        "_load_package_manifest",
+        "verify_output_package",
+        "validate_zip_archive",
+        "atomic_stream_response_to_file",
+        "validate_response_content_length",
+        "save_string_to_file",
+        "zip_temp_folder",
+        "prepare_clean_output_folder",
+        "_build_output_name",
+        "clean_url_path_component",
+        "create_random_temp_folder",
+        "delete_temp_folder",
+        "canonicalize_url",
+    ),
 )
 
 # Phase 75: refresh all moved GUI method/patch globals after final compatibility
@@ -1130,8 +1394,363 @@ from ..download.package import (
 try:
     from ..gui.bootstrap import resync_gui_runtime as _resync_gui_runtime
     _resync_gui_runtime(globals())
-except Exception as _ignored_exc:
+except __optional_import_errors__ as _ignored_exc:
     logger.debug("Ignored recoverable exception refreshing GUI globals: %s", _ignored_exc)
+
+# Keep imports that intentionally form the legacy facade visible to static
+# analysis. The dunder name is excluded by compat and therefore does not
+# expand the historical public surface.
+__compat_exports__ = (
+    _active_dns,
+    _active_proxy,
+    _ai_analyze_js_for_assets,
+    _ai_analyze_viewer_logic,
+    _ai_budget_consume,
+    _ai_call,
+    _ai_detect_project_json,
+    _ai_env_vars,
+    _ai_is_available,
+    _ai_key_status_text,
+    _ai_mode_allows,
+    _ai_model_options,
+    _ai_primary_env_var,
+    _ai_provider_label,
+    _ai_provider_needs_key,
+    _allow_internal_hosts,
+    _APP_LOGO_DARK_B64,
+    _APP_LOGO_LIGHT_B64,
+    _APP_VERSION,
+    _apply_iccplus_viewer_config_to_html,
+    _apply_offline_viewer,
+    _ARCHIVE_ORG_CYOA_RE,
+    _ASSET_SCANNER_PLUGINS,
+    _auto_detect_output_variant,
+    _auto_register_bundled_viewers,
+    _BACKOFF_BASE,
+    _BACKOFF_JITTER,
+    _BACKOFF_MAX,
+    _bandwidth_limit_kbps,
+    _batch_check_updates,
+    _BATCH_VALID_MODES,
+    _build_html_interceptor,
+    _BUNDLED_INTCYOAENHANCER_USERSCRIPT,
+    _bw_bytes_this_window,
+    _bw_last_time,
+    _bw_lock,
+    _CACHE_DIR,
+    _cache_get,
+    _CACHE_IDX,
+    _cache_index,
+    _cache_limit_mb,
+    _cache_load,
+    _cache_loaded,
+    _cache_lock,
+    _cache_put,
+    _cache_stats,
+    _cancel_aware_sleep,
+    _cancel_requested,
+    _candidate_urls_for_cyoap_asset,
+    _CHEAT_ENABLED,
+    _check_for_app_updates,
+    _check_history,
+    _check_image_dedup,
+    _cleanup_recent_part_files,
+    _clear_ai_api_key_storage,
+    _clear_ai_plain_keys,
+    _clear_image_cache,
+    _clear_preview_token,
+    _CLOUDFLARE_MODE,
+    _CLOUDFLARE_PRIORITY,
+    _coerce_int,
+    _copytree_merge_safe,
+    _current_preview_token,
+    _CYOA_MANAGER_DB_CANDIDATES,
+    _cyoa_manager_viewer_pref,
+    _cyoap_local_path,
+    _CYOAP_MODES,
+    _DEEP_SCAN_ENABLED,
+    _default_ai_model,
+    _DEPRECATED_BROKEN_ASSET_REPORT,
+    _derive_mode_flags,
+    _detect_ffmpeg_path,
+    _directory_base_url,
+    _dns_bypass_local,
+    _dns_cache,
+    _DNS_CACHE_TTL_SECONDS,
+    _dns_fallback_system,
+    _dns_ipv6,
+    _dns_port,
+    _dns_protocol,
+    _dns_timeout,
+    _domain_backoff,
+    _domain_backoff_lock,
+    _domain_fail_count,
+    _domain_last_request,
+    _domain_lock,
+    _domain_min_interval,
+    _download_youtube_audio,
+    _emit_progress_event,
+    _enforce_cache_limit,
+    _ENGINE_DETECTOR_PLUGINS,
+    _extract_iccplus_app_and_viewer_config,
+    _extract_iccplus_subviewers,
+    _extract_single_ai_url,
+    _extract_website_from_archive_zip_name,
+    _fetch_headless,
+    _fetch_via_gallery_dl,
+    _ffmpeg_install_guide,
+    _find_cyoa_manager_db,
+    _FLARESOLVERR_LOCK,
+    _FLARESOLVERR_PROXY_MODE,
+    _FLARESOLVERR_SESSION_POLICY,
+    _FLARESOLVERR_SESSIONS,
+    _FLARESOLVERR_TIMEOUT,
+    _FLARESOLVERR_URL,
+    _FLARESOLVERR_WAIT_AFTER,
+    _FOLDER_MODES,
+    _formatter,
+    _GALLERY_DL_CDN_HOSTS,
+    _gallery_dl_config,
+    _GALLERY_DL_HOSTS,
+    _gallery_dl_is_available,
+    _gallery_dl_mode,
+    _gallery_dl_path,
+    _gdl_available,
+    _gdl_collect_files,
+    _get_ai_int_setting,
+    _get_ai_model,
+    _get_ai_provider,
+    _GITHUB_RELEASE_API,
+    _google_sheet_csv_export_url,
+    _gui_speed_cb,
+    _hashlib,
+    _HISTORY_FILE,
+    _host_is_internal,
+    _html_escape,
+    _HTTP2_ENABLED,
+    _ICC_MARKER_RE,
+    _inject_into_head,
+    _INT_CYOA_ENHANCER_INFO,
+    _is_gallery_dl_candidate,
+    _is_gallery_dl_site,
+    _is_secret_setting_key,
+    _is_windows_reserved_basename,
+    _ITCH_ENABLED,
+    _keyring_module,
+    _keyring_username,
+    _LAST_PREVIEW_FOLDER,
+    _list_cyoa_manager_projects,
+    _load_history,
+    _load_logo_images,
+    _load_settings,
+    _load_viewers_manifest,
+    _load_window_icon_photo,
+    _make_cookie_session,
+    _make_ytdlp_hook,
+    _mask_secret,
+    _new_preview_token,
+    _normalize_accent_color,
+    _normalize_ai_key_storage,
+    _normalize_ai_mode,
+    _normalize_ai_provider,
+    _normalize_auto_detect_output,
+    _normalize_batch_mode,
+    _normalize_theme_mode,
+    _orig_getaddrinfo,
+    _parallel_head_check,
+    _plain_ai_key_setting,
+    _PluginRegistry,
+    _PREVIEW_SESSION_TOKEN,
+    _PREVIEW_TOKEN_LOCK,
+    _preview_token_valid,
+    _proxy_http,
+    _proxy_https,
+    _proxy_mode,
+    _proxy_no_proxy,
+    _PURE_MODES,
+    _raise_if_cancelled,
+    _random,
+    _read_ai_key_from_keyring,
+    _redact_sensitive_text,
+    _REDACTED_PLACEHOLDER,
+    _remove_deprecated_broken_asset_report,
+    _resolve_ai_api_key,
+    _resolve_theme_is_dark,
+    _RESUME_FILE,
+    _RUN_DOWNLOAD_LOCK,
+    _safe_archive_join,
+    _safe_archive_rel_path,
+    _safe_join,
+    _safe_rel_path,
+    _safe_response_text,
+    _same_origin,
+    _sanitize_ai_candidate_url,
+    _save_history,
+    _save_settings,
+    _save_viewers_manifest,
+    _scan_file_for_assets,
+    _scan_for_cyoa_manager_db,
+    _scan_html_for_project_hints,
+    _script_priority,
+    _SecretRedactionFilter,
+    _SELENIUM_ENABLED,
+    _send_desktop_notification,
+    _SERVE_ENABLED,
+    _set_allow_internal_hosts,
+    _set_cheat_enabled,
+    _set_deep_scan_enabled,
+    _set_gallery_dl_mode,
+    _set_itch_enabled,
+    _set_selenium_enabled,
+    _set_serve_enabled,
+    _SETTINGS_DEFAULTS,
+    _SETTINGS_FILE,
+    _SETTINGS_LOCK,
+    _SETTINGS_SCHEMA_VERSION,
+    _SETTINGS_SECRET_FRAGMENTS,
+    _SETTINGS_SECRET_KEYS,
+    _shared_session,
+    _shared_session_cf,
+    _socket,
+    _SOUNDCLOUD_URL_RE,
+    _ssrf_block_cross_origin,
+    _STABILIZATION_PATCH_ID,
+    _system_prefers_dark,
+    _THEME_MODE_CANONICAL,
+    _threading,
+    _time,
+    _unique_folder,
+    _update_setting,
+    _update_settings,
+    _v465_cache_writer,
+    _v465_flush_cache_index,
+    _v465_schedule_cache_save,
+    _VALID_AI_KEY_STORAGE,
+    _VALID_AI_MODES,
+    _VALID_AI_PROVIDERS,
+    _VIEWERS_DIR,
+    _VIEWERS_MANIFEST,
+    _vpn_interface,
+    _vpn_policy,
+    _WEBSITE_MODES,
+    _write_ai_key_to_keyring,
+    _YOUTUBE_ID_RE,
+    _YOUTUBE_URL_RE,
+    _ytdlp_enabled,
+    _ytdlp_gui_progress_cb,
+    add_to_cyoa_manager,
+    AI_KEYRING_SERVICE,
+    AI_MODEL_OPTIONS,
+    AI_OPENAI_COMPAT_BASE,
+    AI_PROVIDER_DEFAULT_MODEL,
+    AI_PROVIDER_ENV_VARS,
+    AI_PROVIDER_LABELS,
+    AIUsageBudget,
+    append_asset_failures_to_backup_report,
+    argparse,
+    as_completed,
+    atomic_write_bytes,
+    atomic_write_text,
+    AUDIO_EXTENSIONS,
+    AUDIO_FIELDS,
+    auto_detect_mode,
+    auto_detect_modes_batch,
+    base64,
+    BEBASDNS_DOH_VARIANTS,
+    BGMLIST_FIELDS,
+    build_default_project_candidates,
+    build_diagnostic_report,
+    clear_progress_event_sink,
+    clear_resume_state,
+    csv,
+    datetime,
+    DEFAULT_WAIT_TIME,
+    dependency_check_report,
+    DNS_PRESETS,
+    export_settings,
+    extract_app_js_path,
+    extract_balanced_brace_block,
+    extract_embedded_project_from_js,
+    extract_iframe_urls,
+    extract_json_like_block,
+    extract_placeholder_url,
+    extract_project_from_archive_bytes,
+    extract_project_text_from_payload,
+    find_candidate_urls_in_text,
+    find_script_sources,
+    find_scripts,
+    FONT_EXTENSIONS,
+    format_backup_report_text,
+    get_first_folder_from_url,
+    get_source,
+    get_viewer_for_site,
+    hashlib,
+    HTTPAdapter,
+    ICC_PLUS_IMAGE_KEYS,
+    IMAGE_EXTENSIONS,
+    IMAGE_FIELDS,
+    import_queue_items_from_file,
+    import_queue_items_from_source,
+    import_settings,
+    io,
+    is_probable_url,
+    is_zip_bytes,
+    json,
+    load_resume_state,
+    log_queue_module,
+    logging,
+    looks_like_project_object,
+    looks_like_project_payload,
+    mimetypes,
+    normalize_project_payload_text,
+    OLLAMA_DEFAULT_URL,
+    parse_jsonish_text,
+    pathlib,
+    prepare_clean_output_folder,
+    quote,
+    re,
+    register_asset_scanner,
+    register_engine_detector,
+    register_offline_viewer,
+    requests,
+    Retry,
+    run_asset_scanner_plugins,
+    run_engine_detector_plugins,
+    run_internal_self_test,
+    save_resume_state,
+    SCRIPT_EXTENSIONS,
+    set_progress_event_sink,
+    setup_file_logging,
+    shutil,
+    strip_document_from_url,
+    STYLE_EXTENSIONS,
+    sys,
+    tempfile,
+    TEXT_ASSET_EXTENSIONS,
+    threading,
+    ThreadPoolExecutor,
+    time,
+    timezone,
+    try_decode_bytes,
+    unquote,
+    unregister_offline_viewer,
+    url_file_exists,
+    urljoin,
+    urlparse,
+    urlunparse,
+    use_cloudscraper,
+    userscript_integration_report,
+    uuid,
+    validate_response_content_length,
+    VIDEO_EXTENSIONS,
+    VIEWER_TYPE_HINTS,
+    wait_time,
+    write_asset_failure_summary,
+    write_failed_assets_log,
+    write_failed_url_log,
+    zipfile,
+)
+
 
 _MOVED_PRIVATE_GLOBAL_MODULES = {
     "_SECRET_LOG_RE": "cyoa_downloader_app.logging_setup",

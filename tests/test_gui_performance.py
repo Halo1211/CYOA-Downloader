@@ -4,7 +4,6 @@ import os
 
 import pytest
 
-
 pytestmark = pytest.mark.skipif(
     os.environ.get("CYOA_GUI_SMOKE") != "1",
     reason="set CYOA_GUI_SMOKE=1 to run the live CustomTkinter performance test",

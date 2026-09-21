@@ -1,7 +1,7 @@
 import json
 
-from cyoa_downloader_app.download import image_pipeline
 from cyoa_downloader_app.config import settings as settings_mod
+from cyoa_downloader_app.download import image_pipeline
 from cyoa_downloader_app.integrations import discord_attachments as discord
 from cyoa_downloader_app.project.parse import extract_project_text_from_payload
 

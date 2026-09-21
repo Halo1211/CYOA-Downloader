@@ -1,12 +1,11 @@
 import json
 import subprocess
 import sys
-from pathlib import Path
 import zipfile
+from pathlib import Path
 
 from cyoa_downloader_app.integrations import ai_core
-from cyoa_downloader_app.integrations.offline_viewers import registry
-from cyoa_downloader_app.integrations.offline_viewers import iccplus
+from cyoa_downloader_app.integrations.offline_viewers import iccplus, registry
 
 
 def test_phase30_ai_core_normalizers_and_ssrf():

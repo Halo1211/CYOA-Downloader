@@ -8,6 +8,6 @@ PANEL_METHOD_NAMES = ("_manage_offline_viewers",)
 
 PANEL_METHODS = method_map(PANEL_METHOD_NAMES)
 
-globals().update(PANEL_METHODS)
+_manage_offline_viewers = PANEL_METHODS["_manage_offline_viewers"]
 
-__all__ = ["PANEL_METHOD_NAMES", "PANEL_METHODS", *PANEL_METHOD_NAMES]
+__all__ = ["PANEL_METHODS", "PANEL_METHOD_NAMES", "_manage_offline_viewers"]

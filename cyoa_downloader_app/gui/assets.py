@@ -11,7 +11,6 @@ import base64
 import io
 import os
 import pathlib
-from typing import Any, Tuple
 
 from ..logging_setup import logger
 
@@ -91,6 +90,8 @@ def _load_window_icon_photo(root=None):
     return None
 
 __all__ = [
-    "_APP_LOGO_LIGHT_B64", "_APP_LOGO_DARK_B64",
-    "_load_logo_images", "_load_window_icon_photo",
+    "_APP_LOGO_DARK_B64",
+    "_APP_LOGO_LIGHT_B64",
+    "_load_logo_images",
+    "_load_window_icon_photo",
 ]

@@ -7,8 +7,6 @@ import pathlib
 import sys
 import threading
 from dataclasses import dataclass
-from typing import Dict
-from typing import Optional
 
 import requests
 
@@ -21,7 +19,7 @@ from .vpn import vpn_requirement_satisfied
 @dataclass(frozen=True)
 class BrowserFetchResult:
     content: bytes
-    headers: Dict[str, str]
+    headers: dict[str, str]
     status: int
     url: str
 
@@ -58,12 +56,14 @@ class BrowserFetchSession:
         )
         self._page = self._context.new_page()
 
-    def fetch(self, url: str, *, timeout_ms: int = 45_000) -> Optional[BrowserFetchResult]:
+    def fetch(self, url: str, *, timeout_ms: int = 45_000) -> BrowserFetchResult | None:
         with self._lock:
             if not vpn_requirement_satisfied():
                 logger.error("VPN guard blocked reusable browser fetch: %s", url)
                 return None
             try:
+                from playwright.sync_api import Error as PlaywrightError
+
                 self._ensure(url)
                 response = self._page.goto(
                     url, wait_until="domcontentloaded", timeout=timeout_ms,
@@ -76,27 +76,35 @@ class BrowserFetchSession:
                     status=int(response.status),
                     url=str(response.url),
                 )
-            except Exception as exc:
+            except ImportError as exc:
+                logger.debug("Reusable browser fetch unavailable (%s): %s", url, exc)
+                return None
+            except (OSError, PlaywrightError, RuntimeError, TypeError, ValueError) as exc:
                 logger.debug("Reusable browser fetch failed (%s): %s", url, exc)
                 return None
 
     def close(self) -> None:
         with self._lock:
+            try:
+                from playwright.sync_api import Error as PlaywrightError
+            except ImportError:
+                PlaywrightError = RuntimeError
+
             for obj in (self._page, self._context, self._browser):
                 try:
                     if obj is not None:
                         obj.close()
-                except Exception:
-                    pass
+                except (OSError, PlaywrightError, RuntimeError) as exc:
+                    logger.debug("Could not close browser object %s: %s", type(obj).__name__, exc)
             self._page = self._context = self._browser = None
             try:
                 if self._playwright is not None:
                     self._playwright.stop()
-            except Exception:
-                pass
+            except (OSError, PlaywrightError, RuntimeError) as exc:
+                logger.debug("Could not stop browser runtime: %s", exc)
             self._playwright = None
 
-def _make_cookie_session(browser: str = "chrome") -> Optional["requests.Session"]:
+def _make_cookie_session(browser: str = "chrome") -> requests.Session | None:
     """
     Build a requests.Session with cookies from an installed browser.
     Uses browser-cookie3 if available, falls back to Chrome SQLite directly.
@@ -132,13 +140,15 @@ def _make_cookie_session(browser: str = "chrome") -> Optional["requests.Session"
         return s
     except ImportError as _ignored_exc:
         logger.debug("Ignored recoverable exception in _make_cookie_session (line 4016): %s", _ignored_exc)
-    except Exception as e:
+    except (OSError, RuntimeError, TypeError, ValueError) as e:
         logger.debug(f"browser_cookie3 failed ({browser}): {e}")
 
     # Manual Chrome SQLite fallback (Windows only)
     if browser.lower() == "chrome" and sys.platform == "win32":
         try:
-            import sqlite3 as _sq, shutil as _sh, tempfile as _tf
+            import shutil as _sh
+            import sqlite3 as _sq
+            import tempfile as _tf
             local = os.environ.get("LOCALAPPDATA", "")
             db_src = pathlib.Path(local) / "Google/Chrome/User Data/Default/Network/Cookies"
             if not db_src.exists():
@@ -170,7 +180,7 @@ def _make_cookie_session(browser: str = "chrome") -> Optional["requests.Session"
                     logger.debug(f"Cookie session: Chrome SQLite ({len(valid_rows)} cookies)")
                     return s
                 logger.debug("Cookie session: Chrome SQLite contains no plaintext cookie values")
-        except Exception as e:
+        except (OSError, _sq.DatabaseError, TypeError, ValueError) as e:
             logger.debug(f"Chrome SQLite cookie fallback failed: {e}")
     return None
 
@@ -183,7 +193,7 @@ def _looks_like_error_document(content: bytes, content_type: str = "") -> bool:
     return prefix.startswith((b"<!doctype html", b"<html", b"<head", b"<body", b"{\"error"))
 
 
-def _fetch_headless(url: str, reject_error_documents: bool = False) -> Optional[bytes]:
+def _fetch_headless(url: str, reject_error_documents: bool = False) -> bytes | None:
     """
     Fetch URL using Playwright (preferred) or Selenium as fallback.
     Used when normal HTTP fetch fails or returns <1KB content for images.
@@ -198,6 +208,7 @@ def _fetch_headless(url: str, reject_error_documents: bool = False) -> Optional[
         return None
     # ── Try Playwright first ──────────────────────────────────────────
     try:
+        from playwright.sync_api import Error as PlaywrightError
         from playwright.sync_api import sync_playwright
         with sync_playwright() as pw:
             launch_kwargs = {"headless": True, "args": ["--no-sandbox"]}
@@ -230,11 +241,11 @@ def _fetch_headless(url: str, reject_error_documents: bool = False) -> Optional[
             finally:
                 try:
                     browser.close()
-                except Exception as _ignored_close:
+                except (OSError, PlaywrightError, RuntimeError) as _ignored_close:
                     logger.debug("Ignored Playwright browser-close exception: %s", _ignored_close)
     except ImportError as _ignored_exc:
         logger.debug("Ignored recoverable exception in _fetch_headless (line 4072): %s", _ignored_exc)
-    except Exception as e:
+    except (OSError, PlaywrightError, RuntimeError, TypeError, ValueError) as e:
         logger.debug(f"Playwright fetch failed ({url}): {e}")
 
     # ── Selenium fallback ─────────────────────────────────────────────
@@ -246,6 +257,7 @@ def _fetch_headless(url: str, reject_error_documents: bool = False) -> Optional[
     # (same-origin fetch + correct referer/cookies), then execute_async_script.
     try:
         from selenium import webdriver
+        from selenium.common.exceptions import WebDriverException
         from selenium.webdriver.chrome.options import Options
         opts = Options()
         opts.add_argument("--headless=new")
@@ -280,7 +292,7 @@ def _fetch_headless(url: str, reject_error_documents: bool = False) -> Optional[
         finally:
             try:
                 drv.quit()
-            except Exception as _ignored_exc:
+            except (OSError, RuntimeError, WebDriverException) as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _fetch_headless (line 4116): %s", _ignored_exc)
         if resp_info and resp_info.get("ok") and resp_info.get("data"):
             data = _b64.b64decode(resp_info["data"])
@@ -296,12 +308,14 @@ def _fetch_headless(url: str, reject_error_documents: bool = False) -> Optional[
             return data
     except ImportError as _ignored_exc:
         logger.debug("Ignored recoverable exception in _fetch_headless (line 4122): %s", _ignored_exc)
-    except Exception as e:
+    except (OSError, RuntimeError, TypeError, ValueError, WebDriverException) as e:
         logger.debug(f"Selenium fetch failed ({url}): {e}")
 
     return None
 
 __all__ = [
-    "BrowserFetchResult", "BrowserFetchSession",
-    "_make_cookie_session", "_fetch_headless",
+    "BrowserFetchResult",
+    "BrowserFetchSession",
+    "_fetch_headless",
+    "_make_cookie_session",
 ]

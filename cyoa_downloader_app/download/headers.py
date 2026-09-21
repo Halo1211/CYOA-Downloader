@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Dict, Optional
 from urllib.parse import urlparse
 
 
-def get_headers_for_url(url: str) -> Optional[Dict]:
+def get_headers_for_url(url: str) -> dict | None:
     """
     Return domain-specific headers to bypass CDN restrictions and hotlink
     protection. Each entry is tuned to what the host actually checks.
@@ -14,10 +13,10 @@ def get_headers_for_url(url: str) -> Optional[Dict]:
     try:
         parsed  = urlparse(url)
         hostname = (parsed.hostname or "").lower()
-    except Exception:
+    except (TypeError, ValueError):
         return {"User-Agent": "Mozilla/5.0"}
 
-    CDN_EXACT: Dict[str, Dict] = {
+    CDN_EXACT: dict[str, dict] = {
         "imgur.com":                {"User-Agent": "curl/8.1.1", "Accept": "*/*"},
         "i.imgur.com":              {"User-Agent": "curl/8.1.1", "Accept": "*/*"},
         "i.stack.imgur.com":        {"User-Agent": "curl/8.1.1", "Accept": "*/*"},
@@ -81,7 +80,7 @@ def get_headers_for_url(url: str) -> Optional[Dict]:
     if hostname in CDN_EXACT:
         return CDN_EXACT[hostname]
 
-    CDN_SUFFIX: Dict[str, Dict] = {
+    CDN_SUFFIX: dict[str, dict] = {
         ".patreonusercontent.com": {"User-Agent": "Mozilla/5.0", "Accept": "image/webp,*/*",
                                     "Referer": "https://www.patreon.com/"},
         ".wixmp.com":              {"User-Agent": "Mozilla/5.0", "Accept": "image/webp,*/*",

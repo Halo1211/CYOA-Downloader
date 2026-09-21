@@ -9,10 +9,9 @@ from __future__ import annotations
 import json
 import os
 import pathlib
-import re
+import subprocess
 import sys
 from datetime import datetime
-from typing import Dict, List, Optional
 
 from ..logging_setup import logger
 
@@ -25,7 +24,7 @@ def _report_target(output_dir: str) -> str:
 
 
 def _write_failed_images_log(
-    failed: List[Dict[str, str]],
+    failed: list[dict[str, str]],
     output_dir: str,
     source_url: str = "",
 ) -> None:
@@ -45,21 +44,20 @@ def _write_failed_images_log(
             f.write("# Failed image downloads\n")
             f.write("# Note: Failed images keep their original external URL in the project JSON.\n")
             f.write("#       They will load normally when the original site is online.\n\n")
-        f.write(f"# --- {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ---\n")
+        f.write(f"# --- {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M:%S')} ---\n")
         if source_url:
             f.write(f"# Source CYOA : {source_url}\n")
         f.write(f"# Count       : {len(failed)}\n")
-        for item in failed:
-            f.write(f"{item['url']}\t{item.get('error', '')}\n")
+        f.writelines(f"{item['url']}\t{item.get('error', '')}\n" for item in failed)
         f.write("\n")
     logger.warning(f"Failed images log: {log_path}")
 
 
 def _write_youtube_skip_log(
-    items: List[str],
+    items: list[str],
     output_dir: str,
     source_url: str = "",
-    reasons: Optional[Dict[str, str]] = None,
+    reasons: dict[str, str] | None = None,
 ) -> None:
     """
     Append YouTube URLs (with source CYOA) to skipped_youtube_audio.txt.
@@ -94,7 +92,7 @@ def _write_youtube_skip_log(
             f.write("# ============================================================\n\n")
 
         # Per-CYOA section — appended each time
-        f.write(f"# --- {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ---\n")
+        f.write(f"# --- {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M:%S')} ---\n")
         if source_url:
             f.write(f"# Source CYOA : {source_url}\n")
         f.write(f"# Count       : {len(items)}\n")
@@ -113,7 +111,7 @@ def _write_youtube_skip_log(
     )
 
 
-def _find_ffmpeg() -> Optional[str]:
+def _find_ffmpeg() -> str | None:
     """
     Find ffmpeg executable directory.
     Returns directory containing ffmpeg (for yt-dlp ffmpeg_location param),
@@ -132,17 +130,17 @@ def _find_ffmpeg() -> Optional[str]:
         import subprocess as _sp
         r = _sp.run(
             ["ffmpeg", "-version"],
-            capture_output=True, timeout=5,
+            capture_output=True, timeout=5, check=False,
         )
         if r.returncode == 0:
             # ffmpeg works! find its actual path via 'where ffmpeg' (Windows)
-            w = _sp.run(["where", "ffmpeg"], capture_output=True, timeout=5, text=True)
+            w = _sp.run(["where", "ffmpeg"], capture_output=True, timeout=5, text=True, check=False)
             if w.returncode == 0:
                 found_path = w.stdout.strip().splitlines()[0].strip()
                 if found_path:
                     return str(pathlib.Path(found_path).parent)
             return ""   # Works but can't determine path — let yt-dlp handle it
-    except Exception as _ignored_exc:
+    except (IndexError, OSError, subprocess.SubprocessError) as _ignored_exc:
         logger.debug("Ignored recoverable exception in _find_ffmpeg (line 13386): %s", _ignored_exc)
 
     if sys.platform == "win32":
@@ -163,7 +161,7 @@ def _find_ffmpeg() -> Optional[str]:
                 if reg_dir and (pathlib.Path(reg_dir) / "ffmpeg.exe").exists():
                     logger.debug(f"ffmpeg found (registry PATH): {reg_dir}")
                     return reg_dir
-        except Exception as _ignored_exc:
+        except (AttributeError, ImportError, OSError, TypeError) as _ignored_exc:
             logger.debug("Ignored recoverable exception in _find_ffmpeg (line 13407): %s", _ignored_exc)
 
         # Also check SYSTEM PATH from registry
@@ -181,7 +179,7 @@ def _find_ffmpeg() -> Optional[str]:
                 if reg_dir and (pathlib.Path(reg_dir) / "ffmpeg.exe").exists():
                     logger.debug(f"ffmpeg found (SYSTEM registry PATH): {reg_dir}")
                     return reg_dir
-        except Exception as _ignored_exc:
+        except (AttributeError, ImportError, OSError, TypeError) as _ignored_exc:
             logger.debug("Ignored recoverable exception in _find_ffmpeg (line 13425): %s", _ignored_exc)
 
         # 4. winget packages — RECURSIVE scan
@@ -230,7 +228,7 @@ def _find_ffmpeg() -> Optional[str]:
 
 def _patch_youtube_refs_in_json(
     project_str: str,
-    yt_map: Dict[str, str],
+    yt_map: dict[str, str],
 ) -> str:
     """
     Patch project JSON for offline audio.
@@ -250,8 +248,8 @@ def _patch_youtube_refs_in_json(
     import re as _re
 
     local_paths = set(yt_map.values())  # "audio/ID.mp3"
-    local_refs: Dict[str, str] = {}
-    local_ytids: Dict[str, str] = {}    # "dQw4w9W" → "audio/dQw4w9W.mp3"
+    local_refs: dict[str, str] = {}
+    local_ytids: dict[str, str] = {}    # "dQw4w9W" → "audio/dQw4w9W.mp3"
     for yt_url, local_path in yt_map.items():
         local_refs[str(yt_url).strip()] = local_path
         vm = _re.search(r'(?:v=|youtu\.be/)([A-Za-z0-9_-]{11})', yt_url)
@@ -352,7 +350,7 @@ def _patch_youtube_refs_in_json(
         )
         return result
 
-    except Exception as _je:
+    except (json.JSONDecodeError, RecursionError, TypeError, ValueError) as _je:
         # JSON parse failed — string regex fallback
         logger.debug(f"Audio patch: JSON parse failed ({_je}), using regex fallback")
         patched = project_str

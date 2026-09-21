@@ -10,8 +10,8 @@ from __future__ import annotations
 import ast
 import collections
 import pathlib
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 LEGACY = ROOT / "cyoa_downloader_app" / "legacy.py"

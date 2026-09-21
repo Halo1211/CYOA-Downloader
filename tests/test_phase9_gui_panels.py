@@ -1,13 +1,25 @@
 import cyoa_downloader
 from cyoa_downloader_app.gui import app as gui_app
 from cyoa_downloader_app.gui import panels
-from cyoa_downloader_app.gui.panels import ai, batch, cache, cloudflare, credits, cyoa_manager, diagnostics, guide, offline_viewers, settings, updates
+from cyoa_downloader_app.gui.panels import (
+    ai,
+    batch,
+    cache,
+    cloudflare,
+    credits,
+    cyoa_manager,
+    diagnostics,
+    guide,
+    offline_viewers,
+    settings,
+    updates,
+)
 
 
 def test_phase9_panel_gate_is_bound_to_gui_class():
     cls = gui_app.CYOADownloaderGUI
     assert panels.attach_panel_methods(cls) is cls
-    assert getattr(cls, "_cyoa_gui_panel_bind_order") == panels.PANEL_BIND_ORDER
+    assert cls._cyoa_gui_panel_bind_order == panels.PANEL_BIND_ORDER
     assert panels.bound_panel_methods(cls) == panels.panel_method_names()
     assert "batch" in panels.PANEL_BIND_ORDER
     assert "offline_viewers" in panels.PANEL_BIND_ORDER

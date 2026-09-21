@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .composition import (  # noqa: F401
+from .composition import (
     PATCH_ORDER,
     _verify_patch_surface,
     applied_patch_order,
@@ -20,9 +20,9 @@ from .composition import (  # noqa: F401
 
 __all__ = [
     "PATCH_ORDER",
-    "apply_gui_patches",
+    "_verify_patch_surface",
     "applied_patch_order",
-    "expected_patch_surface",
+    "apply_gui_patches",
     "apply_v24",
     "apply_v25",
     "apply_v27",
@@ -31,5 +31,5 @@ __all__ = [
     "apply_v463",
     "apply_v465",
     "apply_v466",
-    "_verify_patch_surface",
+    "expected_patch_surface",
 ]

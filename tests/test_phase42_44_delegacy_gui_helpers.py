@@ -56,4 +56,4 @@ def test_phase44_gui_package_exports_are_lazy():
     assert "launch_gui" in gui_pkg.__all__
     # Accessing the package itself must not require eager gui.app import during
     # legacy initialization; normal attribute access still resolves lazily.
-    assert getattr(gui_pkg, "CYOADownloaderGUI") is cyoa_downloader.CYOADownloaderGUI
+    assert gui_pkg.CYOADownloaderGUI is cyoa_downloader.CYOADownloaderGUI

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+
 import pytest
 
 from cyoa_downloader_app.runtime.archive_preview import (

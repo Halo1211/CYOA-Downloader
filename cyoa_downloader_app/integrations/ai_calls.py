@@ -10,25 +10,44 @@ from __future__ import annotations
 import json
 import os
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any
 from urllib.parse import urljoin, urlparse
 
 from ..config.settings import _load_settings
 from ..constants.assets import (
-    IMAGE_EXTENSIONS, AUDIO_EXTENSIONS, VIDEO_EXTENSIONS,
-    SCRIPT_EXTENSIONS, STYLE_EXTENSIONS, FONT_EXTENSIONS,
+    AUDIO_EXTENSIONS,
+    FONT_EXTENSIONS,
+    IMAGE_EXTENSIONS,
+    SCRIPT_EXTENSIONS,
+    STYLE_EXTENSIONS,
+    VIDEO_EXTENSIONS,
 )
+from ..core.progress import DownloadCancelledError
 from ..logging_setup import logger
 from ..network.sessions import _get_shared_session
 from .ai_core import (
-    AI_OPENAI_COMPAT_BASE, OLLAMA_DEFAULT_URL, AIUsageBudget,
-    _ai_budget_consume, _ai_is_available, _ai_mode_allows,
-    _coerce_int, _default_ai_model, _get_ai_int_setting,
-    _get_ai_model, _get_ai_provider, _normalize_ai_provider,
+    AI_OPENAI_COMPAT_BASE,
+    OLLAMA_DEFAULT_URL,
+    AIUsageBudget,
+    _ai_budget_consume,
+    _ai_is_available,
+    _ai_mode_allows,
+    _coerce_int,
+    _default_ai_model,
+    _get_ai_int_setting,
+    _get_ai_model,
+    _get_ai_provider,
+    _normalize_ai_provider,
     _sanitize_ai_candidate_url,
 )
 
-def _extract_single_ai_url(text_value: str) -> Optional[str]:
+# Provider SDKs and OpenAI-compatible endpoints are optional external
+# backends with provider-specific failures. Keep them isolated and reported;
+# cancellation remains control flow.
+_AI_PROVIDER_ERRORS = (Exception,)
+
+
+def _extract_single_ai_url(text_value: str) -> str | None:
     """Extract one URL/path from an AI response, rejecting unsafe schemes."""
     if not text_value:
         return None
@@ -47,7 +66,7 @@ def _extract_single_ai_url(text_value: str) -> Optional[str]:
 def _ai_detect_project_json(url: str, html_text: str,
                             api_key: str = "", provider: str = "",
                             ai_mode: str = "auto_fallback",
-                            budget: Optional[AIUsageBudget] = None) -> Optional[str]:
+                            budget: AIUsageBudget | None = None) -> str | None:
     """AI-assisted project data locator. Provider-neutral.
 
     Returns a candidate URL only when AI mode permits recovery and the candidate
@@ -81,7 +100,7 @@ def _ai_detect_project_json(url: str, html_text: str,
 
 def _ai_call(api_key: str, prompt: str, max_tokens: int = 1024,
              system: str = "", label: str = "ai", model: str = "",
-             provider: str = "") -> Optional[str]:
+             provider: str = "") -> str | None:
     """Provider-aware low-level AI call. Returns response text or None.
 
     Supported providers:
@@ -98,7 +117,7 @@ def _ai_call(api_key: str, prompt: str, max_tokens: int = 1024,
     try:
         session = _get_shared_session(use_cf=False)
         if provider == "anthropic":
-            body: Dict[str, Any] = {
+            body: dict[str, Any] = {
                 "model": model,
                 "max_tokens": max_tokens,
                 "messages": [{"role": "user", "content": prompt}],
@@ -120,7 +139,7 @@ def _ai_call(api_key: str, prompt: str, max_tokens: int = 1024,
             return "".join(c.get("text", "") for c in data.get("content", []) if c.get("type") == "text").strip() or None
 
         if provider == "openai":
-            input_payload: List[Dict[str, str]] = []
+            input_payload: list[dict[str, str]] = []
             if system:
                 input_payload.append({"role": "system", "content": system})
             input_payload.append({"role": "user", "content": prompt})
@@ -137,7 +156,7 @@ def _ai_call(api_key: str, prompt: str, max_tokens: int = 1024,
             data = r.json()
             if data.get("output_text"):
                 return str(data["output_text"]).strip() or None
-            parts: List[str] = []
+            parts: list[str] = []
             for item in data.get("output", []) or []:
                 for c in item.get("content", []) or []:
                     if isinstance(c, dict) and c.get("text"):
@@ -147,7 +166,7 @@ def _ai_call(api_key: str, prompt: str, max_tokens: int = 1024,
         if provider == "gemini":
             import urllib.parse as _up
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{_up.quote(model, safe='')}:generateContent?key={_up.quote(api_key, safe='')}"
-            body: Dict[str, Any] = {
+            body: dict[str, Any] = {
                 "contents": [{"role": "user", "parts": [{"text": prompt}]}],
                 "generationConfig": {"maxOutputTokens": max_tokens},
             }
@@ -158,7 +177,7 @@ def _ai_call(api_key: str, prompt: str, max_tokens: int = 1024,
                 logger.debug(f"[{label}] Gemini API {r.status_code}: {r.text[:300]}")
                 return None
             data = r.json()
-            parts: List[str] = []
+            parts: list[str] = []
             for cand in data.get("candidates", []) or []:
                 for part in cand.get("content", {}).get("parts", []) or []:
                     if part.get("text"):
@@ -193,7 +212,7 @@ def _ai_call(api_key: str, prompt: str, max_tokens: int = 1024,
                     return None
             else:
                 base = AI_OPENAI_COMPAT_BASE[provider]
-            messages: List[Dict[str, str]] = []
+            messages: list[dict[str, str]] = []
             if system:
                 messages.append({"role": "system", "content": system})
             messages.append({"role": "user", "content": prompt})
@@ -226,18 +245,20 @@ def _ai_call(api_key: str, prompt: str, max_tokens: int = 1024,
 
         logger.warning(f"[{label}] Unsupported AI provider: {provider}")
         return None
-    except Exception as e:
+    except DownloadCancelledError:
+        raise
+    except _AI_PROVIDER_ERRORS as e:
         logger.debug(f"[{label}] error: {e}")
     return None
 
 def _ai_analyze_js_for_assets(
-    js_files: Dict[str, str],
+    js_files: dict[str, str],
     base_url: str,
     api_key: str = "",
     provider: str = "",
     ai_mode: str = "aggressive_recovery",
-    budget_obj: Optional[AIUsageBudget] = None,
-) -> List[str]:
+    budget_obj: AIUsageBudget | None = None,
+) -> list[str]:
     """AI-assisted JS analysis to discover asset URLs that BFS scan missed.
 
     Sends truncated JS content to Claude and asks it to find:
@@ -320,10 +341,13 @@ def _ai_analyze_js_for_assets(
                 continue
             # Only accept likely web assets/data endpoints. MIME is validated again at download time.
             path_l = urlparse(c).path.lower()
-            if path_l and not path_l.endswith(tuple(IMAGE_EXTENSIONS | AUDIO_EXTENSIONS | VIDEO_EXTENSIONS | SCRIPT_EXTENSIONS | STYLE_EXTENSIONS | FONT_EXTENSIONS | {".json", ".html", ".htm", ".svg"})):
+            if (
+                path_l
+                and not path_l.endswith(tuple(IMAGE_EXTENSIONS | AUDIO_EXTENSIONS | VIDEO_EXTENSIONS | SCRIPT_EXTENSIONS | STYLE_EXTENSIONS | FONT_EXTENSIONS | {".json", ".html", ".htm", ".svg"}))
+                and "." in os.path.basename(path_l)
+            ):
                 # Keep extensionless relative fetch targets, but skip obvious non-assets.
-                if "." in os.path.basename(path_l):
-                    continue
+                continue
             if c.startswith(("http://", "https://")):
                 resolved.append(c)
             else:
@@ -336,13 +360,13 @@ def _ai_analyze_js_for_assets(
 
 def _ai_analyze_viewer_logic(
     html_text: str,
-    js_samples: Dict[str, str],
+    js_samples: dict[str, str],
     url: str,
     api_key: str = "",
     provider: str = "",
     ai_mode: str = "diagnostics",
-    budget_obj: Optional[AIUsageBudget] = None,
-) -> Dict[str, Any]:
+    budget_obj: AIUsageBudget | None = None,
+) -> dict[str, Any]:
     """AI-assisted analysis of how a CYOA viewer loads and structures data.
 
     Returns dict with insights:
@@ -396,7 +420,7 @@ def _ai_analyze_viewer_logic(
         if not isinstance(obj, dict):
             return {}
         allowed = {"data_source", "asset_base", "viewer_type", "chunk_pattern", "suggestions"}
-        clean: Dict[str, Any] = {k: obj.get(k) for k in allowed if k in obj}
+        clean: dict[str, Any] = {k: obj.get(k) for k in allowed if k in obj}
         if "suggestions" in clean and not isinstance(clean["suggestions"], list):
             clean["suggestions"] = [str(clean["suggestions"])]
         return clean

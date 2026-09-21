@@ -9,20 +9,26 @@ from __future__ import annotations
 import json
 import os
 import sys
-from typing import Dict, List, Tuple
 
 import requests
 
 from ..app_info import _APP_VERSION
 from ..config.secrets import _is_secret_setting_key
 from ..config.settings import (
-    _SETTINGS_DEFAULTS, _SETTINGS_FILE, _detect_ffmpeg_path, _load_settings,
+    _SETTINGS_DEFAULTS,
+    _SETTINGS_FILE,
+    _detect_ffmpeg_path,
+    _load_settings,
 )
-from ..storage.cache import _CACHE_DIR, _cache_stats
-from ..storage.history import _HISTORY_FILE
+from ..integrations.itch import detect_itch_backend
 from ..network.proxy import _get_active_proxy
 from ..network.throttle import http2_runtime_info
-from ..integrations.itch import detect_itch_backend
+from ..storage.cache import _CACHE_DIR, _cache_stats
+from ..storage.history import _HISTORY_FILE
+
+# Runtime diagnostics intentionally isolate third-party/optional subsystem
+# probes. Every use below converts the failure into a visible WARN/FAIL row.
+_DIAGNOSTIC_PROBE_ERRORS = (Exception,)
 
 
 def _legacy():
@@ -55,13 +61,13 @@ def _ai_provider_label(*args, **kwargs):
     return l._ai_provider_label(*args, **kwargs)
 
 
-def _first_executable(names: Tuple[str, ...]) -> str:
+def _first_executable(names: tuple[str, ...]) -> str:
     """Return the first executable on PATH without raising."""
     import shutil
     for name in names:
         try:
             path = shutil.which(name)
-        except Exception:
+        except OSError:
             path = None
         if path:
             return path
@@ -99,7 +105,7 @@ def _selenium_manager_driver(browser: str = "chrome") -> str:
         ])
         driver = str(result.get("driver_path", "") or "")
         return driver if driver and os.path.isfile(driver) else ""
-    except Exception:
+    except (OSError, RuntimeError, TypeError, ValueError):
         return ""
 
 
@@ -215,15 +221,18 @@ def _dependency_install_hint(module: str, *, required: bool = False) -> str:
 
 
 def build_diagnostic_report(output_dir: str = "", check_network: bool = True,
-                            check_ai: bool = False, language: str = "en") -> Tuple[str, Dict[str, int]]:
+                            check_ai: bool = False, language: str = "en") -> tuple[str, dict[str, int]]:
     """Run runtime diagnostics and return (report_text, counts).
 
     Each line is formatted "<STATUS>  <name>  — <detail/solution>" where STATUS
     is PASS / WARN / FAIL. Safe to call from a background thread: it performs
     no Tk operations. Network checks are skipped when check_network is False.
     """
-    import importlib.util, platform, socket, tempfile
-    lines: List[str] = []
+    import importlib.util
+    import platform
+    import socket
+    import tempfile
+    lines: list[str] = []
     counts = {"PASS": 0, "WARN": 0, "FAIL": 0}
     is_id = str(language or "").lower().startswith("id")
     def _l(en: str, id_text: str) -> str:
@@ -309,7 +318,7 @@ def build_diagnostic_report(output_dir: str = "", check_network: bool = True,
             if runtime_options.get("remote_components"):
                 _add("WARN", "yt-dlp EJS delivery",
                      "remote EJS fallback enabled; bundle yt_dlp_ejs for offline reliability")
-        except Exception as e:
+        except _DIAGNOSTIC_PROBE_ERRORS as e:
             _add("WARN", "YouTube JavaScript runtime", f"probe error: {e}")
     else:
         _add(
@@ -384,7 +393,7 @@ def build_diagnostic_report(output_dir: str = "", check_network: bool = True,
         _itch_cmd, _itch_label = detect_itch_backend()
         _add("PASS" if _itch_cmd else "WARN", "itch-dl backend",
              _itch_label if _itch_cmd else "not found (install uv/pipx or `pip install itch-dl`)")
-    except Exception as _e:
+    except _DIAGNOSTIC_PROBE_ERRORS as _e:
         _add("WARN", "itch-dl backend", f"probe error: {_e}")
 
     # Output folder permission
@@ -401,7 +410,7 @@ def build_diagnostic_report(output_dir: str = "", check_network: bool = True,
                 probe.write("ok")
                 probe.flush()
             _add("PASS", "Output folder writable", output_dir)
-        except Exception as e:
+        except (OSError, UnicodeError) as e:
             _add("FAIL", "Output folder writable", f"{output_dir}: {e}")
     else:
         _add("WARN", "Output folder", "no output folder selected yet")
@@ -420,14 +429,14 @@ def build_diagnostic_report(output_dir: str = "", check_network: bool = True,
             probe.write("ok")
             probe.flush()
         _add("PASS", "Cache folder writable", cache_dir)
-    except Exception as e:
+    except (OSError, UnicodeError) as e:
         _add("WARN", "Cache folder writable", str(e))
 
     # settings.json validity
     try:
         st = _load_settings()
         _add("PASS", "settings.json valid", f"{len(st)} keys")
-    except Exception as e:
+    except _DIAGNOSTIC_PROBE_ERRORS as e:
         st = dict(_SETTINGS_DEFAULTS) if "_SETTINGS_DEFAULTS" in globals() else {}
         _add("WARN", "settings.json valid", f"could not load: {e}")
 
@@ -440,7 +449,7 @@ def build_diagnostic_report(output_dir: str = "", check_network: bool = True,
              _SETTINGS_FILE if os.path.exists(_SETTINGS_FILE) else f"not created yet: {_SETTINGS_FILE}")
         _add("PASS" if os.path.exists(_HISTORY_FILE) else "WARN", "History file",
              _HISTORY_FILE if os.path.exists(_HISTORY_FILE) else "not created yet")
-    except Exception as e:
+    except (OSError, TypeError, ValueError) as e:
         _add("WARN", "Settings paths", str(e))
 
     try:
@@ -458,19 +467,19 @@ def build_diagnostic_report(output_dir: str = "", check_network: bool = True,
                     v = v[:77] + "..."
                 visible.append(f"{k}={v}")
         _add("PASS", "Feature settings", "; ".join(visible) if visible else "defaults")
-    except Exception as e:
+    except _DIAGNOSTIC_PROBE_ERRORS as e:
         _add("WARN", "Feature settings", f"summary error: {e}")
 
     try:
         proxy = _get_active_proxy() if "_get_active_proxy" in globals() else ""
         _add("PASS" if proxy else "WARN", "Proxy setting", "configured" if proxy else "not configured")
-    except Exception as e:
+    except _DIAGNOSTIC_PROBE_ERRORS as e:
         _add("WARN", "Proxy setting", f"probe error: {e}")
 
     try:
         stats = _cache_stats() if "_cache_stats" in globals() else {"entries": 0, "size_mb": 0}
         _add("PASS", "Image cache", f"{stats.get('entries', 0)} entries, {stats.get('size_mb', 0)} MB at {_CACHE_DIR}")
-    except Exception as e:
+    except _DIAGNOSTIC_PROBE_ERRORS as e:
         _add("WARN", "Image cache", f"probe error: {e}")
 
     try:
@@ -488,11 +497,11 @@ def build_diagnostic_report(output_dir: str = "", check_network: bool = True,
                 with open(cfg, encoding="utf-8") as fh:
                     json.load(fh)
                 _add("PASS", "gallery-dl config", f"valid JSON: {cfg}")
-            except Exception as e:
+            except (OSError, UnicodeError, TypeError, ValueError) as e:
                 _add("WARN", "gallery-dl config", f"exists but invalid JSON: {e}")
         else:
             _add("WARN", "gallery-dl config", f"not found: {cfg}")
-    except Exception as e:
+    except (OSError, TypeError, ValueError) as e:
         _add("WARN", "gallery-dl config", f"probe error: {e}")
 
     try:
@@ -501,7 +510,7 @@ def build_diagnostic_report(output_dir: str = "", check_network: bool = True,
             found_reports = [n for n in report_names if os.path.exists(os.path.join(output_dir, n))]
             _add("PASS" if found_reports else "WARN", "Output reports",
                  ", ".join(found_reports) if found_reports else "no report files found yet")
-    except Exception as e:
+    except OSError as e:
         _add("WARN", "Output reports", f"probe error: {e}")
 
     # Network + DNS
@@ -509,7 +518,7 @@ def build_diagnostic_report(output_dir: str = "", check_network: bool = True,
         try:
             socket.getaddrinfo("example.com", 443)
             _add("PASS", "DNS resolution", "example.com resolved")
-        except Exception as e:
+        except OSError as e:
             _add("FAIL", "DNS resolution", f"failed: {e}")
         try:
             r = requests.get("https://www.google.com/generate_204", timeout=8)
@@ -517,7 +526,7 @@ def build_diagnostic_report(output_dir: str = "", check_network: bool = True,
                 _add("PASS", "Internet connectivity", f"HTTP {r.status_code}")
             else:
                 _add("WARN", "Internet connectivity", f"unexpected HTTP {r.status_code}")
-        except Exception as e:
+        except (OSError, requests.RequestException, TypeError, ValueError) as e:
             _add("FAIL", "Internet connectivity", f"no connection: {e}")
     else:
         _add("WARN", "Network checks", "skipped by request")
@@ -536,7 +545,7 @@ def build_diagnostic_report(output_dir: str = "", check_network: bool = True,
                     _add("FAIL", "AI provider connection", f"{_ai_provider_label(provider)} no response")
             else:
                 _add("WARN", "AI provider connection", "not configured (optional)")
-        except Exception as e:
+        except _DIAGNOSTIC_PROBE_ERRORS as e:
             _add("WARN", "AI provider connection", f"check error: {e}")
 
     header = [

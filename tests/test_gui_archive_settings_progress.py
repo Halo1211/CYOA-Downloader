@@ -102,7 +102,7 @@ def test_settings_advanced_workflows_are_embedded_instead_of_opening_panels():
     ):
         assert legacy_window_callback not in dashboard_source
 
-    assert 'button_text=("Edit JSON"' in dashboard_source
+    assert 'button_text="Edit JSON"' in dashboard_source
     assert 'button_text=("Export…"' in dashboard_source
 
 
@@ -150,7 +150,7 @@ def test_inline_cloudflare_refreshes_header_from_the_saved_form_value():
 def test_download_page_combines_general_features_and_archive():
     dashboard_source = inspect.getsource(CYOADownloaderGUI._settings_dashboard_panel)
 
-    assert '("Download" if is_en else "Download")' in dashboard_source
+    assert 'r = _title(general, 0, "Download",' in dashboard_source
     assert "archive = general" in dashboard_source
     assert "features = general" in dashboard_source
     assert 'network = _page(tab_names[1])' in dashboard_source

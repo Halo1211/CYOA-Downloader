@@ -1,62 +1,85 @@
-"""Internal self-test implementation.
-
-Phase 29 moves the long self-test body out of legacy.py. The implementation
-still resolves legacy globals lazily at call time because many assertions
-intentionally exercise compatibility names across modules.
-"""
+"""Internal self-test implementation with explicit domain dependencies."""
 
 from __future__ import annotations
 
-from typing import Tuple
+import os
+import pathlib
+
+from ..logging_setup import logger
+
+# Each top-level self-test case is an intentional diagnostic boundary. A case
+# must report its own failure through ``record(..., False, detail)`` and allow
+# the remaining independent cases to run.
+_SELF_TEST_PROBE_ERRORS = (Exception,)
 
 
-def _sync_legacy_globals() -> None:
-    """Expose compatibility globals expected by the historical self-test body."""
-    import sys as _sys
-    mod = _sys.modules.get("cyoa_downloader_app.runtime.surface") or _sys.modules.get("cyoa_downloader")
-    if mod is None:
-        import importlib as _importlib
-        mod = _importlib.import_module("cyoa_downloader_app.runtime.surface")
-    for name, value in vars(mod).items():
-        if name.startswith("__") and name.endswith("__"):
-            continue
-        if name == "run_internal_self_test":
-            continue
-        globals()[name] = value
-
-    # A few legacy setters mutate module-level booleans and the historical
-    # self-test immediately inspects those booleans. Because this function now
-    # lives in diagnostics.self_test, wrap the setters so local globals are
-    # refreshed after each mutation.
-    def _wrap_state_setter(setter_name: str):
-        target = getattr(mod, setter_name, None)
-        if not callable(target):
-            return None
-        def _wrapped(*args, **kwargs):
-            result = target(*args, **kwargs)
-            for state_name in (
-                "_DEEP_SCAN_ENABLED", "_SELENIUM_ENABLED",
-                "_SERVE_ENABLED", "_CHEAT_ENABLED", "_ITCH_ENABLED",
-            ):
-                if hasattr(mod, state_name):
-                    globals()[state_name] = getattr(mod, state_name)
-            return result
-        return _wrapped
-
-    for _setter in (
-        "_set_deep_scan_enabled", "_set_selenium_enabled",
-        "_set_serve_enabled", "_set_cheat_enabled", "_set_itch_enabled",
-    ):
-        _wrapped = _wrap_state_setter(_setter)
-        if _wrapped is not None:
-            globals()[_setter] = _wrapped
-
-
-def run_internal_self_test() -> Tuple[bool, str]:
+def run_internal_self_test() -> tuple[bool, str]:
     """Run offline smoke tests for path safety, report flow, dependency reporting, and ZIP helper."""
     import tempfile as _tempfile
-    _sync_legacy_globals()
-    tests: List[Tuple[str, bool, str]] = []
+
+    from ..app_info import _APP_VERSION
+    from ..config.secrets import _REDACTED_PLACEHOLDER
+    from ..config.settings import (
+        _SETTINGS_DEFAULTS,
+        _load_settings,
+        _normalize_accent_color,
+        _normalize_theme_mode,
+        _save_settings,
+        _update_setting,
+        _update_settings,
+        export_settings,
+        import_settings,
+    )
+    from ..core.feature_flags import (
+        _set_cheat_enabled,
+        _set_deep_scan_enabled,
+        _set_serve_enabled,
+    )
+    from ..core.paths import _copytree_merge_safe, _safe_archive_rel_path, _safe_join
+    from ..core.preview_token import (
+        _clear_preview_token,
+        _new_preview_token,
+        _preview_token_valid,
+    )
+    from ..download.package import (
+        clean_url_path_component,
+        verify_output_package,
+        write_package_manifest,
+        zip_temp_folder,
+    )
+    from ..download.website import WebsiteDownloader
+    from ..gui.widgets import _v25_safe_after_widget
+    from ..importers.batch import _derive_mode_flags
+    from ..integrations.ai_calls import _extract_single_ai_url
+    from ..integrations.ai_core import (
+        _coerce_int,
+        _host_is_internal,
+        _sanitize_ai_candidate_url,
+        _set_allow_internal_hosts,
+        _ssrf_block_cross_origin,
+    )
+    from ..integrations.itch import (
+        _is_itch_url,
+        build_itch_command,
+        detect_itch_backend,
+        redact_itch_command,
+    )
+    from ..integrations.plugins import (
+        _ASSET_SCANNER_PLUGINS,
+        _PluginRegistry,
+        register_asset_scanner,
+        run_asset_scanner_plugins,
+    )
+    from ..network.cloudflare import _response_from_flaresolverr_solution
+    from ..project.parse import try_decode_bytes
+    from ..runtime import state as runtime_state
+    from .dependency_check import dependency_check_report
+    from .reports import (
+        _DEPRECATED_BROKEN_ASSET_REPORT,
+        write_asset_failure_summary,
+    )
+
+    tests: list[tuple[str, bool, str]] = []
 
     def record(name: str, passed: bool, detail: str = "") -> None:
         tests.append((name, bool(passed), detail))
@@ -65,7 +88,7 @@ def run_internal_self_test() -> Tuple[bool, str]:
         try:
             safe = _safe_join(tmp_root, "assets/image.png")
             record("safe_join normal path", safe.startswith(os.path.abspath(tmp_root)), safe)
-        except Exception as e:
+        except _SELF_TEST_PROBE_ERRORS as e:
             record("safe_join normal path", False, str(e))
         try:
             try:
@@ -73,7 +96,7 @@ def run_internal_self_test() -> Tuple[bool, str]:
                 record("archive traversal rejection", False, "traversal accepted")
             except ValueError:
                 record("archive traversal rejection", True, "ValueError as expected")
-        except Exception as e:
+        except _SELF_TEST_PROBE_ERRORS as e:
             record("archive traversal rejection", False, str(e))
         try:
             stale = os.path.join(tmp_root, _DEPRECATED_BROKEN_ASSET_REPORT)
@@ -85,7 +108,7 @@ def run_internal_self_test() -> Tuple[bool, str]:
             )
             record("failure summary writes failed_assets.txt", bool(out and os.path.exists(out) and os.path.basename(out) == "failed_assets.txt"), str(out))
             record("stale broken_assets_report removed", not os.path.exists(stale), stale)
-        except Exception as e:
+        except _SELF_TEST_PROBE_ERRORS as e:
             record("failure summary flow", False, str(e))
         try:
             src_merge = os.path.join(tmp_root, "merge_src")
@@ -98,7 +121,7 @@ def run_internal_self_test() -> Tuple[bool, str]:
             preserved = os.path.exists(os.path.join(dst_merge, "existing.txt"))
             added = os.path.exists(os.path.join(dst_merge, "new.txt"))
             record("merge-copy preserves existing assets", copied == 1 and preserved and added, f"copied={copied}")
-        except Exception as e:
+        except _SELF_TEST_PROBE_ERRORS as e:
             record("merge-copy preserves existing assets", False, str(e))
 
         try:
@@ -106,7 +129,7 @@ def run_internal_self_test() -> Tuple[bool, str]:
             record("dependency report generated", "dependency check" in dep.lower(), dep.splitlines()[0] if dep else "")
             record("dependency report includes urllib3 + ffmpeg guide",
                    ("urllib3" in dep and "ffmpeg" in dep.lower() and "ffmpeg -version" in dep), "")
-        except Exception as e:
+        except _SELF_TEST_PROBE_ERRORS as e:
             record("dependency report generated", False, str(e))
 
         try:
@@ -116,7 +139,7 @@ def run_internal_self_test() -> Tuple[bool, str]:
                 and _extract_single_ai_url("data:text/plain,abc") is None
             )
             record("unsafe URL schemes rejected", unsafe_urls_rejected, "file/javascript/data")
-        except Exception as e:
+        except _SELF_TEST_PROBE_ERRORS as e:
             record("unsafe URL schemes rejected", False, str(e))
 
         try:
@@ -130,7 +153,7 @@ def run_internal_self_test() -> Tuple[bool, str]:
                 and _sanitize_ai_candidate_url("http://169.254.169.254/meta") is None
             )
             record("SSRF internal-host guard", ssrf_blocked, "loopback/link-local/private blocked")
-        except Exception as e:
+        except _SELF_TEST_PROBE_ERRORS as e:
             record("SSRF internal-host guard", False, str(e))
 
         try:
@@ -155,7 +178,7 @@ def run_internal_self_test() -> Tuple[bool, str]:
                        f"xorigin={xorigin_ok} optout={optout_ok}")
             finally:
                 _set_allow_internal_hosts(previous_allow_internal)
-        except Exception as e:
+        except _SELF_TEST_PROBE_ERRORS as e:
             record("SSRF cross-origin asset screen", False, str(e))
 
         try:
@@ -182,14 +205,15 @@ def run_internal_self_test() -> Tuple[bool, str]:
             )
             record("single-pass asset substitution (no chain)", sub_ok,
                    f"chain={chain}")
-        except Exception as e:
+        except _SELF_TEST_PROBE_ERRORS as e:
             record("single-pass asset substitution (no chain)", False, str(e))
 
         try:
             # _rewrite_direct_urls must not re-fetch a relative
             # path that already resolves to an existing local file (output of a
             # prior @import/url() rewrite pass).
-            import tempfile as _tf2, threading as _th2
+            import tempfile as _tf2
+            import threading as _th2
             with _tf2.TemporaryDirectory() as _wd:
                 _wd_inst = WebsiteDownloader.__new__(WebsiteDownloader)
                 # WebsiteDownloader has used ``output_folder`` since the
@@ -226,7 +250,7 @@ def run_internal_self_test() -> Tuple[bool, str]:
                 rewrite_ok = (len(relfetch) == 0 and remote_fetched)
                 record("direct-URL rewrite skips already-local", rewrite_ok,
                        f"relfetch={len(relfetch)} remote={remote_fetched}")
-        except Exception as e:
+        except _SELF_TEST_PROBE_ERRORS as e:
             record("direct-URL rewrite skips already-local", False, str(e))
 
         try:
@@ -255,7 +279,7 @@ def run_internal_self_test() -> Tuple[bool, str]:
             )
             record("srcset parsing preserves data: URIs", srcset_ok,
                    f"calls={_sr_calls}")
-        except Exception as e:
+        except _SELF_TEST_PROBE_ERRORS as e:
             record("srcset parsing preserves data: URIs", False, str(e))
 
         try:
@@ -272,14 +296,16 @@ def run_internal_self_test() -> Tuple[bool, str]:
             )
             record("Windows reserved filename guard", reserved_ok,
                    f"CON->{cu('CON')!r} CONSOLE->{cu('CONSOLE')!r}")
-        except Exception as e:
+        except _SELF_TEST_PROBE_ERRORS as e:
             record("Windows reserved filename guard", False, str(e))
 
         try:
             # ZIP member names must use '/' separators so
             # archives extract correctly on every OS (Windows os.path.relpath
             # would otherwise emit backslashes).
-            import tempfile as _tfz, zipfile as _zfz, shutil as _shz
+            import shutil as _shz
+            import tempfile as _tfz
+            import zipfile as _zfz
             _zd = _tfz.mkdtemp(prefix="cyoa_zipsep_")
             try:
                 os.makedirs(os.path.join(_zd, "images"), exist_ok=True)
@@ -307,7 +333,7 @@ def run_internal_self_test() -> Tuple[bool, str]:
                     os.chdir(_old)
             finally:
                 _shz.rmtree(_zd, ignore_errors=True)
-        except Exception as e:
+        except _SELF_TEST_PROBE_ERRORS as e:
             record("ZIP member names use forward slash", False, str(e))
 
         try:
@@ -328,14 +354,15 @@ def run_internal_self_test() -> Tuple[bool, str]:
             fr_ok = (_fr.status_code == 200)
             record("safe int coercion (settings/external)", coerce_ok and fr_ok,
                    f"coerce={coerce_ok} flaresolverr_status={_fr.status_code}")
-        except Exception as e:
+        except _SELF_TEST_PROBE_ERRORS as e:
             record("safe int coercion (settings/external)", False, str(e))
 
         try:
             # Archive extraction must reject an oversized
             # member by DECLARED size before decompressing it into RAM. Verify
             # the declared-size guard logic blocks a member over budget.
-            import io as _io2, zipfile as _zf2
+            import io as _io2
+            import zipfile as _zf2
             _buf = _io2.BytesIO()
             with _zf2.ZipFile(_buf, "w", _zf2.ZIP_DEFLATED) as _z:
                 _z.writestr("big.bin", b"\x00" * (2 * 1024 * 1024))  # 2MB declared
@@ -350,7 +377,7 @@ def run_internal_self_test() -> Tuple[bool, str]:
                         break
             record("archive pre-read size guard", _blocked,
                    f"blocked_oversized={_blocked}")
-        except Exception as e:
+        except _SELF_TEST_PROBE_ERRORS as e:
             record("archive pre-read size guard", False, str(e))
 
         try:
@@ -361,7 +388,7 @@ def run_internal_self_test() -> Tuple[bool, str]:
                 and _normalize_accent_color("red") == "#3b82f6"
             )
             record("theme mode/accent normalization", theme_ok, "System/Light/Dark")
-        except Exception as e:
+        except _SELF_TEST_PROBE_ERRORS as e:
             record("theme mode/accent normalization", False, str(e))
         try:
             zsrc = os.path.join(tmp_root, "zip_src")
@@ -374,7 +401,7 @@ def run_internal_self_test() -> Tuple[bool, str]:
             finally:
                 os.chdir(old_cwd)
             record("zip helper creates archive", os.path.exists(zp), zp)
-        except Exception as e:
+        except _SELF_TEST_PROBE_ERRORS as e:
             record("zip helper creates archive", False, str(e))
 
     # ── v7.5.8 checks: toggles, settings-race helper, itch URL detection ──
@@ -383,25 +410,26 @@ def run_internal_self_test() -> Tuple[bool, str]:
         previous_deep_scan = _runtime_state._DEEP_SCAN_ENABLED
         try:
             _set_deep_scan_enabled(False)
-            ok_off = (_DEEP_SCAN_ENABLED is False)
+            ok_off = runtime_state._DEEP_SCAN_ENABLED is False
             _set_deep_scan_enabled(True)
-            ok_on = (_DEEP_SCAN_ENABLED is True)
+            ok_on = runtime_state._DEEP_SCAN_ENABLED is True
             record("deep-scan toggle gates flag", ok_off and ok_on,
                     f"off={not ok_off and 'BAD' or 'ok'}, on={ok_on}")
         finally:
             _set_deep_scan_enabled(previous_deep_scan)
-    except Exception as e:
+    except _SELF_TEST_PROBE_ERRORS as e:
         record("deep-scan toggle gates flag", False, str(e))
 
     try:
         record("itch URL detection",
                _is_itch_url("https://foo.itch.io/bar") and not _is_itch_url("https://example.com"),
                "")
-    except Exception as e:
+    except _SELF_TEST_PROBE_ERRORS as e:
         record("itch URL detection", False, str(e))
 
     try:
         import tempfile as _tf
+
         from ..config import settings as _settings_state
         original_settings_file = _settings_state._SETTINGS_FILE
         try:
@@ -416,7 +444,7 @@ def run_internal_self_test() -> Tuple[bool, str]:
                 record("settings-race helper persists keys", ok, "")
         finally:
             _settings_state._SETTINGS_FILE = original_settings_file
-    except Exception as e:
+    except _SELF_TEST_PROBE_ERRORS as e:
         record("settings-race helper persists keys", False, str(e))
 
     # ── v7.6 checks: serve/cheat lifecycle + itch-dl backend ──────────────
@@ -438,7 +466,7 @@ def run_internal_self_test() -> Tuple[bool, str]:
         finally:
             with _preview_state._PREVIEW_TOKEN_LOCK:
                 _preview_state._PREVIEW_SESSION_TOKEN = previous_preview_token
-    except Exception as e:
+    except _SELF_TEST_PROBE_ERRORS as e:
         record("preview token guard", False, str(e))
 
     # 2) Serve toggle gates execution (flag, not cosmetic).
@@ -446,12 +474,12 @@ def run_internal_self_test() -> Tuple[bool, str]:
         from ..runtime import state as _runtime_state
         previous_serve = _runtime_state._SERVE_ENABLED
         try:
-            _set_serve_enabled(False); off = (_SERVE_ENABLED is False)
-            _set_serve_enabled(True);  on = (_SERVE_ENABLED is True)
+            _set_serve_enabled(False); off = runtime_state._SERVE_ENABLED is False
+            _set_serve_enabled(True);  on = runtime_state._SERVE_ENABLED is True
             record("serve toggle gates flag", off and on, f"off={off} on={on}")
         finally:
             _set_serve_enabled(previous_serve)
-    except Exception as e:
+    except _SELF_TEST_PROBE_ERRORS as e:
         record("serve toggle gates flag", False, str(e))
 
     # 3) Cheat toggle gates execution.
@@ -459,12 +487,12 @@ def run_internal_self_test() -> Tuple[bool, str]:
         from ..runtime import state as _runtime_state
         previous_cheat = _runtime_state._CHEAT_ENABLED
         try:
-            _set_cheat_enabled(False); coff = (_CHEAT_ENABLED is False)
-            _set_cheat_enabled(True);  con = (_CHEAT_ENABLED is True)
+            _set_cheat_enabled(False); coff = runtime_state._CHEAT_ENABLED is False
+            _set_cheat_enabled(True);  con = runtime_state._CHEAT_ENABLED is True
             record("cheat toggle gates flag", coff and con, f"off={coff} on={con}")
         finally:
             _set_cheat_enabled(previous_cheat)
-    except Exception as e:
+    except _SELF_TEST_PROBE_ERRORS as e:
         record("cheat toggle gates flag", False, str(e))
 
     # 4) itch-dl backend detection returns a well-formed result and never raises.
@@ -472,7 +500,7 @@ def run_internal_self_test() -> Tuple[bool, str]:
         cmd, label = detect_itch_backend()
         ok = (cmd is None or (isinstance(cmd, list) and len(cmd) >= 1)) and isinstance(label, str)
         record("itch-dl backend detection well-formed", ok, f"label={label}")
-    except Exception as e:
+    except _SELF_TEST_PROBE_ERRORS as e:
         record("itch-dl backend detection well-formed", False, str(e))
 
     # 5) itch command builder never leaks the API key in its redacted log form.
@@ -487,12 +515,13 @@ def run_internal_self_test() -> Tuple[bool, str]:
         record("itch command builder masks key + supports mirror-web",
                (not leaked) and has_mask and has_mirror,
                f"leaked={leaked} mask={has_mask} mirror={has_mirror}")
-    except Exception as e:
+    except _SELF_TEST_PROBE_ERRORS as e:
         record("itch command builder masks key + supports mirror-web", False, str(e))
 
     # ── v1.0 Release checks: settings export/import (Feature #1) ────────────────
     try:
         import tempfile as _tf
+
         from ..config import settings as _settings_state
         original_settings_file = _settings_state._SETTINGS_FILE
         try:
@@ -516,11 +545,12 @@ def run_internal_self_test() -> Tuple[bool, str]:
                        f"secret_excluded={secret_excluded} meta={has_meta}")
         finally:
             _settings_state._SETTINGS_FILE = original_settings_file
-    except Exception as e:
+    except _SELF_TEST_PROBE_ERRORS as e:
         record("settings export excludes secrets + has metadata", False, str(e))
 
     try:
         import tempfile as _tf
+
         from ..config import settings as _settings_state
         original_settings_file = _settings_state._SETTINGS_FILE
         try:
@@ -556,7 +586,7 @@ def run_internal_self_test() -> Tuple[bool, str]:
                        f"bad_rejected={not ok_bad}")
         finally:
             _settings_state._SETTINGS_FILE = original_settings_file
-    except Exception as e:
+    except _SELF_TEST_PROBE_ERRORS as e:
         record("settings import merges safe + ignores secrets/redacted/unknown", False, str(e))
 
     # ── v1.0 Release checks: plugin registry (Feature #10) ─────────────────────
@@ -572,7 +602,7 @@ def run_internal_self_test() -> Tuple[bool, str]:
         override_ok = (dict(reg.items())["a"]() == 3)
         record("plugin registry: register + duplicate-reject + override",
                dup_ok and override_ok, f"dup_reject={dup_ok} override={override_ok}")
-    except Exception as e:
+    except _SELF_TEST_PROBE_ERRORS as e:
         record("plugin registry: register + duplicate-reject + override", False, str(e))
 
     try:
@@ -589,9 +619,11 @@ def run_internal_self_test() -> Tuple[bool, str]:
         record("plugin registry: default scanner runs + failing plugin contained",
                builtin_ran and contained and restored,
                f"builtin_ran={builtin_ran} contained={contained} restored={restored}")
-    except Exception as e:
-        try: _ASSET_SCANNER_PLUGINS.unregister("__boom__")
-        except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in run_internal_self_test (line 16533): %s", _ignored_exc)
+    except _SELF_TEST_PROBE_ERRORS as e:
+        try:
+            _ASSET_SCANNER_PLUGINS.unregister("__boom__")
+        except RuntimeError as cleanup_exc:
+            logger.debug("Self-test plugin cleanup failed: %s", cleanup_exc)
         record("plugin registry: default scanner runs + failing plugin contained", False, str(e))
 
     # [STAB-rev18] Batch mode-flag parity guard. Locks the shared
@@ -620,7 +652,7 @@ def run_internal_self_test() -> Tuple[bool, str]:
         record("batch mode-flag parity (GUI/CLI single source)",
                not _mismatch,
                "all aligned" if not _mismatch else "; ".join(_mismatch))
-    except Exception as e:
+    except _SELF_TEST_PROBE_ERRORS as e:
         record("batch mode-flag parity (GUI/CLI single source)", False, str(e))
 
     # [STAB-rev19] Offline package validator smoke test. Builds a healthy and
@@ -643,7 +675,7 @@ def run_internal_self_test() -> Tuple[bool, str]:
             record("package validator: good passes / missing-asset fails",
                    _ok_good and _detected,
                    f"good_ok={_ok_good} bad_detected={_detected}")
-    except Exception as e:
+    except _SELF_TEST_PROBE_ERRORS as e:
         record("package validator: good passes / missing-asset fails", False, str(e))
 
     # [STAB-rev20] After-callback destroy-safety guard. Verifies
@@ -668,7 +700,7 @@ def run_internal_self_test() -> Tuple[bool, str]:
         record("after-guard: dead/None root is safe no-op",
                _calls["n"] == 0,
                f"callbacks_invoked={_calls['n']} (expected 0)")
-    except Exception as e:
+    except _SELF_TEST_PROBE_ERRORS as e:
         record("after-guard: dead/None root is safe no-op", False, str(e))
 
     # [STAB-rev21] Manifest sidecar round-trip. Writes a manifest for a fixture,
@@ -693,7 +725,7 @@ def run_internal_self_test() -> Tuple[bool, str]:
             record("manifest round-trip: write / intact / corruption detected",
                    _wrote_ok and _intact_ok and _detected,
                    f"wrote={_wrote_ok} intact={_intact_ok} corruption_detected={_detected}")
-    except Exception as e:
+    except _SELF_TEST_PROBE_ERRORS as e:
         record("manifest round-trip: write / intact / corruption detected", False, str(e))
 
     # [STAB-rev22] Decode robustness. try_decode_bytes must never raise on
@@ -702,12 +734,12 @@ def run_internal_self_test() -> Tuple[bool, str]:
     try:
         _arbitrary = bytes(range(256))
         _d1 = try_decode_bytes(_arbitrary, "utf-8")
-        _utf8_in = "日本語テスト café".encode("utf-8")
+        _utf8_in = "日本語テスト café".encode()
         _d2 = try_decode_bytes(_utf8_in, "utf-8")
         _ok = isinstance(_d1, str) and _d2 == "日本語テスト café"
         record("decode robustness: arbitrary bytes + utf-8 fidelity",
                _ok, f"arbitrary_ok={isinstance(_d1, str)} utf8_roundtrip={_d2 == '日本語テスト café'}")
-    except Exception as e:
+    except _SELF_TEST_PROBE_ERRORS as e:
         record("decode robustness: arbitrary bytes + utf-8 fidelity", False, str(e))
 
     # [STAB-rev23] Queue-preservation policy in _done(). When the completion
@@ -722,7 +754,7 @@ def run_internal_self_test() -> Tuple[bool, str]:
                 _t = int(status.split("/")[1].strip().split(" ")[0])
                 if _s < _t:
                     return "preserve"
-            except Exception:
+            except (IndexError, TypeError, ValueError):
                 return "preserve"   # rev23: unparseable -> conservative keep
             return "cleanup"
         _cases = {
@@ -736,7 +768,7 @@ def run_internal_self_test() -> Tuple[bool, str]:
                 for k, v in _cases.items() if _queue_decision(k) != v]
         record("queue policy: unparseable status preserves queue",
                not _bad, "all correct" if not _bad else "; ".join(_bad))
-    except Exception as e:
+    except _SELF_TEST_PROBE_ERRORS as e:
         record("queue policy: unparseable status preserves queue", False, str(e))
 
     passed = sum(1 for _, ok, _ in tests if ok)

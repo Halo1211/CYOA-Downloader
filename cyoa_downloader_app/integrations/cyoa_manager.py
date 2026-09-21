@@ -6,16 +6,12 @@ the old function names and return semantics.
 
 from __future__ import annotations
 
-import json as _json
 import os
 import sqlite3
 import sys
-import uuid as _uuid
-from typing import Dict, List, Optional
 
 from ..config.settings import _load_settings
 from ..logging_setup import logger
-
 
 # DB schema (library_projects table):
 #   id TEXT PK, name, description, cover_image, source_url,
@@ -39,7 +35,7 @@ _CYOA_MANAGER_DB_CANDIDATES = [
 ]
 
 
-def _find_cyoa_manager_db() -> Optional[str]:
+def _find_cyoa_manager_db() -> str | None:
     """Auto-detect CYOA Manager library.sqlite3. Returns path or None."""
     for p in _CYOA_MANAGER_DB_CANDIDATES:
         if p and os.path.exists(p):
@@ -61,17 +57,19 @@ def add_to_cyoa_manager(
     name: str = "",
     source_url: str = "",
     description: str = "",
-    tags: Optional[list] = None,
+    tags: list | None = None,
     viewer_preference: str = "",
-    db_path: Optional[str] = None,
-) -> Optional[bool]:
+    db_path: str | None = None,
+) -> bool | None:
     """
     Register a downloaded project.json in CYOA Manager's SQLite library.
 
     Returns True on success, False on failure, and None when the project is
     already registered (legacy behavior).
     """
-    import sqlite3 as _sql, uuid as _uuid_local, json as _json_local
+    import json as _json_local
+    import sqlite3 as _sql
+    import uuid as _uuid_local
 
     # Resolve paths
     abs_path = os.path.abspath(project_json_path)
@@ -153,12 +151,12 @@ def add_to_cyoa_manager(
         finally:
             con.close()
 
-    except Exception as e:
+    except (OSError, TypeError, ValueError, sqlite3.Error) as e:
         logger.error(f"CYOA Manager: DB write failed — {e}")
         return False
 
 
-def _scan_for_cyoa_manager_db() -> List[str]:
+def _scan_for_cyoa_manager_db() -> list[str]:
     """
     Scan common locations for CYOA Manager portable installs.
     The portable version stores save/library.sqlite3 next to the exe,
@@ -185,7 +183,7 @@ def _scan_for_cyoa_manager_db() -> List[str]:
     return found
 
 
-def _list_cyoa_manager_projects(db_path: str = "") -> List[Dict[str, str]]:
+def _list_cyoa_manager_projects(db_path: str = "") -> list[dict[str, str]]:
     """Read CYOA Manager library and return list of projects with URLs.
 
     Each entry: {id, name, source_url, file_path, date_added, viewer_preference}
@@ -204,18 +202,21 @@ def _list_cyoa_manager_projects(db_path: str = "") -> List[Dict[str, str]]:
                 "FROM library_projects ORDER BY name COLLATE NOCASE"
             ).fetchall()
             return [
-                {k: (r[k] or "") for k in r.keys()}
+                {k: (r[k] or "") for k in tuple(r.keys())}
                 for r in rows if r["source_url"]
             ]
         finally:
             conn.close()
-    except Exception as e:
+    except (OSError, TypeError, ValueError, sqlite3.Error) as e:
         logger.warning(f"CYOA Manager list: {e}")
         return []
 
 
 __all__ = [
-    "_CYOA_MANAGER_DB_CANDIDATES", "_find_cyoa_manager_db",
-    "_cyoa_manager_viewer_pref", "add_to_cyoa_manager",
-    "_scan_for_cyoa_manager_db", "_list_cyoa_manager_projects",
+    "_CYOA_MANAGER_DB_CANDIDATES",
+    "_cyoa_manager_viewer_pref",
+    "_find_cyoa_manager_db",
+    "_list_cyoa_manager_projects",
+    "_scan_for_cyoa_manager_db",
+    "add_to_cyoa_manager",
 ]

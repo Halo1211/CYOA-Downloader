@@ -3,10 +3,10 @@ from __future__ import annotations
 import json
 import zipfile
 from pathlib import Path
+from typing import ClassVar
 
 from cyoa_downloader_app.config.settings import _SETTINGS_DEFAULTS
-from cyoa_downloader_app.integrations.offline_viewers import registry
-from cyoa_downloader_app.integrations.offline_viewers import injector
+from cyoa_downloader_app.integrations.offline_viewers import injector, registry
 from cyoa_downloader_app.project.parse import extract_embedded_project_from_js
 
 
@@ -374,7 +374,7 @@ def test_failed_preserved_asset_keeps_reference_and_writes_failure_report(
     class Response:
         status_code = 404
         content = b""
-        headers = {}
+        headers: ClassVar[dict] = {}
 
         def close(self):
             pass

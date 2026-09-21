@@ -15,4 +15,4 @@ _WEBSITE_MODES = {"icc", "icc_zip", "icc_folder", "website", "website_zip", "web
 
 _FOLDER_MODES = {"icc_folder", "website_folder", "pure_website_folder", "cyoap_vue_folder"}
 
-__all__ = ['_BATCH_VALID_MODES', '_PURE_MODES', '_CYOAP_MODES', '_WEBSITE_MODES', '_FOLDER_MODES']
+__all__ = ['_BATCH_VALID_MODES', '_CYOAP_MODES', '_FOLDER_MODES', '_PURE_MODES', '_WEBSITE_MODES']

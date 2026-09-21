@@ -46,7 +46,7 @@ def _keyring_module():
     try:
         import keyring  # type: ignore
         return keyring
-    except Exception:
+    except (ImportError, OSError, RuntimeError):
         return None
 
 

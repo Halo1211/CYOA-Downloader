@@ -13,7 +13,6 @@ import json
 import os
 import re
 import zipfile
-from typing import Any, Optional, Tuple
 from urllib.parse import unquote
 
 from ..constants.assets import IMAGE_FIELDS
@@ -22,7 +21,7 @@ from ..logging_setup import logger
 
 try:
     import json5  # type: ignore
-except Exception:  # pragma: no cover - optional dependency fallback
+except ImportError:  # pragma: no cover - optional dependency fallback
     json5 = None
 # archive.org CYOA Manager catalog ZIP link matcher.
 _ARCHIVE_ORG_CYOA_RE = re.compile(
@@ -172,13 +171,11 @@ def looks_like_project_payload(text: str) -> bool:
         ):
             score += 1
 
-    if score >= 4:
-        return True
-
-    if sample.strip().startswith("{") and sample.strip().endswith("}") and ('"image"' in lowered or '"rows"' in lowered or '"backpack"' in lowered):
-        return True
-
-    return False
+    return score >= 4 or (
+        sample.strip().startswith("{")
+        and sample.strip().endswith("}")
+        and ('"image"' in lowered or '"rows"' in lowered or '"backpack"' in lowered)
+    )
 
 def extract_balanced_brace_block(text: str, start_idx: int) -> str:
     if start_idx < 0 or start_idx >= len(text) or text[start_idx] != "{":
@@ -212,7 +209,7 @@ def extract_balanced_brace_block(text: str, start_idx: int) -> str:
                 return text[start_idx:idx + 1]
     return ""
 
-def extract_embedded_project_from_js(js_text: str) -> Optional[str]:
+def extract_embedded_project_from_js(js_text: str) -> str | None:
     # ICC Plus 2's offline-capable bundle places the complete project directly
     # after this stable authoring marker. A comment can sit between the
     # reactive wrapper call (``app=Be(``) and the JSON object, so the generic
@@ -248,7 +245,7 @@ def extract_embedded_project_from_js(js_text: str) -> Optional[str]:
                     if block and looks_like_project_payload(block):
                         logger.info(f"Found embedded project payload via Vuex split: {start_marker[:30]}")
                         return block
-            except (IndexError, Exception) as _ignored_exc:
+            except (AttributeError, IndexError, TypeError, ValueError) as _ignored_exc:
                 logger.debug("Ignored recoverable exception in extract_embedded_project_from_js (line 17566): %s", _ignored_exc)
 
     markers = [
@@ -348,7 +345,7 @@ def extract_embedded_project_from_js(js_text: str) -> Optional[str]:
 
     return None
 
-def extract_project_from_archive_bytes(raw: bytes, source_url: str, depth: int = 0) -> Optional[str]:
+def extract_project_from_archive_bytes(raw: bytes, source_url: str, depth: int = 0) -> str | None:
     if depth > 2 or not is_zip_bytes(raw):
         return None
 
@@ -372,7 +369,7 @@ def extract_project_from_archive_bytes(raw: bytes, source_url: str, depth: int =
             if not names:
                 return None
 
-            def sort_key(name: str) -> Tuple[int, int, str]:
+            def sort_key(name: str) -> tuple[int, int, str]:
                 lname = name.lower()
                 ext = os.path.splitext(lname)[1]
                 priority = 99
@@ -401,14 +398,14 @@ def extract_project_from_archive_bytes(raw: bytes, source_url: str, depth: int =
                         if zf.getinfo(member).file_size > _MAX_MEMBER:
                             logger.warning(f"Archive member too large, skipped: {member}")
                             continue
-                    except Exception as _ignored_exc:
+                    except (KeyError, RuntimeError, TypeError, ValueError, zipfile.BadZipFile) as _ignored_exc:
                         logger.debug("Ignored recoverable exception in extract_project_from_archive_bytes (line 17693): %s", _ignored_exc)
                     with zf.open(member) as _fh:
                         member_raw = _fh.read(_MAX_MEMBER + 1)
                     if len(member_raw) > _MAX_MEMBER:
                         logger.warning(f"Archive member exceeded decompression cap, skipped: {member}")
                         continue
-                except Exception as e:
+                except (EOFError, KeyError, OSError, RuntimeError, ValueError, zipfile.BadZipFile) as e:
                     logger.warning(f"Failed to read archive member {member}: {e}")
                     continue
 
@@ -427,7 +424,7 @@ def extract_project_from_archive_bytes(raw: bytes, source_url: str, depth: int =
                     return project_text
     except zipfile.BadZipFile:
         return None
-    except Exception as e:
+    except (EOFError, OSError, RuntimeError, ValueError, zipfile.LargeZipFile) as e:
         logger.warning(f"Failed to inspect archive from {source_url}: {e}")
         return None
 
@@ -438,7 +435,7 @@ def extract_json_like_block(text: str) -> str:
     end   = text.rfind("}") + 1
     return text[start:end] if start != -1 and end > start else ""
 
-def parse_jsonish_text(text: str) -> Optional[dict]:
+def parse_jsonish_text(text: str) -> dict | None:
     if not text:
         return None
 
@@ -450,16 +447,16 @@ def parse_jsonish_text(text: str) -> Optional[dict]:
     for candidate in candidates:
         try:
             return json.loads(candidate)
-        except Exception as _ignored_exc:
+        except (json.JSONDecodeError, TypeError, ValueError) as _ignored_exc:
             logger.debug("Ignored recoverable exception in parse_jsonish_text (line 17739): %s", _ignored_exc)
         if json5 is not None:
             try:
                 return json5.loads(candidate)
-            except Exception as _ignored_exc:
+            except (AttributeError, TypeError, ValueError) as _ignored_exc:
                 logger.debug("Ignored recoverable exception in parse_jsonish_text (line 17744): %s", _ignored_exc)
     return None
 
-def normalize_project_payload_text(text: str) -> Optional[str]:
+def normalize_project_payload_text(text: str) -> str | None:
     if not text:
         return None
 
@@ -478,7 +475,7 @@ def normalize_project_payload_text(text: str) -> Optional[str]:
     # normalized by the branches above; everything else must be rejected.
     return None
 
-def extract_project_text_from_payload(text: str) -> Optional[str]:
+def extract_project_text_from_payload(text: str) -> str | None:
     if not text:
         return None
 
@@ -493,13 +490,12 @@ def extract_project_text_from_payload(text: str) -> Optional[str]:
 
     return None
 
-def _extract_website_from_archive_zip_name(zip_filename: str) -> Optional[str]:
+def _extract_website_from_archive_zip_name(zip_filename: str) -> str | None:
     """
     Convert archive.org CYOA zip filename back to the original website URL.
     Format: Name.[YYYY-MM-DD].https~~~site.com~path~subpath.zip
     → https://site.com/path/subpath
     """
-    from urllib.parse import unquote
     fname = unquote(zip_filename)
     # Accept http~~~ too: "~~~" is the archive's encoding
     # of "://" (documented below), which is scheme-agnostic by construction —
@@ -515,16 +511,16 @@ def _extract_website_from_archive_zip_name(zip_filename: str) -> Optional[str]:
     return url.rstrip("/") + "/"
 
 __all__ = [
-    "try_decode_bytes",
+    "_extract_website_from_archive_zip_name",
+    "extract_balanced_brace_block",
+    "extract_embedded_project_from_js",
+    "extract_json_like_block",
+    "extract_project_from_archive_bytes",
+    "extract_project_text_from_payload",
     "is_zip_bytes",
     "looks_like_project_object",
     "looks_like_project_payload",
-    "extract_balanced_brace_block",
-    "extract_embedded_project_from_js",
-    "extract_project_from_archive_bytes",
-    "parse_jsonish_text",
     "normalize_project_payload_text",
-    "extract_project_text_from_payload",
-    "extract_json_like_block",
-    "_extract_website_from_archive_zip_name",
+    "parse_jsonish_text",
+    "try_decode_bytes",
 ]

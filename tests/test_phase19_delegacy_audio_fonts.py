@@ -1,6 +1,5 @@
 import inspect
 import json
-import pathlib
 
 import cyoa_downloader as facade
 from cyoa_downloader_app.download import audio_reports, fonts, image_pipeline

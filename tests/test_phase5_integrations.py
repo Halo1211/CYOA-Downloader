@@ -1,13 +1,14 @@
+import pytest
+
 import cyoa_downloader
+from cyoa_downloader_app.core.progress import DownloadCancelledError
 from cyoa_downloader_app.integrations import ai as ai_mod
 from cyoa_downloader_app.integrations import cyoa_manager as mgr_mod
 from cyoa_downloader_app.integrations import gallery_dl as gdl_mod
 from cyoa_downloader_app.integrations import itch as itch_mod
 from cyoa_downloader_app.integrations import plugins as plugins_mod
+from cyoa_downloader_app.integrations.offline_viewers import archive_store, iccplus, injector
 from cyoa_downloader_app.integrations.offline_viewers import registry as viewer_registry
-from cyoa_downloader_app.integrations.offline_viewers import archive_store
-from cyoa_downloader_app.integrations.offline_viewers import iccplus
-from cyoa_downloader_app.integrations.offline_viewers import injector
 
 
 def test_phase5_facade_integration_names_still_match_modules():
@@ -38,10 +39,7 @@ def test_phase5_ai_and_ssrf_smoke():
 
 def test_phase5_plugin_registry_smoke():
     name = "phase5_test_scanner"
-    try:
-        plugins_mod._ASSET_SCANNER_PLUGINS.unregister(name)
-    except Exception:
-        pass
+    plugins_mod._ASSET_SCANNER_PLUGINS.unregister(name)
 
     def scanner(_text, _file_url, _base_url, _file_ext=".js"):
         return {"https://example.com/asset.png"}
@@ -51,6 +49,28 @@ def test_phase5_plugin_registry_smoke():
         assert "https://example.com/asset.png" in plugins_mod.run_asset_scanner_plugins("", "", "")
     finally:
         plugins_mod._ASSET_SCANNER_PLUGINS.unregister(name)
+
+
+def test_plugin_boundaries_propagate_cancellation():
+    scanner_name = "phase5_cancel_scanner"
+    detector_name = "phase5_cancel_detector"
+
+    def cancel_scanner(*_args, **_kwargs):
+        raise DownloadCancelledError("scanner cancelled")
+
+    def cancel_detector(*_args, **_kwargs):
+        raise DownloadCancelledError("detector cancelled")
+
+    plugins_mod.register_asset_scanner(scanner_name, cancel_scanner)
+    plugins_mod.register_engine_detector(detector_name, cancel_detector)
+    try:
+        with pytest.raises(DownloadCancelledError, match="scanner cancelled"):
+            plugins_mod.run_asset_scanner_plugins("", "", "")
+        with pytest.raises(DownloadCancelledError, match="detector cancelled"):
+            plugins_mod.run_engine_detector_plugins("")
+    finally:
+        plugins_mod._ASSET_SCANNER_PLUGINS.unregister(scanner_name)
+        plugins_mod._ENGINE_DETECTOR_PLUGINS.unregister(detector_name)
 
 
 def test_phase5_itch_and_offline_viewer_smoke():

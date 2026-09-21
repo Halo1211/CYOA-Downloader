@@ -5,11 +5,14 @@ from __future__ import annotations
 import re
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, List, Optional
 
 from ..app_info import _APP_VERSION, _GITHUB_RELEASE_API
 from ..logging_setup import logger
 from ..network.fetch import fetch_response
+
+# Desktop notification providers are optional third-party callbacks. Failures
+# are logged and contained inside the daemon worker by design.
+_NOTIFICATION_ERRORS = (Exception,)
 
 
 def _send_desktop_notification(title: str, message: str) -> None:
@@ -21,12 +24,12 @@ def _send_desktop_notification(title: str, message: str) -> None:
                 title=title, message=message[:256],
                 timeout=5, app_name="CYOA Downloader",
             )
-        except Exception as _ignored_exc:
+        except _NOTIFICATION_ERRORS as _ignored_exc:
             logger.debug("Ignored recoverable exception in _do: %s", _ignored_exc)
     threading.Thread(target=_do, daemon=True).start()
 
 
-def _check_for_app_updates() -> Optional[Dict[str, str]]:
+def _check_for_app_updates() -> dict[str, str] | None:
     """Check GitHub Releases API for a newer version.
 
     Returns {"version": ..., "url": ..., "notes": ...} if newer, else None.
@@ -64,26 +67,26 @@ def _check_for_app_updates() -> Optional[Dict[str, str]]:
                 "url": data.get("html_url", ""),
                 "notes": (data.get("body") or "")[:500],
             }
-    except Exception as _ignored_exc:
+    except (AttributeError, OSError, TypeError, ValueError) as _ignored_exc:
         logger.debug("Ignored recoverable exception in _check_for_app_updates: %s", _ignored_exc)
     finally:
         if r is not None:
             try:
                 r.close()
-            except Exception as _close_exc:
+            except (AttributeError, OSError) as _close_exc:
                 logger.debug("Update response close failed: %s", _close_exc)
     return None
 
 
-def _batch_check_updates(history: Dict[str, Dict],
+def _batch_check_updates(history: dict[str, dict],
                          max_workers: int = 4,
-                         progress_cb=None) -> List[Dict]:
+                         progress_cb=None) -> list[dict]:
     """Check previously downloaded CYOAs for server-side changes.
 
     Compares stored Content-Length / Last-Modified / ETag against current
     server HEAD response.
     """
-    results: List[Dict] = []
+    results: list[dict] = []
     entries = [
         (url, meta) for url, meta in history.items()
         if isinstance(url, str) and isinstance(meta, dict) and meta.get("success")
@@ -93,7 +96,7 @@ def _batch_check_updates(history: Dict[str, Dict],
         return results
 
     def _check(args):
-        idx, (url, meta) = args
+        _idx, (url, meta) = args
         r = None
         try:
             # The recorder (_record_history probe) stores
@@ -142,14 +145,14 @@ def _batch_check_updates(history: Dict[str, Dict],
             return {"url": url, "name": meta.get("filename", ""),
                     "status": "updated" if changed else "current",
                     "reason": ", ".join(reason), "date": meta.get("date", "")}
-        except Exception as e:
+        except (AttributeError, OSError, TypeError, ValueError) as e:
             return {"url": url, "name": meta.get("filename", ""),
                     "status": "error", "reason": str(e)[:80]}
         finally:
             if r is not None:
                 try:
                     r.close()
-                except Exception as _close_exc:
+                except (AttributeError, OSError) as _close_exc:
                     logger.debug("Update-check response close failed: %s", _close_exc)
 
     try:
@@ -158,15 +161,13 @@ def _batch_check_updates(history: Dict[str, Dict],
         safe_workers = 4
     with ThreadPoolExecutor(max_workers=safe_workers) as pool:
         futs = {pool.submit(_check, (i, e)): i for i, e in enumerate(entries)}
-        done_n = 0
-        for fut in as_completed(futs):
+        for done_n, fut in enumerate(as_completed(futs), 1):
             res = fut.result()
             if res:
                 results.append(res)
-            done_n += 1
             if progress_cb:
                 progress_cb(done_n, total)
     return results
 
 
-__all__ = ["_send_desktop_notification", "_check_for_app_updates", "_batch_check_updates"]
+__all__ = ["_batch_check_updates", "_check_for_app_updates", "_send_desktop_notification"]

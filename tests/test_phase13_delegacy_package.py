@@ -5,8 +5,9 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-import cyoa_downloader
 import pytest
+
+import cyoa_downloader
 from cyoa_downloader_app.download import package as package_mod
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,7 +34,7 @@ def test_package_zip_file_helpers_moved_out_of_legacy():
     assert cyoa_downloader._finalize_site_folder is package_mod._finalize_site_folder
 
     names = _legacy_defined_symbols()
-    for name in {"save_string_to_file", "zip_temp_folder", "atomic_stream_response_to_file", "_finalize_site_folder"}:
+    for name in ("save_string_to_file", "zip_temp_folder", "atomic_stream_response_to_file", "_finalize_site_folder"):
         assert name not in names
 
 
@@ -45,7 +46,7 @@ def test_package_manifest_helpers_moved_out_of_legacy():
     assert cyoa_downloader._load_package_manifest is package_mod._load_package_manifest
 
     names = _legacy_defined_symbols()
-    for name in {"write_package_manifest", "verify_output_package", "_hash_file_sha256", "_walk_package_files", "_load_package_manifest"}:
+    for name in ("write_package_manifest", "verify_output_package", "_hash_file_sha256", "_walk_package_files", "_load_package_manifest"):
         assert name not in names
 
 
@@ -57,7 +58,7 @@ def test_output_name_temp_helpers_moved_out_of_legacy():
     assert cyoa_downloader.delete_temp_folder is package_mod.delete_temp_folder
 
     names = _legacy_defined_symbols()
-    for name in {"clean_url_path_component", "_build_output_name", "get_first_subdomain", "create_random_temp_folder", "delete_temp_folder"}:
+    for name in ("clean_url_path_component", "_build_output_name", "get_first_subdomain", "create_random_temp_folder", "delete_temp_folder"):
         assert name not in names
 
 

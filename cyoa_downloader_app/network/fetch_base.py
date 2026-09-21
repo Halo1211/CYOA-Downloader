@@ -7,7 +7,6 @@ used by that wrapper.
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Tuple
 from urllib.parse import urljoin, urlparse
 
 import requests
@@ -28,13 +27,13 @@ from .vpn import vpn_requirement_satisfied
 
 def base_fetch_response(
     url: str,
-    extra_headers: Optional[Dict] = None,
+    extra_headers: dict | None = None,
     timeout: int = 20,
     as_bytes: bool = False,
     quiet: bool = False,
     return_error_response: bool = False,
     stream: bool = False,
-) -> Optional[requests.Response]:
+) -> requests.Response | None:
     """
     Fetch a URL with automatic fallbacks:
     - Cloudflare mode: off/auto/cloudscraper/flaresolverr
@@ -52,7 +51,7 @@ def base_fetch_response(
     # because callers urljoin it first.
     try:
         _scheme = urlparse(url).scheme.lower()
-    except Exception:
+    except (AttributeError, TypeError, ValueError):
         _scheme = ""
     if _scheme not in ("http", "https"):
         if not quiet:
@@ -70,14 +69,14 @@ def base_fetch_response(
     if extra_headers:
         headers.update(extra_headers)
 
-    def _origin(value: str) -> Tuple[str, str, Optional[int]]:
+    def _origin(value: str) -> tuple[str, str, int | None]:
         parsed = urlparse(value)
         port = parsed.port
         if port is None:
             port = 443 if parsed.scheme.lower() == "https" else 80
         return parsed.scheme.lower(), (parsed.hostname or "").lower(), port
 
-    def _strip_cross_origin_secrets(values: Dict) -> Dict:
+    def _strip_cross_origin_secrets(values: dict) -> dict:
         sanitized = dict(values)
         sensitive = {"authorization", "proxy-authorization", "cookie", "host"}
         for name in list(sanitized):
@@ -94,9 +93,9 @@ def base_fetch_response(
         ):
             try:
                 value.close()
-            except Exception:
+            except (AttributeError, OSError, requests.RequestException) as exc:
                 # FlareSolverr response-like objects may not have a raw socket.
-                pass
+                l.logger.debug("Could not close rejected backend response: %s", exc)
             return None
         return value
 
@@ -189,8 +188,8 @@ def base_fetch_response(
                 if response is not None:
                     try:
                         response.close()
-                    except Exception:
-                        pass
+                    except (AttributeError, OSError, requests.RequestException) as close_exc:
+                        l.logger.debug("Could not close Cloudflare challenge response: %s", close_exc)
                 return "CF_CHALLENGE"
             if quiet:
                 l.logger.debug(f"Probe miss: {url} — {e}")
@@ -200,8 +199,8 @@ def base_fetch_response(
             if response is not None:
                 try:
                     response.close()
-                except Exception:
-                    pass
+                except (AttributeError, OSError, requests.RequestException) as close_exc:
+                    l.logger.debug("Could not close failed response: %s", close_exc)
             return None
 
     def _recover_source_after_flaresolverr(value):
@@ -225,8 +224,8 @@ def base_fetch_response(
         raw_result = _do_request(use_cf_session=False, verify_ssl=True)
         try:
             value.close()
-        except Exception:
-            pass
+        except (AttributeError, OSError, requests.RequestException) as close_exc:
+            l.logger.debug("Could not close rendered FlareSolverr response: %s", close_exc)
         if isinstance(raw_result, requests.Response):
             l.logger.info(
                 "[FlareSolverr] Challenge session established; preserving raw source: %s",
@@ -241,7 +240,7 @@ def base_fetch_response(
         return raw_result
 
     cf_mode = _normalize_cloudflare_mode(l._CLOUDFLARE_MODE)
-    attempts: List[Tuple[str, bool]] = []
+    attempts: list[tuple[str, bool]] = []
     if cf_mode == "cloudscraper":
         attempts = [("cloudscraper", True), ("normal", False)]
     elif cf_mode == "flaresolverr":

@@ -10,10 +10,9 @@ import io
 import os
 import struct
 import zipfile
-from typing import Any, Dict
+from typing import Any
 
 from .paths import _safe_archive_rel_path
-
 
 _ZIP_EOCD = b"PK\x05\x06"
 _ZIP64_EOCD = b"PK\x06\x06"
@@ -78,7 +77,7 @@ def validate_zip_archive(
     max_total_size: int = 2 * 1024 * 1024 * 1024,
     max_ratio: float = 250.0,
     max_central_directory_size: int = _DEFAULT_MAX_CENTRAL_DIRECTORY,
-) -> Dict[str, int]:
+) -> dict[str, int]:
     """Validate ZIP traversal, member count, expansion size, and compression ratio."""
     _preflight_zip_container(
         source,

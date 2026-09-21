@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-import json
-
 
 def test_phase33_ai_calls_are_real_module_exports():
     import cyoa_downloader as public
-    from cyoa_downloader_app.integrations import ai
-    from cyoa_downloader_app.integrations import ai_calls
+    from cyoa_downloader_app.integrations import ai, ai_calls
 
     assert ai._extract_single_ai_url is ai_calls._extract_single_ai_url
     assert ai._ai_call is ai_calls._ai_call

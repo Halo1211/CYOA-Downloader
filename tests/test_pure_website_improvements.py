@@ -5,8 +5,8 @@ from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 
 from cyoa_downloader_app.core.url_utils import canonicalize_url
-from cyoa_downloader_app.download.archive_policy import ArchivePolicy
 from cyoa_downloader_app.download import image_pipeline, orchestrator
+from cyoa_downloader_app.download.archive_policy import ArchivePolicy
 from cyoa_downloader_app.download.route_crawler import RouteCrawler
 from cyoa_downloader_app.download.website import (
     WebsiteDownloader,

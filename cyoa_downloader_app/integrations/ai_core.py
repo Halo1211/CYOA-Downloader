@@ -10,19 +10,22 @@ from __future__ import annotations
 import os
 import re
 import socket
-from typing import Any, Dict, List, Optional
+from typing import Any
 from urllib.parse import urlparse
 
-from ..logging_setup import logger
-from ..config.settings import _load_settings, _save_settings, _SETTINGS_LOCK
 from ..config.secrets import _keyring_module, _mask_secret
+from ..config.settings import _SETTINGS_LOCK, _load_settings, _save_settings
+from ..logging_setup import logger
 
 # ── AI Assist provider + key storage ───────────────────────────────────────
 AI_KEYRING_SERVICE = "cyoa_downloader"
+# Keyring selects platform/user-installed backends at runtime, each with its
+# own exception types. Fail closed to env/session storage and report locally.
+_KEYRING_BACKEND_ERRORS = (Exception,)
 _VALID_AI_KEY_STORAGE = {"session", "env", "keyring", "plain"}
 _VALID_AI_MODES = {"off", "diagnostics", "auto_fallback", "aggressive_recovery"}
 _VALID_AI_PROVIDERS = {"anthropic", "openai", "gemini", "ollama", "deepseek", "qwen", "groq", "openrouter", "custom"}
-AI_PROVIDER_LABELS: Dict[str, str] = {
+AI_PROVIDER_LABELS: dict[str, str] = {
     "anthropic": "Anthropic Claude",
     "openai": "OpenAI",
     "gemini": "Google Gemini",
@@ -33,7 +36,7 @@ AI_PROVIDER_LABELS: Dict[str, str] = {
     "openrouter": "OpenRouter",
     "custom": "Custom (OpenAI-compatible)",
 }
-AI_PROVIDER_ENV_VARS: Dict[str, List[str]] = {
+AI_PROVIDER_ENV_VARS: dict[str, list[str]] = {
     "anthropic": ["ANTHROPIC_API_KEY"],
     "openai": ["OPENAI_API_KEY"],
     "gemini": ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
@@ -46,13 +49,13 @@ AI_PROVIDER_ENV_VARS: Dict[str, List[str]] = {
 }
 # Base URLs for OpenAI-compatible chat-completions providers. "custom" reads
 # its base URL from settings ("ai_custom_base_url") at call time.
-AI_OPENAI_COMPAT_BASE: Dict[str, str] = {
+AI_OPENAI_COMPAT_BASE: dict[str, str] = {
     "deepseek": "https://api.deepseek.com/v1",
     "qwen": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
     "groq": "https://api.groq.com/openai/v1",
     "openrouter": "https://openrouter.ai/api/v1",
 }
-AI_MODEL_OPTIONS: Dict[str, List[str]] = {
+AI_MODEL_OPTIONS: dict[str, list[str]] = {
     # Editable recommendations. Providers add/deprecate models over time; users can pass
     # any custom model id via CLI --ai-model or the GUI field. Treat these as
     # convenience presets, not a guarantee that a provider account has access.
@@ -66,7 +69,7 @@ AI_MODEL_OPTIONS: Dict[str, List[str]] = {
     "openrouter": ["openai/gpt-4.1-mini", "anthropic/claude-sonnet-4-6", "google/gemini-2.5-flash"],
     "custom": ["gpt-4o-mini"],
 }
-AI_PROVIDER_DEFAULT_MODEL: Dict[str, str] = {
+AI_PROVIDER_DEFAULT_MODEL: dict[str, str] = {
     "anthropic": "claude-sonnet-4-6",
     "openai": "gpt-5.5",
     "gemini": "gemini-2.5-flash",
@@ -106,21 +109,21 @@ def _ai_provider_label(provider: str) -> str:
     return AI_PROVIDER_LABELS.get(_normalize_ai_provider(provider), provider or "AI")
 
 
-def _ai_env_vars(provider: Optional[str] = None) -> List[str]:
+def _ai_env_vars(provider: str | None = None) -> list[str]:
     return AI_PROVIDER_ENV_VARS.get(_normalize_ai_provider(provider or _get_ai_provider()), [])
 
 
-def _ai_primary_env_var(provider: Optional[str] = None) -> str:
+def _ai_primary_env_var(provider: str | None = None) -> str:
     vars_ = _ai_env_vars(provider)
     return vars_[0] if vars_ else ""
 
 
-def _ai_model_options(provider: Optional[str] = None) -> List[str]:
+def _ai_model_options(provider: str | None = None) -> list[str]:
     p = _normalize_ai_provider(provider or _get_ai_provider())
     return list(AI_MODEL_OPTIONS.get(p, []))
 
 
-def _default_ai_model(provider: Optional[str] = None) -> str:
+def _default_ai_model(provider: str | None = None) -> str:
     p = _normalize_ai_provider(provider or _get_ai_provider())
     return AI_PROVIDER_DEFAULT_MODEL.get(p, "claude-sonnet-4-6")
 
@@ -150,18 +153,18 @@ def _normalize_ai_mode(value: str) -> str:
 
 
 
-def _ai_provider_needs_key(provider: Optional[str] = None) -> bool:
+def _ai_provider_needs_key(provider: str | None = None) -> bool:
     """Return True if this provider needs a remote API key."""
     return _normalize_ai_provider(provider or _get_ai_provider()) != "ollama"
 
 
-def _ai_is_available(api_key: str = "", provider: Optional[str] = None) -> bool:
+def _ai_is_available(api_key: str = "", provider: str | None = None) -> bool:
     """Provider-aware availability check. Ollama/local does not require an API key."""
     p = _normalize_ai_provider(provider or _get_ai_provider())
     return (p == "ollama") or bool((api_key or "").strip())
 
 
-def _ai_mode_allows(kind: str, mode: Optional[str] = None) -> bool:
+def _ai_mode_allows(kind: str, mode: str | None = None) -> bool:
     """Map AI Assist mode to concrete behavior.
 
     kind values:
@@ -184,7 +187,7 @@ def _ai_mode_allows(kind: str, mode: Optional[str] = None) -> bool:
 def _get_ai_int_setting(name: str, default: int, *, min_value: int = 0, max_value: int = 1000000) -> int:
     try:
         val = int(_load_settings().get(name, default) or default)
-    except Exception:
+    except (AttributeError, OSError, TypeError, ValueError):
         val = default
     return max(min_value, min(max_value, val))
 
@@ -206,7 +209,7 @@ def _coerce_int(raw: Any, default: int) -> int:
 
 class AIUsageBudget:
     """Small per-download budget so AI Assist cannot call paid APIs repeatedly by accident."""
-    def __init__(self, max_calls: Optional[int] = None) -> None:
+    def __init__(self, max_calls: int | None = None) -> None:
         self.max_calls = _get_ai_int_setting("ai_max_calls_per_download", 3, min_value=0, max_value=50) if max_calls is None else int(max_calls)
         self.calls = 0
 
@@ -221,13 +224,13 @@ class AIUsageBudget:
         return True
 
 
-def _ai_budget_consume(budget: Optional[AIUsageBudget], label: str) -> bool:
+def _ai_budget_consume(budget: AIUsageBudget | None, label: str) -> bool:
     if budget is None:
         return True
     return budget.consume(label)
 
 
-def _clear_ai_plain_keys(settings: Optional[Dict[str, Any]] = None, provider: Optional[str] = None) -> Dict[str, Any]:
+def _clear_ai_plain_keys(settings: dict[str, Any] | None = None, provider: str | None = None) -> dict[str, Any]:
     """Remove plain-text AI keys from settings. If provider is None, remove all provider keys."""
     st = settings if settings is not None else _load_settings()
     providers = [_normalize_ai_provider(provider)] if provider else list(_VALID_AI_PROVIDERS)
@@ -238,7 +241,7 @@ def _clear_ai_plain_keys(settings: Optional[Dict[str, Any]] = None, provider: Op
     return st
 
 
-def _sanitize_ai_candidate_url(value: str) -> Optional[str]:
+def _sanitize_ai_candidate_url(value: str) -> str | None:
     """Whitelist AI URL/path outputs before urljoin/fetch."""
     v = str(value or "").strip().strip('"\'')
     if not v or v.upper() in {"NONE", "NULL", "N/A", "[]"}:
@@ -293,7 +296,7 @@ def _host_is_internal(hostname: str) -> bool:
     h = (hostname or "").strip().lower().rstrip(".")
     if not h:
         return True  # empty host → reject
-    if h in ("localhost",) or h.endswith(".localhost") or h.endswith(".local"):
+    if h == "localhost" or h.endswith((".localhost", ".local")):
         return True
     # Strip IPv6 brackets if present.
     if h.startswith("[") and h.endswith("]"):
@@ -392,7 +395,7 @@ def _ssrf_block_cross_origin(asset_url: str, base_url: str = "") -> bool:
             # a different port on the same internal host is a different service
             # (e.g. localhost:8000 CYOA vs localhost:9 SSRF probe).
         return True
-    except Exception:
+    except (OSError, TypeError, ValueError):
         return False
 
 
@@ -401,7 +404,7 @@ def _get_ai_provider() -> str:
     return _normalize_ai_provider(st.get("ai_provider", "anthropic"))
 
 
-def _get_ai_model(provider: Optional[str] = None) -> str:
+def _get_ai_model(provider: str | None = None) -> str:
     st = _load_settings()
     p = _normalize_ai_provider(provider or st.get("ai_provider", "anthropic"))
     m = (st.get("ai_model") or "").strip()
@@ -412,15 +415,15 @@ def _get_ai_model(provider: Optional[str] = None) -> str:
     return _default_ai_model(p) if m in other_defaults else m
 
 
-def _plain_ai_key_setting(provider: Optional[str] = None) -> str:
+def _plain_ai_key_setting(provider: str | None = None) -> str:
     return f"ai_api_key_{_normalize_ai_provider(provider or _get_ai_provider())}"
 
 
-def _keyring_username(provider: Optional[str] = None) -> str:
+def _keyring_username(provider: str | None = None) -> str:
     return f"{_normalize_ai_provider(provider or _get_ai_provider())}_api_key"
 
 
-def _read_ai_key_from_keyring(provider: Optional[str] = None) -> str:
+def _read_ai_key_from_keyring(provider: str | None = None) -> str:
     kr = _keyring_module()
     if kr is None:
         return ""
@@ -431,12 +434,12 @@ def _read_ai_key_from_keyring(provider: Optional[str] = None) -> str:
             # Backward compatibility with v7.3.3 keyring username.
             val = kr.get_password(AI_KEYRING_SERVICE, "anthropic_api_key") or ""
         return val
-    except Exception as e:
+    except _KEYRING_BACKEND_ERRORS as e:
         logger.debug(f"AI keyring read failed: {e}")
         return ""
 
 
-def _write_ai_key_to_keyring(api_key: str, provider: Optional[str] = None) -> bool:
+def _write_ai_key_to_keyring(api_key: str, provider: str | None = None) -> bool:
     kr = _keyring_module()
     if kr is None:
         return False
@@ -448,16 +451,16 @@ def _write_ai_key_to_keyring(api_key: str, provider: Optional[str] = None) -> bo
             for username in {user, "anthropic_api_key" if _normalize_ai_provider(provider or _get_ai_provider()) == "anthropic" else user}:
                 try:
                     kr.delete_password(AI_KEYRING_SERVICE, username)
-                except Exception as _ignored_exc:
+                except _KEYRING_BACKEND_ERRORS as _ignored_exc:
                     logger.debug("Ignored recoverable exception in _write_ai_key_to_keyring (line 2067): %s", _ignored_exc)
         return True
-    except Exception as e:
+    except _KEYRING_BACKEND_ERRORS as e:
         logger.warning(f"AI keyring write failed: {e}")
         return False
 
 
-def _resolve_ai_api_key(explicit_key: str = "", session_key: str = "", storage: Optional[str] = None,
-                        provider: Optional[str] = None) -> str:
+def _resolve_ai_api_key(explicit_key: str = "", session_key: str = "", storage: str | None = None,
+                        provider: str | None = None) -> str:
     """Resolve a provider-specific AI key without forcing it into settings.json.
 
     Priority:
@@ -491,7 +494,7 @@ def _resolve_ai_api_key(explicit_key: str = "", session_key: str = "", storage: 
     return ""
 
 
-def _clear_ai_api_key_storage(storage: Optional[str] = None, provider: Optional[str] = None, clear_all: bool = False) -> None:
+def _clear_ai_api_key_storage(storage: str | None = None, provider: str | None = None, clear_all: bool = False) -> None:
     """Clear AI API keys.
 
     clear_all=True removes session-adjacent persistent copies from both plain settings
@@ -514,7 +517,7 @@ def _clear_ai_api_key_storage(storage: Optional[str] = None, provider: Optional[
         logger.info("AI key storage is environment-based; unset the environment variable to remove it.")
 
 
-def _ai_key_status_text(storage: Optional[str] = None, session_key: str = "", provider: Optional[str] = None) -> str:
+def _ai_key_status_text(storage: str | None = None, session_key: str = "", provider: str | None = None) -> str:
     st = _load_settings()
     p = _normalize_ai_provider(provider or st.get("ai_provider", "anthropic"))
     if p == "ollama":
@@ -534,19 +537,45 @@ def _ai_key_status_text(storage: Optional[str] = None, session_key: str = "", pr
 
 
 __all__ = [
-    "AI_KEYRING_SERVICE", "_VALID_AI_KEY_STORAGE", "_VALID_AI_MODES",
-    "_VALID_AI_PROVIDERS", "AI_PROVIDER_LABELS", "AI_PROVIDER_ENV_VARS",
-    "AI_OPENAI_COMPAT_BASE", "AI_MODEL_OPTIONS", "AI_PROVIDER_DEFAULT_MODEL",
-    "OLLAMA_DEFAULT_URL", "_normalize_ai_provider", "_ai_provider_label",
-    "_ai_env_vars", "_ai_primary_env_var", "_ai_model_options",
-    "_default_ai_model", "_normalize_ai_key_storage", "_normalize_ai_mode",
-    "_ai_provider_needs_key", "_ai_is_available", "_ai_mode_allows",
-    "_get_ai_int_setting", "_coerce_int", "AIUsageBudget",
-    "_ai_budget_consume", "_clear_ai_plain_keys",
-    "_sanitize_ai_candidate_url", "_host_is_internal", "_host_resolves_internal", "_allow_internal_hosts",
-    "_set_allow_internal_hosts", "_ssrf_block_cross_origin",
-    "_get_ai_provider", "_get_ai_model", "_plain_ai_key_setting",
-    "_keyring_username", "_read_ai_key_from_keyring",
-    "_write_ai_key_to_keyring", "_resolve_ai_api_key",
-    "_clear_ai_api_key_storage", "_ai_key_status_text",
+    "AI_KEYRING_SERVICE",
+    "AI_MODEL_OPTIONS",
+    "AI_OPENAI_COMPAT_BASE",
+    "AI_PROVIDER_DEFAULT_MODEL",
+    "AI_PROVIDER_ENV_VARS",
+    "AI_PROVIDER_LABELS",
+    "OLLAMA_DEFAULT_URL",
+    "_VALID_AI_KEY_STORAGE",
+    "_VALID_AI_MODES",
+    "_VALID_AI_PROVIDERS",
+    "AIUsageBudget",
+    "_ai_budget_consume",
+    "_ai_env_vars",
+    "_ai_is_available",
+    "_ai_key_status_text",
+    "_ai_mode_allows",
+    "_ai_model_options",
+    "_ai_primary_env_var",
+    "_ai_provider_label",
+    "_ai_provider_needs_key",
+    "_allow_internal_hosts",
+    "_clear_ai_api_key_storage",
+    "_clear_ai_plain_keys",
+    "_coerce_int",
+    "_default_ai_model",
+    "_get_ai_int_setting",
+    "_get_ai_model",
+    "_get_ai_provider",
+    "_host_is_internal",
+    "_host_resolves_internal",
+    "_keyring_username",
+    "_normalize_ai_key_storage",
+    "_normalize_ai_mode",
+    "_normalize_ai_provider",
+    "_plain_ai_key_setting",
+    "_read_ai_key_from_keyring",
+    "_resolve_ai_api_key",
+    "_sanitize_ai_candidate_url",
+    "_set_allow_internal_hosts",
+    "_ssrf_block_cross_origin",
+    "_write_ai_key_to_keyring",
 ]

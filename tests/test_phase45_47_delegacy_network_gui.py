@@ -20,7 +20,7 @@ def test_phase45_feature_flags_are_real_module_and_removed_from_legacy():
 
 
 def test_phase46_network_core_helpers_removed_from_legacy():
-    from cyoa_downloader_app.network import sessions, dns, throttle, cloudflare, fetch_base
+    from cyoa_downloader_app.network import cloudflare, dns, fetch_base, sessions, throttle
 
     assert facade.create_retry_session is sessions.create_retry_session
     assert facade._set_active_dns is dns._set_active_dns

@@ -7,11 +7,12 @@ that already-composed GUI class without depending on versioned behavior modules.
 
 from __future__ import annotations
 
-from typing import Callable, Dict, List, Tuple, Type, TypeVar
+from collections.abc import Callable
+from typing import TypeVar
 
 T = TypeVar("T")
 
-PATCH_ORDER: Tuple[str, ...] = (
+PATCH_ORDER: tuple[str, ...] = (
     "v24",
     "v25",
     "v27",
@@ -27,7 +28,7 @@ _PATCH_MODE_ATTR = "_cyoa_gui_patch_pipeline_mode"
 
 # Minimal method/attribute surface expected after GUI bootstrap has composed the
 # class. These names are stable anchors instead of full behavior assertions.
-_EXPECTED_PATCH_SURFACE: Dict[str, Tuple[str, ...]] = {
+_EXPECTED_PATCH_SURFACE: dict[str, tuple[str, ...]] = {
     "v25": (
         "_ai_settings_panel",
         "_manage_offline_viewers",
@@ -50,7 +51,7 @@ _EXPECTED_PATCH_SURFACE: Dict[str, Tuple[str, ...]] = {
 }
 
 
-def _mark(cls: Type[T], step_id: str) -> Type[T]:
+def _mark(cls: type[T], step_id: str) -> type[T]:
     """Record that *step_id* passed through the central composition gate."""
     current = list(getattr(cls, _PATCH_SENTINEL_ATTR, ()))
     if step_id not in current:
@@ -59,9 +60,9 @@ def _mark(cls: Type[T], step_id: str) -> Type[T]:
     return cls
 
 
-def _verify_patch_surface(cls: Type[T], *, strict: bool = True) -> List[str]:
+def _verify_patch_surface(cls: type[T], *, strict: bool = True) -> list[str]:
     """Return missing final GUI anchors; raise in strict mode."""
-    missing: List[str] = []
+    missing: list[str] = []
     for step_id, names in _EXPECTED_PATCH_SURFACE.items():
         for name in names:
             if not hasattr(cls, name):
@@ -72,44 +73,44 @@ def _verify_patch_surface(cls: Type[T], *, strict: bool = True) -> List[str]:
     return missing
 
 
-def _composed_bridge(cls: Type[T], step_id: str) -> Type[T]:
+def _composed_bridge(cls: type[T], step_id: str) -> type[T]:
     """Compatibility placeholder for a historical composition step."""
     return _mark(cls, step_id)
 
 
-def apply_v24(cls: Type[T]) -> Type[T]:
+def apply_v24(cls: type[T]) -> type[T]:
     return _composed_bridge(cls, "v24")
 
 
-def apply_v25(cls: Type[T]) -> Type[T]:
+def apply_v25(cls: type[T]) -> type[T]:
     return _composed_bridge(cls, "v25")
 
 
-def apply_v27(cls: Type[T]) -> Type[T]:
+def apply_v27(cls: type[T]) -> type[T]:
     return _composed_bridge(cls, "v27")
 
 
-def apply_v46(cls: Type[T]) -> Type[T]:
+def apply_v46(cls: type[T]) -> type[T]:
     return _composed_bridge(cls, "v46")
 
 
-def apply_v462(cls: Type[T]) -> Type[T]:
+def apply_v462(cls: type[T]) -> type[T]:
     return _composed_bridge(cls, "v462")
 
 
-def apply_v463(cls: Type[T]) -> Type[T]:
+def apply_v463(cls: type[T]) -> type[T]:
     return _composed_bridge(cls, "v463")
 
 
-def apply_v465(cls: Type[T]) -> Type[T]:
+def apply_v465(cls: type[T]) -> type[T]:
     return _composed_bridge(cls, "v465")
 
 
-def apply_v466(cls: Type[T]) -> Type[T]:
+def apply_v466(cls: type[T]) -> type[T]:
     return _composed_bridge(cls, "v466")
 
 
-_COMPOSITION_STEPS: Tuple[Callable[[Type[T]], Type[T]], ...] = (
+_COMPOSITION_STEPS: tuple[Callable[[type[T]], type[T]], ...] = (
     apply_v24,
     apply_v25,
     apply_v27,
@@ -121,7 +122,7 @@ _COMPOSITION_STEPS: Tuple[Callable[[Type[T]], Type[T]], ...] = (
 )
 
 
-def apply_gui_patches(cls: Type[T]) -> Type[T]:
+def apply_gui_patches(cls: type[T]) -> type[T]:
     """Verify the ordered GUI composition pipeline and return *cls*.
 
     The function name is preserved for compatibility with older imports.
@@ -134,21 +135,21 @@ def apply_gui_patches(cls: Type[T]) -> Type[T]:
     return cls
 
 
-def applied_patch_order(cls: Type[object]) -> Tuple[str, ...]:
+def applied_patch_order(cls: type[object]) -> tuple[str, ...]:
     """Return the central compatibility order recorded on *cls*."""
     return tuple(getattr(cls, _PATCH_SENTINEL_ATTR, ()))
 
 
-def expected_patch_surface() -> Dict[str, Tuple[str, ...]]:
+def expected_patch_surface() -> dict[str, tuple[str, ...]]:
     """Return a copy of the final GUI anchor map for tests/diagnostics."""
     return dict(_EXPECTED_PATCH_SURFACE)
 
 
 __all__ = [
     "PATCH_ORDER",
-    "apply_gui_patches",
+    "_verify_patch_surface",
     "applied_patch_order",
-    "expected_patch_surface",
+    "apply_gui_patches",
     "apply_v24",
     "apply_v25",
     "apply_v27",
@@ -157,5 +158,5 @@ __all__ = [
     "apply_v463",
     "apply_v465",
     "apply_v466",
-    "_verify_patch_surface",
+    "expected_patch_surface",
 ]

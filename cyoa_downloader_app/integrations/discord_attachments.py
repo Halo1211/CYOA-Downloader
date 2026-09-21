@@ -26,14 +26,14 @@ import re
 import tempfile
 import time
 import uuid
+from collections.abc import Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import unquote, urlsplit
 from urllib.request import Request, urlopen
-
 
 DEFAULT_API_VERSION = "10"
 DEFAULT_API_ROOT = "https://discord.com/api"
@@ -54,9 +54,7 @@ def discord_recovery_enabled() -> bool:
     """Return whether automatic refresh is enabled for this process."""
 
     disabled = os.environ.get("CYOA_DISABLE_DISCORD_REFRESH", "").strip().lower()
-    if disabled in {"1", "true", "yes", "on"}:
-        return False
-    return True
+    return disabled not in {"1", "true", "yes", "on"}
 
 
 def resolve_discord_bot_token(explicit: str = "") -> str:
@@ -74,7 +72,7 @@ def resolve_discord_bot_token(explicit: str = "") -> str:
 
         settings = _load_settings()
         return str(settings.get("discord_bot_token", "") or "").strip()
-    except Exception:
+    except (AttributeError, OSError, TypeError, ValueError):
         return ""
 
 

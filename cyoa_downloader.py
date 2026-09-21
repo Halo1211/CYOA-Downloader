@@ -4,8 +4,11 @@ The public entry point remains `cyoa_downloader.py`; implementation currently
 lives behind `cyoa_downloader_app` while the source is split safely in phases.
 """
 
-from cyoa_downloader_app.compat import *  # noqa: F401,F403
-from cyoa_downloader_app.cli import main  # noqa: F401,E402
+# The facade must initialize compatibility exports before loading the CLI.
+# isort: off
+from cyoa_downloader_app.compat import *
+from cyoa_downloader_app.cli import main
+# isort: on
 
 
 def __getattr__(name):

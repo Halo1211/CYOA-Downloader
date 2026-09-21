@@ -7,12 +7,13 @@ import json
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, List, Optional, Set, Tuple
 from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlparse, urlunparse
+
+import requests
 
 try:
     from bs4 import BeautifulSoup  # type: ignore
-except Exception:  # pragma: no cover - mirrors legacy dependency error
+except ImportError:  # pragma: no cover - mirrors legacy dependency error
     def BeautifulSoup(*_args, **_kwargs):  # type: ignore
         raise RuntimeError(
             "Missing dependency: beautifulsoup4 is required for HTML/ICC parsing. "
@@ -21,18 +22,34 @@ except Exception:  # pragma: no cover - mirrors legacy dependency error
 
 from ..constants.assets import FONT_EXTENSIONS
 from ..core.atomic_io import atomic_write_bytes
+from ..core.progress import DownloadCancelledError
 from ..logging_setup import logger
 from ..network.fetch import fetch_response
 from ..project.discover import get_source
 from .package import clean_url_path_component
+
+_RESPONSE_CLEANUP_ERRORS = (
+    AttributeError,
+    OSError,
+    RuntimeError,
+    requests.RequestException,
+)
+_NETWORK_OPERATION_ERRORS = (
+    AttributeError,
+    OSError,
+    RuntimeError,
+    TypeError,
+    ValueError,
+    requests.RequestException,
+)
 
 
 def _find_font_urls(
     project_str: str,
     base_url: str,
     html_source: str = "",
-    extra_css_urls: Optional[List[str]] = None,
-) -> Dict[str, str]:
+    extra_css_urls: list[str] | None = None,
+) -> dict[str, str]:
     """
     Return {font_url: description} for all fonts found in:
       1. project.json / project string (direct URLs + CSS url() + Google Fonts refs)
@@ -49,9 +66,9 @@ def _find_font_urls(
     if "\\/" in project_str:
         project_str = project_str.replace("\\/", "/")
 
-    results: Dict[str, str] = {}
-    gf_css_urls: Set[str] = set()   # Google Fonts CSS URLs to resolve
-    raw_font_urls: List[Tuple[str, str]] = []  # (url, description)
+    results: dict[str, str] = {}
+    gf_css_urls: set[str] = set()   # Google Fonts CSS URLs to resolve
+    raw_font_urls: list[tuple[str, str]] = []  # (url, description)
 
     # ── 1. Scan project.json ─────────────────────────────────────────
     # Direct font file URLs
@@ -68,7 +85,7 @@ def _find_font_urls(
     # ICC Plus stores googleFonts as family names, customFonts as stylesheet URLs,
     # and customCSS as arbitrary CSS text. Parse JSON structurally so font assets
     # are found even when they are not literal font-file URLs.
-    icc_css_urls: Set[str] = set()
+    icc_css_urls: set[str] = set()
 
     def _add_google_family(family_value: str) -> None:
         fam = str(family_value or '').strip()
@@ -125,14 +142,16 @@ def _find_font_urls(
                 for item in node:
                     _walk_font_config(item)
         _walk_font_config(_font_obj)
-    except Exception as _ignored_exc:
+    except (AttributeError, json.JSONDecodeError, RecursionError, TypeError, ValueError) as _ignored_exc:
         logger.debug("Ignored recoverable exception in _find_font_urls (line 14469): %s", _ignored_exc)
 
     for css_url in sorted(icc_css_urls):
         try:
             css_text = get_source(css_url, extra_headers={"User-Agent": "Mozilla/5.0"}) or ""
             _scan_css_text_for_fonts(css_text, css_url)
-        except Exception as e:
+        except DownloadCancelledError:
+            raise
+        except _NETWORK_OPERATION_ERRORS as e:
             logger.debug(f"ICC Plus custom font stylesheet scan failed: {css_url} — {e}")
 
     # CSS url() references in project.json
@@ -173,8 +192,8 @@ def _find_font_urls(
             gf_css_urls.add(gf)
 
     # ── 4. Resolve Google Fonts CSS in parallel ──────────────────────
-    def _resolve_gf_css(gf_url: str) -> List[Tuple[str, str]]:
-        found: List[Tuple[str, str]] = []
+    def _resolve_gf_css(gf_url: str) -> list[tuple[str, str]]:
+        found: list[tuple[str, str]] = []
         logger.info(f"  Resolving Google Fonts: {gf_url}")
         css = get_source(gf_url, extra_headers={"User-Agent": "Mozilla/5.0"})
         if css:
@@ -191,7 +210,7 @@ def _find_font_urls(
                 raw_font_urls.extend(batch)
 
     # ── 5. Deduplicate ───────────────────────────────────────────────
-    seen_urls: Set[str] = set()
+    seen_urls: set[str] = set()
     for url, desc in raw_font_urls:
         url = url.strip()
         if not url or url in seen_urls:
@@ -218,7 +237,7 @@ def _font_url_identity(url: str) -> str:
             parsed.scheme.lower(), parsed.netloc.lower(), parsed.path or "/",
             "", urlencode(query), "",
         ))
-    except Exception:
+    except (TypeError, ValueError):
         return str(url).split("#", 1)[0]
 
 
@@ -257,17 +276,17 @@ def _download_fonts_into_folder(
 
     # Group cache-busted aliases so one static font is fetched once while all
     # original URL spellings can still be rewritten to the same local path.
-    font_groups: Dict[str, List[Tuple[str, str]]] = {}
+    font_groups: dict[str, list[tuple[str, str]]] = {}
     for font_url, description in fonts.items():
         font_groups.setdefault(_font_url_identity(font_url), []).append((font_url, description))
     representatives = [items[0] for items in font_groups.values()]
 
     # Track saved filenames to avoid collisions
-    saved_names: Dict[str, str] = {}   # basename → full path
-    url_to_local: Dict[str, str] = {}
+    saved_names: dict[str, str] = {}   # basename → full path
+    url_to_local: dict[str, str] = {}
 
-    def _download_one_font(item: Tuple[str, str]) -> Tuple[str, Optional[bytes]]:
-        font_url, source = item
+    def _download_one_font(item: tuple[str, str]) -> tuple[str, bytes | None]:
+        font_url, _source = item
         r = None
         try:
             r = fetch_response(
@@ -280,15 +299,17 @@ def _download_fonts_into_folder(
             if r.status_code != 200:
                 raise RuntimeError(f"HTTP {r.status_code}")
             return font_url, r.content
-        except Exception as e:
+        except DownloadCancelledError:
+            raise
+        except _NETWORK_OPERATION_ERRORS as e:
             logger.error(f"  Font failed: {font_url} — {e}")
             return font_url, None
         finally:
             if r is not None:
                 try:
                     r.close()
-                except Exception:
-                    pass
+                except _RESPONSE_CLEANUP_ERRORS as close_exc:
+                    logger.debug("Font response close failed for %s: %s", font_url, close_exc)
 
     # Download in parallel
     with ThreadPoolExecutor(max_workers=min(len(representatives), 6)) as ex:
@@ -352,4 +373,4 @@ def _download_fonts_into_folder(
 
     return project_str
 
-__all__ = ["_find_font_urls", "analyse_fonts", "_download_fonts_into_folder"]
+__all__ = ["_download_fonts_into_folder", "_find_font_urls", "analyse_fonts"]

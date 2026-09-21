@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 from urllib.parse import urlsplit
 
 import requests
@@ -14,7 +14,7 @@ from ._bridge import legacy
 from .proxy import _get_active_proxies, _should_bypass_manual_proxy
 
 
-def _build_dns_query_wire(host: str, qtype: int = 1) -> Tuple[int, bytes]:
+def _build_dns_query_wire(host: str, qtype: int = 1) -> tuple[int, bytes]:
     """Build a minimal DNS query packet. qtype=1 A, qtype=28 AAAA."""
     import random as _rnd
     import struct
@@ -28,7 +28,7 @@ def _build_dns_query_wire(host: str, qtype: int = 1) -> Tuple[int, bytes]:
     return tx_id, header + qname + struct.pack(">HH", qtype, 1)
 
 
-def _parse_dns_address_response(data: bytes, tx_id: Optional[int] = None, qtype: int = 1) -> Optional[str]:
+def _parse_dns_address_response(data: bytes, tx_id: int | None = None, qtype: int = 1) -> str | None:
     """Parse the first A or AAAA answer from a DNS wire response."""
     l = legacy()
     try:
@@ -66,14 +66,14 @@ def _parse_dns_address_response(data: bytes, tx_id: Optional[int] = None, qtype:
                 import ipaddress
                 return str(ipaddress.IPv6Address(data[offset:offset + 16]))
             offset += rdlen
-    except Exception as e:
+    except (IndexError, OSError, UnicodeError, ValueError, struct.error) as e:
         l.logger.debug(f"DNS response parse failed: {e}")
     return None
 
 
 def _doh_resolve_via(
-    host: str, doh_url: str, qtype: int = 1, timeout: Optional[int] = None,
-) -> Optional[str]:
+    host: str, doh_url: str, qtype: int = 1, timeout: int | None = None,
+) -> str | None:
     """Resolve host through a DNS-over-HTTPS endpoint using DNS wire format."""
     l = legacy()
     if not doh_url.lower().startswith("https://"):
@@ -85,7 +85,7 @@ def _doh_resolve_via(
             "Content-Type": "application/dns-message",
             "User-Agent": "Mozilla/5.0",
         }
-        setattr(l._dns_bypass_local, "enabled", True)
+        l._dns_bypass_local.enabled = True
         session = None
         try:
             session = requests.Session()
@@ -107,23 +107,23 @@ def _doh_resolve_via(
             if session is not None:
                 try:
                     session.close()
-                except Exception as close_exc:
+                except (OSError, requests.RequestException) as close_exc:
                     l.logger.debug("DoH session close failed: %s", close_exc)
-            setattr(l._dns_bypass_local, "enabled", False)
+            l._dns_bypass_local.enabled = False
         if r.status_code != 200:
             l.logger.debug(f"DoH {doh_url} returned HTTP {r.status_code} for {host}")
             return None
         return _parse_dns_address_response(r.content, tx_id=tx_id, qtype=qtype)
-    except Exception as e:
+    except (OSError, requests.RequestException, TypeError, ValueError) as e:
         try:
-            setattr(l._dns_bypass_local, "enabled", False)
-        except Exception as exc:
+            l._dns_bypass_local.enabled = False
+        except (AttributeError, RuntimeError) as exc:
             l.logger.debug("Ignored recoverable exception in _doh_resolve_via: %s", exc)
         l.logger.debug(f"DoH resolve failed for {host} via {doh_url}: {e}")
         return None
 
 
-def _split_dns_endpoint(server: str, protocol: str, port: int = 0) -> Tuple[str, int]:
+def _split_dns_endpoint(server: str, protocol: str, port: int = 0) -> tuple[str, int]:
     """Return a plain DNS host and effective port for UDP/TCP/DoT."""
     text = str(server or "").strip()
     default_port = 853 if protocol == "dot" else 53
@@ -148,7 +148,7 @@ def _split_dns_endpoint(server: str, protocol: str, port: int = 0) -> Tuple[str,
     return host.strip("[]"), int(port or parsed_port or default_port)
 
 
-def _infer_dns_protocol(server: str, protocol: Optional[str] = None) -> str:
+def _infer_dns_protocol(server: str, protocol: str | None = None) -> str:
     value = str(protocol or "").strip().lower()
     if value in {"system", "udp", "tcp", "doh", "dot"}:
         return value
@@ -207,13 +207,13 @@ def _resolve_dot_bootstrap(hostname: str, port: int) -> str:
     resolver here also avoids recursing through our patched ``getaddrinfo``.
     """
     l = legacy()
-    setattr(state._dns_bypass_local, "enabled", True)
+    state._dns_bypass_local.enabled = True
     try:
         addresses = l._orig_getaddrinfo(
             hostname, port, 0, l._socket.SOCK_STREAM,
         )
     finally:
-        setattr(state._dns_bypass_local, "enabled", False)
+        state._dns_bypass_local.enabled = False
     for _family, _type, _proto, _canonname, sockaddr in addresses:
         if sockaddr and sockaddr[0]:
             return str(sockaddr[0])
@@ -225,10 +225,10 @@ def _dns_resolve_via(
     dns_ip: str,
     qtype: int = 1,
     *,
-    protocol: Optional[str] = None,
-    port: Optional[int] = None,
-    timeout: Optional[int] = None,
-) -> Optional[str]:
+    protocol: str | None = None,
+    port: int | None = None,
+    timeout: int | None = None,
+) -> str | None:
     """Resolve host using plain DNS or DNS-over-HTTPS with a short cache."""
     l = legacy()
     transport = _infer_dns_protocol(dns_ip, protocol)
@@ -244,7 +244,7 @@ def _dns_resolve_via(
     if cached and cached[0] > now:
         return cached[1]
 
-    def _store(ip: Optional[str]) -> Optional[str]:
+    def _store(ip: str | None) -> str | None:
         if ip:
             l._dns_cache[cache_key] = (time.time() + l._DNS_CACHE_TTL_SECONDS, ip)
         return ip
@@ -257,6 +257,7 @@ def _dns_resolve_via(
         )
 
     try:
+        import dns.exception as _de  # type: ignore
         import dns.message as _dm  # type: ignore
         import dns.query as _dq  # type: ignore
         import dns.rdatatype as _rdt  # type: ignore
@@ -270,14 +271,14 @@ def _dns_resolve_via(
             # missing server_hostname disables hostname verification.
             tls_name = endpoint
             tls_address = _resolve_dot_bootstrap(endpoint, query_port)
-            setattr(state._dns_bypass_local, "enabled", True)
+            state._dns_bypass_local.enabled = True
             try:
                 answer = _dq.tls(
                     query, tls_address, port=query_port, timeout=effective_timeout,
                     server_hostname=tls_name,
                 )
             finally:
-                setattr(state._dns_bypass_local, "enabled", False)
+                state._dns_bypass_local.enabled = False
         else:
             answer = _dq.udp(query, endpoint, port=query_port, timeout=effective_timeout)
         wanted = _rdt.AAAA if qtype == 28 else _rdt.A
@@ -288,7 +289,7 @@ def _dns_resolve_via(
         return None
     except ImportError as exc:
         l.logger.debug("Ignored recoverable exception in _dns_resolve_via: %s", exc)
-    except Exception as exc:
+    except (_de.DNSException, OSError, RuntimeError, TypeError, ValueError) as exc:
         l.logger.debug("Ignored recoverable exception in _dns_resolve_via: %s", exc)
 
     # The dependency-free fallback is intentionally UDP-only. Silently
@@ -333,7 +334,7 @@ def _dns_resolve_via(
         offset += 10
         if rtype == 1 and rdlen == 4:
             return _store(".".join(str(b) for b in data[offset:offset + 4]))
-    except Exception as exc:
+    except (IndexError, OSError, UnicodeError, ValueError, struct.error) as exc:
         l.logger.debug("Ignored recoverable exception in _dns_resolve_via: %s", exc)
     return None
 
@@ -379,7 +380,7 @@ def _patched_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
                 return l._orig_getaddrinfo(
                     ip, port, requested_family, type, proto, flags,
                 )
-    except Exception as e:
+    except (OSError, RuntimeError, TypeError, ValueError) as e:
         l.logger.debug(f"Custom DNS failed for {host}: {e}")
     if state._dns_fallback_system:
         return l._orig_getaddrinfo(host, port, family, type, proto, flags)
@@ -390,13 +391,13 @@ def _patched_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
 
 
 def _set_active_dns(
-    server: Optional[str],
+    server: str | None,
     *,
-    protocol: Optional[str] = None,
-    port: Optional[int] = None,
-    timeout: Optional[int] = None,
-    fallback_system: Optional[bool] = None,
-    ipv6: Optional[bool] = None,
+    protocol: str | None = None,
+    port: int | None = None,
+    timeout: int | None = None,
+    fallback_system: bool | None = None,
+    ipv6: bool | None = None,
 ) -> None:
     """Set global DNS server and patch/restore socket.getaddrinfo idempotently."""
     l = legacy()
@@ -447,11 +448,11 @@ def _set_active_dns(
     l._v465_reset_shared_sessions()
 
 
-def _get_active_dns() -> Optional[str]:
+def _get_active_dns() -> str | None:
     return state._active_dns
 
 
-def _get_active_dns_config() -> Dict[str, Any]:
+def _get_active_dns_config() -> dict[str, Any]:
     return {
         "server": state._active_dns or "",
         "protocol": state._dns_protocol,
@@ -463,8 +464,15 @@ def _get_active_dns_config() -> Dict[str, Any]:
 
 
 __all__ = [
-    "_build_dns_query_wire", "_parse_dns_address_response", "_doh_resolve_via",
-    "_dns_resolve_via", "_patched_getaddrinfo", "_set_active_dns",
-    "_get_active_dns", "_get_active_dns_config", "_infer_dns_protocol",
-    "_validate_dns_configuration", "_resolve_dot_bootstrap",
+    "_build_dns_query_wire",
+    "_dns_resolve_via",
+    "_doh_resolve_via",
+    "_get_active_dns",
+    "_get_active_dns_config",
+    "_infer_dns_protocol",
+    "_parse_dns_address_response",
+    "_patched_getaddrinfo",
+    "_resolve_dot_bootstrap",
+    "_set_active_dns",
+    "_validate_dns_configuration",
 ]

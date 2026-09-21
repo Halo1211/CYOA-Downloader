@@ -17,8 +17,8 @@ from cyoa_downloader_app.core.url_utils import (
     _candidate_urls_for_cyoap_asset,
     _same_origin,
 )
-from cyoa_downloader_app.download import package as package_mod
 from cyoa_downloader_app.diagnostics import runtime as diagnostics_mod
+from cyoa_downloader_app.download import package as package_mod
 from cyoa_downloader_app.importers import batch as batch_mod
 from cyoa_downloader_app.importers.batch import import_queue_items_from_file
 from cyoa_downloader_app.integrations.ai_core import _sanitize_ai_candidate_url
@@ -34,6 +34,7 @@ def test_cli_output_probe_never_deletes_preexisting_sentinel(tmp_path: Path) -> 
         cwd=Path(__file__).resolve().parents[1],
         capture_output=True,
         text=True,
+        check=False,
         timeout=30,
     )
 

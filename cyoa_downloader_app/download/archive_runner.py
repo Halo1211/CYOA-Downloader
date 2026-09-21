@@ -8,12 +8,12 @@ import pathlib
 from dataclasses import asdict, replace
 from urllib.parse import urljoin
 
-from .archive_policy import ArchivePolicy
-from .archive_profiler import profile_archive_target
-from .route_crawler import RouteCrawler
 from ..core.atomic_io import atomic_write_text
 from ..core.paths import _safe_join
 from ..logging_setup import logger
+from .archive_policy import ArchivePolicy
+from .archive_profiler import profile_archive_target
+from .route_crawler import RouteCrawler
 
 
 def run_archive_extensions(downloader, policy: ArchivePolicy):
@@ -127,6 +127,7 @@ def finalize_existing_archive(folder: str, start_url: str, policy: ArchivePolicy
 def resume_existing_archive(folder: str, start_url: str, policy: ArchivePolicy):
     """Continue only the unresolved same-story links in an existing manifest."""
     from bs4 import BeautifulSoup  # type: ignore
+
     from .website import WebsiteDownloader
 
     folder = os.path.abspath(folder)
@@ -136,8 +137,8 @@ def resume_existing_archive(folder: str, start_url: str, policy: ArchivePolicy):
     try:
         old_manifest = json.loads(pathlib.Path(manifest_path).read_text(encoding="utf-8"))
         if not isinstance(old_manifest, dict):
-            raise ValueError("manifest root must be an object")
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
+            raise TypeError("manifest root must be an object")
+    except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
         logger.warning("Archive manifest is unreadable; rebuilding recovery manifest: %s", exc)
         old_manifest = finalize_existing_archive(folder, start_url, policy)
     existing = {}
@@ -186,7 +187,7 @@ def resume_existing_archive(folder: str, start_url: str, policy: ArchivePolicy):
                     continue
                 if crawler._is_allowed(candidate) and candidate not in canonical_existing:
                     seeds.add(candidate)
-        except Exception as exc:
+        except (OSError, RuntimeError, TypeError, ValueError) as exc:
             logger.warning("Could not inspect existing route %s: %s", local, exc)
 
     result = crawler.crawl(seed_urls=sorted(seeds), existing_pages=canonical_existing)

@@ -8,6 +8,6 @@ PANEL_METHOD_NAMES = ("_ai_settings_panel",)
 
 PANEL_METHODS = method_map(PANEL_METHOD_NAMES)
 
-globals().update(PANEL_METHODS)
+_ai_settings_panel = PANEL_METHODS["_ai_settings_panel"]
 
-__all__ = ["PANEL_METHOD_NAMES", "PANEL_METHODS", *PANEL_METHOD_NAMES]
+__all__ = ["PANEL_METHODS", "PANEL_METHOD_NAMES", "_ai_settings_panel"]

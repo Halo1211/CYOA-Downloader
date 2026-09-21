@@ -1,10 +1,10 @@
 from pathlib import Path
 
 import cyoa_downloader as facade
-from cyoa_downloader_app.download import audio_download
-from cyoa_downloader_app.runtime import surface as legacy
-from cyoa_downloader_app.integrations import plugins
 from cyoa_downloader_app.diagnostics import updates
+from cyoa_downloader_app.download import audio_download
+from cyoa_downloader_app.integrations import plugins
+from cyoa_downloader_app.runtime import surface as legacy
 
 
 def test_phase21_plugin_registry_is_real_module_and_shared():

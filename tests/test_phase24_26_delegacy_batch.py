@@ -17,8 +17,8 @@ def test_phase24_preview_tokens_are_domain_owned():
 
 def test_phase25_diagnostics_are_domain_owned():
     import cyoa_downloader as facade
-    from cyoa_downloader_app.diagnostics.runtime import build_diagnostic_report
     from cyoa_downloader_app.diagnostics.dependency_check import dependency_check_report
+    from cyoa_downloader_app.diagnostics.runtime import build_diagnostic_report
 
     assert facade.build_diagnostic_report is build_diagnostic_report
     assert facade.dependency_check_report is dependency_check_report
@@ -32,8 +32,8 @@ def test_phase25_diagnostics_are_domain_owned():
 
 def test_phase26_cyoa_cafe_and_itch_are_domain_owned():
     import cyoa_downloader as facade
-    from cyoa_downloader_app.project.cyoa_cafe import CYOACafeResolver
     from cyoa_downloader_app.integrations import itch
+    from cyoa_downloader_app.project.cyoa_cafe import CYOACafeResolver
 
     assert facade.CYOACafeResolver is CYOACafeResolver
     assert CYOACafeResolver.normalize_input("https://cyoa.cafe/game/abc?x=1#frag") == "https://cyoa.cafe/game/abc"
@@ -43,7 +43,7 @@ def test_phase26_cyoa_cafe_and_itch_are_domain_owned():
     assert "secret" in cmd
     assert "secret" not in itch.redact_itch_command(cmd)
     itch._set_itch_enabled(True)
-    assert getattr(facade, "_ITCH_ENABLED") in {False, True}  # facade snapshot may be static
+    assert facade._ITCH_ENABLED in {False, True}  # facade snapshot may be static
     from cyoa_downloader_app.runtime import surface as legacy
     assert legacy._ITCH_ENABLED is True
     itch._set_itch_enabled(False)

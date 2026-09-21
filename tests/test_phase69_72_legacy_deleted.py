@@ -1,5 +1,5 @@
-from pathlib import Path
 import importlib
+from pathlib import Path
 
 import cyoa_downloader
 from cyoa_downloader_app.runtime import surface

@@ -7,17 +7,17 @@ import os
 import re
 import threading
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any
 
-from ..logging_setup import logger
 from ..core.atomic_io import atomic_write_text, interprocess_file_lock
+from ..logging_setup import logger
 
 _HISTORY_FILE = os.path.join(
     os.path.expanduser("~"), ".cyoa_downloader", "download_history.json"
 )
 
 
-def _load_history() -> Dict[str, Dict]:
+def _load_history() -> dict[str, dict]:
     try:
         if os.path.exists(_HISTORY_FILE):
             with open(_HISTORY_FILE, encoding="utf-8") as f:
@@ -27,23 +27,23 @@ def _load_history() -> Dict[str, Dict]:
                     url: entry for url, entry in data.items()
                     if isinstance(url, str) and isinstance(entry, dict)
                 }
-    except Exception as _ignored_exc:
+    except (OSError, UnicodeError, TypeError, ValueError) as _ignored_exc:
         logger.debug("Ignored recoverable exception in _load_history: %s", _ignored_exc)
     return {}
 
 
-def _save_history(history: Dict[str, Dict]) -> None:
+def _save_history(history: dict[str, dict]) -> None:
     try:
         os.makedirs(os.path.dirname(_HISTORY_FILE), exist_ok=True)
         atomic_write_text(
             _HISTORY_FILE,
             json.dumps(history, indent=2, ensure_ascii=False),
         )
-    except Exception as e:
+    except (OSError, UnicodeError, TypeError, ValueError) as e:
         logger.debug(f"History save failed: {e}")
 
 
-def _check_history(url: str) -> Optional[Dict]:
+def _check_history(url: str) -> dict | None:
     """Return history entry if URL was previously downloaded, else None."""
     return _load_history().get(url)
 
@@ -55,8 +55,8 @@ def _record_history(url: str, file_name: str, mode: str, success: bool) -> None:
     from ..app_info import _APP_DISPLAY_NAME, _APP_VERSION
     from ..core.progress import DownloadCancelledError
     from ..network.fetch import fetch_response
-    entry: Dict[str, Any] = {
-        "last_downloaded": datetime.now().isoformat(),
+    entry: dict[str, Any] = {
+        "last_downloaded": datetime.now().astimezone().isoformat(),
         "file_name": file_name,
         "filename": file_name,
         "mode": mode,
@@ -64,7 +64,7 @@ def _record_history(url: str, file_name: str, mode: str, success: bool) -> None:
         "url": url,
     }
     if success:
-        response: Optional[Any] = None
+        response: Any | None = None
         try:
             response = fetch_response(
                 url,
@@ -93,25 +93,24 @@ def _record_history(url: str, file_name: str, mode: str, success: bool) -> None:
             # a second contradictory Results row. The worker will observe the
             # still-set cancellation event before starting the next job.
             logger.debug("History metadata probe cancelled after completed download: %s", url)
-        except Exception as exc:
+        except (AttributeError, OSError, TypeError, ValueError) as exc:
             logger.debug(f"History metadata probe failed for {url}: {exc}")
         finally:
             if response is not None:
                 try:
                     response.close()
-                except Exception as exc:
+                except (AttributeError, OSError) as exc:
                     logger.debug(f"History response close failed for {url}: {exc}")
     try:
-        with _v465_history_lock:
-            with interprocess_file_lock(_HISTORY_FILE):
-                history = _load_history()
-                history[url] = entry
-                if len(history) > 1000:
-                    oldest = sorted(history, key=lambda item: history[item].get("last_downloaded", ""))
-                    for old_url in oldest[: len(history) - 1000]:
-                        history.pop(old_url, None)
-                _save_history(history)
-    except Exception as exc:
+        with _v465_history_lock, interprocess_file_lock(_HISTORY_FILE):
+            history = _load_history()
+            history[url] = entry
+            if len(history) > 1000:
+                oldest = sorted(history, key=lambda item: history[item].get("last_downloaded", ""))
+                for old_url in oldest[: len(history) - 1000]:
+                    history.pop(old_url, None)
+            _save_history(history)
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
         # History is auxiliary state. Lock contention, permissions, or a
         # damaged history directory must never turn an otherwise successful
         # download into a failed batch job (nor abort processing later rows).

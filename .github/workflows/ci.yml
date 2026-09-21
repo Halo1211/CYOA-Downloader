@@ -49,8 +49,8 @@ jobs:
         run: python cyoa_downloader.py --self-test
       - name: Pytest
         run: python -m pytest -q
-      - name: Ruff lint (undefined/redefined names, repeated keys)
-        run: ruff check cyoa_downloader.py --select F821,F811,F601
+      - name: Ruff correctness baseline
+        run: python -m ruff check .
       - name: Verify smoke test
         run: |
           python - <<'EOF'

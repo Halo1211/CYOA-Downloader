@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 from urllib.parse import urlparse
 
 import requests
@@ -98,9 +98,7 @@ def _normalize_flaresolverr_url(url: str) -> str:
     if parsed.scheme not in {"http", "https"}:
         u = "http://" + u
         parsed = urlparse(u)
-    if not parsed.path or parsed.path == "/":
-        u = u.rstrip("/") + "/v1"
-    elif not parsed.path.rstrip("/").endswith("/v1") and not parsed.path.rstrip("/").endswith("v1"):
+    if not parsed.path or parsed.path == "/" or not parsed.path.rstrip("/").endswith("/v1") and not parsed.path.rstrip("/").endswith("v1"):
         u = u.rstrip("/") + "/v1"
     return u
 
@@ -147,11 +145,11 @@ def _set_cloudflare_config(
         l._FLARESOLVERR_SESSION_POLICY = "reuse-domain"
     try:
         l._FLARESOLVERR_TIMEOUT = max(5, int(timeout or 60))
-    except Exception:
+    except (TypeError, ValueError, OverflowError):
         l._FLARESOLVERR_TIMEOUT = 60
     try:
         l._FLARESOLVERR_WAIT_AFTER = max(0, int(wait_after or 0))
-    except Exception:
+    except (TypeError, ValueError, OverflowError):
         l._FLARESOLVERR_WAIT_AFTER = 3
     l._FLARESOLVERR_PROXY_MODE = (proxy_mode or "inherit").strip().lower()
     if l._FLARESOLVERR_PROXY_MODE not in {"inherit", "none"}:
@@ -170,11 +168,11 @@ def _set_cloudflare_config(
                 "flaresolverr_wait_after": l._FLARESOLVERR_WAIT_AFTER,
                 "flaresolverr_proxy_mode": l._FLARESOLVERR_PROXY_MODE,
             })
-        except Exception as e:
+        except (OSError, TypeError, ValueError) as e:
             l.logger.debug(f"Could not save Cloudflare settings: {e}")
 
 
-def _flaresolverr_payload_proxy(target_url: str = "") -> Optional[Dict[str, str]]:
+def _flaresolverr_payload_proxy(target_url: str = "") -> dict[str, str] | None:
     """Return FlareSolverr proxy object when proxy inheritance is enabled."""
     l = legacy()
     if l._FLARESOLVERR_PROXY_MODE != "inherit":
@@ -189,7 +187,7 @@ def _flaresolverr_payload_proxy(target_url: str = "") -> Optional[Dict[str, str]
     return {"url": proxy}
 
 
-def _flaresolverr_post(payload: Dict[str, Any], timeout: Optional[int] = None) -> Optional[Dict[str, Any]]:
+def _flaresolverr_post(payload: dict[str, Any], timeout: int | None = None) -> dict[str, Any] | None:
     """POST JSON to FlareSolverr /v1. Returns decoded JSON or None."""
     l = legacy()
     api_url = _normalize_flaresolverr_url(l._FLARESOLVERR_URL)
@@ -224,7 +222,7 @@ def _flaresolverr_post(payload: Dict[str, Any], timeout: Optional[int] = None) -
         if data.get("status") not in {"ok", "success"}:
             l.logger.warning(f"[FlareSolverr] {data.get('message') or data.get('error') or 'request failed'}")
         return data
-    except Exception as e:
+    except (requests.RequestException, OSError, TypeError, ValueError) as e:
         l.logger.warning(f"[FlareSolverr] API unavailable at {api_url}: {e}")
         return None
 
@@ -241,7 +239,7 @@ def _flaresolverr_session_key(url: str) -> str:
     return f"cyoa_{safe_host}_{route_id}"
 
 
-def _flaresolverr_get_session(url: str) -> Optional[str]:
+def _flaresolverr_get_session(url: str) -> str | None:
     l = legacy()
     if l._FLARESOLVERR_SESSION_POLICY == "temporary":
         return None
@@ -252,7 +250,7 @@ def _flaresolverr_get_session(url: str) -> Optional[str]:
             return existing
         if l._FLARESOLVERR_SESSION_POLICY == "manual":
             return key
-        payload: Dict[str, Any] = {"cmd": "sessions.create", "session": key}
+        payload: dict[str, Any] = {"cmd": "sessions.create", "session": key}
         proxy_obj = _flaresolverr_payload_proxy(url)
         if proxy_obj:
             payload["proxy"] = proxy_obj
@@ -281,7 +279,7 @@ def flaresolverr_destroy_sessions() -> int:
     return destroyed
 
 
-def flaresolverr_test_connection() -> Tuple[bool, str]:
+def flaresolverr_test_connection() -> tuple[bool, str]:
     """Check whether FlareSolverr API is reachable."""
     data = _flaresolverr_post({"cmd": "sessions.list"}, timeout=10)
     if data:
@@ -290,17 +288,17 @@ def flaresolverr_test_connection() -> Tuple[bool, str]:
     return False, "Not reachable. Start FlareSolverr and check the URL."
 
 
-def _apply_flaresolverr_solution_to_sessions(solution: Dict[str, Any], source_url: str) -> Dict[str, str]:
+def _apply_flaresolverr_solution_to_sessions(solution: dict[str, Any], source_url: str) -> dict[str, str]:
     """Copy cookies/user-agent from FlareSolverr into requests sessions."""
     l = legacy()
-    headers: Dict[str, str] = {}
+    headers: dict[str, str] = {}
     ua = solution.get("userAgent") or solution.get("user-agent")
     if ua:
         headers["User-Agent"] = ua
         try:
             l._get_shared_session(False).headers.update({"User-Agent": ua})
             l._get_shared_session(True).headers.update({"User-Agent": ua})
-        except Exception as exc:
+        except (AttributeError, OSError, TypeError, ValueError) as exc:
             l.logger.debug("Ignored recoverable exception in _apply_flaresolverr_solution_to_sessions: %s", exc)
     host = urlparse(source_url).hostname or ""
     for cookie in solution.get("cookies") or []:
@@ -313,12 +311,12 @@ def _apply_flaresolverr_solution_to_sessions(solution: Dict[str, Any], source_ur
             path = cookie.get("path") or "/"
             for sess in (l._get_shared_session(False), l._get_shared_session(True)):
                 sess.cookies.set(name, value, domain=domain, path=path)
-        except Exception as exc:
+        except (AttributeError, OSError, TypeError, ValueError) as exc:
             l.logger.debug("Ignored recoverable exception in _apply_flaresolverr_solution_to_sessions: %s", exc)
     return headers
 
 
-def _response_from_flaresolverr_solution(solution: Dict[str, Any], url: str) -> requests.Response:
+def _response_from_flaresolverr_solution(solution: dict[str, Any], url: str) -> requests.Response:
     """Build a requests.Response-like object from a FlareSolverr solution."""
     l = legacy()
     resp = requests.Response()
@@ -330,8 +328,8 @@ def _response_from_flaresolverr_solution(solution: Dict[str, Any], url: str) -> 
         headers = solution.get("headers") or {}
         if isinstance(headers, dict):
             resp.headers.update({str(k): str(v) for k, v in headers.items()})
-    except Exception:
-        pass
+    except (AttributeError, TypeError, ValueError) as exc:
+        l.logger.debug("Could not copy FlareSolverr response headers: %s", exc)
     if "Content-Type" not in resp.headers:
         resp.headers["Content-Type"] = "text/html; charset=utf-8"
     # FlareSolverr serializes document.documentElement after JavaScript has
@@ -343,11 +341,11 @@ def _response_from_flaresolverr_solution(solution: Dict[str, Any], url: str) -> 
     return resp
 
 
-def fetch_via_flaresolverr(url: str, extra_headers: Optional[Dict[str, str]] = None, timeout: Optional[int] = None) -> Optional[requests.Response]:
+def fetch_via_flaresolverr(url: str, extra_headers: dict[str, str] | None = None, timeout: int | None = None) -> requests.Response | None:
     """Solve/fetch URL through FlareSolverr and return a Response-like object."""
     l = legacy()
     session_name = _flaresolverr_get_session(url)
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "cmd": "request.get",
         "url": url,
         "maxTimeout": int((timeout or l._FLARESOLVERR_TIMEOUT) * 1000),

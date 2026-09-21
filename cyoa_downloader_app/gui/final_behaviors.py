@@ -1,13 +1,162 @@
 """Final GUI behavior bodies consolidated from historical versioned modules."""
 from __future__ import annotations
 
+import os
+import pathlib
 import queue as log_queue_module
+import re
+import sys
 import tempfile
 import threading
+import time
 from collections import Counter, deque
-from typing import Any, Dict, Optional, Tuple
+from tkinter import messagebox
+from typing import TYPE_CHECKING, Any
+from urllib.parse import urljoin, urlparse
 
-from ..app_info import DEFAULT_MAX_WORKERS
+import requests
+from bs4 import BeautifulSoup
+
+from ..app_info import _APP_VERSION, _GITHUB_RELEASE_API, DEFAULT_MAX_WORKERS, DEFAULT_WAIT_TIME
+from ..config.secrets import _keyring_module
+from ..config.settings import _SETTINGS_FILE, _load_settings, _update_setting, _update_settings
+from ..core.cancellation import (
+    _raise_if_cancelled,
+    clear_progress_event_sink,
+    set_progress_event_sink,
+)
+from ..core.output import _cleanup_recent_part_files
+from ..core.progress import (
+    DownloadCancelledError,
+    DownloadState,
+    DownloadTelemetry,
+    calculate_stage_progress,
+    format_bytes,
+    format_duration,
+    format_speed,
+)
+from ..core.url_utils import canonicalize_url, truncate_display_url
+from ..diagnostics.runtime import build_diagnostic_report
+from ..diagnostics.updates import (
+    _batch_check_updates,
+    _check_for_app_updates,
+    _send_desktop_notification,
+)
+from ..download.package import _build_output_name
+from ..importers.batch import write_failed_url_log
+from ..integrations.ai_calls import _ai_call
+from ..integrations.ai_core import (
+    OLLAMA_DEFAULT_URL,
+    _ai_env_vars,
+    _ai_is_available,
+    _ai_key_status_text,
+    _ai_model_options,
+    _ai_primary_env_var,
+    _clear_ai_api_key_storage,
+    _clear_ai_plain_keys,
+    _default_ai_model,
+    _get_ai_model,
+    _get_ai_provider,
+    _normalize_ai_key_storage,
+    _normalize_ai_mode,
+    _normalize_ai_provider,
+    _plain_ai_key_setting,
+    _resolve_ai_api_key,
+    _write_ai_key_to_keyring,
+)
+from ..integrations.offline_viewers.injector import _apply_offline_viewer
+from ..integrations.offline_viewers.registry import (
+    _VIEWERS_DIR,
+    _load_viewers_manifest,
+    register_offline_viewer,
+    unregister_offline_viewer,
+)
+from ..logging_setup import logger, setup_file_logging
+from ..network.cloudflare import (
+    _display_cloudflare_mode,
+    _display_cloudflare_priority,
+    _load_cloudflare_settings,
+    _normalize_cloudflare_mode,
+    _normalize_cloudflare_priority,
+    _set_cloudflare_config,
+    flaresolverr_destroy_sessions,
+    flaresolverr_test_connection,
+)
+from ..network.fetch import fetch_response
+from ..network.sessions import _get_shared_session
+from ..network.throttle import _set_http2_enabled
+from ..project.discover import (
+    _normalize_auto_detect_output,
+    auto_detect_mode,
+    auto_detect_modes_batch,
+    get_project_source,
+)
+from ..project.parse import (
+    extract_project_from_archive_bytes,
+    extract_project_text_from_payload,
+    is_zip_bytes,
+    try_decode_bytes,
+)
+from ..runtime import state as _runtime_state
+from ..storage.cache import _cache_stats, _clear_image_cache, _enforce_cache_limit
+from ..storage.history import _load_history, _record_history
+from ..storage.resume import clear_resume_state, load_resume_state, save_resume_state
+from .logging_ui import _v465_configure_log_tags
+from .telemetry_log import _V46TelemetryLogHandler
+from .widgets import (
+    _gui_exists,
+    _v25_center_window,
+    _v25_safe_after,
+    _v25_safe_after_widget,
+    _v27_ai_provider_values,
+    _v27_open_path,
+    _v27_safe_after,
+)
+
+if TYPE_CHECKING:
+    from .app import CYOADownloaderGUI
+
+# Mutable network settings are mirrored into this module by the ordered GUI
+# bootstrap.  Seed them from their runtime owner so direct imports also have a
+# defined, conservative value before bootstrap synchronization occurs.
+_CLOUDFLARE_MODE = _runtime_state._CLOUDFLARE_MODE
+_FLARESOLVERR_URL = _runtime_state._FLARESOLVERR_URL
+_FLARESOLVERR_SESSION_POLICY = _runtime_state._FLARESOLVERR_SESSION_POLICY
+_FLARESOLVERR_TIMEOUT = _runtime_state._FLARESOLVERR_TIMEOUT
+_FLARESOLVERR_WAIT_AFTER = _runtime_state._FLARESOLVERR_WAIT_AFTER
+_FLARESOLVERR_PROXY_MODE = _runtime_state._FLARESOLVERR_PROXY_MODE
+
+# v46.2 cache state belongs to these behaviors.  bootstrap_gui_runtime replaces
+# these bindings with its compatibility instances during the historical patch
+# composition sequence.
+_CYOA_CAFE_PURE_CACHE: dict[str, tuple[float, str]] = {}
+_CYOA_CAFE_PURE_CACHE_LOCK = threading.RLock()
+_CYOA_CAFE_RESOLUTION_KIND: dict[str, str] = {}
+_CYOA_CAFE_RESOLUTION_KIND_LOCK = threading.RLock()
+_CYOA_CAFE_CACHE_MAX = 256
+_CYOA_CAFE_CACHE_TTL = 6 * 3600.0
+
+# Ordered compatibility captures supplied by gui.bootstrap.  A narrow guard
+# keeps direct, pre-bootstrap calls deterministic without importing gui.app
+# (which would create a cycle) or changing the historical capture order.
+def _missing_compat_binding(*_args: Any, **_kwargs: Any) -> Any:
+    raise RuntimeError("GUI compatibility runtime has not been bootstrapped")
+
+
+run_download: Any = _missing_compat_binding
+_v46_gui_init_legacy: Any = _missing_compat_binding
+_v46_gui_setup_ui_legacy: Any = _missing_compat_binding
+_V461_APPLY_PROGRESS_VISIBILITY_FINAL: Any = _missing_compat_binding
+_V461_AUTO_DETECT_MODE: Any = _missing_compat_binding
+_V461_AUTO_DETECT_OUTPUT_VARIANT: Any = _missing_compat_binding
+_V461_CAFE_INVALIDATE: Any = _missing_compat_binding
+_V461_CAFE_RESOLVE: Any = _missing_compat_binding
+_V461_GUI_SETUP_UI_FINAL: Any = _missing_compat_binding
+_V461_RUN_DOWNLOAD: Any = _missing_compat_binding
+_V462_GUI_SETUP_UI_FOR_V463: Any = _missing_compat_binding
+_V465_PREVIOUS_APPLY_THEME: Any = _missing_compat_binding
+_V466_PREVIOUS_RUN_DOWNLOAD: Any = _missing_compat_binding
+_V466_PREVIOUS_SETUP_UI: Any = _missing_compat_binding
 
 # This module intentionally keeps the old _v* compatibility names while
 # removing the need for separate versioned behavior files.
@@ -34,7 +183,7 @@ use legacy global names and are synchronized mechanically to preserve behavior.
 
 
 
-def _v24_card(parent: Any, p: Dict[str, str], *, title: str, body: str = "", icon: str = "", accent: str = "#3b82f6", command: Any = None, button_text: str = "Open") -> Any:
+def _v24_card(parent: Any, p: dict[str, str], *, title: str, body: str = "", icon: str = "", accent: str = "#3b82f6", command: Any = None, button_text: str = "Open") -> Any:
     """Small modern action card used by v24 panels."""
     import customtkinter as ctk
     frame = ctk.CTkFrame(parent, fg_color=p["surface"], corner_radius=12, border_width=1, border_color=p["border"])
@@ -65,7 +214,7 @@ def _v24_dialog_geometry(screen_width: int, screen_height: int) -> tuple[int, in
     return width, height, min(820, width), min(520, height)
 
 
-def _v24_result_is_failed(row: Dict[str, Any]) -> bool:
+def _v24_result_is_failed(row: dict[str, Any]) -> bool:
     """Return whether a result belongs in the Failed filter.
 
     A resumed SKIP is a successful outcome, while asset-level synthetic rows
@@ -74,9 +223,9 @@ def _v24_result_is_failed(row: Dict[str, Any]) -> bool:
     return str(row.get("status", "")).strip().upper() not in {"OK", "SKIP"}
 
 
-def _v24_partition_result_rows(rows: list[Dict[str, Any]]) -> Dict[str, list[Dict[str, Any]]]:
+def _v24_partition_result_rows(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
     """Keep CYOA outcomes and asset failures as separate report concepts."""
-    groups: Dict[str, list[Dict[str, Any]]] = {
+    groups: dict[str, list[dict[str, Any]]] = {
         "cyoa_success": [],
         "cyoa_failed": [],
         "asset_failed": [],
@@ -91,7 +240,7 @@ def _v24_partition_result_rows(rows: list[Dict[str, Any]]) -> Dict[str, list[Dic
     return groups
 
 
-def _v46_failure_details_snapshot(self: Any) -> list[Dict[str, Any]]:
+def _v46_failure_details_snapshot(self: Any) -> list[dict[str, Any]]:
     """Return the run-level failure buffer without racing worker appends."""
     details = getattr(self, "_v46_failure_events", None)
     if details is None:
@@ -103,7 +252,7 @@ def _v46_failure_details_snapshot(self: Any) -> list[Dict[str, Any]]:
         return [dict(item) for item in details]
 
 
-def _v24_result_rows(self: Any) -> list[Dict[str, Any]]:
+def _v24_result_rows(self: Any) -> list[dict[str, Any]]:
     """Merge job outcomes with asset failures retained by telemetry."""
     rows = [dict(row) for row in (getattr(self, "_last_results", None) or [])]
     telemetry = getattr(self, "_v46_telemetry", None)
@@ -141,9 +290,10 @@ def _v24_result_rows(self: Any) -> list[Dict[str, Any]]:
 
 def _v24_show_results(self: Any) -> None:
     """Modernized results/report panel with safer row handling."""
-    import customtkinter as ctk
-    from tkinter import filedialog, messagebox
     import csv as csv_mod
+    from tkinter import filedialog, messagebox
+
+    import customtkinter as ctk
 
     is_en = getattr(self, "_language", "id") == "en"
     rows_all = _v24_result_rows(self)
@@ -189,7 +339,7 @@ def _v24_show_results(self: Any) -> None:
     top = ctk.CTkFrame(body, fg_color="transparent")
     top.pack(fill="x", pady=(0, 10))
     filter_var = ctk.StringVar(value="all")
-    filter_buttons: Dict[str, Any] = {}
+    filter_buttons: dict[str, Any] = {}
 
     list_frame = ctk.CTkScrollableFrame(body, fg_color=p["bg"], corner_radius=0, scrollbar_button_color=p["surface2"])
     list_frame.pack(fill="both", expand=True)
@@ -274,8 +424,9 @@ def _v24_show_results(self: Any) -> None:
 
 def _v24_batch_update_panel(self: Any) -> None:
     """Modernized Batch Check with exception containment and non-closing requeue."""
-    import customtkinter as ctk
     from tkinter import messagebox
+
+    import customtkinter as ctk
 
     is_en = getattr(self, "_language", "id") == "en"
     p = self._p()
@@ -306,7 +457,7 @@ def _v24_batch_update_panel(self: Any) -> None:
     body.pack(fill="both", expand=True, padx=14, pady=12)
     summary = ctk.CTkFrame(body, fg_color="transparent")
     summary.pack(fill="x", pady=(0, 10))
-    total_badge = _v24_badge(summary, f"TOTAL {len(items)}", "#334155", 108)
+    _v24_badge(summary, f"TOTAL {len(items)}", "#334155", 108)
     cur_badge = _v24_badge(summary, "CURRENT 0", "#047857", 116)
     upd_badge = _v24_badge(summary, "UPDATED 0", "#1d4ed8", 116)
     err_badge = _v24_badge(summary, "ERROR 0", "#b91c1c", 104)
@@ -318,7 +469,7 @@ def _v24_batch_update_panel(self: Any) -> None:
     toolbar.pack(fill="x", pady=(0, 8))
     filter_var = ctk.StringVar(value="all")
     result_holder = {"rows": []}
-    buttons: Dict[str, Any] = {}
+    buttons: dict[str, Any] = {}
 
     list_frame = ctk.CTkScrollableFrame(body, fg_color=p["bg"], corner_radius=0, scrollbar_button_color=p["surface2"])
     list_frame.pack(fill="both", expand=True)
@@ -347,7 +498,9 @@ def _v24_batch_update_panel(self: Any) -> None:
             ctk.CTkLabel(card, text=name, anchor="w", font=ctk.CTkFont("Segoe UI", 12, "bold"), text_color=p["fg"], wraplength=620).grid(row=0, column=1, sticky="ew", pady=(10, 2))
             ctk.CTkLabel(card, text=f"{r.get('url','')}\n{reason}", anchor="w", justify="left", font=ctk.CTkFont("Consolas", 9), text_color=p["muted"], wraplength=660).grid(row=1, column=1, sticky="ew", pady=(0, 10))
             if st in ("updated", "error", "unreachable"):
-                def _queue(url=r.get("url", "")):
+                row_url = r.get("url", "")
+
+                def _queue(url=row_url):
                     if url:
                         self._add_url_to_queue(url)
                         status.configure(text=("Queued for download" if is_en else "Masuk antrean download"))
@@ -420,8 +573,9 @@ def _v24_batch_update_panel(self: Any) -> None:
 
 def _v24_diagnostics_panel(self: Any) -> None:
     """Modern Diagnostics Center with summary sidebar, colored text, filters, and robust worker error handling."""
-    import customtkinter as ctk
     from tkinter import filedialog
+
+    import customtkinter as ctk
 
     p = self._p()
     is_en = getattr(self, "_language", "id") == "en"
@@ -472,7 +626,7 @@ def _v24_diagnostics_panel(self: Any) -> None:
     filters = ctk.CTkFrame(body, fg_color="transparent")
     filters.grid(row=0, column=1, sticky="ew", pady=(0, 8))
     filter_var = ctk.StringVar(value="all")
-    filter_buttons: Dict[str, Any] = {}
+    filter_buttons: dict[str, Any] = {}
 
     text_box = ctk.CTkTextbox(body, font=ctk.CTkFont("Consolas", 11), fg_color=p["bg"], text_color=p["fg"], wrap="none", border_width=1, border_color=p["border"])
     text_box.grid(row=1, column=1, sticky="nsew")
@@ -486,13 +640,13 @@ def _v24_diagnostics_panel(self: Any) -> None:
         logger.debug("Ignored recoverable exception in _v24_diagnostics_panel (line 20164): %s", _ignored_exc)
     report = {"text": "", "counts": {"PASS": 0, "WARN": 0, "FAIL": 0}}
 
-    def _filtered_lines() -> List[str]:
+    def _filtered_lines() -> list[str]:
         lines = (report.get("text") or "").splitlines()
         flt = filter_var.get()
         if flt == "fail":
-            return [ln for ln in lines if ln.startswith("FAIL ") or ln.startswith("CYOA Downloader") or set(ln) in ({"="}, {"-"})]
+            return [ln for ln in lines if ln.startswith(("FAIL ", "CYOA Downloader")) or set(ln) in ({"="}, {"-"})]
         if flt == "warn":
-            return [ln for ln in lines if ln.startswith(("WARN ", "FAIL ")) or ln.startswith("CYOA Downloader") or set(ln) in ({"="}, {"-"})]
+            return [ln for ln in lines if ln.startswith(("WARN ", "FAIL ", "CYOA Downloader")) or set(ln) in ({"="}, {"-"})]
         return lines
 
     def _draw_text() -> None:
@@ -609,9 +763,9 @@ compatibility namespace with ``_sync_legacy_globals``.
 
 
 def _v25_ai_settings_panel(self: Any) -> None:
-    import customtkinter as ctk
     import threading
-    from tkinter import messagebox
+
+    import customtkinter as ctk
 
     p = self._p()
     is_en = getattr(self, "_language", "id") == "en"
@@ -702,8 +856,8 @@ def _v25_ai_settings_panel(self: Any) -> None:
     ctk.CTkSwitch(overview, text="", variable=toggle_var, progress_color="#8b5cf6", width=54).grid(row=0, column=2, rowspan=2, padx=18, pady=16)
     r += 1
 
-    r = section(r, "Provider" if is_en else "Provider")
-    prov_card = card(r, 0, "Provider & model" if is_en else "Provider & model",
+    r = section(r, "Provider")
+    prov_card = card(r, 0, "Provider & model",
                      "Pick the provider and model used by optional recovery." if is_en else "Pilih provider dan model untuk recovery opsional.", "🧠")
     prov_card.grid_columnconfigure(1, weight=1)
     ctk.CTkLabel(prov_card, text="Provider", text_color=p["muted"], anchor="w").grid(row=2, column=1, sticky="ew", padx=(0, 12), pady=(4, 2))
@@ -888,9 +1042,10 @@ def _v25_ai_settings_panel(self: Any) -> None:
     _refresh_key_ui()
 
 def _v25_manage_offline_viewers(self: Any) -> None:
-    import customtkinter as ctk
     import threading
     from tkinter import filedialog, messagebox
+
+    import customtkinter as ctk
 
     p = self._p()
     is_en = getattr(self, "_language", "id") == "en"
@@ -1017,7 +1172,7 @@ def _v25_manage_offline_viewers(self: Any) -> None:
                 vid = register_offline_viewer(zip_path, name=name_var.get().strip() or os.path.basename(zip_path), viewer_type=type_var.get(), description=desc_var.get().strip())
                 name_win.destroy()
                 if vid:
-                    status_var.set((f"Viewer '{vid}' registered." if is_en else f"Viewer '{vid}' berhasil didaftarkan."))
+                    status_var.set(f"Viewer '{vid}' registered." if is_en else f"Viewer '{vid}' berhasil didaftarkan.")
                     _refresh_list()
                 else:
                     messagebox.showerror("Viewer", "Failed to register viewer. Check log for details." if is_en else "Gagal mendaftarkan viewer. Cek log untuk detail.", parent=win)
@@ -1029,7 +1184,7 @@ def _v25_manage_offline_viewers(self: Any) -> None:
     def _remove(vid: str):
         if messagebox.askyesno("Remove Viewer" if is_en else "Hapus Viewer", (f"Remove '{vid}' from registry?\nThe archive file is kept on disk." if is_en else f"Hapus '{vid}' dari registry?\nFile arsip tetap disimpan di disk."), parent=win):
             unregister_offline_viewer(vid, delete_zip=False)
-            status_var.set((f"Viewer '{vid}' removed." if is_en else f"Viewer '{vid}' dihapus."))
+            status_var.set(f"Viewer '{vid}' removed." if is_en else f"Viewer '{vid}' dihapus.")
             _refresh_list()
 
     def _check_icc_update():
@@ -1067,7 +1222,7 @@ def _v25_manage_offline_viewers(self: Any) -> None:
                 already = any(tag and (tag in m.get("name", "") or tag in vid) for vid, m in manifest.items())
                 def _offer():
                     if already:
-                        status_var.set((f"Already have {tag} registered." if is_en else f"{tag} sudah terdaftar."))
+                        status_var.set(f"Already have {tag} registered." if is_en else f"{tag} sudah terdaftar.")
                         return
                     if messagebox.askyesno("New ICCPlus Release" if is_en else "Rilis ICCPlus Baru", (f"Latest release: {tag}\nFile: {asset_name}\n\nDownload and register?" if is_en else f"Rilis terbaru: {tag}\nFile: {asset_name}\n\nUnduh dan daftarkan?"), parent=win):
                         _do_download(tag, asset_name, asset_url)
@@ -1081,7 +1236,7 @@ def _v25_manage_offline_viewers(self: Any) -> None:
                     except Exception:
                         pass
         def _do_download(tag: str, asset_name: str, asset_url: str):
-            status_var.set((f"Downloading {asset_name}…" if is_en else f"Mengunduh {asset_name}…"))
+            status_var.set(f"Downloading {asset_name}…" if is_en else f"Mengunduh {asset_name}…")
             def _dl():
                 try:
                     os.makedirs(_VIEWERS_DIR, exist_ok=True)
@@ -1105,7 +1260,7 @@ def _v25_manage_offline_viewers(self: Any) -> None:
                         name=f"ICCPlus {tag} Offline (auto)",
                         viewer_type="icc_plus2",
                     )
-                    _v25_safe_after(win, lambda: (status_var.set((f"{asset_name} registered as '{vid}'." if is_en else f"{asset_name} terdaftar sebagai '{vid}'.")), _refresh_list()))
+                    _v25_safe_after(win, lambda: (status_var.set(f"{asset_name} registered as '{vid}'." if is_en else f"{asset_name} terdaftar sebagai '{vid}'."), _refresh_list()))
                 except Exception as exc:
                     _v25_safe_after(win, lambda e=str(exc): status_var.set(("Download failed: " if is_en else "Unduhan gagal: ") + e))
             threading.Thread(target=_dl, daemon=True).start()
@@ -1159,7 +1314,7 @@ def _v25_manage_offline_viewers(self: Any) -> None:
             ctk.CTkLabel(card, text=f"type: {vtype}  ·  entry: {meta.get('entry_point', 'index.html')}  ·  {meta.get('zip_filename', '')}", font=ctk.CTkFont("Segoe UI", 10), text_color=p["muted"], anchor="w").grid(row=1, column=1, sticky="ew")
             desc = meta.get("description") or vid
             ctk.CTkLabel(card, text=str(desc), font=ctk.CTkFont("Segoe UI", 10), text_color=p["muted2"], anchor="w", wraplength=660).grid(row=2, column=1, sticky="ew", pady=(1, 12))
-            ctk.CTkButton(card, text=("💉 Inject" if is_en else "💉 Inject"), width=96, height=30,
+            ctk.CTkButton(card, text="💉 Inject", width=96, height=30,
                           fg_color="#1d4ed8", hover_color="#2563eb", text_color="#dbeafe",
                           command=lambda m=dict(meta, id=vid): _v25_inject_into_viewer(self, m, parent_win=win)
                           ).grid(row=0, column=2, rowspan=3, padx=(14, 0), pady=14)
@@ -1172,7 +1327,7 @@ def _v25_manage_offline_viewers(self: Any) -> None:
 
     _refresh_list()
 
-def _v25_inject_into_viewer(self: Any, viewer_meta: Dict, parent_win: Any = None) -> None:
+def _v25_inject_into_viewer(self: Any, viewer_meta: dict, parent_win: Any = None) -> None:
     """Manually inject project data into a registered offline viewer.
 
     Bridges an already-registered offline viewer (viewer_meta) with a project
@@ -1193,9 +1348,10 @@ def _v25_inject_into_viewer(self: Any, viewer_meta: Dict, parent_win: Any = None
     Output is a self-contained <name>_offline/ folder. Purely additive: does not
     change CLI flags, output formats, or the existing auto-inject download path.
     """
-    import customtkinter as ctk
     import threading
     from tkinter import filedialog, messagebox
+
+    import customtkinter as ctk
 
     p = self._p()
     is_en = getattr(self, "_language", "id") == "en"
@@ -1203,7 +1359,7 @@ def _v25_inject_into_viewer(self: Any, viewer_meta: Dict, parent_win: Any = None
 
     win = ctk.CTkToplevel(owner)
     self._apply_window_icon_to(win)
-    win.title(("Inject into Viewer" if is_en else "Inject ke Viewer"))
+    win.title("Inject into Viewer" if is_en else "Inject ke Viewer")
     win.configure(fg_color=p["bg"])
     _v25_center_window(win, owner, 560, 520, min_w=520, min_h=460)
     try:
@@ -1321,20 +1477,20 @@ def _v25_inject_into_viewer(self: Any, viewer_meta: Dict, parent_win: Any = None
             with open(path, "rb") as fh:
                 raw = fh.read()
         except Exception as exc:
-            _log((f"Could not read file: {exc}" if is_en else f"Gagal membaca file: {exc}"))
+            _log(f"Could not read file: {exc}" if is_en else f"Gagal membaca file: {exc}")
             return None, {}
-        assets: Dict[str, str] = {}
+        assets: dict[str, str] = {}
         # ZIP/RAR (or any archive-like payload) first.
         if is_zip_bytes(raw) or path.lower().endswith((".zip", ".rar")):
             proj = extract_project_from_archive_bytes(raw, path)
             if proj:
-                _log(("Resolved project from archive." if is_en else "Project ditemukan dari arsip."))
+                _log("Resolved project from archive." if is_en else "Project ditemukan dari arsip.")
                 return proj, assets
         text = try_decode_bytes(raw)
         proj = extract_project_text_from_payload(text)
         if proj:
-            _log(("Resolved project from file payload (json/app.js)."
-                  if is_en else "Project ditemukan dari isi file (json/app.js)."))
+            _log("Resolved project from file payload (json/app.js)."
+                  if is_en else "Project ditemukan dari isi file (json/app.js).")
             # Sibling images/ + audio/ next to the chosen file.
             base = os.path.dirname(os.path.abspath(path))
             for sub in ("images", "audio"):
@@ -1342,11 +1498,11 @@ def _v25_inject_into_viewer(self: Any, viewer_meta: Dict, parent_win: Any = None
                 if os.path.isdir(d):
                     assets[sub] = d
             return proj, assets
-        _log(("No project data found in file." if is_en else "Tidak ada data project di file."))
+        _log("No project data found in file." if is_en else "Tidak ada data project di file.")
         return None, {}
 
     def _resolve_from_folder(folder: str):
-        assets: Dict[str, str] = {}
+        assets: dict[str, str] = {}
         for sub in ("images", "audio"):
             d = os.path.join(folder, sub)
             if os.path.isdir(d):
@@ -1357,7 +1513,7 @@ def _v25_inject_into_viewer(self: Any, viewer_meta: Dict, parent_win: Any = None
             if os.path.isfile(cpath):
                 proj, _a = _resolve_from_file(cpath)
                 if proj:
-                    _log((f"Using {cand} from folder." if is_en else f"Memakai {cand} dari folder."))
+                    _log(f"Using {cand} from folder." if is_en else f"Memakai {cand} dari folder.")
                     return proj, (assets or _a)
         # Fallback: scan app*.js / *.js for embedded project data.
         try:
@@ -1371,14 +1527,15 @@ def _v25_inject_into_viewer(self: Any, viewer_meta: Dict, parent_win: Any = None
             try:
                 with open(jpath, "rb") as fh:
                     raw = fh.read()
-            except Exception:
+            except Exception as exc:
+                logger.debug("Could not read embedded-project candidate %s: %s", jpath, exc)
                 continue
             proj = extract_project_text_from_payload(try_decode_bytes(raw))
             if proj:
-                _log((f"Resolved embedded project from {js}." if is_en else f"Project tertanam ditemukan di {js}."))
+                _log(f"Resolved embedded project from {js}." if is_en else f"Project tertanam ditemukan di {js}.")
                 return proj, assets
-        _log(("No project.json or embedded JS project found in folder."
-              if is_en else "project.json atau project tertanam di JS tidak ditemukan di folder."))
+        _log("No project.json or embedded JS project found in folder."
+              if is_en else "project.json atau project tertanam di JS tidak ditemukan di folder.")
         return None, assets
 
     def _resolve_from_url(url: str):
@@ -1391,14 +1548,14 @@ def _v25_inject_into_viewer(self: Any, viewer_meta: Dict, parent_win: Any = None
             ai_key = _resolve_ai_api_key()
         except Exception:
             ai_key = ""
-        _log(("Resolving project from URL…" if is_en else "Mengambil project dari URL…"))
+        _log("Resolving project from URL…" if is_en else "Mengambil project dari URL…")
         proj, resolved = get_project_source(
             url, ai_api_key=ai_key or "", ai_provider=ai_provider or "",
             ai_mode=("auto_fallback" if ai_key else "off"))
         if proj:
-            _log((f"Resolved from {resolved or url}." if is_en else f"Berhasil dari {resolved or url}."))
+            _log(f"Resolved from {resolved or url}." if is_en else f"Berhasil dari {resolved or url}.")
             return proj, {}
-        _log(("Could not resolve project from URL." if is_en else "Gagal mengambil project dari URL."))
+        _log("Could not resolve project from URL." if is_en else "Gagal mengambil project dari URL.")
         return None, {}
 
     def _do_inject() -> None:
@@ -1434,7 +1591,7 @@ def _v25_inject_into_viewer(self: Any, viewer_meta: Dict, parent_win: Any = None
                 else:
                     base = os.path.basename(src.rstrip("/\\"))
                     stem = os.path.splitext(base)[0] or "project"
-                _log(("Injecting into viewer…" if is_en else "Meng-inject ke viewer…"))
+                _log("Injecting into viewer…" if is_en else "Meng-inject ke viewer…")
                 out_path = _apply_offline_viewer(
                     output_dir=out,
                     project_json_str=proj,
@@ -1444,7 +1601,7 @@ def _v25_inject_into_viewer(self: Any, viewer_meta: Dict, parent_win: Any = None
                 )
                 if out_path:
                     rel = os.path.dirname(out_path)
-                    _log(("✓ Offline viewer ready." if is_en else "✓ Viewer offline siap."))
+                    _log("✓ Offline viewer ready." if is_en else "✓ Viewer offline siap.")
                     _log(rel)
 
                     def _done_ok():
@@ -1459,16 +1616,16 @@ def _v25_inject_into_viewer(self: Any, viewer_meta: Dict, parent_win: Any = None
                                 logger.debug("open folder failed: %s", _e)
                     _v25_safe_after(win, _done_ok)
                 else:
-                    _log(("✗ Injection failed — viewer index.html not found or unsupported."
-                          if is_en else "✗ Inject gagal — index.html viewer tidak ada atau tidak didukung."))
+                    _log("✗ Injection failed — viewer index.html not found or unsupported."
+                          if is_en else "✗ Inject gagal — index.html viewer tidak ada atau tidak didukung.")
                     _v25_safe_after(win, lambda: (inject_btn.configure(state="normal"), close_btn.configure(state="normal")))
             except Exception as exc:
-                _log((f"✗ Error: {exc}" if is_en else f"✗ Error: {exc}"))
+                _log(f"✗ Error: {exc}")
                 _v25_safe_after(win, lambda: (inject_btn.configure(state="normal"), close_btn.configure(state="normal")))
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    inject_btn = ctk.CTkButton(footer, text=("Inject" if is_en else "Inject"), width=130,
+    inject_btn = ctk.CTkButton(footer, text="Inject", width=130,
                                fg_color="#3b82f6", hover_color="#2563eb", command=_do_inject)
     inject_btn.grid(row=0, column=1, padx=(0, 8), pady=12)
     close_btn = ctk.CTkButton(footer, text=("Close" if is_en else "Tutup"), width=100,
@@ -1478,9 +1635,9 @@ def _v25_inject_into_viewer(self: Any, viewer_meta: Dict, parent_win: Any = None
     _on_kind()
 
 def _v25_cloudflare_panel(self: Any) -> None:
-    import customtkinter as ctk
     import threading
-    from tkinter import messagebox
+
+    import customtkinter as ctk
 
     p = self._p()
     is_en = getattr(self, "_language", "id") == "en"
@@ -1607,12 +1764,12 @@ def _v25_cloudflare_panel(self: Any) -> None:
         apply_settings(True)
         def worker():
             n = flaresolverr_destroy_sessions()
-            _v25_safe_after(win, lambda: status_var.set((f"Cleared {n} session(s)" if is_en else f"{n} sesi dibersihkan")))
+            _v25_safe_after(win, lambda: status_var.set(f"Cleared {n} session(s)" if is_en else f"{n} sesi dibersihkan"))
         threading.Thread(target=worker, daemon=True).start()
 
     def save_settings():
         apply_settings(True)
-        status_var.set((f"Saved: {_display_cloudflare_mode(_CLOUDFLARE_MODE)}" if is_en else f"Tersimpan: {_display_cloudflare_mode(_CLOUDFLARE_MODE)}"))
+        status_var.set(f"Saved: {_display_cloudflare_mode(_CLOUDFLARE_MODE)}" if is_en else f"Tersimpan: {_display_cloudflare_mode(_CLOUDFLARE_MODE)}")
 
     ctk.CTkButton(footer, text=("Test Connection" if is_en else "Tes Koneksi"), width=140,
                   fg_color="#3b82f6", hover_color="#2563eb", command=do_test).grid(row=0, column=0, sticky="w", padx=(18, 8), pady=12)
@@ -1641,8 +1798,9 @@ text, and patch order.
 
 def _v27_cache_manager_panel(self: Any) -> None:
     """Modern cache center with location, refresh, open-folder, and safe clear."""
-    import customtkinter as ctk
     from tkinter import messagebox
+
+    import customtkinter as ctk
     p = self._p()
     is_en = getattr(self, "_language", "id") == "en"
     win = self._make_singleton_window("cache_manager")
@@ -1701,10 +1859,10 @@ def _v27_cache_manager_panel(self: Any) -> None:
             cache_dir = os.path.join(os.path.dirname(_SETTINGS_FILE), "image_cache")
             path_var.set(cache_dir)
             cache_limit_var.set(f"{stats['limit_mb'] / 1024:g}")
-            stats_var.set((f"Cache is writable and used to avoid re-downloading duplicate images.\nLocation: {cache_dir}"
-                           if is_en else f"Cache dapat ditulis dan dipakai agar gambar yang sama tidak diunduh ulang.\nLokasi: {cache_dir}"))
+            stats_var.set(f"Cache is writable and used to avoid re-downloading duplicate images.\nLocation: {cache_dir}"
+                           if is_en else f"Cache dapat ditulis dan dipakai agar gambar yang sama tidak diunduh ulang.\nLokasi: {cache_dir}")
         except Exception as exc:
-            stats_var.set((f"Failed to read cache: {exc}" if is_en else f"Gagal membaca cache: {exc}"))
+            stats_var.set(f"Failed to read cache: {exc}" if is_en else f"Gagal membaca cache: {exc}")
 
     def _save_cache_limit() -> None:
         import math
@@ -1712,15 +1870,15 @@ def _v27_cache_manager_panel(self: Any) -> None:
             gb = float(cache_limit_var.get().strip())
             if not math.isfinite(gb) or gb <= 0:
                 raise ValueError
-            mb = max(1, min(1024 * 1024, int(round(gb * 1024))))
+            mb = max(1, min(1024 * 1024, round(gb * 1024)))
         except (TypeError, ValueError, OverflowError):
-            cache_limit_status.set(("Enter a positive number of GB." if is_en else "Masukkan angka GB yang lebih besar dari 0."))
+            cache_limit_status.set("Enter a positive number of GB." if is_en else "Masukkan angka GB yang lebih besar dari 0.")
             return
         _update_setting("image_cache_max_mb", mb)
         _enforce_cache_limit()
         cache_limit_var.set(f"{mb / 1024:g}")
-        cache_limit_status.set((f"Saved. Auto-cleanup limit: {mb / 1024:g} GB." if is_en
-                                else f"Tersimpan. Batas auto-cleanup: {mb / 1024:g} GB."))
+        cache_limit_status.set(f"Saved. Auto-cleanup limit: {mb / 1024:g} GB." if is_en
+                                else f"Tersimpan. Batas auto-cleanup: {mb / 1024:g} GB.")
         _refresh()
 
     card = ctk.CTkFrame(body, fg_color=p["surface"], corner_radius=14, border_width=1, border_color=p["border"])
@@ -1773,8 +1931,9 @@ def _v27_cache_manager_panel(self: Any) -> None:
 
 def _v27_check_updates_panel(self: Any) -> None:
     """Modern update center that explains where it comes from and why it may be disabled."""
-    import customtkinter as ctk
     import webbrowser
+
+    import customtkinter as ctk
     p = self._p()
     is_en = getattr(self, "_language", "id") == "en"
     win = self._make_singleton_window("check_updates")
@@ -1837,14 +1996,14 @@ def _v27_check_updates_panel(self: Any) -> None:
             return
         if info == "__not_configured__":
             icon_lbl.configure(text="ℹ", text_color="#60a5fa")
-            status_var.set((f"CYOA Downloader v{_APP_VERSION}" if is_en else f"CYOA Downloader v{_APP_VERSION}"))
-            detail_var.set(("Auto-update is not configured. This is normal for standalone/local builds. Set _GITHUB_RELEASE_API in the script to enable release checks."
-                            if is_en else "Auto-update belum dikonfigurasi. Ini normal untuk build standalone/lokal. Isi _GITHUB_RELEASE_API di script untuk mengaktifkan cek release."))
+            status_var.set(f"CYOA Downloader v{_APP_VERSION}")
+            detail_var.set("Auto-update is not configured. This is normal for standalone/local builds. Set _GITHUB_RELEASE_API in the script to enable release checks."
+                            if is_en else "Auto-update belum dikonfigurasi. Ini normal untuk build standalone/lokal. Isi _GITHUB_RELEASE_API di script untuk mengaktifkan cek release.")
             return
         if info:
             icon_lbl.configure(text="⬆", text_color="#22c55e")
-            status_var.set((f"Update available: v{info.get('version','?')}" if is_en else f"Update tersedia: v{info.get('version','?')}"))
-            detail_var.set((f"Current: v{_APP_VERSION}\n" + str(info.get("notes", ""))[:500]))
+            status_var.set(f"Update available: v{info.get('version','?')}" if is_en else f"Update tersedia: v{info.get('version','?')}")
+            detail_var.set(f"Current: v{_APP_VERSION}\n" + str(info.get("notes", ""))[:500])
             release_url["url"] = info.get("url", "") or ""
             if release_url["url"]:
                 open_btn.configure(state="normal")
@@ -1872,9 +2031,10 @@ def _v27_check_updates_panel(self: Any) -> None:
 
 def _v27_ai_settings_panel(self: Any) -> None:
     """AI Assist Center with DeepSeek/Qwen/custom endpoint support surfaced in GUI."""
-    import customtkinter as ctk
     import threading
     from tkinter import messagebox
+
+    import customtkinter as ctk
     p = self._p()
     is_en = getattr(self, "_language", "id") == "en"
     win = self._make_singleton_window("ai_assist_center")
@@ -1935,7 +2095,7 @@ def _v27_ai_settings_panel(self: Any) -> None:
     ctk.CTkLabel(overview, text=("Use AI only as fallback diagnostics/recovery when normal detection fails." if is_en else "Gunakan AI hanya sebagai fallback diagnostik/recovery saat deteksi normal gagal."), font=ctk.CTkFont("Segoe UI", 10), text_color=p["muted"], anchor="w").grid(row=1, column=1, sticky="ew", pady=(0, 16))
     ctk.CTkSwitch(overview, text="", variable=toggle_var, progress_color="#8b5cf6", width=54).grid(row=0, column=2, rowspan=2, padx=18, pady=16)
 
-    prov_card = card(1, 0, "Provider & model" if is_en else "Provider & model", "Choose preset or custom OpenAI-compatible provider." if is_en else "Pilih preset atau provider custom kompatibel OpenAI.", "🧠")
+    prov_card = card(1, 0, "Provider & model", "Choose preset or custom OpenAI-compatible provider." if is_en else "Pilih preset atau provider custom kompatibel OpenAI.", "🧠")
     ctk.CTkLabel(prov_card, text="Provider", text_color=p["muted"], anchor="w").grid(row=2, column=1, sticky="ew", padx=(0, 12), pady=(4, 2))
     provider_menu = ctk.CTkOptionMenu(prov_card, variable=provider_var, values=_v27_ai_provider_values(), fg_color=p["surface2"], button_color=p["surface"], button_hover_color=p["surface2"], text_color=p["fg"], dropdown_fg_color=p["surface"], dropdown_text_color=p["fg"])
     provider_menu.grid(row=3, column=1, sticky="ew", padx=(0, 12), pady=(0, 8))
@@ -2063,7 +2223,7 @@ def _v27_ai_settings_panel(self: Any) -> None:
             try:
                 res = _ai_call(key, "Reply exactly: OK", max_tokens=16, label="AI provider test", model=model_var.get(), provider=prov)
                 ok = bool(res)
-                _v27_safe_after(win, lambda: status_var.set(("Provider test succeeded." if ok and is_en else "Tes provider berhasil." if ok else "Provider test failed. Check key, model, endpoint, and network." if is_en else "Tes provider gagal. Cek key, model, endpoint, dan jaringan.")))
+                _v27_safe_after(win, lambda: status_var.set("Provider test succeeded." if ok and is_en else "Tes provider berhasil." if ok else "Provider test failed. Check key, model, endpoint, and network." if is_en else "Tes provider gagal. Cek key, model, endpoint, dan jaringan."))
             except Exception as exc:
                 _v27_safe_after(win, lambda e=str(exc): status_var.set(("Test failed: " if is_en else "Tes gagal: ") + e))
         threading.Thread(target=worker, daemon=True).start()
@@ -2124,7 +2284,7 @@ def _v46_default_progress_expanded(screen_height: int) -> bool:
     except (TypeError, ValueError):
         return False
 
-def _v46_apply_progress_visibility(self, expanded: Optional[bool] = None) -> None:
+def _v46_apply_progress_visibility(self, expanded: bool | None = None) -> None:
     """Show or hide detailed cards while retaining a compact progress summary."""
     if expanded is not None:
         self._v46_progress_expanded = bool(expanded)
@@ -2146,8 +2306,9 @@ def _v46_toggle_progress_panel(self) -> None:
 
 def _v46_gui_setup_ui(self) -> None:
     _v46_gui_setup_ui_legacy(self)
-    import customtkinter as ctk
     import tkinter as tk
+
+    import customtkinter as ctk
     p = self._p()
     action_bar = self._pb.master.master.master
     main = action_bar.master
@@ -2289,7 +2450,7 @@ def _v46_install_url_menu(self, label: Any, getter: Any, kind: str) -> None:
     label.bind("<Enter>", show_tip, add="+")
     label.bind("<Leave>", hide_tip, add="+")
 
-def _v46_enqueue_progress(self, event: Dict[str, Any]) -> None:
+def _v46_enqueue_progress(self, event: dict[str, Any]) -> None:
     event_type = event.get("type")
     failure_buffer = getattr(self, "_v46_failure_events", None)
     failure_lock = getattr(self, "_v46_failure_events_lock", None)
@@ -2435,7 +2596,7 @@ def _v46_start(self) -> None:
     self._worker_thread.start()
 
 def _v46_worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_analysis, cloudflare_mode, http2_enabled, ytdlp_enabled, bw_limit, cyoa_mgr) -> None:
-    global wait_time, use_cloudscraper, _shared_session, _shared_session_cf, _ytdlp_enabled, _bandwidth_limit_kbps
+    global wait_time, _ytdlp_enabled, _bandwidth_limit_kbps
     self._v46_set_event_sink()
     module = sys.modules.get(__name__)
     if module is not None:
@@ -2479,9 +2640,9 @@ def _v46_worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_a
     legacy_completed = len(state["completed"]) - len(completed)
     if legacy_completed:
         logger.info("[Resume] Ignoring %s legacy URL-only completion(s); jobs will be verified again", legacy_completed)
-    prev_failed = set(f["url"] if isinstance(f, dict) else f for f in state["failed"])
-    completed_jobs: List[str] = list(completed)
-    failed_items: List[Dict[str, str]] = []
+    prev_failed = {f["url"] if isinstance(f, dict) else f for f in state["failed"]}
+    completed_jobs: list[str] = list(completed)
+    failed_items: list[dict[str, str]] = []
     self._last_results = []
     cancelled = False
     skipped_count = 0
@@ -2837,11 +2998,11 @@ def _v46_poll_progress(self) -> None:
     )
     self._v46_progress_after_id = self.root.after(next_delay, self._v46_poll_progress)
 
-def _v46_render_progress(self, s: Dict[str, Any]) -> None:
+def _v46_render_progress(self, s: dict[str, Any]) -> None:
     # v46.9: localize displayed text only. state_disp is for the UI; every
     # `s["state"] in {...}` comparison below still uses the raw enum value.
     state_disp = _v469_state_label(self, s["state"])
-    _U = lambda k: _v469_ps(self, k)  # noqa: E731 - short local alias for readability
+    _U = lambda k: _v469_ps(self, k)
     total = s["total_jobs"]
     current = min(total, s["current_job"]) if total else 0
     self._v46_overall_var.set(
@@ -2921,7 +3082,7 @@ def _v46_draw_speed_graph(self) -> None:
         return
     peak = max(data)
     step = float(width - 4) / max(1, len(data) - 1)
-    points: List[float] = []
+    points: list[float] = []
     for index, value in enumerate(data):
         points.extend([2 + index * step, height - 2 - (float(value) / peak) * (height - 6)])
     if len(points) >= 4:
@@ -2936,7 +3097,7 @@ def _v46_draw_speed_graph(self) -> None:
 
 
 
-def _v462_default_cafe_fetch(url: str, timeout: int = 15) -> Optional[requests.Response]:
+def _v462_default_cafe_fetch(url: str, timeout: int = 15) -> requests.Response | None:
     """Fetch resolver probes quietly; expected 404 candidates belong in DEBUG logs."""
     return fetch_response(
         url,
@@ -2964,7 +3125,7 @@ def _v462_get_resolution_kind(url: str) -> str:
     with _CYOA_CAFE_RESOLUTION_KIND_LOCK:
         return str(_CYOA_CAFE_RESOLUTION_KIND.get(key, ""))
 
-def _v462_pure_cache_get(key: str) -> Optional[str]:
+def _v462_pure_cache_get(key: str) -> str | None:
     now = time.monotonic()
     with _CYOA_CAFE_PURE_CACHE_LOCK:
         item = _CYOA_CAFE_PURE_CACHE.get(key)
@@ -2998,10 +3159,9 @@ def _v462_invalidate_cafe_cache(url: str) -> None:
 def _v462_authoritative_pure_method(method: str) -> bool:
     normalized = str(method or "").strip().lower()
     return (
-        normalized.startswith("pocketbase api")
+        normalized.startswith(("pocketbase api", "script field "))
         or normalized == "html iframe"
         or normalized == "embedded json"
-        or normalized.startswith("script field ")
     )
 
 def _v462_validate_pure_website_candidate(
@@ -3039,8 +3199,7 @@ def _v462_validate_pure_website_candidate(
     looks_html = (
         "text/html" in content_type
         or "application/xhtml+xml" in content_type
-        or lower.startswith("<!doctype html")
-        or lower.startswith("<html")
+        or lower.startswith(("<!doctype html", "<html"))
         or "<body" in lower
     )
     if not looks_html:
@@ -3118,13 +3277,13 @@ def _v462_resolve_cafe(self: CYOACafeResolver, url: str) -> str:
         resolved = _V461_CAFE_RESOLVE(self, normalized)
         _v462_record_resolution_kind(normalized, resolved, "viewer")
         return resolved
-    except CYOACafeResolutionError as strict_error:
+    except CYOACafeResolutionError:
         # Strict validation intentionally ran first. Reuse its per-resolution
         # response cache, then allow only authoritative metadata/iframe targets.
-        candidates: List[Tuple[str, str]] = []
+        candidates: list[tuple[str, str]] = []
         candidates.extend(self._api_candidates(normalized))
         candidates.extend(self._html_candidates(normalized))
-        seen: Set[str] = set()
+        seen: set[str] = set()
         for raw, method in candidates[: self.max_hops * 8]:
             if not _v462_authoritative_pure_method(method):
                 continue
@@ -3144,9 +3303,9 @@ def _v462_resolve_cafe(self: CYOACafeResolver, url: str) -> str:
                     f"(no standard project signature): {candidate}"
                 )
                 return candidate
-        raise strict_error
+        raise
 
-def _v462_auto_detect_output_variant(kind: str, output_pref: Optional[str] = None) -> str:
+def _v462_auto_detect_output_variant(kind: str, output_pref: str | None = None) -> str:
     normalized_kind = str(kind or "").strip().lower().replace("-", "_")
     if normalized_kind == "pure_website":
         pref = _normalize_auto_detect_output(
@@ -3215,29 +3374,29 @@ def _v462_run_download(
                 preserved_name = _build_output_name(source_url)
             logger.info(f"Pure website source resolved: {source_url} → {resolved}")
             url = resolved
-    kwargs = dict(
-        url=url,
-        file_name=preserved_name,
-        zip_output=zip_output,
-        both_output=both_output,
-        website_output=website_output,
-        website_zip_output=website_zip_output,
-        pure_website=pure_website,
-        download_fonts=download_fonts,
-        show_font_analysis=show_font_analysis,
-        output_dir=output_dir,
-        max_workers=max_workers,
-        engine_mode=engine_mode,
-        cyoa_mgr_enabled=cyoa_mgr_enabled,
-        ai_api_key=ai_api_key,
-        ai_provider=ai_provider,
-        ai_mode=ai_mode,
-        analysis_only=analysis_only,
-        archive_strategy=archive_strategy,
-        archive_max_pages=archive_max_pages,
-        archive_max_depth=archive_max_depth,
-        archive_capture_interactions=archive_capture_interactions,
-    )
+    kwargs = {
+        "url": url,
+        "file_name": preserved_name,
+        "zip_output": zip_output,
+        "both_output": both_output,
+        "website_output": website_output,
+        "website_zip_output": website_zip_output,
+        "pure_website": pure_website,
+        "download_fonts": download_fonts,
+        "show_font_analysis": show_font_analysis,
+        "output_dir": output_dir,
+        "max_workers": max_workers,
+        "engine_mode": engine_mode,
+        "cyoa_mgr_enabled": cyoa_mgr_enabled,
+        "ai_api_key": ai_api_key,
+        "ai_provider": ai_provider,
+        "ai_mode": ai_mode,
+        "analysis_only": analysis_only,
+        "archive_strategy": archive_strategy,
+        "archive_max_pages": archive_max_pages,
+        "archive_max_depth": archive_max_depth,
+        "archive_capture_interactions": archive_capture_interactions,
+    }
     try:
         return _V461_RUN_DOWNLOAD(**kwargs)
     except RuntimeError as exc:
@@ -3281,7 +3440,7 @@ def _v462_compact_queue_height(window_height: int, screen_height: int) -> int:
         return 90
     return 140
 
-def _v462_find_main_panels(self: CYOADownloaderGUI) -> Tuple[Optional[Any], Optional[Any]]:
+def _v462_find_main_panels(self: CYOADownloaderGUI) -> tuple[Any | None, Any | None]:
     input_panel = getattr(self, "_v462_input_panel", None)
     queue_panel = getattr(self, "_v462_queue_panel", None)
     if input_panel is not None and queue_panel is not None:
@@ -3437,7 +3596,7 @@ def _v462_apply_small_screen_layout(self: CYOADownloaderGUI) -> None:
         logger.debug(f"Small-screen tool-strip layout failed: {exc}")
     self._v462_small_screen = compact
 
-def _v462_apply_progress_visibility_gui(self: CYOADownloaderGUI, expanded: Optional[bool] = None) -> None:
+def _v462_apply_progress_visibility_gui(self: CYOADownloaderGUI, expanded: bool | None = None) -> None:
     _V461_APPLY_PROGRESS_VISIBILITY_FINAL(self, expanded)
     input_panel, queue_panel = _v462_find_main_panels(self)
     try:
@@ -3500,7 +3659,7 @@ def _v462_gui_setup_ui_final(self: CYOADownloaderGUI) -> None:
 """Historical v46.3 progress workspace patch bodies moved out of legacy.py."""
 
 # Phase 61: progress localization constants now live with their consumers.
-_V469_STATE_LABELS_ID: Dict[str, str] = {
+_V469_STATE_LABELS_ID: dict[str, str] = {
     "IDLE": "SIAP",
     "RESOLVING": "MERESOLUSI",
     "FETCHING_ENTRY": "MENGAMBIL HALAMAN",
@@ -3518,7 +3677,7 @@ _V469_STATE_LABELS_ID: Dict[str, str] = {
 }
 
 # Static label / dynamic keyword strings used by the progress card.
-_V469_PROGRESS_STRINGS: Dict[str, Dict[str, str]] = {
+_V469_PROGRESS_STRINGS: dict[str, dict[str, str]] = {
     "show_details":   {"id": "Tampilkan Detail",     "en": "Show Details"},
     "hide_details":   {"id": "Sembunyikan Detail",   "en": "Hide Details"},
     "cancel":         {"id": "Batalkan",             "en": "Cancel"},
@@ -3637,7 +3796,7 @@ def _v463_set_queue_density(self: CYOADownloaderGUI, expanded: bool) -> None:
     except Exception as exc:
         logger.debug(f"Could not update queue density for progress details: {exc}")
 
-def _v463_apply_progress_visibility(self: CYOADownloaderGUI, expanded: Optional[bool] = None) -> None:
+def _v463_apply_progress_visibility(self: CYOADownloaderGUI, expanded: bool | None = None) -> None:
     """Toggle details inside the single telemetry card; never hide the whole panel."""
     if expanded is not None:
         self._v46_progress_expanded = bool(expanded)
@@ -3677,17 +3836,17 @@ def _v463_apply_progress_visibility(self: CYOADownloaderGUI, expanded: Optional[
     except Exception:
         pass
 
-def _v469_lang(self: "CYOADownloaderGUI") -> str:
+def _v469_lang(self: CYOADownloaderGUI) -> str:
     return "en" if getattr(self, "_language", "id") == "en" else "id"
 
-def _v469_ps(self: "CYOADownloaderGUI", key: str) -> str:
+def _v469_ps(self: CYOADownloaderGUI, key: str) -> str:
     """Return a localized progress-panel string for the given key."""
     entry = _V469_PROGRESS_STRINGS.get(key)
     if not entry:
         return key
     return entry.get(_v469_lang(self), entry.get("en", key))
 
-def _v469_state_label(self: "CYOADownloaderGUI", state_value: str) -> str:
+def _v469_state_label(self: CYOADownloaderGUI, state_value: str) -> str:
     """Translate a DownloadState value for display only (never mutates state)."""
     if _v469_lang(self) == "en":
         return str(state_value)
@@ -3695,8 +3854,9 @@ def _v469_state_label(self: "CYOADownloaderGUI", state_value: str) -> str:
 
 def _v463_rebuild_progress_workspace(self: CYOADownloaderGUI) -> None:
     """Replace three separate progress cards with one compact telemetry card."""
-    import customtkinter as ctk
     import tkinter as tk
+
+    import customtkinter as ctk
 
     p = self._p()
     old_host = getattr(self, "_v46_progress_host", None)
@@ -3989,29 +4149,29 @@ def _v466_run_download(
                 effective_name = _build_output_name(source_url)
             logger.info(f"CYOA.CAFE website target resolved before download: {source_url} → {resolved}")
             url = resolved
-    kwargs = dict(
-        url=url,
-        file_name=effective_name,
-        zip_output=zip_output,
-        both_output=both_output,
-        website_output=website_output,
-        website_zip_output=website_zip_output,
-        pure_website=pure_website,
-        download_fonts=download_fonts,
-        show_font_analysis=show_font_analysis,
-        output_dir=output_dir,
-        max_workers=max_workers,
-        engine_mode=engine_mode,
-        cyoa_mgr_enabled=cyoa_mgr_enabled,
-        ai_api_key=ai_api_key,
-        ai_provider=ai_provider,
-        ai_mode=ai_mode,
-        analysis_only=analysis_only,
-        archive_strategy=archive_strategy,
-        archive_max_pages=archive_max_pages,
-        archive_max_depth=archive_max_depth,
-        archive_capture_interactions=archive_capture_interactions,
-    )
+    kwargs = {
+        "url": url,
+        "file_name": effective_name,
+        "zip_output": zip_output,
+        "both_output": both_output,
+        "website_output": website_output,
+        "website_zip_output": website_zip_output,
+        "pure_website": pure_website,
+        "download_fonts": download_fonts,
+        "show_font_analysis": show_font_analysis,
+        "output_dir": output_dir,
+        "max_workers": max_workers,
+        "engine_mode": engine_mode,
+        "cyoa_mgr_enabled": cyoa_mgr_enabled,
+        "ai_api_key": ai_api_key,
+        "ai_provider": ai_provider,
+        "ai_mode": ai_mode,
+        "analysis_only": analysis_only,
+        "archive_strategy": archive_strategy,
+        "archive_max_pages": archive_max_pages,
+        "archive_max_depth": archive_max_depth,
+        "archive_capture_interactions": archive_capture_interactions,
+    }
     try:
         return _V466_PREVIOUS_RUN_DOWNLOAD(**kwargs)
     except RuntimeError as exc:
@@ -4055,4 +4215,24 @@ def _v466_setup_ui(self: CYOADownloaderGUI) -> None:
             logger.debug(f"Could not hide legacy toolbar status strip: {exc}")
 
 
-__all__ = [name for name in globals() if name.startswith("_v") or name in {"_sync_legacy_globals"}]
+# Import the resolver after all GUI behavior symbols exist.  cyoa_cafe imports
+# integrations.ai for its SSRF helper, and that compatibility module re-exports
+# two functions from this module; importing it at the top would therefore
+# expose a partially initialized final_behaviors module.
+from ..project.cyoa_cafe import (
+    _CYOA_CAFE_CACHE_MAX,
+    _CYOA_CAFE_CACHE_TTL,
+    CYOACafeResolutionError,
+    CYOACafeResolver,
+    get_iframe_url_from_cyoa_cafe,
+)
+
+__all__ = [
+    name
+    for name in globals()
+    if (
+        name.startswith("_v")
+        and name not in {"_v46_gui_init_legacy", "_v46_gui_setup_ui_legacy"}
+    )
+    or name == "_sync_legacy_globals"
+]

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Dict, Optional
-
 import requests
 
 from ._bridge import legacy
@@ -11,13 +9,13 @@ from ._bridge import legacy
 
 def fetch_response(
     url: str,
-    extra_headers: Optional[Dict] = None,
+    extra_headers: dict | None = None,
     timeout: int = 20,
     as_bytes: bool = False,
     quiet: bool = False,
     return_error_response: bool = False,
     stream: bool = False,
-) -> Optional[requests.Response]:
+) -> requests.Response | None:
     """Fetch URL via the legacy v46 implementation plus cancellation/metadata hooks."""
     l = legacy()
     l._raise_if_cancelled()
@@ -53,7 +51,7 @@ def fetch_response(
         if response is not None:
             try:
                 response.close()
-            except Exception:
-                pass
+            except (AttributeError, OSError, requests.RequestException) as exc:
+                l.logger.debug("Could not close abandoned response for %s: %s", url, exc)
         raise
     return response

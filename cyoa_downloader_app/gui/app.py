@@ -9,10 +9,176 @@ final GUI patch stack is composed.
 
 from __future__ import annotations
 
-import threading
+import json
+import os
+import pathlib
+import queue as log_queue_module
+import re
+import shutil
+import sys
 import tempfile
+import threading
+import time
 import uuid
 from collections import Counter
+from tkinter import TclError, messagebox
+from typing import Any, ClassVar
+
+try:
+    import customtkinter as ctk
+except ImportError:  # CLI and diagnostics remain available without GUI extras.
+    ctk = None
+
+from ..app_info import (
+    _APP_VERSION,
+    _GITHUB_RELEASE_API,
+    _STABILIZATION_PATCH_ID,
+    DEFAULT_MAX_WORKERS,
+    DEFAULT_WAIT_TIME,
+)
+from ..config.secrets import _keyring_module
+from ..config.settings import (
+    _SETTINGS_DEFAULTS,
+    _SETTINGS_FILE,
+    _load_settings,
+    _normalize_accent_color,
+    _normalize_theme_mode,
+    _resolve_theme_is_dark,
+    _save_settings,
+    _update_setting,
+    _update_settings,
+    export_settings,
+    import_settings,
+)
+from ..core.feature_flags import (
+    _set_cheat_enabled,
+    _set_deep_scan_enabled,
+    _set_selenium_enabled,
+    _set_serve_enabled,
+)
+from ..core.preview_token import (
+    _clear_preview_token,
+    _current_preview_token,
+    _new_preview_token,
+    _preview_token_valid,
+)
+from ..core.progress import DownloadCancelledError
+from ..diagnostics.runtime import build_diagnostic_report
+from ..diagnostics.updates import (
+    _batch_check_updates,
+    _check_for_app_updates,
+    _send_desktop_notification,
+)
+from ..download.audio_download import _download_youtube_audio
+from ..download.audio_reports import _patch_youtube_refs_in_json
+from ..importers.batch import (
+    _derive_mode_flags,
+    import_queue_items_from_source,
+    write_failed_url_log,
+)
+from ..integrations.ai_calls import _ai_call
+from ..integrations.ai_core import (
+    OLLAMA_DEFAULT_URL,
+    _ai_env_vars,
+    _ai_key_status_text,
+    _ai_model_options,
+    _ai_primary_env_var,
+    _clear_ai_api_key_storage,
+    _clear_ai_plain_keys,
+    _coerce_int,
+    _default_ai_model,
+    _get_ai_model,
+    _normalize_ai_key_storage,
+    _normalize_ai_mode,
+    _normalize_ai_provider,
+    _plain_ai_key_setting,
+    _resolve_ai_api_key,
+    _write_ai_key_to_keyring,
+)
+from ..integrations.cyoa_manager import (
+    _find_cyoa_manager_db,
+    _list_cyoa_manager_projects,
+    add_to_cyoa_manager,
+)
+from ..integrations.gallery_dl import _set_gallery_dl_mode
+from ..integrations.itch import (
+    _ITCH_KEYRING_SERVICE,
+    _ITCH_KEYRING_USER,
+    _resolve_itch_api_key,
+    _set_itch_enabled,
+    itch_test_connection,
+)
+from ..integrations.offline_viewers.registry import (
+    _VIEWERS_DIR,
+    _load_viewers_manifest,
+    register_offline_viewer,
+    unregister_offline_viewer,
+)
+from ..logging_setup import _formatter, logger, setup_file_logging
+from ..network.cloudflare import (
+    _display_cloudflare_mode,
+    _display_cloudflare_priority,
+    _load_cloudflare_settings,
+    _normalize_cloudflare_mode,
+    _normalize_cloudflare_priority,
+    _set_cloudflare_config,
+    flaresolverr_destroy_sessions,
+    flaresolverr_test_connection,
+)
+from ..network.dns import _get_active_dns_config, _infer_dns_protocol, _set_active_dns
+from ..network.fetch import fetch_response
+from ..network.proxy import _get_active_proxies, _set_proxy_config
+from ..network.sessions import _get_shared_session
+from ..network.throttle import _set_http2_enabled
+from ..network.vpn import _set_vpn_config, get_vpn_status
+from ..preview_assets import _BUNDLED_INTCYOAENHANCER_USERSCRIPT, _INT_CYOA_ENHANCER_INFO
+from ..project.discover import (
+    _normalize_auto_detect_output,
+    _parallel_head_check,
+    auto_detect_mode,
+    auto_detect_modes_batch,
+    build_default_project_candidates,
+)
+from ..runtime import state as _runtime_state
+from ..storage.cache import _CACHE_DIR, _cache_stats, _clear_image_cache, _enforce_cache_limit
+from ..storage.history import _check_history, _load_history, _record_history
+from ..storage.resume import clear_resume_state, load_resume_state, save_resume_state
+from .assets import _CYOA_LEGACY_PUBLIC_FILE, _load_logo_images, _load_window_icon_photo
+from .logging_ui import GUILogHandler, _v465_configure_log_tags
+from .widgets import _v25_safe_after, _v25_safe_after_widget
+
+# Tk and CustomTkinter expose a mixture of Tcl, lifecycle, and value errors
+# when widgets disappear between a callback being queued and dispatched.
+_GUI_WIDGET_ERRORS = (AttributeError, LookupError, OSError, RuntimeError, TclError, TypeError, ValueError)
+
+# These aliases are reserved for true dynamic boundaries. Each use must log
+# or surface the error, and cancellable jobs must re-raise first.
+_GUI_CALLBACK_ERRORS = (Exception,)
+_GUI_JOB_BOUNDARY_ERRORS = (Exception,)
+_OPTIONAL_BACKEND_ERRORS = (Exception,)
+
+# Mutable feature/network state is synchronized from runtime.surface during the
+# ordered GUI bootstrap.  Seed explicit defaults from the runtime owner so the
+# module also imports safely in isolation.
+DNS_PRESETS = _runtime_state.DNS_PRESETS
+_CLOUDFLARE_MODE = _runtime_state._CLOUDFLARE_MODE
+_FLARESOLVERR_URL = _runtime_state._FLARESOLVERR_URL
+_FLARESOLVERR_SESSION_POLICY = _runtime_state._FLARESOLVERR_SESSION_POLICY
+_FLARESOLVERR_TIMEOUT = _runtime_state._FLARESOLVERR_TIMEOUT
+_FLARESOLVERR_WAIT_AFTER = _runtime_state._FLARESOLVERR_WAIT_AFTER
+_FLARESOLVERR_PROXY_MODE = _runtime_state._FLARESOLVERR_PROXY_MODE
+_CHEAT_ENABLED = _runtime_state._CHEAT_ENABLED
+_SERVE_ENABLED = _runtime_state._SERVE_ENABLED
+
+
+def _missing_gui_compat_binding(*_args: Any, **_kwargs: Any) -> Any:
+    raise RuntimeError("GUI compatibility runtime has not been bootstrapped")
+
+
+# These three callables are ordered patch captures owned by gui.bootstrap.
+run_download: Any = _missing_gui_compat_binding
+_v25_inject_into_viewer: Any = _missing_gui_compat_binding
+_v463_rebuild_progress_workspace: Any = _missing_gui_compat_binding
 
 
 def _mode_label(mode: str, language: str = "en") -> str:
@@ -104,7 +270,7 @@ def launch_gui() -> None:
                 "Run:\n  pip install customtkinter\n\nFor a better GUI experience.",
             )
             root.destroy()
-        except Exception as _ignored_exc:
+        except _GUI_WIDGET_ERRORS as _ignored_exc:
             logger.debug("Ignored recoverable exception in launch_gui (line 4691): %s", _ignored_exc)
         print("customtkinter not found. Install: pip install customtkinter")
         sys.exit(1)
@@ -118,7 +284,7 @@ def launch_gui() -> None:
 
 class CYOADownloaderGUI:
     # ── mode definitions ────────────────────────────────────────────
-    MODES = [
+    MODES: ClassVar[list] = [
         # (val,  icon, name,                 desc,                         section)
         ("__sec__",            "", "OUTPUT MODE",        "",                              ""),
         ("auto",               "⚡","Auto (detect)",      "Default: Settings",            ""),
@@ -144,7 +310,7 @@ class CYOADownloaderGUI:
         "cyoap_vue_zip", "cyoap_vue_folder",
     )
 
-    BADGE_COLORS = {
+    BADGE_COLORS: ClassVar[dict] = {
         "auto":                ("#1e3a8a", "#93c5fd"),
         "embed":               ("#1e3a5f", "#60a5fa"),
         "zip":                 ("#1e1e3b", "#a78bfa"),
@@ -168,11 +334,11 @@ class CYOADownloaderGUI:
                 # Apply it explicitly to the root window too; this avoids
                 # Windows retaining the launcher/process icon in the title bar.
                 self.root.wm_iconphoto(False, self._window_icon)
-            except Exception as _ignored_exc:
+            except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception while setting GUI icon: %s", _ignored_exc)
         try:
             sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
-        except Exception:
+        except _GUI_WIDGET_ERRORS:
             sw, sh = 1366, 768
         initial_w, initial_h, min_w, min_h = _responsive_window_geometry(sw, sh)
         self.root.minsize(min_w, min_h)
@@ -185,22 +351,22 @@ class CYOADownloaderGUI:
                 if self._window_icon is not None and self.root.winfo_exists():
                     self.root.iconphoto(False, self._window_icon)
                     self.root.wm_iconphoto(False, self._window_icon)
-            except Exception as _ignored_exc:
+            except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception while refreshing GUI icon: %s", _ignored_exc)
 
         try:
             self.root.after_idle(_reapply_window_icon)
             self.root.after(250, _reapply_window_icon)
-        except Exception as _ignored_exc:
+        except _GUI_WIDGET_ERRORS as _ignored_exc:
             logger.debug("Ignored recoverable exception while scheduling GUI icon refresh: %s", _ignored_exc)
 
         self._log_queue: log_queue_module.Queue = log_queue_module.Queue(maxsize=5000)
-        self._queue_data: List[Dict] = []
-        self._queue_rows: List = []
+        self._queue_data: list[dict] = []
+        self._queue_rows: list = []
         self._is_running  = False
         self._paused      = threading.Event()
         self._paused.set()   # not paused initially (set = running)
-        self._speed_samples: List[Tuple[float, int]] = []   # (timestamp, bytes)
+        self._speed_samples: list[tuple[float, int]] = []   # (timestamp, bytes)
         _ai_settings = _load_settings()
         self._ai_provider = _normalize_ai_provider(_ai_settings.get("ai_provider", "anthropic"))
         self._ai_key_storage = _normalize_ai_key_storage(_ai_settings.get("ai_key_storage", "session"))
@@ -211,24 +377,24 @@ class CYOADownloaderGUI:
         self._ai_model    = _get_ai_model(self._ai_provider)
         self._ai_mode     = _normalize_ai_mode(_ai_settings.get("ai_mode", "auto_fallback"))
         self._mode_var    = "auto"
-        self._mode_btns: Dict = {}
+        self._mode_btns: dict = {}
         _theme_settings = _load_settings()
         self._theme_mode = _normalize_theme_mode(_theme_settings.get("theme_mode", "System"))
         self._theme_accent = _normalize_accent_color(_theme_settings.get("theme_accent_color", "#3b82f6"))
         self._is_dark     = _resolve_theme_is_dark(self._theme_mode)
         self._language    = _theme_settings.get("language", "en") if _theme_settings.get("language", "en") in {"id", "en"} else "en"
-        self._themed: List = []
-        self._last_results: List[Dict] = []
+        self._themed: list = []
+        self._last_results: list[dict] = []
         # URLs captured at the moment a download starts. If new queue items are
         # added while a worker is running, _done() must not clear those newer
         # rows after the current run completes.
-        self._active_run_urls: Set[str] = set()
+        self._active_run_urls: set[str] = set()
         self._server_thread = None
         self._server_obj    = None
         self._server_folder = None
         # Track one-window panels so repeated button clicks focus the existing
         # panel instead of creating duplicate dialogs.
-        self._singleton_windows: Dict[str, Any] = {}
+        self._singleton_windows: dict[str, Any] = {}
         self._ytdlp_enabled = True  # default on; unchecked if yt-dlp not installed
         _load_cloudflare_settings()
 
@@ -257,10 +423,11 @@ class CYOADownloaderGUI:
         """Compose the final v46 GUI initialization from the app class."""
         final_init = globals().get("_v46_gui_init")
         if final_init is None:
-            return self._init_base(root)
-        return final_init(self, root)
+            self._init_base(root)
+            return
+        final_init(self, root)
 
-    def _p(self) -> Dict[str, str]:
+    def _p(self) -> dict[str, str]:
         """Return current palette."""
         accent = _normalize_accent_color(getattr(self, "_theme_accent", "#3b82f6"))
         if self._is_dark:
@@ -330,7 +497,7 @@ class CYOADownloaderGUI:
         for widget, keys in self._themed:
             try:
                 widget.configure(**{k: p[v] for k, v in keys.items()})
-            except Exception as _ignored_exc:
+            except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _apply_theme (line 4858): %s", _ignored_exc)
 
         # Sidebar
@@ -338,18 +505,18 @@ class CYOADownloaderGUI:
             self._sidebar.configure(fg_color=p["sidebar"],
                                     scrollbar_button_color=p["surface2"],
                                     scrollbar_button_hover_color=p["muted2"])
-        except Exception as _ignored_exc:
+        except _GUI_WIDGET_ERRORS as _ignored_exc:
             logger.debug("Ignored recoverable exception in _apply_theme (line 4866): %s", _ignored_exc)
 
         # Sidebar section labels
         if hasattr(self, "_sec_labels"):
             for lbl in self._sec_labels:
                 try: lbl.configure(text_color=p["muted2"])
-                except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in _apply_theme (line 4873): %s", _ignored_exc)
+                except _GUI_WIDGET_ERRORS as _ignored_exc: logger.debug("Ignored recoverable exception in _apply_theme (line 4873): %s", _ignored_exc)
         if hasattr(self, "_sec_dividers"):
             for div in self._sec_dividers:
                 try: div.configure(fg_color=p.get("separator", p["border"]))
-                except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in _apply_theme (line 4877): %s", _ignored_exc)
+                except _GUI_WIDGET_ERRORS as _ignored_exc: logger.debug("Ignored recoverable exception in _apply_theme (line 4877): %s", _ignored_exc)
 
         # Mode buttons
         self._select_mode(self._mode_var)
@@ -360,7 +527,7 @@ class CYOADownloaderGUI:
                 p2 = self._p()
                 self._info_box.configure(fg_color=p2["surface2"])
                 self._info_body.configure(text_color=p2["muted"])
-            except Exception as _ignored_exc:
+            except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _apply_theme (line 4888): %s", _ignored_exc)
         self._update_mode_info(self._mode_var if hasattr(self, "_mode_var") else "auto")
 
@@ -371,7 +538,7 @@ class CYOADownloaderGUI:
                     fg_color=p["bg"],
                     scrollbar_button_color=p["surface2"],
                     scrollbar_button_hover_color=p["muted2"])
-            except Exception as _ignored_exc:
+            except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _apply_theme (line 4899): %s", _ignored_exc)
 
         # Row B scrollable frame + scrollbar
@@ -381,7 +548,7 @@ class CYOADownloaderGUI:
                     fg_color=p["panel"],
                     scrollbar_button_color=p["surface2"],
                     scrollbar_button_hover_color=p["muted"])
-            except Exception as _ignored_exc:
+            except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _apply_theme (line 4909): %s", _ignored_exc)
 
         # Queue rows
@@ -392,14 +559,14 @@ class CYOADownloaderGUI:
                 url_lbl.configure(text_color=p["muted"])
                 rm.configure(fg_color="transparent", hover_color=p["surface2"],
                              text_color=p["muted"])
-            except Exception as _ignored_exc:
+            except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _apply_theme (line 4920): %s", _ignored_exc)
 
         # Log widget
         if hasattr(self, "_log_txt"):
             try:
                 self._log_txt.configure(bg=p["log_bg"], fg=p["log_fg"])
-            except Exception as _ignored_exc:
+            except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _apply_theme (line 4927): %s", _ignored_exc)
 
         # Theme/language pills
@@ -410,7 +577,7 @@ class CYOADownloaderGUI:
                     selected_color=p["accent"],
                     unselected_color=p["surface2"],
                 )
-            except Exception as _ignored_exc:
+            except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _apply_theme (line 4938): %s", _ignored_exc)
         if hasattr(self, "_lang_pill"):
             try:
@@ -419,19 +586,19 @@ class CYOADownloaderGUI:
                     selected_color=p["accent"],
                     unselected_color=p["surface2"],
                 )
-            except Exception as _ignored_exc:
+            except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _apply_theme (line 4947): %s", _ignored_exc)
 
         # Speed graph widgets (tk.Canvas + tk.Label — not CTk)
         if hasattr(self, "_speed_canvas"):
             try:
                 self._speed_canvas.configure(bg=p["surface2"])
-            except Exception as _ignored_exc:
+            except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _apply_theme (line 4954): %s", _ignored_exc)
         if hasattr(self, "_speed_label"):
             try:
                 self._speed_label.configure(bg=p["panel"], fg=p["muted"])
-            except Exception as _ignored_exc:
+            except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _apply_theme (line 4959): %s", _ignored_exc)
 
 
@@ -445,7 +612,10 @@ class CYOADownloaderGUI:
         if not getattr(self, "_is_running", False):
             try:
                 _v463_rebuild_progress_workspace(self)
-            except Exception as exc:
+            except DownloadCancelledError:
+                raise
+            # The compatibility patch is a dynamically composed GUI callback.
+            except _GUI_CALLBACK_ERRORS as exc:
                 logger.debug(f"Progress workspace re-theme skipped: {exc}")
 
     # SINGLETON WINDOW GUARDS
@@ -462,17 +632,17 @@ class CYOADownloaderGUI:
         try:
             if win.winfo_exists():
                 try: win.deiconify()
-                except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in _focus_singleton_window (line 4978): %s", _ignored_exc)
+                except _GUI_WIDGET_ERRORS as _ignored_exc: logger.debug("Ignored recoverable exception in _focus_singleton_window (line 4978): %s", _ignored_exc)
                 try: win.lift()
-                except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in _focus_singleton_window (line 4980): %s", _ignored_exc)
+                except _GUI_WIDGET_ERRORS as _ignored_exc: logger.debug("Ignored recoverable exception in _focus_singleton_window (line 4980): %s", _ignored_exc)
                 try: win.focus_force()
-                except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in _focus_singleton_window (line 4982): %s", _ignored_exc)
+                except _GUI_WIDGET_ERRORS as _ignored_exc: logger.debug("Ignored recoverable exception in _focus_singleton_window (line 4982): %s", _ignored_exc)
                 return win
-        except Exception as _ignored_exc:
+        except _GUI_WIDGET_ERRORS as _ignored_exc:
             logger.debug("Ignored recoverable exception in _focus_singleton_window (line 4984): %s", _ignored_exc)
         try:
             wins.pop(key, None)
-        except Exception as _ignored_exc:
+        except _GUI_WIDGET_ERRORS as _ignored_exc:
             logger.debug("Ignored recoverable exception in _focus_singleton_window (line 4988): %s", _ignored_exc)
         return None
 
@@ -499,12 +669,12 @@ class CYOADownloaderGUI:
                     return
                 if getattr(self, "_singleton_windows", {}).get(_key) is _win:
                     self._singleton_windows.pop(_key, None)
-            except Exception as _ignored_exc:
+            except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _cleanup (line 5014): %s", _ignored_exc)
 
         try:
             win.bind("<Destroy>", _cleanup, add="+")
-        except Exception as _ignored_exc:
+        except _GUI_WIDGET_ERRORS as _ignored_exc:
             logger.debug("Ignored recoverable exception in _make_singleton_window (line 5019): %s", _ignored_exc)
 
         # A modal Toplevel keeps a Tk grab. If Windows minimizes that window,
@@ -522,7 +692,7 @@ class CYOADownloaderGUI:
                 if current == own_path or current.startswith(own_path + "."):
                     _win.grab_release()
                     grab_state["released"] = True
-            except Exception as _ignored_exc:
+            except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception releasing utility-window grab: %s", _ignored_exc)
 
         def _restore_grab_on_map(event=None, _win=win):
@@ -532,13 +702,13 @@ class CYOADownloaderGUI:
                 if grab_state["released"] and _win.state() == "normal":
                     _win.grab_set()
                     grab_state["released"] = False
-            except Exception as _ignored_exc:
+            except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception restoring utility-window grab: %s", _ignored_exc)
 
         try:
             win.bind("<Unmap>", _release_grab_on_unmap, add="+")
             win.bind("<Map>", _restore_grab_on_map, add="+")
-        except Exception as _ignored_exc:
+        except _GUI_WIDGET_ERRORS as _ignored_exc:
             logger.debug("Ignored recoverable exception binding utility-window map handlers: %s", _ignored_exc)
         return win
 
@@ -553,14 +723,14 @@ class CYOADownloaderGUI:
                 if window.winfo_exists():
                     window.iconphoto(False, icon)
                     window.wm_iconphoto(False, icon)
-            except Exception as _ignored_exc:
+            except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception while setting child GUI icon: %s", _ignored_exc)
 
         _apply()
         try:
             window.after_idle(_apply)
             window.after(250, _apply)
-        except Exception as _ignored_exc:
+        except _GUI_WIDGET_ERRORS as _ignored_exc:
             logger.debug("Ignored recoverable exception while scheduling child GUI icon: %s", _ignored_exc)
 
     # ════════════════════════════════════════════════════════════════
@@ -583,7 +753,7 @@ class CYOADownloaderGUI:
         win.geometry("360x460")
         try:
             win.grab_set()
-        except Exception as _ignored_exc:
+        except _GUI_WIDGET_ERRORS as _ignored_exc:
             logger.debug("Ignored recoverable exception in _open_group_menu (line 5043): %s", _ignored_exc)
         ctk.CTkLabel(win, text=f"{icon}  {title}",
                      font=ctk.CTkFont("Segoe UI", 14, "bold"),
@@ -609,7 +779,7 @@ class CYOADownloaderGUI:
             def _run(_cb=cb):
                 try:
                     win.destroy()
-                except Exception as _ignored_exc:
+                except _GUI_WIDGET_ERRORS as _ignored_exc:
                     logger.debug("Ignored recoverable exception in _run (line 5069): %s", _ignored_exc)
                 _cb()
             ctk.CTkButton(body, text=label, height=34, anchor="w",
@@ -628,6 +798,7 @@ class CYOADownloaderGUI:
                             status_var, settings_win) -> int:
         """Render the complete AI Assist form inside the Settings page."""
         import threading
+
         import customtkinter as ctk
 
         st = _load_settings()
@@ -850,7 +1021,10 @@ class CYOADownloaderGUI:
                     local_status.set("Saved." if is_en else "Tersimpan.")
                     status_var.set("AI Assist settings saved." if is_en else "Pengaturan AI Assist tersimpan.")
                 return True
-            except Exception as exc:
+            except DownloadCancelledError:
+                raise
+            # Keyring/provider storage is an optional backend boundary.
+            except _OPTIONAL_BACKEND_ERRORS as exc:
                 local_status.set(("Could not save: " if is_en else "Tidak dapat menyimpan: ") + str(exc))
                 return False
 
@@ -876,7 +1050,10 @@ class CYOADownloaderGUI:
                     message = ("Provider test succeeded." if result and is_en else
                                "Tes provider berhasil." if result else
                                "Provider test failed." if is_en else "Tes provider gagal.")
-                except Exception as exc:
+                except DownloadCancelledError:
+                    raise
+                # Provider SDKs may raise backend-specific exception classes.
+                except _GUI_JOB_BOUNDARY_ERRORS as exc:
                     message = ("Test failed: " if is_en else "Tes gagal: ") + str(exc)
                 self.root.after(0, lambda: (
                     ai_test_button.configure(state="normal"), local_status.set(message)
@@ -890,7 +1067,10 @@ class CYOADownloaderGUI:
                 key_var.set("")
                 self._ai_api_key = ""
                 local_status.set("Key cleared." if is_en else "Key dibersihkan.")
-            except Exception as exc:
+            except DownloadCancelledError:
+                raise
+            # Clearing credentials crosses optional keyring backends.
+            except _OPTIONAL_BACKEND_ERRORS as exc:
                 local_status.set(str(exc))
 
         action_row = ctk.CTkFrame(card, fg_color="transparent")
@@ -925,6 +1105,7 @@ class CYOADownloaderGUI:
                                     status_var) -> int:
         """Render Cloudflare/FlareSolverr controls inside Integrations."""
         import threading
+
         import customtkinter as ctk
 
         st = _load_settings()
@@ -1019,13 +1200,13 @@ class CYOADownloaderGUI:
                 )
                 try:
                     self._cf_mode_var.set(_display_cloudflare_mode(mode_var.get()))
-                except Exception:
-                    pass
+                except _GUI_WIDGET_ERRORS as exc:
+                    logger.debug("Could not normalize Cloudflare mode control: %s", exc)
                 if show_status:
                     local_status.set("Saved." if is_en else "Tersimpan.")
                     status_var.set("Cloudflare settings saved." if is_en else "Pengaturan Cloudflare tersimpan.")
                 return True
-            except Exception as exc:
+            except _GUI_WIDGET_ERRORS as exc:
                 local_status.set(str(exc))
                 return False
 
@@ -1075,8 +1256,8 @@ class CYOADownloaderGUI:
                                status_var, settings_win) -> int:
         """Render image-cache controls directly in Maintenance."""
         import math
+
         import customtkinter as ctk
-        from tkinter import messagebox
 
         card = ctk.CTkFrame(parent, fg_color=p["surface"], corner_radius=12,
                             border_width=1, border_color=p["border"])
@@ -1108,10 +1289,10 @@ class CYOADownloaderGUI:
                 stats = _cache_stats()
                 cache_limit_var.set(f"{stats['limit_mb'] / 1024:g}")
                 cache_stats_var.set(
-                    (f"{stats['entries']} files · {stats['size_mb']} MB used"
-                     if is_en else f"{stats['entries']} file · {stats['size_mb']} MB terpakai")
+                    f"{stats['entries']} files · {stats['size_mb']} MB used"
+                     if is_en else f"{stats['entries']} file · {stats['size_mb']} MB terpakai"
                 )
-            except Exception as exc:
+            except _GUI_WIDGET_ERRORS as exc:
                 cache_stats_var.set(str(exc))
 
         def _save_cache_limit() -> None:
@@ -1119,7 +1300,7 @@ class CYOADownloaderGUI:
                 gb = float(cache_limit_var.get().strip())
                 if not math.isfinite(gb) or gb <= 0:
                     raise ValueError
-                mb = max(1, min(1024 * 1024, int(round(gb * 1024))))
+                mb = max(1, min(1024 * 1024, round(gb * 1024)))
                 _update_setting("image_cache_max_mb", mb)
                 _enforce_cache_limit()
                 cache_status_var.set(
@@ -1143,7 +1324,7 @@ class CYOADownloaderGUI:
                     f"Cleared {count} file(s)." if is_en else f"{count} file dibersihkan."
                 )
                 _refresh_cache()
-            except Exception as exc:
+            except _GUI_WIDGET_ERRORS as exc:
                 cache_status_var.set(str(exc))
 
         controls = ctk.CTkFrame(card, fg_color="transparent")
@@ -1176,8 +1357,10 @@ class CYOADownloaderGUI:
                                  status_var, settings_win) -> int:
         """Render opt-in viewer automation, recommendations, and registry."""
         import os
-        import customtkinter as ctk
         from tkinter import filedialog, messagebox
+
+        import customtkinter as ctk
+
         from ..integrations.offline_viewers.registry import get_viewer_recommendations
 
         auto_label = "Auto (recommended)" if is_en else "Auto (disarankan)"
@@ -1382,7 +1565,7 @@ class CYOADownloaderGUI:
         ctk.CTkButton(add, text=("Archive…" if is_en else "Arsip…"), width=76, height=30,
                       command=_browse_viewer, fg_color=p["surface2"], hover_color=p["surface"],
                       text_color=p["fg"]).grid(row=0, column=2, padx=4, pady=(8, 4))
-        ctk.CTkButton(add, text=("Folder…" if is_en else "Folder…"), width=76, height=30,
+        ctk.CTkButton(add, text="Folder…", width=76, height=30,
                       command=_browse_viewer_folder, fg_color=p["surface2"], hover_color=p["surface"],
                       text_color=p["fg"]).grid(row=0, column=3, padx=(4, 8), pady=(8, 4))
         ctk.CTkEntry(add, textvariable=name_var, height=30,
@@ -1507,7 +1690,7 @@ class CYOADownloaderGUI:
                 name_var.set("")
                 local_status.set(f"Registered: {viewer_id}" if is_en else f"Terdaftar: {viewer_id}")
                 _refresh_viewers()
-            except Exception as exc:
+            except _GUI_WIDGET_ERRORS as exc:
                 local_status.set(str(exc))
 
         ctk.CTkButton(add, text=("Register" if is_en else "Daftarkan"), width=86,
@@ -1529,7 +1712,9 @@ class CYOADownloaderGUI:
         """
         import os
         import threading
+
         import customtkinter as ctk
+
         from ..integrations.discord_attachments import (
             DiscordAttachmentClient,
             resolve_discord_bot_token,
@@ -1554,7 +1739,7 @@ class CYOADownloaderGUI:
             w, h, min_w, min_h = _responsive_settings_geometry(sw, sh)
             win.geometry(f"{w}x{h}+{max(24, (sw - w) // 2)}+{max(24, (sh - h) // 2)}")
             win.minsize(min_w, min_h)
-        except Exception:
+        except _GUI_WIDGET_ERRORS:
             win.geometry("980x700")
             win.minsize(820, 580)
         win.configure(fg_color=p["bg"])
@@ -1565,7 +1750,7 @@ class CYOADownloaderGUI:
         win.update()
         try:
             win.transient(self.root)
-        except Exception as exc:
+        except _GUI_WIDGET_ERRORS as exc:
             logger.debug("Settings window setup failed: %s", exc)
 
         root = ctk.CTkFrame(win, fg_color=p["bg"], corner_radius=0)
@@ -1601,7 +1786,7 @@ class CYOADownloaderGUI:
         shell.grid_columnconfigure(1, weight=1)
 
         tab_names = [
-            ("Download" if is_en else "Download"),
+            "Download",
             ("Network" if is_en else "Jaringan"),
             ("Integrations" if is_en else "Integrasi"),
             ("Viewers" if is_en else "Viewer"),
@@ -1741,7 +1926,7 @@ class CYOADownloaderGUI:
 
         # Download page: general, feature, and archive settings together. --
         general = _page(tab_names[0])
-        r = _title(general, 0, "Download" if is_en else "Download",
+        r = _title(general, 0, "Download",
                    "Output, authentication, feature helpers, and archive behavior." if is_en else
                    "Output, autentikasi, helper fitur, dan perilaku arsip.")
         # Keep the page ordered by frequency and complexity: the common output
@@ -1783,7 +1968,7 @@ class CYOADownloaderGUI:
             try:
                 self._update_mode_info(getattr(self, "_mode_var", "auto"))
                 self._apply_language()
-            except Exception as exc:
+            except _GUI_WIDGET_ERRORS as exc:
                 logger.debug("Auto output refresh failed: %s", exc)
             auto_status.set(("Saved: ZIP output" if pref == "zip" else "Saved: folder output") if is_en else
                             ("Tersimpan: output ZIP" if pref == "zip" else "Tersimpan: output folder"))
@@ -1982,7 +2167,10 @@ class CYOADownloaderGUI:
                     setter(enabled)
                     _update_setting(key, persist_value(enabled) if persist_value else enabled)
                     status_var.set(f"{title}: {'ON' if enabled else 'OFF'}" if is_en else f"{title}: {'AKTIF' if enabled else 'NONAKTIF'}")
-                except Exception as exc:
+                except DownloadCancelledError:
+                    raise
+                # Feature setters are callbacks selected by the row definition.
+                except _GUI_CALLBACK_ERRORS as exc:
                     logger.exception("Feature setting failed: %s", key)
                     status_var.set(f"{title}: {exc}")
 
@@ -2017,7 +2205,10 @@ class CYOADownloaderGUI:
         def _load_itch_key() -> None:
             try:
                 existing_key, _src = _resolve_itch_api_key("")
-            except Exception as exc:
+            except DownloadCancelledError:
+                raise
+            # Credential resolution may dispatch to an optional keyring backend.
+            except _OPTIONAL_BACKEND_ERRORS as exc:
                 logger.debug("Could not load itch API key: %s", exc)
                 return
             if existing_key:
@@ -2039,7 +2230,10 @@ class CYOADownloaderGUI:
                     _update_settings({"itch_key_storage": "keyring", "itch_api_key": ""})
                     status_var.set("Saved to OS keyring." if is_en else "Tersimpan di OS keyring.")
                     return
-                except Exception as exc:
+                except DownloadCancelledError:
+                    raise
+                # Keyring implementations expose backend-specific failures.
+                except _OPTIONAL_BACKEND_ERRORS as exc:
                     logger.debug("itch keyring write failed: %s", exc)
             _update_settings({"itch_key_storage": "plain", "itch_api_key": key})
             status_var.set("Saved in settings.json." if is_en else "Tersimpan di settings.json.")
@@ -2151,7 +2345,7 @@ class CYOADownloaderGUI:
             if endpoint == "__custom__":
                 try:
                     dns_endpoint_widget.focus_set()
-                except Exception as exc:
+                except _GUI_WIDGET_ERRORS as exc:
                     logger.debug("Could not focus custom DNS endpoint: %s", exc)
                 return
             dns_server_var.set(endpoint)
@@ -2278,7 +2472,10 @@ class CYOADownloaderGUI:
                         if is_en else
                         f"Valid: DNS {dns_label}; proxy {proxy_label}. Tidak ada request eksternal."
                     )
-            except Exception as exc:
+            except DownloadCancelledError:
+                raise
+            # VPN/DNS/proxy probes cross several platform and network backends.
+            except _GUI_JOB_BOUNDARY_ERRORS as exc:
                 message = f"Error: {exc}"
             network_status.set(message)
             status_var.set(message)
@@ -2315,7 +2512,7 @@ class CYOADownloaderGUI:
         r = self._settings_inline_cloudflare(integrations, r, p, is_en, status_var)
         _card(integrations, r, 0, "gallery-dl config", "Open or create gallery-dl config.json.",
               "GD", self._open_gallery_dl_config, color="#0f766e", hover="#0d9488",
-              button_text=("Edit JSON" if is_en else "Edit JSON"))
+              button_text="Edit JSON")
         r += 1
 
         discord_card = ctk.CTkFrame(
@@ -2348,7 +2545,10 @@ class CYOADownloaderGUI:
         def _load_discord_token() -> None:
             try:
                 loaded_discord_token = resolve_discord_bot_token()
-            except Exception as exc:
+            except DownloadCancelledError:
+                raise
+            # Token resolution may dispatch to an optional credential backend.
+            except _OPTIONAL_BACKEND_ERRORS as exc:
                 logger.debug("Could not load Discord token: %s", exc)
                 return
             if loaded_discord_token:
@@ -2383,7 +2583,10 @@ class CYOADownloaderGUI:
                     account = DiscordAttachmentClient(token).validate_token()
                     name = account.get("username") or account.get("global_name") or "bot"
                     result = f"OK: {name}"
-                except Exception as exc:
+                except DownloadCancelledError:
+                    raise
+                # Discord clients are an external job boundary.
+                except _GUI_JOB_BOUNDARY_ERRORS as exc:
                     result = f"Error: {exc}"
                 self.root.after(0, lambda: (
                     discord_test.configure(state="normal"), discord_status.set(result)
@@ -2424,7 +2627,7 @@ class CYOADownloaderGUI:
                    "Kelola penyimpanan dan settings portabel tanpa jendela aplikasi tambahan.")
         _card(tools, r, 0, "Settings file", "Edit the active settings.json.", "CFG",
               self._open_settings_json, color="#2563eb", hover="#1d4ed8",
-              button_text=("Edit JSON" if is_en else "Edit JSON"))
+              button_text="Edit JSON")
         _card(tools, r, 1, "Settings folder", "Show the local settings/history folder.", "DIR",
               self._open_settings_folder, color="#2563eb", hover="#1d4ed8",
               button_text=("Show" if is_en else "Lihat"))
@@ -2442,20 +2645,20 @@ class CYOADownloaderGUI:
             query = search_entry.get().strip().lower()
             if not query:
                 _show_page(tab_names[0])
-                status_var.set("" if is_en else "")
+                status_var.set("")
                 return
             matches = [name for name, keywords in page_keywords.items()
                        if query in keywords.lower() or query in name.lower()]
             if matches:
                 _show_page(matches[0])
                 status_var.set(
-                    (f"Showing {matches[0]} for ‘{query}’." if is_en else
-                     f"Menampilkan {matches[0]} untuk ‘{query}’.")
+                    f"Showing {matches[0]} for ‘{query}’." if is_en else
+                     f"Menampilkan {matches[0]} untuk ‘{query}’."
                 )
             else:
                 status_var.set(
-                    (f"No setting matched ‘{query}’." if is_en else
-                     f"Tidak ada pengaturan yang cocok dengan ‘{query}’.")
+                    f"No setting matched ‘{query}’." if is_en else
+                     f"Tidak ada pengaturan yang cocok dengan ‘{query}’."
                 )
 
         search_entry.bind("<Return>", _search_settings)
@@ -2480,6 +2683,7 @@ class CYOADownloaderGUI:
         # older GUI patch modules; it is unreachable and no longer opens.
         import os
         import threading
+
         import customtkinter as ctk
 
         from ..config.secrets import _keyring_module
@@ -2503,8 +2707,8 @@ class CYOADownloaderGUI:
         try:
             win.transient(self.root)
             win.grab_set()
-        except Exception:
-            pass
+        except _GUI_WIDGET_ERRORS as exc:
+            logger.debug("Could not make Discord attachments panel modal: %s", exc)
 
         root = ctk.CTkFrame(win, fg_color=p["bg"], corner_radius=0)
         root.pack(fill="both", expand=True)
@@ -2617,7 +2821,10 @@ class CYOADownloaderGUI:
                         _update_settings({"discord_token_storage": "keyring", "discord_bot_token": ""})
                         token_status.set("Saved to the OS credential store." if is_en else "Tersimpan di credential store OS.")
                         return
-                    except Exception as exc:
+                    except DownloadCancelledError:
+                        raise
+                    # Keyring implementations expose backend-specific failures.
+                    except _OPTIONAL_BACKEND_ERRORS as exc:
                         logger.debug("Discord token keyring write failed: %s", exc)
                 storage = "session"
             if storage == "plain":
@@ -2640,7 +2847,10 @@ class CYOADownloaderGUI:
                     account = DiscordAttachmentClient(token).validate_token()
                     name = account.get("username") or account.get("global_name") or "bot"
                     result = (True, f"OK: authenticated as {name}")
-                except Exception as exc:
+                except DownloadCancelledError:
+                    raise
+                # Discord clients are an external job boundary.
+                except _GUI_JOB_BOUNDARY_ERRORS as exc:
                     result = (False, f"Error: {exc}")
 
                 def _finish() -> None:
@@ -2697,8 +2907,8 @@ class CYOADownloaderGUI:
 
         import os
         import threading
+
         import customtkinter as ctk
-        from tkinter import messagebox
 
         p = self._p()
         is_en = getattr(self, "_language", "id") == "en"
@@ -2711,12 +2921,12 @@ class CYOADownloaderGUI:
             w, h = min(900, max(760, sw - 220)), min(700, max(580, sh - 180))
             x, y = max(24, (sw - w) // 2), max(24, (sh - h) // 2)
             win.geometry(f"{w}x{h}+{x}+{y}")
-        except Exception:
+        except _GUI_WIDGET_ERRORS:
             win.geometry("760x580")
         win.minsize(720, 560)
         try:
             win.grab_set()
-        except Exception as _ignored_exc:
+        except _GUI_WIDGET_ERRORS as _ignored_exc:
             logger.debug("Ignored recoverable exception in _settings_maintenance_panel (line 5111): %s", _ignored_exc)
 
         root = ctk.CTkFrame(win, fg_color=p["bg"], corner_radius=0)
@@ -2775,9 +2985,9 @@ class CYOADownloaderGUI:
                              row=1, column=1, sticky="ew", padx=(0, 10), pady=(0, 8))
             btn = ctk.CTkButton(card, text=("Open" if is_en else "Buka"), width=70, height=26,
                                 font=ctk.CTkFont("Segoe UI", 10, "bold"),
-                                fg_color=p[color] if color in p else color,
-                                hover_color=p[hover] if hover in p else hover,
-                                text_color=p[fg] if fg in p else fg,
+                                fg_color=p.get(color, color),
+                                hover_color=p.get(hover, hover),
+                                text_color=p.get(fg, fg),
                                 command=lambda: cmd())
             btn.grid(row=0, column=2, rowspan=2, padx=(0, 12), pady=12)
 
@@ -2814,14 +3024,14 @@ class CYOADownloaderGUI:
             try:
                 self._update_mode_info(getattr(self, "_mode_var", "auto"))
                 self._apply_language()
-            except Exception as _ignored_exc:
+            except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _save_auto (line 5209): %s", _ignored_exc)
-            auto_status.set((
+            auto_status.set(
                 "Saved. Auto now uses ZIP for ICC/cyoap_vue results." if pref == "zip" and is_en else
                 "Saved. Auto now uses Folder for ICC/cyoap_vue results." if is_en else
                 "Tersimpan. Auto sekarang memakai ZIP untuk hasil ICC/cyoap_vue." if pref == "zip" else
                 "Tersimpan. Auto sekarang memakai Folder untuk hasil ICC/cyoap_vue."
-            ))
+            )
 
         ctk.CTkSegmentedButton(
             auto_card, values=["Folder", "ZIP"], variable=auto_var, command=_save_auto,
@@ -3053,7 +3263,7 @@ class CYOADownloaderGUI:
                 )
 
         ctk.CTkButton(
-            cookie_card, text=("Browse…" if is_en else "Browse…"), width=82, height=30,
+            cookie_card, text="Browse…", width=82, height=30,
             command=_browse_cookie_setting, fg_color=p["surface2"],
             hover_color=p["surface"], text_color=p["fg"],
         ).grid(row=2, column=2, padx=(0, 6), pady=(0, 12))
@@ -3134,7 +3344,10 @@ class CYOADownloaderGUI:
                     account = DiscordAttachmentClient(token).validate_token()
                     name = account.get("username") or account.get("global_name") or "bot"
                     message = f"OK: authenticated as {name}"
-                except Exception as exc:
+                except DownloadCancelledError:
+                    raise
+                # Discord clients are an external job boundary.
+                except _GUI_JOB_BOUNDARY_ERRORS as exc:
                     message = f"Error: {exc}"
 
                 def _finish() -> None:
@@ -3218,11 +3431,14 @@ class CYOADownloaderGUI:
                         f"{title}: {'AKTIF' if enabled else 'NONAKTIF'}"
                     )
                     logger.info("[Settings] %s: %s", key, enabled)
-                except Exception as exc:
+                except DownloadCancelledError:
+                    raise
+                # Feature setters are callbacks selected by the card definition.
+                except _GUI_CALLBACK_ERRORS as exc:
                     logger.exception("Failed to update feature setting %s", key)
                     feature_status.set(
-                        (f"Could not apply {title}: {exc}" if is_en else
-                         f"Tidak dapat menerapkan {title}: {exc}")
+                        f"Could not apply {title}: {exc}" if is_en else
+                         f"Tidak dapat menerapkan {title}: {exc}"
                     )
 
             ctk.CTkSwitch(
@@ -3231,7 +3447,7 @@ class CYOADownloaderGUI:
                 button_hover_color="#ffffff", width=44,
             ).grid(row=0, column=2, rowspan=2, padx=(4, 10), pady=10)
 
-        _feature_card(r, 0, "DS", "Deep scan" if is_en else "Deep scan",
+        _feature_card(r, 0, "DS", "Deep scan",
                       "Discover assets referenced by JS/CSS bundles." if is_en else
                       "Mencari aset dari bundle JS/CSS.",
                       "deep_scan_enabled", True, _set_deep_scan_enabled, "#3b82f6")
@@ -3298,7 +3514,10 @@ class CYOADownloaderGUI:
             existing_key, _src = _resolve_itch_api_key("")
             if existing_key:
                 key_entry.insert(0, existing_key)
-        except Exception as _ignored_exc:
+        except DownloadCancelledError:
+            raise
+        # Credential resolution may dispatch to an optional keyring backend.
+        except _OPTIONAL_BACKEND_ERRORS as _ignored_exc:
             logger.debug("Could not load itch.io API key: %s", _ignored_exc)
 
         def _save_itch_key() -> None:
@@ -3311,7 +3530,10 @@ class CYOADownloaderGUI:
                     _update_settings({"itch_key_storage": "keyring", "itch_api_key": ""})
                     feature_status.set("itch.io key saved to OS keyring." if is_en else "Key itch.io tersimpan di OS keyring.")
                     return
-                except Exception as exc:
+                except DownloadCancelledError:
+                    raise
+                # Keyring implementations expose backend-specific failures.
+                except _OPTIONAL_BACKEND_ERRORS as exc:
                     logger.debug("itch keyring write failed: %s", exc)
             _update_settings({"itch_key_storage": "plain", "itch_api_key": key})
             feature_status.set("Keyring unavailable; key saved in settings.json." if is_en else "Keyring tidak tersedia; key tersimpan di settings.json.")
@@ -3394,8 +3616,8 @@ class CYOADownloaderGUI:
     def _setup_ui_base(self) -> None:
         import customtkinter as ctk
         p = self._p()
-        self._sec_labels:  List = []
-        self._sec_dividers: List = []
+        self._sec_labels:  list = []
+        self._sec_dividers: list = []
 
         self.root.grid_rowconfigure(1, weight=1)
         self.root.grid_columnconfigure(1, weight=1)
@@ -3436,7 +3658,7 @@ class CYOADownloaderGUI:
                 )
             else:
                 raise RuntimeError("logo unavailable")
-        except Exception:
+        except _GUI_WIDGET_ERRORS:
             ctk.CTkLabel(logo, text="C↯", font=ctk.CTkFont("Consolas", 16, "bold"),
                          text_color=p["fg"], fg_color="transparent").place(relx=0.5, rely=0.5, anchor="center")
 
@@ -3822,7 +4044,7 @@ class CYOADownloaderGUI:
             try:
                 if self._proxy_after_id is not None:
                     self.root.after_cancel(self._proxy_after_id)
-            except Exception as exc:
+            except _GUI_WIDGET_ERRORS as exc:
                 logger.debug("Could not cancel compact proxy debounce: %s", exc)
             self._proxy_after_id = self.root.after(750, _apply_compact_proxy)
 
@@ -3851,12 +4073,12 @@ class CYOADownloaderGUI:
                 try:
                     _dns_custom_row.grid()
                     _dns_custom_entry.focus_set()
-                except Exception as _ignored_exc:
+                except _GUI_WIDGET_ERRORS as _ignored_exc:
                     logger.debug("Ignored recoverable exception in _on_dns_preset_change (line 5648): %s", _ignored_exc)
             else:
                 try:
                     _dns_custom_row.grid_remove()
-                except Exception as _ignored_exc:
+                except _GUI_WIDGET_ERRORS as _ignored_exc:
                     logger.debug("Ignored recoverable exception in _on_dns_preset_change (line 5653): %s", _ignored_exc)
                 self._dns_trace_suspended = True
                 try:
@@ -3916,14 +4138,14 @@ class CYOADownloaderGUI:
             try:
                 if not _dns_custom_entry.winfo_ismapped():
                     return
-            except Exception:
+            except _GUI_WIDGET_ERRORS:
                 return
             # Debounce custom DNS typing to avoid applying half-written values
             # and to avoid duplicate DNS log entries.
             try:
                 if self._dns_after_id is not None:
                     self.root.after_cancel(self._dns_after_id)
-            except Exception as _ignored_exc:
+            except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _on_dns_custom (line 5708): %s", _ignored_exc)
             self._dns_after_id = self.root.after(
                 750, lambda: _apply_dns(self._dns_var.get().strip())
@@ -3934,7 +4156,7 @@ class CYOADownloaderGUI:
         if _init_label == "Custom…" and _saved_dns:
             try:
                 _dns_custom_row.grid()
-            except Exception as _ignored_exc:
+            except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _setup_ui (line 5719): %s", _ignored_exc)
 
         # Import/export use a dedicated full-width row. Keeping them in row1
@@ -3967,10 +4189,15 @@ class CYOADownloaderGUI:
         row2.grid(row=2, column=0, sticky="ew", pady=(3, 0))
 
         def _chk(parent, text, var, color="#3b82f6", hover="#2563eb", cmd=None, px=10):
-            kw = dict(variable=var, font=ctk.CTkFont("Segoe UI", 10),
-                      checkbox_width=15, checkbox_height=15,
-                      fg_color=color, hover_color=hover,
-                      text_color=p["muted"])
+            kw = {
+                "variable": var,
+                "font": ctk.CTkFont("Segoe UI", 10),
+                "checkbox_width": 15,
+                "checkbox_height": 15,
+                "fg_color": color,
+                "hover_color": hover,
+                "text_color": p["muted"],
+            }
             if cmd: kw["command"] = cmd
             return T(ctk.CTkCheckBox(parent, text=text, **kw),
                      text_color="muted")
@@ -3983,13 +4210,13 @@ class CYOADownloaderGUI:
             try:
                 from ..network.throttle import http2_runtime_info
                 _http2_saved = bool(http2_runtime_info()["available"])
-            except Exception as _http2_probe_exc:
+            except _GUI_WIDGET_ERRORS as _http2_probe_exc:
                 _http2_saved = False
                 logger.debug("HTTP/2 startup capability probe failed: %s", _http2_probe_exc)
         self._http2_var = ctk.BooleanVar(value=_http2_saved)
         self._ytdlp_var   = ctk.BooleanVar(value=True)
 
-        _chk(row2, "Fonts", self._fonts_var, cmd=self._on_fonts_toggle).pack(side="left", padx=(0, px := 12))
+        _chk(row2, "Fonts", self._fonts_var, cmd=self._on_fonts_toggle).pack(side="left", padx=(0, 12))
         _chk(row2, "Font Analysis", self._analyse_var, cmd=self._on_font_analysis_toggle).pack(side="left", padx=(0, 12))
 
         # Compact Cloudflare selector. Detailed settings live in the Cloudflare panel.
@@ -4136,19 +4363,19 @@ class CYOADownloaderGUI:
         # helper — factory for secondary icon buttons
         def _ab_btn(parent, text, cmd, *, accent=False, danger=False,
                     green=False, width=None):
-            kw = dict(
-                text=text, height=30,
-                font=ctk.CTkFont("Segoe UI", 10, "bold" if accent else "normal"),
-                fg_color="#1d4ed8" if accent else p["surface2"],
-                hover_color="#1e40af" if accent else
+            kw = {
+                "text": text, "height": 30,
+                "font": ctk.CTkFont("Segoe UI", 10, "bold" if accent else "normal"),
+                "fg_color": "#1d4ed8" if accent else p["surface2"],
+                "hover_color": "#1e40af" if accent else
                             "#7f1d1d" if danger else
                             "#065f46" if green else p["surface"],
-                text_color="#ffffff" if accent else
+                "text_color": "#ffffff" if accent else
                            "#f87171" if danger else
                            "#6ee7b7" if green else p["muted"],
-                border_width=0, corner_radius=6,
-                command=cmd,
-            )
+                "border_width": 0, "corner_radius": 6,
+                "command": cmd,
+            }
             if width: kw["width"] = width
             return ctk.CTkButton(parent, **kw)
 
@@ -4401,13 +4628,13 @@ class CYOADownloaderGUI:
             raise RuntimeError(f"GUI patch body is not available: {patch_name}")
         return patch_func(self, *args, **kwargs)
 
-    def _v46_enqueue_progress(self, event: Dict[str, Any]) -> None:
+    def _v46_enqueue_progress(self, event: dict[str, Any]) -> None:
         return self._dispatch_gui_patch("_v46_enqueue_progress", event)
 
     def _v46_set_event_sink(self) -> None:
         return self._dispatch_gui_patch("_v46_set_event_sink")
 
-    def _v46_apply_progress_visibility(self, expanded: Optional[bool] = None) -> None:
+    def _v46_apply_progress_visibility(self, expanded: bool | None = None) -> None:
         return self._dispatch_gui_patch("_v463_apply_progress_visibility", expanded)
 
     def _v46_toggle_progress_panel(self) -> None:
@@ -4440,7 +4667,7 @@ class CYOADownloaderGUI:
     def _v46_poll_progress(self) -> None:
         return self._dispatch_gui_patch("_v46_poll_progress")
 
-    def _v46_render_progress(self, state: Dict[str, Any]) -> None:
+    def _v46_render_progress(self, state: dict[str, Any]) -> None:
         return self._dispatch_gui_patch("_v46_render_progress", state)
 
     def _v46_draw_speed_graph(self) -> None:
@@ -4454,7 +4681,7 @@ class CYOADownloaderGUI:
         if log_change and old_val != val:
             try:
                 label = next((m[2] for m in self.MODES if m and m[0] == val), val)
-            except Exception:
+            except _GUI_WIDGET_ERRORS:
                 label = val
             logger.info(f"[Mode] Output mode changed: {old_val or '-'} → {val} ({label})")
         if not update_ui or not hasattr(self, "_mode_btns"):
@@ -4473,7 +4700,7 @@ class CYOADownloaderGUI:
                 name_lbl.master.configure(fg_color=bg)
                 name_lbl.configure(fg_color=bg, text_color=p["sel_nm"]   if is_sel else p["fg"])
                 desc_lbl.configure(fg_color=bg, text_color=p["sel_desc"] if is_sel else p["muted"])
-            except Exception as _ignored_exc:
+            except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _select_mode (line 6146): %s", _ignored_exc)
         self._update_mode_info(val)
 
@@ -4606,7 +4833,7 @@ class CYOADownloaderGUI:
                 self._info_body.configure(text=body, text_color=p["muted"])
                 self._info_output.configure(text=output)
                 self._info_box.configure(fg_color=p["surface2"])
-            except Exception as _ignored_exc:
+            except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _update_mode_info (line 6279): %s", _ignored_exc)
 
 
@@ -4626,7 +4853,7 @@ class CYOADownloaderGUI:
         )
         try:
             self._cf_mode_var.set(_display_cloudflare_mode(mode))
-        except Exception as _ignored_exc:
+        except _GUI_WIDGET_ERRORS as _ignored_exc:
             logger.debug("Ignored recoverable exception in _on_cloudflare_mode_change (line 6299): %s", _ignored_exc)
         if validate:
             logger.info(f"[Feature] Cloudflare mode set: {_display_cloudflare_mode(mode)}")
@@ -4664,8 +4891,9 @@ class CYOADownloaderGUI:
         final_enabled = bool(_set_http2_enabled(enabled))
         if enabled and not final_enabled:
             self._http2_var.set(False)
-            from tkinter import messagebox
             import sys as _sys
+            from tkinter import messagebox
+
             from ..network.throttle import http2_runtime_info
             _http2_info = http2_runtime_info()
             _install_cmd = f'"{_sys.executable}" -m pip install "httpx[http2]"'
@@ -4692,7 +4920,8 @@ class CYOADownloaderGUI:
     def _on_ytdlp_toggle(self) -> None:
         if self._ytdlp_var.get():
             try:
-                import yt_dlp
+                import yt_dlp as _yt_dlp
+                del _yt_dlp
                 logger.info("YT Audio: yt-dlp available, YouTube audio will be downloaded automatically")
             except ImportError:
                 from tkinter import messagebox
@@ -4743,7 +4972,10 @@ class CYOADownloaderGUI:
         if not getattr(self, "_is_running", False):
             try:
                 _v463_rebuild_progress_workspace(self)
-            except Exception as exc:
+            except DownloadCancelledError:
+                raise
+            # The compatibility patch is a dynamically composed GUI callback.
+            except _GUI_CALLBACK_ERRORS as exc:
                 logger.debug(f"Progress re-localize skipped: {exc}")
         logger.info(f"GUI language set: {self._language}")
 
@@ -4765,7 +4997,7 @@ class CYOADownloaderGUI:
         lang = getattr(self, "_language", "id")
         return texts.get(key, {}).get(lang, texts.get(key, {}).get("en", key))
 
-    def _translation_pairs(self) -> Dict[str, Dict[str, str]]:
+    def _translation_pairs(self) -> dict[str, dict[str, str]]:
         """Exact GUI text translation map. Keys are the English canonical text."""
         return {
             "Input": {"id": "Input", "en": "Input"},
@@ -5028,20 +5260,18 @@ class CYOADownloaderGUI:
             new_text = self._translate_text(text)
             if new_text != text:
                 widget.configure(text=new_text)
-        except Exception as _ignored_exc:
+        except _GUI_WIDGET_ERRORS as _ignored_exc:
             logger.debug("Ignored recoverable exception in _translate_widget_tree (line 6657): %s", _ignored_exc)
         try:
             placeholder = widget.cget("placeholder_text")
-            if placeholder == "(opsional)":
+            if placeholder == "(opsional)" or placeholder == "(optional)":
                 widget.configure(placeholder_text="(optional)" if self._language == "en" else "(opsional)")
-            elif placeholder == "(optional)":
-                widget.configure(placeholder_text="(optional)" if self._language == "en" else "(opsional)")
-        except Exception as _ignored_exc:
+        except _GUI_WIDGET_ERRORS as _ignored_exc:
             logger.debug("Ignored recoverable exception in _translate_widget_tree (line 6665): %s", _ignored_exc)
         try:
             for child in widget.winfo_children():
                 self._translate_widget_tree(child)
-        except Exception as _ignored_exc:
+        except _GUI_WIDGET_ERRORS as _ignored_exc:
             logger.debug("Ignored recoverable exception in _translate_widget_tree (line 6670): %s", _ignored_exc)
 
     def _auto_sidebar_default_desc(self) -> str:
@@ -5096,9 +5326,9 @@ class CYOADownloaderGUI:
             if hasattr(self, "_sec_labels"):
                 for lbl in self._sec_labels:
                     try: lbl.configure(text=self._translate_text(lbl.cget("text")))
-                    except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in _apply_language (line 6716): %s", _ignored_exc)
+                    except _GUI_WIDGET_ERRORS as _ignored_exc: logger.debug("Ignored recoverable exception in _apply_language (line 6716): %s", _ignored_exc)
             self._update_mode_info(getattr(self, "_mode_var", "auto"))
-        except Exception as e:
+        except _GUI_WIDGET_ERRORS as e:
             logger.debug(f"Language apply failed: {e}")
 
     # ════════════════════════════════════════════════════════════════
@@ -5106,8 +5336,9 @@ class CYOADownloaderGUI:
     # ════════════════════════════════════════════════════════════════
     def _cloudflare_panel(self) -> None:
         """Modern Cloudflare settings panel: Off/Auto/cloudscraper/FlareSolverr."""
-        import customtkinter as ctk
         from tkinter import messagebox
+
+        import customtkinter as ctk
         p = self._p()
         st = _load_settings()
 
@@ -5198,11 +5429,11 @@ class CYOADownloaderGUI:
         def apply_settings(persist=True):
             try:
                 timeout_s = int(timeout_var.get() or 60)
-            except Exception:
+            except _GUI_WIDGET_ERRORS:
                 timeout_s = 60
             try:
                 wait_s = int(wait_var.get() or 3)
-            except Exception:
+            except _GUI_WIDGET_ERRORS:
                 wait_s = 3
             _set_cloudflare_config(
                 mode_var.get(),
@@ -5215,7 +5446,7 @@ class CYOADownloaderGUI:
             )
             try:
                 self._cf_mode_var.set(_display_cloudflare_mode(_CLOUDFLARE_MODE))
-            except Exception as _ignored_exc:
+            except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception in apply_settings (line 6835): %s", _ignored_exc)
 
         def do_test():
@@ -5281,7 +5512,7 @@ class CYOADownloaderGUI:
                 fg_color=bg,
                 text_color=fg,
             )
-        except Exception as exc:
+        except _GUI_WIDGET_ERRORS as exc:
             logger.debug("Queue mode badge update skipped: %s", exc)
 
     def _show_queue_mode_menu(self, item_ref: dict, badge) -> None:
@@ -5304,8 +5535,9 @@ class CYOADownloaderGUI:
             menu.grab_release()
 
     def _make_queue_row(self, url: str, mode: str, filename: str) -> None:
-        import customtkinter as ctk
         import tkinter as tk
+
+        import customtkinter as ctk
         idx = len(self._queue_rows)
         # Keep the editor bound to its item, not to its original list index.
         # Removing/reordering another row changes list indices and used to make
@@ -5434,8 +5666,8 @@ class CYOADownloaderGUI:
         self._queue_data[i], self._queue_data[j] = \
             self._queue_data[j], self._queue_data[i]
         # Swap visual: re-pack in new order
-        row_i, *_ = self._queue_rows[i]
-        row_j, *_ = self._queue_rows[j]
+        _row_i, *_ = self._queue_rows[i]
+        _row_j, *_ = self._queue_rows[j]
         # Forget pack info then re-pack in swapped order
         all_rows = [(r, *rest) for r, *rest in self._queue_rows]
         all_rows[i], all_rows[j] = all_rows[j], all_rows[i]
@@ -5515,7 +5747,7 @@ class CYOADownloaderGUI:
             try:
                 if rw and rw[0].winfo_exists():
                     rw[0].destroy()
-            except Exception as _ignored_exc:
+            except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _clear_queue (line 7084): %s", _ignored_exc)
         self._queue_rows.clear()
         self._queue_data.clear()
@@ -5542,7 +5774,7 @@ class CYOADownloaderGUI:
         try:
             if not self.root.winfo_exists() or not self._log_txt.winfo_exists():
                 return
-        except Exception:
+        except _GUI_WIDGET_ERRORS:
             return
         batch = []
         try:
@@ -5565,14 +5797,14 @@ class CYOADownloaderGUI:
                 line_count = int(self._log_txt.index("end-1c").split(".")[0])
                 if line_count > 4500:
                     self._log_txt.delete("1.0", f"{line_count - 4000}.0")
-            except Exception as _ignored_exc:
+            except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _poll_log (line 7134): %s", _ignored_exc)
             self._log_txt.see("end")
             self._log_txt.configure(state="disabled")
         try:
             if self.root.winfo_exists():
                 self.root.after(100, self._poll_log)
-        except Exception as _ignored_exc:
+        except _GUI_WIDGET_ERRORS as _ignored_exc:
             logger.debug("Ignored recoverable exception in _poll_log (line 7141): %s", _ignored_exc)
 
     def _clear_log(self) -> None:
@@ -5657,7 +5889,8 @@ class CYOADownloaderGUI:
 
     def _open_path_in_os(self, path: str) -> None:
         """Open a file/folder with the platform default handler."""
-        import subprocess, platform
+        import platform
+        import subprocess
         from tkinter import messagebox
         if not path or not os.path.exists(path):
             messagebox.showwarning("Open Path", f"Path not found:\n{path}")
@@ -5670,7 +5903,7 @@ class CYOADownloaderGUI:
                 subprocess.Popen(["open", path], close_fds=True)
             else:
                 subprocess.Popen(["xdg-open", path], close_fds=True)
-        except Exception as e:
+        except _GUI_WIDGET_ERRORS as e:
             messagebox.showerror("Open Path", str(e))
 
     def _open_text_file_for_editing(self, path: str) -> None:
@@ -5680,7 +5913,9 @@ class CYOADownloaderGUI:
         when no default app is associated. Notepad is available on normal
         Windows installs, so settings.json opens directly as an editable file.
         """
-        import platform, shlex, subprocess
+        import platform
+        import shlex
+        import subprocess
         from tkinter import messagebox
         if not path or not os.path.exists(path):
             messagebox.showwarning("Open settings.json", f"File not found:\n{path}")
@@ -5710,7 +5945,7 @@ class CYOADownloaderGUI:
                 "settings.json sudah dibuat, tetapi editor tidak ditemukan.\n"
                 "Buka file ini dengan text editor apa pun, lalu Save setelah edit:\n\n"
                 f"{path}")
-        except Exception as e:
+        except _GUI_WIDGET_ERRORS as e:
             messagebox.showerror("Open settings.json", str(e))
 
     def _open_settings_json(self) -> None:
@@ -5724,7 +5959,7 @@ class CYOADownloaderGUI:
                 # app settings location so the user can inspect/edit it.
                 _save_settings(dict(_SETTINGS_DEFAULTS))
             self._open_text_file_for_editing(_SETTINGS_FILE)
-        except Exception as e:
+        except _GUI_WIDGET_ERRORS as e:
             messagebox.showerror("Open settings.json", str(e))
 
     def _open_settings_folder(self) -> None:
@@ -5734,7 +5969,7 @@ class CYOADownloaderGUI:
             folder = os.path.dirname(_SETTINGS_FILE)
             os.makedirs(folder, exist_ok=True)
             self._open_path_in_os(folder)
-        except Exception as e:
+        except _GUI_WIDGET_ERRORS as e:
             messagebox.showerror("Open settings folder", str(e))
 
     def _open_image_cache_folder(self) -> None:
@@ -5743,7 +5978,7 @@ class CYOADownloaderGUI:
         try:
             os.makedirs(str(_CACHE_DIR), exist_ok=True)
             self._open_path_in_os(str(_CACHE_DIR))
-        except Exception as e:
+        except _GUI_WIDGET_ERRORS as e:
             messagebox.showerror("Open image cache folder", str(e))
 
     def _gallery_dl_default_config_path(self) -> str:
@@ -5777,7 +6012,7 @@ class CYOADownloaderGUI:
                 persist=True,
             )
             self._open_text_file_for_editing(cfg)
-        except Exception as e:
+        except _GUI_WIDGET_ERRORS as e:
             messagebox.showerror("Open gallery-dl config", str(e))
 
     def _open_folder(self) -> None:
@@ -5811,6 +6046,7 @@ class CYOADownloaderGUI:
     def _export_list(self) -> None:
         """Export the current queue, including each row's filename and mode."""
         from tkinter import filedialog, messagebox
+
         from ..importers.batch import export_queue_items_to_file
 
         if not self._queue_data:
@@ -5833,7 +6069,7 @@ class CYOADownloaderGUI:
             return
         try:
             count = export_queue_items_to_file(self._queue_data, path)
-        except Exception as exc:
+        except _GUI_WIDGET_ERRORS as exc:
             logger.exception("Queue export failed")
             messagebox.showerror("Export Failed", str(exc))
             return
@@ -5852,8 +6088,9 @@ class CYOADownloaderGUI:
         # method as a backward-compatible entry point for any older handler.
         return self._show_feature_guide("setup")
 
-        import customtkinter as ctk
         import tkinter as tk
+
+        import customtkinter as ctk
 
         lang = getattr(self, "_language", "id")
         is_en = (lang == "en")
@@ -5870,14 +6107,14 @@ class CYOADownloaderGUI:
             x = max(20, (sw - w) // 2)
             y = max(20, (sh - h) // 2)
             win.geometry(f"{w}x{h}+{x}+{y}")
-        except Exception:
+        except _GUI_WIDGET_ERRORS:
             win.geometry("940x720")
         win.minsize(820, 600)
         win.resizable(True, True)
         try:
             win.transient(self.root)
             win.grab_set()
-        except Exception as _ignored_exc:
+        except _GUI_WIDGET_ERRORS as _ignored_exc:
             logger.debug("Ignored recoverable exception in _show_format_guide (line 7338): %s", _ignored_exc)
 
         p = self._p()
@@ -6150,7 +6387,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 copy_btn.configure(text=copied_text)
                 _v25_safe_after_widget(win, copy_btn,
                                        lambda: copy_btn.configure(text=copy_text), delay=1200)
-            except Exception as _ignored_exc:
+            except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _copy_help (line 7588): %s", _ignored_exc)
 
         copy_btn = ctk.CTkButton(btns, text=copy_text, width=150, command=_copy_help)
@@ -6198,7 +6435,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 ) as probe:
                     probe.write("ok")
                     probe.flush()
-            except Exception as e:
+            except _GUI_WIDGET_ERRORS as e:
                 messagebox.showerror(
                     "Output folder",
                     f"Folder output tidak bisa ditulis:\n{outdir}\n\n{e}\n\n"
@@ -6247,7 +6484,10 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
     def _start(self) -> None:
         try:
             return self._dispatch_gui_patch("_v46_start", fallback=self._start_base)
-        except Exception as exc:
+        except DownloadCancelledError:
+            raise
+        # Tk dispatches this user action through a dynamically composed patch.
+        except _GUI_CALLBACK_ERRORS as exc:
             # Tkinter otherwise prints callback exceptions only to stderr.  A
             # pythonw build has no console, leaving Download All apparently
             # inert.  Restore the controls and surface a useful error instead.
@@ -6257,7 +6497,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 self._dl_btn.configure(state="normal")
                 self._pause_btn.configure(state="disabled", text="⏸ Pause")
                 self._status_var.set(f"Download could not start: {exc}")
-            except Exception as reset_exc:
+            except _GUI_WIDGET_ERRORS as reset_exc:
                 logger.debug("Could not reset GUI after start failure: %s", reset_exc)
             from tkinter import messagebox
             messagebox.showerror(
@@ -6324,7 +6564,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                       font=ctk.CTkFont("Segoe UI", 11),
                       text_color=p["muted"]).pack(side="right")
 
-        row_widgets: List = []
+        row_widgets: list = []
 
         def _add_result_row(idx, url, status_text, status_color, detail=""):
             bg = p["surface"] if idx % 2 == 0 else p["bg"]
@@ -6354,7 +6594,8 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 url = item["url"]
                 _v25_safe_after(win, lambda u=url, i=i: status_lbl.configure(
                     text=f"[{i+1}/{len(items)}] Probing: {u[:50]}…"))
-                _v25_safe_after(win, lambda v=(i+1)/len(items): prog.set(v))
+                progress_value = (i + 1) / len(items)
+                _v25_safe_after(win, lambda v=progress_value: prog.set(v))
 
                 # Quick HEAD check of project candidates
                 try:
@@ -6376,8 +6617,8 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                                 if rp is not None:
                                     try:
                                         rp.close()
-                                    except Exception:
-                                        pass
+                                    except _GUI_WIDGET_ERRORS as close_exc:
+                                        logger.debug("Preflight response cleanup failed: %s", close_exc)
                             if rp is not None and rp.status_code < 400:
                                 detail = "Page OK — might need JS scan"
                                 color  = "#f59e0b"
@@ -6388,12 +6629,18 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                                 color  = "#ef4444"
                                 label  = "✗ ERROR"
                                 fail += 1
-                        except Exception as e:
+                        except DownloadCancelledError:
+                            raise
+                        # Fetch adapters form an external preflight job boundary.
+                        except _GUI_JOB_BOUNDARY_ERRORS as e:
                             detail = str(e)[:40]
                             color  = "#ef4444"
                             label  = "✗ OFFLINE"
                             fail += 1
-                except Exception as e:
+                except DownloadCancelledError:
+                    raise
+                # Candidate discovery may dispatch to optional network backends.
+                except _GUI_JOB_BOUNDARY_ERRORS as e:
                     detail = str(e)[:40]
                     color  = "#ef4444"
                     label  = "✗ ERROR"
@@ -6446,7 +6693,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 color = colors.get(state, self._p()["muted2"])
                 dot.delete("all")
                 dot.create_oval(2, 2, 8, 8, fill=color, outline="")
-            except Exception as _ignored_exc:
+            except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _update (line 7815): %s", _ignored_exc)
         self._run_on_ui_thread(_update)
 
@@ -6468,9 +6715,12 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             mirror_to_legacy("_ytdlp_enabled", _runtime_state._ytdlp_enabled)
             mirror_to_legacy("_bandwidth_limit_kbps", _runtime_state._bandwidth_limit_kbps)
             mirror_to_legacy("wait_time", _runtime_state.wait_time)
-        except Exception as _state_sync_exc:
+        except DownloadCancelledError:
+            raise
+        # Compatibility mirroring is a dynamic boundary inside the GUI job.
+        except _GUI_JOB_BOUNDARY_ERRORS as _state_sync_exc:
             logger.debug("Ignored runtime-state sync exception in GUI worker: %s", _state_sync_exc)
-        global wait_time, use_cloudscraper, _shared_session, _shared_session_cf, _ytdlp_enabled, _bandwidth_limit_kbps
+        global wait_time, _ytdlp_enabled, _bandwidth_limit_kbps
         _ytdlp_enabled        = ytdlp_enabled
         _bandwidth_limit_kbps = bw_limit
         wait_time        = wt
@@ -6491,7 +6741,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
         # ── Resume state ───────────────────────────────────────────
         state       = load_resume_state(outdir)
         completed   = set(state["completed"])
-        prev_failed = set(f["url"] if isinstance(f, dict) else f for f in state["failed"])
+        prev_failed = {f["url"] if isinstance(f, dict) else f for f in state["failed"]}
         url_counts = Counter(str(item.get("url") or "") for item in items if item.get("url"))
         duplicate_urls = {url for url, count in url_counts.items() if count > 1}
 
@@ -6510,10 +6760,10 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 self._set_dot(idx, "error")
 
         ok = 0
-        failed_items: List[Dict[str, str]] = []
-        completed_urls: List[str] = list(completed)
+        failed_items: list[dict[str, str]] = []
+        completed_urls: list[str] = list(completed)
         self._active_run_success_ids = set()
-        self._last_results: List[Dict] = []   # populated for Results popup
+        self._last_results: list[dict] = []   # populated for Results popup
 
         # ── Auto-detect phase ──────────────────────────────────────
         auto_items = [it for it in items
@@ -6620,7 +6870,10 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 save_resume_state(outdir, completed_urls,
                                   [f["url"] for f in failed_items])
 
-            except Exception as e:
+            except DownloadCancelledError:
+                raise
+            # run_download is the top-level boundary for one GUI queue job.
+            except _GUI_JOB_BOUNDARY_ERRORS as e:
                 logger.error(f"Failed [{url}]: {e}")
                 failed_items.append({"url": url, "error": str(e)})
                 self._last_results.append({
@@ -6663,8 +6916,9 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
         This only affects Auto mode. Explicit modes such as website_folder,
         website_zip, cyoap_vue_folder, and cyoap_vue_zip keep their old behavior.
         """
-        import customtkinter as ctk
         from tkinter import messagebox
+
+        import customtkinter as ctk
         p = self._p()
         is_en = getattr(self, "_language", "id") == "en"
         st = _load_settings()
@@ -6736,7 +6990,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             try:
                 self._update_mode_info(getattr(self, "_mode_var", "auto"))
                 self._apply_language()
-            except Exception as _ignored_exc:
+            except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _save (line 8061): %s", _ignored_exc)
             messagebox.showinfo(
                 "Saved" if is_en else "Tersimpan",
@@ -6774,13 +7028,13 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
             w, h = min(820, max(720, sw - 420)), min(680, max(600, sh - 240))
             win.geometry(f"{w}x{h}+{max(24,(sw-w)//2)}+{max(24,(sh-h)//2)}")
-        except Exception:
+        except _GUI_WIDGET_ERRORS:
             win.geometry("780x640")
         win.minsize(700, 560)
         win.configure(fg_color=p["bg"])
         try:
             win.grab_set()
-        except Exception as _ignored_exc:
+        except _GUI_WIDGET_ERRORS as _ignored_exc:
             logger.debug("Ignored recoverable exception in _toggles_panel (line 8100): %s", _ignored_exc)
 
         root = ctk.CTkFrame(win, fg_color=p["bg"], corner_radius=0)
@@ -6820,7 +7074,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             status_var.set(msg)
             try:
                 status_lbl.configure(text_color=p["accent"] if ok else "#f59e0b")
-            except Exception as _ignored_exc:
+            except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _set_status (line 8140): %s", _ignored_exc)
 
         def _section(row: int, text: str) -> int:
@@ -6857,7 +7111,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
 
         r = 0
         r = _section(r, "Core workflow" if is_en else "Alur utama")
-        _switch_card(r, 0, "🔎", "Deep scan" if is_en else "Deep scan",
+        _switch_card(r, 0, "🔎", "Deep scan",
                      "Discover assets referenced by JS/CSS bundles." if is_en else "Mencari aset dari bundle JS/CSS.",
                      "deep_scan_enabled", True, _set_deep_scan_enabled, "#3b82f6")
         _switch_card(r, 1, "🖼", "Selenium fallback" if is_en else "Fallback Selenium",
@@ -7046,9 +7300,9 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
         ctk.CTkLabel(card, text=("Smart fallback for gallery/post URLs." if is_en else "Fallback smart untuk URL galeri/post."), font=ctk.CTkFont("Segoe UI", 10), text_color=p["muted"], anchor="w", wraplength=285).grid(row=1, column=1, sticky="ew", pady=(0, 12))
         ctk.CTkSwitch(card, text="", variable=gallery_var, command=lambda: _set_gallery_from_toggle(gallery_var.get()), progress_color="#14b8a6", width=46).grid(row=0, column=2, rowspan=2, padx=(8, 12), pady=12)
 
-        itch_var = _switch_card(r, 1, "🎮", "itch.io downloader" if is_en else "Downloader itch.io",
-                                "Optional backend; public mode works without an API key." if is_en else "Backend opsional; mode publik tetap bisa tanpa API key.",
-                                "itch_enabled", False, _set_itch_enabled, "#ef4444")
+        _switch_card(r, 1, "🎮", "itch.io downloader" if is_en else "Downloader itch.io",
+                     "Optional backend; public mode works without an API key." if is_en else "Backend opsional; mode publik tetap bisa tanpa API key.",
+                     "itch_enabled", False, _set_itch_enabled, "#ef4444")
         r += 1
 
         r = _section(r + 1, "itch.io API key" if is_en else "API key itch.io")
@@ -7064,7 +7318,10 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             existing_key, _src = _resolve_itch_api_key("")
             if existing_key:
                 key_entry.insert(0, existing_key)
-        except Exception as _ignored_exc:
+        except DownloadCancelledError:
+            raise
+        # Credential resolution may dispatch to an optional keyring backend.
+        except _OPTIONAL_BACKEND_ERRORS as _ignored_exc:
             logger.debug("Ignored recoverable exception in _toggles_panel (line 8231): %s", _ignored_exc)
         btns = ctk.CTkFrame(key_card, fg_color="transparent")
         btns.grid(row=0, column=2, rowspan=3, padx=(12, 14), pady=14, sticky="e")
@@ -7078,7 +7335,10 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                     _update_settings({"itch_key_storage": "keyring", "itch_api_key": ""})
                     _set_status("Key saved to OS keyring." if is_en else "Key tersimpan ke OS keyring.", True)
                     return
-                except Exception as e:
+                except DownloadCancelledError:
+                    raise
+                # Keyring implementations expose backend-specific failures.
+                except _OPTIONAL_BACKEND_ERRORS as e:
                     logger.debug(f"itch keyring write failed: {e}")
             _update_settings({"itch_key_storage": "plain", "itch_api_key": k})
             _set_status("keyring unavailable — key saved in plaintext settings.json." if is_en else "keyring tidak tersedia — key tersimpan plaintext di settings.json.", False)
@@ -7106,8 +7366,9 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
         through self.root.after, so the panel remains responsive and Tk-safe.
         No API key, cookie, password, or token value is printed in the report.
         """
-        import customtkinter as ctk
         from tkinter import filedialog
+
+        import customtkinter as ctk
         p = self._p()
         is_en = (getattr(self, "_language", "id") == "en")
         lbl = {
@@ -7144,7 +7405,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             x = max(20, (sw - w) // 2)
             y = max(20, (sh - h) // 2)
             win.geometry(f"{w}x{h}+{x}+{y}")
-        except Exception:
+        except _GUI_WIDGET_ERRORS:
             win.geometry("900x640")
         win.minsize(820, 560)
         win.grab_set()
@@ -7198,7 +7459,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             box._textbox.tag_config("diag_head", foreground="#93c5fd")
             box._textbox.tag_config("diag_muted", foreground=p["muted"])
             box._textbox.tag_config("diag_plain", foreground=p["fg"])
-        except Exception as _ignored_exc:
+        except _GUI_WIDGET_ERRORS as _ignored_exc:
             logger.debug("Ignored recoverable exception in _diagnostics_panel (line 8365): %s", _ignored_exc)
         box.insert("1.0", ("Running diagnostics…\n" if is_en else "Menjalankan diagnostik…\n"))
         box.configure(state="disabled")
@@ -7217,7 +7478,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 win.clipboard_clear()
                 win.clipboard_append(report_holder["text"])
                 status_lbl.configure(text=lbl["copied"])
-            except Exception as e:
+            except _GUI_WIDGET_ERRORS as e:
                 status_lbl.configure(text=f"{lbl['copy_failed']}: {e}")
 
         def _save_as() -> None:
@@ -7230,7 +7491,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 if path:
                     pathlib.Path(path).write_text(report_holder["text"], encoding="utf-8")
                     status_lbl.configure(text=f"{lbl['saved']}: {path}")
-            except Exception as e:
+            except _GUI_WIDGET_ERRORS as e:
                 status_lbl.configure(text=f"{lbl['save_failed']}: {e}")
 
         def _save_to_output() -> None:
@@ -7240,10 +7501,10 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 path = os.path.join(folder, "cyoa_diagnostics.txt")
                 pathlib.Path(path).write_text(report_holder["text"], encoding="utf-8")
                 status_lbl.configure(text=f"{lbl['saved']}: {path}")
-            except Exception as e:
+            except _GUI_WIDGET_ERRORS as e:
                 status_lbl.configure(text=f"{lbl['save_failed']}: {e}")
 
-        def _render(text: str, counts: Dict[str, int]) -> None:
+        def _render(text: str, counts: dict[str, int]) -> None:
             report_holder["text"] = text
             report_holder["counts"] = dict(counts or {})
             box.configure(state="normal")
@@ -7309,7 +7570,10 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                         check_ai=bool(getattr(self, "_ai_enabled", False)),
                         language=getattr(self, "_language", "id"),
                     )
-                except Exception as e:
+                except DownloadCancelledError:
+                    raise
+                # Diagnostic probes include optional platform and network backends.
+                except _GUI_JOB_BOUNDARY_ERRORS as e:
                     text, counts = f"Diagnostics error: {e}", {"PASS": 0, "WARN": 0, "FAIL": 1}
                 self.root.after(0, lambda: _render(text, counts))
 
@@ -7374,7 +7638,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             self._set_status("No skipped_youtube_audio.txt found.")
             return
 
-        entries: List[Tuple[str, str]] = []
+        entries: list[tuple[str, str]] = []
         for f in skip_files:
             try:
                 with open(f, encoding="utf-8") as fh:
@@ -7384,7 +7648,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                             item = (line, os.path.dirname(os.path.abspath(f)))
                             if item not in entries:
                                 entries.append(item)
-            except Exception as _ignored_exc:
+            except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _retry_youtube_audio (line 8523): %s", _ignored_exc)
 
         if not entries:
@@ -7408,7 +7672,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 # Use each project's folder as the download root. The old code
                 # passed ``out/audio`` here, which created ``audio/audio`` and
                 # never changed the project JSON after a successful retry.
-                json_files: List[str] = []
+                json_files: list[str] = []
                 for root, _dirs, files in os.walk(out):
                     for name in files:
                         if not name.endswith(".json") or name.endswith("_metadata.json"):
@@ -7417,7 +7681,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                             continue
                         json_files.append(os.path.join(root, name))
 
-                candidates: Dict[str, str] = {}
+                candidates: dict[str, str] = {}
                 for json_path in json_files:
                     try:
                         with open(json_path, encoding="utf-8", errors="replace") as fh:
@@ -7427,7 +7691,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                         continue
                     candidates[json_path] = project_text
 
-                groups: Dict[str, Dict[str, Any]] = {}
+                groups: dict[str, dict[str, Any]] = {}
                 import re as _re
 
                 def _reference_keys(url: str) -> set[str]:
@@ -7496,7 +7760,10 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                     downloaded_total, patched_total,
                 )
                 ok = downloaded_total
-            except Exception as exc:
+            except DownloadCancelledError:
+                raise
+            # Audio retry coordinates parsers, yt-dlp, filesystem, and network backends.
+            except _GUI_JOB_BOUNDARY_ERRORS as exc:
                 logger.exception("[Retry Audio] failed: %s", exc)
             finally:
                 if _mod is not None:
@@ -7527,9 +7794,8 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
         Read failed_images.txt from output folder, re-download each image,
         and patch the corresponding project JSON(s) in the same folder.
         """
-        import customtkinter as ctk
-        from tkinter import filedialog, messagebox
         import glob
+        from tkinter import messagebox
 
         outdir = os.path.abspath(self._outdir_var.get() or os.getcwd())
         fail_logs = glob.glob(os.path.join(outdir, "**", "failed_images.txt"), recursive=True)
@@ -7541,7 +7807,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
 
         # Parse every per-project failed_images.txt. Batch/folder downloads
         # write one report inside each CYOA directory, not only at outdir.
-        failed_urls: List[str] = []
+        failed_urls: list[str] = []
         for fail_log in fail_logs:
             try:
                 with open(fail_log, encoding="utf-8", errors="replace") as f:
@@ -7562,7 +7828,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
         # Find project JSON files recursively. ICC-folder downloads keep their
         # project.json below a per-CYOA directory, so checking only outdir
         # silently made Retry Images a no-op for those downloads.
-        json_files: List[str] = []
+        json_files: list[str] = []
         for root, _dirs, files in os.walk(outdir):
             for name in files:
                 if not name.endswith(".json") or name.endswith("_metadata.json"):
@@ -7585,10 +7851,11 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                     f"{len(json_files)} project JSON ditemukan.")
 
         def _do_retry():
-            import base64, mimetypes
+            import base64
+            import mimetypes
             headers = {"User-Agent": "Mozilla/5.0"}
             patched_total = 0
-            embedded_by_url: Dict[str, str] = {}
+            embedded_by_url: dict[str, str] = {}
 
             for json_path in json_files:
                 try:
@@ -7597,7 +7864,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                     with open(json_path, encoding="utf-8",
                               errors="replace") as _jf:
                         project_str = _jf.read()
-                except Exception as e:
+                except _GUI_WIDGET_ERRORS as e:
                     logger.warning(f"  Cannot read {json_path}: {e}")
                     continue
 
@@ -7636,28 +7903,31 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                         logger.info(f"  ✓ Re-embedded: {os.path.basename(url)}")
                         changed = True
                         patched_total += 1
-                    except Exception as e:
+                    except DownloadCancelledError:
+                        raise
+                    # Asset retry fetches through the configured external network stack.
+                    except _GUI_JOB_BOUNDARY_ERRORS as e:
                         logger.warning(f"  ✗ Still failing: {url[:60]} — {e}")
 
                     finally:
                         if r is not None:
                             try:
                                 r.close()
-                            except Exception:
-                                pass
+                            except _GUI_WIDGET_ERRORS as close_exc:
+                                logger.debug("Retry response cleanup failed: %s", close_exc)
 
                 if changed:
                     try:
                         with open(json_path, "w", encoding="utf-8") as fout:
                             fout.write(project_str)
                         logger.info(f"  Updated: {os.path.basename(json_path)}")
-                    except Exception as e:
+                    except _GUI_WIDGET_ERRORS as e:
                         logger.error(f"  Write failed for {json_path}: {e}")
 
             if patched_total:
                 logger.info(f"[Retry Images] Done — {patched_total} gambar berhasil di-embed.")
             else:
-                logger.warning(f"[Retry Images] No images were successfully downloaded.")
+                logger.warning("[Retry Images] No images were successfully downloaded.")
 
         import threading
         threading.Thread(target=_do_retry, daemon=True).start()
@@ -7685,7 +7955,10 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                         f"{summary.new_routes} route option baru."
                     )
                     logger.info("[Retry Assets] %s", message)
-                except Exception as exc:
+                except DownloadCancelledError:
+                    raise
+                # Website recovery is a top-level GUI retry job boundary.
+                except _GUI_JOB_BOUNDARY_ERRORS as exc:
                     logger.exception("[Retry Assets] website recovery failed: %s", exc)
                     message = f"Retry Assets gagal: {exc}"
 
@@ -7715,7 +7988,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             state  = load_resume_state(outdir)
             state["completed"] = [u for u in state["completed"] if u not in failed_urls]
             save_resume_state(outdir, state["completed"], [])
-        except Exception as _ignored_exc:
+        except _GUI_WIDGET_ERRORS as _ignored_exc:
             logger.debug("Ignored recoverable exception in _retry_failed (line 8678): %s", _ignored_exc)
         # Reset dot for failed items
         for i, item in enumerate(self._queue_data):
@@ -7728,7 +8001,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
         logger.info(f"[Retry] {len(failed_urls)} item gagal di-reset — memulai ulang download")
         self._start()
 
-    def _remove_urls_from_queue(self, urls: Set[str]) -> int:
+    def _remove_urls_from_queue(self, urls: set[str]) -> int:
         """Remove only matching queue rows, preserving newer user-added rows."""
         if not urls:
             return 0
@@ -7738,11 +8011,11 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 if str(self._queue_data[idx].get("url", "")) in urls:
                     self._remove_row(idx)
                     removed += 1
-            except Exception as e:
+            except _GUI_WIDGET_ERRORS as e:
                 logger.debug(f"[Queue] Could not remove completed row {idx}: {e}")
         return removed
 
-    def _remove_queue_ids_from_queue(self, queue_ids: Set[str]) -> int:
+    def _remove_queue_ids_from_queue(self, queue_ids: set[str]) -> int:
         """Remove only the exact queue rows from a completed run snapshot."""
         if not queue_ids:
             return 0
@@ -7752,11 +8025,11 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 if str(self._queue_data[idx].get("_queue_id", "")) in queue_ids:
                     self._remove_row(idx)
                     removed += 1
-            except Exception as e:
+            except _GUI_WIDGET_ERRORS as e:
                 logger.debug(f"[Queue] Could not remove queue row {idx}: {e}")
         return removed
 
-    def _reveal_queue_ids(self, queue_ids: Set[str]) -> None:
+    def _reveal_queue_ids(self, queue_ids: set[str]) -> None:
         """Highlight failed rows and scroll the queue to the first one."""
         wanted = {str(value) for value in queue_ids if value}
         if not wanted:
@@ -7777,7 +8050,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                     self._set_dot(index, "error")
                     if first_row is None:
                         first_row, first_index = row, index
-                except Exception as exc:
+                except _GUI_WIDGET_ERRORS as exc:
                     logger.debug("[Queue] Could not highlight failed row: %s", exc)
             if first_row is None:
                 return
@@ -7793,7 +8066,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                     canvas.yview_moveto(position)
                 first_row.focus_set()
                 logger.info("[Queue] Revealed failed row %s.", first_index)
-            except Exception as exc:
+            except _GUI_WIDGET_ERRORS as exc:
                 logger.debug("[Queue] Could not scroll to failed row: %s", exc)
 
         self.root.after_idle(_reveal)
@@ -7823,7 +8096,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 self._active_run_queue_ids = set()
                 self._active_run_success_ids = set()
                 return
-        except Exception as _ignored_exc:
+        except _GUI_WIDGET_ERRORS as _ignored_exc:
             # Conservative on unparseable status. Previously
             # a status string that didn't match the "… — N/M …" shape (localized
             # text, error status, format drift) let the IndexError/ValueError be
@@ -7859,8 +8132,6 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
     def _show_results(self) -> None:
         """Show popup with per-item download results table."""
         import customtkinter as ctk
-        import tkinter as tk
-
         if not self._last_results:
             from tkinter import messagebox
             messagebox.showinfo("Results", "No results yet. Run a download first.")
@@ -7979,7 +8250,15 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 is_ok  = r["status"] == "OK"
                 row_bg = p["bg"] if ri % 2 == 0 else p["surface"]
 
-                def make_lbl(text, col, color=None, mono=False, anchor="w"):
+                def make_lbl(
+                    text,
+                    col,
+                    color=None,
+                    mono=False,
+                    anchor="w",
+                    row_bg=row_bg,
+                    ri=ri,
+                ):
                     lbl = ctk.CTkLabel(tbl_frame, text=text,
                                        font=ctk.CTkFont("Consolas" if mono else "Segoe UI", 9),
                                        text_color=color or p["fg"],
@@ -8007,9 +8286,10 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
         Batch export multiple project.json files to CYOA Manager library.
         Supports: scan folder, pick individual files, from download history.
         """
-        import customtkinter as ctk
-        from tkinter import filedialog, messagebox
         import glob as _glob
+        from tkinter import filedialog, messagebox
+
+        import customtkinter as ctk
 
         p   = self._p()
         s   = _load_settings()
@@ -8053,7 +8333,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
         list_box.pack(fill="both", expand=True, padx=6, pady=6)
         list_box.configure(state="disabled")
 
-        _file_paths: List[str] = []
+        _file_paths: list[str] = []
 
         def _refresh_list() -> None:
             list_box.configure(state="normal")
@@ -8181,8 +8461,9 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
         CYOA Manager actions. The panel stays open after actions so users can
         confirm status or run the next operation without reopening it.
         """
-        import customtkinter as ctk
         from tkinter import filedialog, messagebox
+
+        import customtkinter as ctk
 
         p = self._p()
         is_en = getattr(self, "_language", "id") == "en"
@@ -8196,12 +8477,12 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             w, h = min(780, max(700, sw - 360)), min(640, max(560, sh - 220))
             x, y = max(24, (sw - w) // 2), max(24, (sh - h) // 2)
             win.geometry(f"{w}x{h}+{x}+{y}")
-        except Exception:
+        except _GUI_WIDGET_ERRORS:
             win.geometry("740x600")
         win.minsize(680, 540)
         try:
             win.grab_set()
-        except Exception as _ignored_exc:
+        except _GUI_WIDGET_ERRORS as _ignored_exc:
             logger.debug("Ignored recoverable exception in _cyoa_manager_panel (line 9087): %s", _ignored_exc)
 
         root = ctk.CTkFrame(win, fg_color=p["bg"], corner_radius=0)
@@ -8239,11 +8520,11 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
         on_var = ctk.BooleanVar(value=bool(self._cyoa_mgr_var.get()))
         db_var = ctk.StringVar(value=(s.get("cyoa_mgr_db_path") or _find_cyoa_manager_db() or ""))
 
-        def _set_status(text: str, ok: Optional[bool] = None) -> None:
+        def _set_status(text: str, ok: bool | None = None) -> None:
             status_var.set(text)
             try:
                 status_label.configure(text_color=(p["accent"] if ok is True else "#f59e0b" if ok is False else p["muted"]))
-            except Exception as _ignored_exc:
+            except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _set_status (line 9129): %s", _ignored_exc)
 
         def _sync_toolbar_button() -> None:
@@ -8257,7 +8538,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                     text_color=p2["manager_fg"],
                 )
 
-        def _get_db() -> Optional[str]:
+        def _get_db() -> str | None:
             custom = (db_var.get() or s.get("cyoa_mgr_db_path", "") or "").strip()
             return custom if custom and os.path.exists(custom) else _find_cyoa_manager_db()
 
@@ -8329,12 +8610,12 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             card = ctk.CTkFrame(body, fg_color=p["surface"], corner_radius=10, border_width=1, border_color=p["border"])
             card.grid(row=row, column=col, sticky="nsew", padx=6, pady=5)
             card.grid_columnconfigure(1, weight=1)
-            ctk.CTkLabel(card, text=icon, width=28, font=ctk.CTkFont("Segoe UI Emoji", 16), text_color=p[fg] if fg in p else fg).grid(row=0, column=0, rowspan=2, padx=(12, 4), pady=10, sticky="n")
+            ctk.CTkLabel(card, text=icon, width=28, font=ctk.CTkFont("Segoe UI Emoji", 16), text_color=p.get(fg, fg)).grid(row=0, column=0, rowspan=2, padx=(12, 4), pady=10, sticky="n")
             ctk.CTkLabel(card, text=title, anchor="w", font=ctk.CTkFont("Segoe UI", 12, "bold"), text_color=p["fg"]).grid(row=0, column=1, sticky="ew", padx=(0, 10), pady=(10, 1))
             ctk.CTkLabel(card, text=desc, anchor="w", justify="left", wraplength=280, font=ctk.CTkFont("Segoe UI", 10), text_color=p["muted"]).grid(row=1, column=1, sticky="ew", padx=(0, 10), pady=(0, 8))
             ctk.CTkButton(card, text=("Open" if is_en else "Buka"), width=68, height=28,
-                          fg_color=p[color] if color in p else color, hover_color=p[hover] if hover in p else hover,
-                          text_color=p[fg] if fg in p else fg, font=ctk.CTkFont("Segoe UI", 10, "bold"),
+                          fg_color=p.get(color, color), hover_color=p.get(hover, hover),
+                          text_color=p.get(fg, fg), font=ctk.CTkFont("Segoe UI", 10, "bold"),
                           command=cmd).grid(row=0, column=2, rowspan=2, padx=(0, 12), pady=12)
 
         def _manual_add() -> None:
@@ -8401,17 +8682,17 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             child.transient(win)
             try:
                 child.grab_set()
-            except Exception as _ignored_exc:
+            except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _open_import_panel (line 9286): %s", _ignored_exc)
             def _close_child() -> None:
                 try:
                     child.grab_release()
-                except Exception as _ignored_exc:
+                except _GUI_WIDGET_ERRORS as _ignored_exc:
                     logger.debug("Ignored recoverable exception in _close_child (line 9291): %s", _ignored_exc)
                 child.destroy()
                 try:
                     win.lift(); win.focus_force()
-                except Exception as _ignored_exc:
+                except _GUI_WIDGET_ERRORS as _ignored_exc:
                     logger.debug("Ignored recoverable exception in _close_child (line 9296): %s", _ignored_exc)
             child.protocol("WM_DELETE_WINDOW", _close_child)
             ctk.CTkLabel(child, text=(f"CYOA Manager Library — {len(projects)} project(s)" if is_en else f"Library CYOA Manager — {len(projects)} project"), font=ctk.CTkFont("Segoe UI", 14, "bold"), text_color=p["fg"]).pack(anchor="w", padx=16, pady=(14, 4))
@@ -8553,11 +8834,11 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             ok, msg = export_settings(path)
             logger.info(msg)
             (messagebox.showinfo if ok else messagebox.showerror)("Export Settings", msg)
-        except Exception as e:
+        except _GUI_WIDGET_ERRORS as e:
             logger.warning(f"Export settings dialog failed: {e}")
             try:
                 messagebox.showerror("Export Settings", f"Failed: {e}")
-            except Exception as _ignored_exc:
+            except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _export_settings_dialog (line 9442): %s", _ignored_exc)
 
     def _import_settings_dialog(self) -> None:
@@ -8578,11 +8859,11 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                           "restarting the app to take full effect.")
             else:
                 messagebox.showerror("Import Settings", msg)
-        except Exception as e:
+        except _GUI_WIDGET_ERRORS as e:
             logger.warning(f"Import settings dialog failed: {e}")
             try:
                 messagebox.showerror("Import Settings", f"Failed: {e}")
-            except Exception as _ignored_exc:
+            except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _import_settings_dialog (line 9467): %s", _ignored_exc)
 
     def _cache_manager_panel(self) -> None:
@@ -8632,8 +8913,9 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
 
     # ── CYOA Manager Import (Infaera list download) ────────────────────
     def _import_from_cyoa_manager_panel(self) -> None:
-        import customtkinter as ctk
         from tkinter import messagebox
+
+        import customtkinter as ctk
         p = self._p()
         projects = _list_cyoa_manager_projects()
         if not projects:
@@ -8672,7 +8954,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
         lf = ctk.CTkScrollableFrame(win, fg_color=p["surface2"], corner_radius=8)
         lf.pack(padx=14, pady=(0, 8), fill="both", expand=True)
 
-        check_vars: List[tuple] = []  # (BooleanVar, project_dict)
+        check_vars: list[tuple] = []  # (BooleanVar, project_dict)
 
         def _rebuild(filter_text=""):
             for w in lf.winfo_children():
@@ -8766,7 +9048,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             anchor="e"
         )
         self._speed_label.grid(row=1, column=3, padx=(0, 4), pady=(0, 4), sticky="e")
-        self._speed_history: List[float] = []   # last 60 speed samples (KB/s)
+        self._speed_history: list[float] = []   # last 60 speed samples (KB/s)
         self._speed_bytes_acc = 0
         self._speed_timer_id = None
 
@@ -8785,8 +9067,6 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
         """Called every 1s via root.after — updates speed history and redraws."""
         if not hasattr(self, "_speed_canvas"):
             return
-        import tkinter as tk
-
         # Compute speed for this 1-second interval
         speed_kbs = self._speed_bytes_acc / 1024.0
         self._speed_bytes_acc = 0
@@ -8865,8 +9145,9 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
 
     # ── AI API Key Settings ────────────────────────────────────────────
     def _ai_settings_panel(self) -> None:
-        import customtkinter as ctk
         from tkinter import messagebox
+
+        import customtkinter as ctk
         p = self._p()
         is_en = getattr(self, "_language", "id") == "en"
         win = self._make_singleton_window("ai_settings_legacy")
@@ -8921,14 +9202,14 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
         storage_var = ctk.StringVar(value=_normalize_ai_key_storage(st.get("ai_key_storage", getattr(self, "_ai_key_storage", "session"))))
         session_key_var = ctk.StringVar(value=self._ai_api_key if storage_var.get() in {"session", "plain"} else "")
 
-        label(0, "Provider" if is_en else "Provider")
+        label(0, "Provider")
         provider_menu = ctk.CTkOptionMenu(grid, variable=provider_var, values=["anthropic", "openai", "gemini", "ollama"],
             fg_color=p["surface2"], button_color=p["surface2"], button_hover_color=p["surface"],
             text_color=p["fg"], dropdown_fg_color=p["surface2"], dropdown_text_color=p["fg"],
             height=32)
         provider_menu.grid(row=0, column=1, sticky="ew", pady=5)
 
-        label(1, "Model" if is_en else "Model")
+        label(1, "Model")
         # CTkComboBox keeps curated presets but also lets advanced users type a custom model id.
         model_menu = ctk.CTkComboBox(grid, variable=model_var,
             values=_ai_model_options(provider_var.get()),
@@ -8951,7 +9232,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             text_color=p["fg"], dropdown_fg_color=p["surface2"], dropdown_text_color=p["fg"],
             height=32).grid(row=3, column=1, sticky="ew", pady=5)
 
-        label(4, "API Key" if is_en else "API Key")
+        label(4, "API Key")
         key_entry = ctk.CTkEntry(grid, textvariable=session_key_var,
             font=ctk.CTkFont("Segoe UI", 11), fg_color=p["surface2"], text_color=p["fg"],
             border_color=p["border"], height=32, show="•")
@@ -8982,33 +9263,33 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             if provider == "ollama":
                 key_entry.configure(state="disabled", placeholder_text="Ollama uses local API")
                 try: ollama_url_entry.configure(state="normal")
-                except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 9848): %s", _ignored_exc)
-                warn_var.set(("Ollama runs locally by default. Set the URL if your Ollama server uses a different host or port." if is_en else
-                              "Ollama berjalan lokal secara default. Atur URL jika server Ollama memakai host atau port berbeda."))
+                except _GUI_WIDGET_ERRORS as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 9848): %s", _ignored_exc)
+                warn_var.set("Ollama runs locally by default. Set the URL if your Ollama server uses a different host or port." if is_en else
+                              "Ollama berjalan lokal secara default. Atur URL jika server Ollama memakai host atau port berbeda.")
             elif mode == "env":
                 try: ollama_url_entry.configure(state="disabled")
-                except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 9853): %s", _ignored_exc)
+                except _GUI_WIDGET_ERRORS as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 9853): %s", _ignored_exc)
                 key_entry.configure(state="disabled", placeholder_text=_ai_primary_env_var(provider_var.get()) or "No API key needed")
-                warn_var.set((("Set " + " or ".join(_ai_env_vars(provider_var.get())) + " in your environment. The app will not store it.") if is_en else
-                              ("Atur " + " atau ".join(_ai_env_vars(provider_var.get())) + " di environment. Aplikasi tidak akan menyimpannya.")))
+                warn_var.set(("Set " + " or ".join(_ai_env_vars(provider_var.get())) + " in your environment. The app will not store it.") if is_en else
+                              ("Atur " + " atau ".join(_ai_env_vars(provider_var.get())) + " di environment. Aplikasi tidak akan menyimpannya."))
             elif mode == "keyring":
                 try: ollama_url_entry.configure(state="disabled")
-                except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 9859): %s", _ignored_exc)
+                except _GUI_WIDGET_ERRORS as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 9859): %s", _ignored_exc)
                 key_entry.configure(state="normal", placeholder_text=("Enter key to save to OS Credential Manager" if is_en else "Masukkan key untuk disimpan ke OS Credential Manager"))
-                warn_var.set(("Requires optional package: pip install keyring" if not _keyring_module() else
-                              ("Key will be stored in the OS credential store." if is_en else "Key akan disimpan di credential store sistem operasi.")))
+                warn_var.set("Requires optional package: pip install keyring" if not _keyring_module() else
+                              ("Key will be stored in the OS credential store." if is_en else "Key akan disimpan di credential store sistem operasi."))
             elif mode == "plain":
                 try: ollama_url_entry.configure(state="disabled")
-                except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 9865): %s", _ignored_exc)
+                except _GUI_WIDGET_ERRORS as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 9865): %s", _ignored_exc)
                 key_entry.configure(state="normal", placeholder_text=("not needed" if _normalize_ai_provider(provider_var.get()) == "ollama" else "API key..."))
-                warn_var.set(("Warning: this stores the API key as plain text in settings.json." if is_en else
-                              "Peringatan: API key akan disimpan sebagai teks biasa di settings.json."))
+                warn_var.set("Warning: this stores the API key as plain text in settings.json." if is_en else
+                              "Peringatan: API key akan disimpan sebagai teks biasa di settings.json.")
             else:
                 try: ollama_url_entry.configure(state="disabled")
-                except Exception as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 9871): %s", _ignored_exc)
+                except _GUI_WIDGET_ERRORS as _ignored_exc: logger.debug("Ignored recoverable exception in _refresh_key_ui (line 9871): %s", _ignored_exc)
                 key_entry.configure(state="normal", placeholder_text=("Session only. Cleared when app exits." if is_en else "Hanya sesi ini. Hilang saat aplikasi ditutup."))
-                warn_var.set(("Safest default. The key stays in memory only." if is_en else
-                              "Default paling aman. Key hanya tersimpan di memori."))
+                warn_var.set("Safest default. The key stays in memory only." if is_en else
+                              "Default paling aman. Key hanya tersimpan di memori.")
             status_var.set(_ai_key_status_text(mode, session_key_var.get(), provider_var.get()))
 
         storage_var.trace_add("write", _refresh_key_ui)
@@ -9018,7 +9299,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             opts = _ai_model_options(prov)
             try:
                 model_menu.configure(values=opts)
-            except Exception as _ignored_exc:
+            except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _provider_changed (line 9884): %s", _ignored_exc)
             if model_var.get() not in opts:
                 model_var.set(_default_ai_model(prov))
@@ -9081,10 +9362,9 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 self._ai_api_key = api_key
             elif mode == "keyring":
                 _clear_ai_plain_keys(settings, None)
-                if api_key:
-                    if not _write_ai_key_to_keyring(api_key, provider):
-                        messagebox.showerror("AI Assist", "Failed to write to OS Credential Manager. Install keyring or choose another storage." if is_en else "Gagal menyimpan ke OS Credential Manager. Install keyring atau pilih storage lain.")
-                        return
+                if api_key and not _write_ai_key_to_keyring(api_key, provider):
+                    messagebox.showerror("AI Assist", "Failed to write to OS Credential Manager. Install keyring or choose another storage." if is_en else "Gagal menyimpan ke OS Credential Manager. Install keyring atau pilih storage lain.")
+                    return
                 self._ai_api_key = ""
             elif mode == "session":
                 _clear_ai_plain_keys(settings, None)
@@ -9127,8 +9407,9 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
 
     # ── Auto-update Checker ────────────────────────────────────────────
     def _check_updates_panel(self) -> None:
-        import customtkinter as ctk
         import webbrowser
+
+        import customtkinter as ctk
         p = self._p()
         win = self._make_singleton_window("check_updates")
         if win is None:
@@ -9191,7 +9472,10 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                     return
                 info = _check_for_app_updates()
                 self.root.after(0, lambda i=info: _apply_check_result(i))
-            except Exception as e:
+            except DownloadCancelledError:
+                raise
+            # Release checks cross the configured external update backend.
+            except _GUI_JOB_BOUNDARY_ERRORS as e:
                 self.root.after(0, lambda err=str(e): _apply_check_result(None, err))
 
         ctk.CTkButton(btn_frame, text="Close", height=30,
@@ -9302,13 +9586,14 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             # (AttributeError was silently swallowed, so the URL was never
             # added). The real handler is _add_to_queue(), which reads _url_var.
             self._add_to_queue()
-        except Exception as _ignored_exc:
+        except _GUI_WIDGET_ERRORS as _ignored_exc:
             logger.debug("Ignored recoverable exception in _add_url_to_queue (line 10167): %s", _ignored_exc)
 
     def _show_credits_panel(self) -> None:
         """Show a compact credits/sources panel."""
-        import customtkinter as ctk
         import webbrowser
+
+        import customtkinter as ctk
 
         p = self._p()
         panel_card = p.get("panel2") or p.get("surface2") or p.get("panel") or p.get("bg", "#111827")
@@ -9329,14 +9614,14 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             x = max(20, (sw - w) // 2)
             y = max(20, (sh - h) // 2)
             win.geometry(f"{w}x{h}+{x}+{y}")
-        except Exception:
+        except _GUI_WIDGET_ERRORS:
             win.geometry("740x580")
         win.minsize(660, 500)
         try:
             win.transient(self.root)
             win.lift()
             win.focus_force()
-        except Exception as _ignored_exc:
+        except _GUI_WIDGET_ERRORS as _ignored_exc:
             logger.debug("Ignored recoverable exception in _show_credits_panel (line 10201): %s", _ignored_exc)
 
         hdr = ctk.CTkFrame(win, fg_color=p["panel"], corner_radius=0, height=52)
@@ -9580,13 +9865,16 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                         win.focus_force()
                         win.attributes("-topmost", True)
                         win.after(220, lambda: win.attributes("-topmost", False))
-                    except Exception as _ignored_exc:
+                    except _GUI_WIDGET_ERRORS as _ignored_exc:
                         logger.debug("Ignored recoverable exception in _refocus (line 10317): %s", _ignored_exc)
                 try:
                     win.after(250, _refocus)
-                except Exception as _ignored_exc:
+                except _GUI_WIDGET_ERRORS as _ignored_exc:
                     logger.debug("Ignored recoverable exception in open_url (line 10321): %s", _ignored_exc)
-            except Exception as e:
+            except DownloadCancelledError:
+                raise
+            # webbrowser dispatches to platform-selected user handlers.
+            except _GUI_CALLBACK_ERRORS as e:
                 self._safe_message("Open URL", str(e))
 
         # v46.11: group credits by category and show role + license metadata.
@@ -9601,7 +9889,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
         }
         category_order = ["base", "inspiration", "ecosystem", "library", "tooling", "community", "gratitude"]
 
-        def license_color(lic: Optional[str]) -> str:
+        def license_color(lic: str | None) -> str:
             if not lic:
                 return p["muted"]
             low = lic.lower()
@@ -9611,7 +9899,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 return "#22c55e"   # permissive — green
             return p["muted"]      # unknown / see repo
 
-        grouped: Dict[str, list] = {}
+        grouped: dict[str, list] = {}
         for item in sources:
             grouped.setdefault(item.get("category", "community"), []).append(item)
 
@@ -9715,7 +10003,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             x = max(20, (sw - w) // 2)
             y = max(20, (sh - h) // 2)
             win.geometry(f"{w}x{h}+{x}+{y}")
-        except Exception:
+        except _GUI_WIDGET_ERRORS:
             win.geometry("980x720")
         win.minsize(900, 640)
         win.grab_set()
@@ -10725,7 +11013,6 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
         GUI popup to manage offline viewer ZIPs.
         Users can: add ZIP, see registered viewers, remove viewers.
         """
-        import customtkinter as ctk
         from tkinter import filedialog, messagebox
 
         p   = self._p()
@@ -10916,7 +11203,10 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
 
                     win.after(0, _offer)
 
-                except Exception as e:
+                except DownloadCancelledError:
+                    raise
+                # Update checks are an external network job boundary.
+                except _GUI_JOB_BOUNDARY_ERRORS as e:
                     # v7.5.5 fix: capture message now — `e` is deleted when the
                     # except block exits, so the deferred lambda raised NameError.
                     win.after(0, lambda msg=str(e): status_var.set(f"Update check failed: {msg}"))
@@ -10924,8 +11214,8 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                     if r is not None:
                         try:
                             r.close()
-                        except Exception:
-                            pass
+                        except _GUI_WIDGET_ERRORS as close_exc:
+                            logger.debug("Update-check response cleanup failed: %s", close_exc)
 
             def _do_download(tag, asset_name, asset_url):
                 status_var.set(f"Downloading {asset_name}…")
@@ -10960,7 +11250,10 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                             status_var.set(f"✓ {asset_name} registered as '{vid}'."),
                             _refresh_list()
                         ))
-                    except Exception as e:
+                    except DownloadCancelledError:
+                        raise
+                    # Viewer downloads cross network, filesystem, and archive backends.
+                    except _GUI_JOB_BOUNDARY_ERRORS as e:
                         # v7.5.5 fix: same late-binding NameError as update check.
                         win.after(0, lambda msg=str(e): status_var.set(f"Download failed: {msg}"))
 
@@ -10984,10 +11277,11 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
         else:
             self._start_server()
 
-    def _start_server(self, folder: "Optional[str]" = None) -> None:
-        import customtkinter as ctk
+    def _start_server(self, folder: str | None = None) -> None:
+        import http.server
+        import mimetypes
+        import webbrowser
         from tkinter import filedialog, messagebox
-        import http.server, webbrowser, mimetypes
 
         # ── Lifecycle guard ───────────────────────────────────────────────
         # Item 6: respect the serve toggle. When off, never auto-start a server.
@@ -10998,7 +11292,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 _mb.showinfo("Serve disabled",
                              "Serve preview is turned off in settings.\n"
                              "Enable it in the toggles to use local preview.")
-            except Exception as _ignored_exc:
+            except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _start_server (line 11545): %s", _ignored_exc)
             return
         # Prevent a second server from being launched on top of a running one.
@@ -11015,7 +11309,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             try:
                 _stale.shutdown()
                 _stale.server_close()
-            except Exception as _ignored_exc:
+            except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _start_server (line 11562): %s", _ignored_exc)
 
         # Pick folder to serve (skip dialog when a folder is supplied, e.g. restart)
@@ -11512,7 +11806,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                     r'<meta[^>]+content=["\'][^"\']*script-src[^"\']*["\'][^>]*http-equiv=["\']Content-Security-Policy["\'][^>]*>',
                     '', html_text, flags=re.IGNORECASE,
                 )
-            except Exception as _ignored_exc:
+            except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _strip_local_preview_csp (line 12059): %s", _ignored_exc)
             return html_text
 
@@ -11633,7 +11927,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                 return
 
-        def _intcyoaenhancer_local_candidates() -> List[str]:
+        def _intcyoaenhancer_local_candidates() -> list[str]:
             script_dir = os.path.dirname(os.path.abspath(_CYOA_LEGACY_PUBLIC_FILE))
             names = (
                 'IntCyoaEnhancer.user.js',
@@ -11648,18 +11942,18 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 os.path.join(script_dir, 'userscripts'),
                 os.path.join(script_dir, 'serve_userscripts'),
             )
-            out: List[str] = []
+            out: list[str] = []
             for root in roots:
                 for name in names:
                     out.append(os.path.join(root, name))
             return out
 
-        def _find_local_intcyoaenhancer_script() -> Optional[str]:
+        def _find_local_intcyoaenhancer_script() -> str | None:
             for candidate in _intcyoaenhancer_local_candidates():
                 try:
                     if os.path.isfile(candidate):
                         return candidate
-                except Exception as _ignored_exc:
+                except _GUI_WIDGET_ERRORS as _ignored_exc:
                     logger.debug("Ignored recoverable exception in _find_local_intcyoaenhancer_script (line 12206): %s", _ignored_exc)
             return None
 
@@ -11690,7 +11984,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                     local_text = pathlib.Path(local_path).read_text(encoding='utf-8', errors='replace')
                     _serve_js_bytes(handler, credit + local_text, status=200)
                     return
-                except Exception as e:
+                except _GUI_WIDGET_ERRORS as e:
                     logger.warning(f"Bundled IntCyoaEnhancer Cheat helper override failed, serving bundled helper instead: {e}")
             _serve_js_bytes(handler, credit + _BUNDLED_INTCYOAENHANCER_USERSCRIPT, status=200)
 
@@ -11759,7 +12053,8 @@ async function importIDB(){const raw=prompt('Paste IndexedDB export JSON:');if(!
 
             def do_GET(self):
                 """Serve preview files and expose a cache/storage clear route."""
-                import gzip as _gz, io as _io
+                import gzip as _gz
+                import io as _io
                 from urllib.parse import urlparse as _urlparse
 
                 # Explicit browser-side clear route. This clears localStorage,
@@ -11837,7 +12132,10 @@ async function importIDB(){const raw=prompt('Paste IndexedDB export JSON:');if(!
                             _serve_html_bytes(self, _inject_serve_tools(raw_html))
                             logger.info(f"[Server] Serve Tools injected into HTML: {os.path.relpath(html_path, folder)}")
                             return
-                    except Exception as _tools_e:
+                    except DownloadCancelledError:
+                        raise
+                    # Request handling invokes optional preview-injection helpers.
+                    except _GUI_JOB_BOUNDARY_ERRORS as _tools_e:
                         logger.debug(f"Serve Tools auto-injection skipped: {_tools_e}")
 
                 if route_path == "/__clear_cache__":
@@ -11902,7 +12200,7 @@ async function importIDB(){const raw=prompt('Paste IndexedDB export JSON:');if(!
                     self.send_header("Content-Length", str(len(compressed)))
                     self.end_headers()
                     self.wfile.write(compressed)
-                except Exception:
+                except _GUI_WIDGET_ERRORS:
                     return super().do_GET()
 
             def do_OPTIONS(self):
@@ -11953,11 +12251,10 @@ async function importIDB(){const raw=prompt('Paste IndexedDB export JSON:');if(!
             stamp = int(time.time() * 1000)
             webbrowser.open(f"http://127.0.0.1:{port}/__clear_cache__?cb={stamp}&serve_tools=1&ptok={preview_token}")
 
-        except Exception as e:
+        except _GUI_WIDGET_ERRORS as e:
             messagebox.showerror("Server Error", str(e))
 
     def _stop_server(self) -> None:
-        import customtkinter as ctk
         import threading as _th
 
         server_to_stop = self._server_obj
@@ -11988,7 +12285,7 @@ async function importIDB(){const raw=prompt('Paste IndexedDB export JSON:');if(!
                 try:
                     server_to_stop.shutdown()
                     server_to_stop.server_close()
-                except Exception as _ignored_exc:
+                except _GUI_WIDGET_ERRORS as _ignored_exc:
                     logger.debug("Ignored recoverable exception in _do_shutdown (line 12535): %s", _ignored_exc)
             logger.info("[Server] Stopped")
 
@@ -12008,7 +12305,7 @@ async function importIDB(){const raw=prompt('Paste IndexedDB export JSON:');if(!
             self._start_server(folder=folder)
         try:
             self.root.after(600, _resume)
-        except Exception:
+        except _GUI_WIDGET_ERRORS:
             # No Tk loop available (shouldn't happen from GUI) — best effort.
             self._start_server(folder=folder)
 
@@ -12042,7 +12339,7 @@ async function importIDB(){const raw=prompt('Paste IndexedDB export JSON:');if(!
 def _gui_exists(widget: Any) -> bool:
     try:
         return bool(widget and widget.winfo_exists())
-    except Exception:
+    except _GUI_WIDGET_ERRORS:
         return False
 
-__all__ = ["CYOADownloaderGUI", "launch_gui", "_gui_exists", "_sync_legacy_globals"]
+__all__ = ["CYOADownloaderGUI", "_gui_exists", "_sync_legacy_globals", "launch_gui"]

@@ -7,11 +7,17 @@ explicit and idempotent.
 
 from __future__ import annotations
 
-import threading
 import inspect
-from typing import Any, Dict, List, Optional, Set
+import threading
+from typing import Any
 
+from ..core.progress import DownloadCancelledError
 from ..logging_setup import logger
+
+# Plugin callbacks are intentionally isolated because they are user/extender
+# supplied. Keep the boundary broad, but never convert cancellation into an
+# empty scanner result or detector miss.
+_PLUGIN_CALLBACK_ERRORS = (Exception,)
 
 
 class _PluginRegistry:
@@ -19,8 +25,8 @@ class _PluginRegistry:
 
     def __init__(self, kind: str):
         self._kind = kind
-        self._plugins: Dict[str, Any] = {}
-        self._order: List[str] = []
+        self._plugins: dict[str, Any] = {}
+        self._order: list[str] = []
         self._lock = threading.Lock()
 
     def register(self, name: str, fn, override: bool = False) -> None:
@@ -43,7 +49,7 @@ class _PluginRegistry:
                 return True
             return False
 
-    def names(self) -> List[str]:
+    def names(self) -> list[str]:
         with self._lock:
             return list(self._order)
 
@@ -71,27 +77,31 @@ def run_asset_scanner_plugins(
     file_url: str,
     base_url: str,
     file_ext: str = ".js",
-) -> Set[str]:
+) -> set[str]:
     """Run every registered asset scanner, union their results, isolate failures."""
-    out: Set[str] = set()
+    out: set[str] = set()
     for name, fn in _ASSET_SCANNER_PLUGINS.items():
         try:
             res = fn(text, file_url, base_url, file_ext)
             if res:
                 out |= set(res)
-        except Exception as e:
+        except DownloadCancelledError:
+            raise
+        except _PLUGIN_CALLBACK_ERRORS as e:
             logger.debug(f"[plugin:scanner:{name}] failed on {file_url}: {e}")
     return out
 
 
-def run_engine_detector_plugins(html_text: str, mode: str = "auto") -> Optional[Dict]:
+def run_engine_detector_plugins(html_text: str, mode: str = "auto") -> dict | None:
     """First detector that returns a non-None dict wins; failures are isolated."""
     for name, fn in _ENGINE_DETECTOR_PLUGINS.items():
         try:
             res = fn(html_text, mode)
             if res:
                 return res
-        except Exception as e:
+        except DownloadCancelledError:
+            raise
+        except _PLUGIN_CALLBACK_ERRORS as e:
             logger.debug(f"[plugin:detector:{name}] failed: {e}")
     return None
 
@@ -120,12 +130,12 @@ def _register_builtin_plugins(scanner=None, detector=None) -> None:
 _register_builtin_plugins.__signature__ = inspect.Signature()
 
 __all__ = [
-    "_PluginRegistry",
     "_ASSET_SCANNER_PLUGINS",
     "_ENGINE_DETECTOR_PLUGINS",
+    "_PluginRegistry",
+    "_register_builtin_plugins",
     "register_asset_scanner",
     "register_engine_detector",
     "run_asset_scanner_plugins",
     "run_engine_detector_plugins",
-    "_register_builtin_plugins",
 ]

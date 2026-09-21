@@ -8,7 +8,7 @@ from cyoa_downloader_app.network.throttle import http2_runtime_info
 def test_http2_probe_reports_active_interpreter_and_capability_details():
     info = http2_runtime_info()
 
-    assert set(("available", "python", "httpx_version", "h2_version", "detail")) <= set(info)
+    assert {"available", "python", "httpx_version", "h2_version", "detail"} <= set(info)
     assert info["python"]
     assert info["detail"]
     if info["available"]:

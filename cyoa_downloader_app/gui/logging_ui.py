@@ -12,9 +12,10 @@ import queue as log_queue_module
 import re
 import threading
 from datetime import datetime
-from typing import Any, List
+from typing import Any
 
-from ..logging_setup import logger, _formatter
+from ..logging_setup import _formatter, logger
+
 
 class GUILogHandler(logging.Handler):
     """Non-blocking, level-aware bridge from worker logs to the Tk main thread."""
@@ -44,7 +45,7 @@ class GUILogHandler(logging.Handler):
             dropped = self._take_dropped()
             if dropped:
                 notice = (
-                    f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]}"
+                    f"{datetime.now().astimezone().strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]}"
                     f" - WARNING - GUI log queue was saturated; "
                     f"{dropped} older line(s) were skipped."
                 )
@@ -192,7 +193,7 @@ def _v465_poll_log(self: Any) -> None:
             return
     except Exception:
         return
-    batch: List[Any] = []
+    batch: list[Any] = []
     try:
         # Keep log rendering incremental so a burst of network messages cannot
         # monopolize Tk's event loop on slower laptops.
@@ -242,7 +243,11 @@ def _v465_safe_message(self: Any, title: str, message: str) -> None:
         self.root.after(0, show)
 
 __all__ = [
-    "GUILogHandler", "_v465_configure_log_tags", "_v465_log_tag",
-    "_v465_setup_logging", "_v465_insert_log_line", "_v465_poll_log",
+    "GUILogHandler",
+    "_v465_configure_log_tags",
+    "_v465_insert_log_line",
+    "_v465_log_tag",
+    "_v465_poll_log",
     "_v465_safe_message",
+    "_v465_setup_logging",
 ]

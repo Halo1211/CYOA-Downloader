@@ -1,5 +1,7 @@
-import importlib
 
+import pytest
+
+from cyoa_downloader_app.core.progress import DownloadCancelledError
 from cyoa_downloader_app.core.url_utils import _directory_base_url
 from cyoa_downloader_app.project import cyoap_vue
 
@@ -68,6 +70,29 @@ def test_probe_cyoap_vue_structure_rejects_html_fallback(monkeypatch):
     monkeypatch.setattr(cyoap_vue, "fetch_response", fake_fetch)
 
     assert cyoap_vue._probe_cyoap_vue_structure("https://example.com/game/123") is False
+
+
+def test_probe_cyoap_vue_structure_propagates_cancellation(monkeypatch):
+    def cancelled_fetch(*_args, **_kwargs):
+        raise DownloadCancelledError("cancelled CYOAP probe")
+
+    monkeypatch.setattr(cyoap_vue, "fetch_response", cancelled_fetch)
+
+    with pytest.raises(DownloadCancelledError, match="cancelled CYOAP probe"):
+        cyoap_vue._probe_cyoap_vue_structure("https://example.test/game/123")
+
+
+def test_cyoap_vue_download_propagates_cancellation(tmp_path, monkeypatch):
+    def cancelled_fetch(*_args, **_kwargs):
+        raise DownloadCancelledError("cancelled CYOAP fetch")
+
+    monkeypatch.setattr(cyoap_vue, "fetch_response", cancelled_fetch)
+
+    with pytest.raises(DownloadCancelledError, match="cancelled CYOAP fetch"):
+        cyoap_vue.try_download_cyoap_vue_site(
+            "https://example.test/game/123/",
+            str(tmp_path),
+        )
 
 
 def test_phase16_symbols_are_owned_by_domain_modules():

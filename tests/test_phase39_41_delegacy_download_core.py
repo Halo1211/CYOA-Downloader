@@ -2,9 +2,9 @@ import os
 from contextlib import contextmanager
 from pathlib import Path
 
-import cyoa_downloader as facade
 import pytest
 
+import cyoa_downloader as facade
 from cyoa_downloader_app.download import image_pipeline, orchestrator
 
 

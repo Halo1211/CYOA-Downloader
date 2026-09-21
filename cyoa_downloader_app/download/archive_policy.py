@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-
 ARCHIVE_STRATEGIES = ("classic", "smart", "browser", "auto")
 ARCHIVE_INTERACTION_POLICIES = ("off", "safe")
 
@@ -32,7 +31,7 @@ class ArchivePolicy:
     max_interactions: int = 20
     no_progress_rounds: int = 2
 
-    def normalized(self) -> "ArchivePolicy":
+    def normalized(self) -> ArchivePolicy:
         strategy = str(self.strategy or "classic").strip().lower()
         if strategy not in ARCHIVE_STRATEGIES:
             strategy = "classic"

@@ -7,17 +7,19 @@ import io
 import os
 import re
 from datetime import datetime
-from typing import Dict, List, Optional
 
 from ..constants.modes import (
-    _BATCH_VALID_MODES, _PURE_MODES, _CYOAP_MODES, _WEBSITE_MODES, _FOLDER_MODES,
+    _BATCH_VALID_MODES,
+    _CYOAP_MODES,
+    _FOLDER_MODES,
+    _PURE_MODES,
+    _WEBSITE_MODES,
 )
 from ..core.atomic_io import atomic_write_text, interprocess_file_lock
-from ..core.url_utils import is_probable_url
 from ..core.progress import DownloadCancelledError
+from ..core.url_utils import is_probable_url
 from ..logging_setup import logger
 from ..project.parse import try_decode_bytes
-
 
 _REMOTE_BATCH_MAX_BYTES = 32 * 1024 * 1024
 _REMOTE_BATCH_CHUNK_BYTES = 1024 * 1024
@@ -58,7 +60,7 @@ def _read_remote_batch_text(response) -> str:
     preferred = encoding if encoding.lower() not in ignored_encodings else ""
     return try_decode_bytes(bytes(payload), preferred_encoding=preferred)
 
-def _derive_mode_flags(mode: str) -> Dict[str, object]:
+def _derive_mode_flags(mode: str) -> dict[str, object]:
     """Map a canonical batch mode key to run_download() keyword flags.
 
     Returns a dict with keys: zip, both, pure, website, website_zip, engine.
@@ -114,9 +116,9 @@ def _normalize_batch_mode(raw_mode: str, url: str = "") -> str:
     return ""
 
 
-def _import_csv_without_pandas(file_path: str) -> List[Dict[str, str]]:
+def _import_csv_without_pandas(file_path: str) -> list[dict[str, str]]:
     """Read the portable CSV subset without requiring the optional pandas package."""
-    items: List[Dict[str, str]] = []
+    items: list[dict[str, str]] = []
     with open(file_path, "r", encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle)
         fieldnames = list(reader.fieldnames or [])
@@ -137,7 +139,7 @@ def _import_csv_without_pandas(file_path: str) -> List[Dict[str, str]]:
             items.append({"url": url, "filename": filename, "mode": mode})
     return items
 
-def import_queue_items_from_file(file_path: str) -> List[Dict[str, str]]:
+def import_queue_items_from_file(file_path: str) -> list[dict[str, str]]:
     """
     Import batch URLs from txt/csv/xlsx/xls.
 
@@ -152,7 +154,7 @@ def import_queue_items_from_file(file_path: str) -> List[Dict[str, str]]:
       https://example.com/cyoa/
       https://example.com/cyoa2/ | MyFilename
     """
-    items: List[Dict[str, str]] = []
+    items: list[dict[str, str]] = []
     if not file_path or not os.path.isfile(file_path):
         return items
 
@@ -179,12 +181,12 @@ def import_queue_items_from_file(file_path: str) -> List[Dict[str, str]]:
 
     try:
         import pandas as pd  # type: ignore
-    except Exception as e:
+    except (ImportError, OSError) as e:
         if ext == ".csv":
             logger.info("pandas unavailable for CSV; using the standard-library CSV reader")
             try:
                 return _import_csv_without_pandas(file_path)
-            except Exception as csv_error:
+            except (csv.Error, OSError, UnicodeError, TypeError, ValueError) as csv_error:
                 logger.error(f"Failed reading CSV batch file {file_path}: {csv_error}")
         else:
             logger.warning(f"Batch import needs pandas for {ext}: {e}")
@@ -209,7 +211,7 @@ def import_queue_items_from_file(file_path: str) -> List[Dict[str, str]]:
         else:
             logger.warning(f"Unsupported import file: {file_path}")
             return items
-    except Exception as e:
+    except (ImportError, OSError, UnicodeError, TypeError, ValueError) as e:
         logger.error(f"Failed reading batch file {file_path}: {e}")
         return items
 
@@ -254,7 +256,7 @@ def _google_sheet_csv_export_url(url: str) -> str:
     gid = gid_match.group(1) if gid_match else "0"
     return f"https://docs.google.com/spreadsheets/d/{m.group(1)}/export?format=csv&gid={gid}"
 
-def import_queue_items_from_source(source: str) -> List[Dict[str, str]]:
+def import_queue_items_from_source(source: str) -> list[dict[str, str]]:
     source = (source or "").strip()
     if not source:
         return []
@@ -277,15 +279,15 @@ def import_queue_items_from_source(source: str) -> List[Dict[str, str]]:
         text = _read_remote_batch_text(r)
     except DownloadCancelledError:
         raise
-    except Exception as e:
+    except (AttributeError, OSError, UnicodeError, TypeError, ValueError) as e:
         logger.error(f"Failed to import remote list: {e}")
         return []
     finally:
         if r is not None:
             try:
                 r.close()
-            except Exception:
-                pass
+            except (AttributeError, OSError) as exc:
+                logger.debug("Could not close remote batch response: %s", exc)
 
     # A remote source is untrusted input. Keep an accidental HTML dump or a
     # giant generated sheet from freezing the GUI while materializing every
@@ -299,7 +301,7 @@ def import_queue_items_from_source(source: str) -> List[Dict[str, str]]:
         return []
 
     header = [c.strip().lower() for c in rows[0]]
-    items: List[Dict[str, str]] = []
+    items: list[dict[str, str]] = []
 
     def add_item(url_value: str, filename_value: str = "", mode_value: str = "") -> None:
         url_value      = (url_value      or "").strip()
@@ -340,7 +342,7 @@ def import_queue_items_from_source(source: str) -> List[Dict[str, str]]:
     return items
 
 
-def export_queue_items_to_file(items: List[Dict[str, str]], file_path: str) -> int:
+def export_queue_items_to_file(items: list[dict[str, str]], file_path: str) -> int:
     """Export queue rows in a format that :func:`import_queue_items_from_file` can read.
 
     CSV is the default-friendly format because it keeps URL, filename, and mode
@@ -391,10 +393,10 @@ def export_queue_items_to_file(items: List[Dict[str, str]], file_path: str) -> i
     return len(rows)
 
 def write_failed_url_log(
-    failed_items: List[Dict[str, str]],
+    failed_items: list[dict[str, str]],
     output_dir: str,
     filename: str = "failed_urls.txt",
-) -> Optional[str]:
+) -> str | None:
     """
     Append failed batch URLs to failed_urls.txt.
     Uses APPEND mode so multiple batch runs accumulate instead of overwriting.
@@ -409,7 +411,7 @@ def write_failed_url_log(
             if is_new:
                 f.write("# Failed batch URL downloads\n")
                 f.write("# Format: url<TAB>error_message\n\n")
-            f.write(f"# --- {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ({len(failed_items)} failed) ---\n")
+            f.write(f"# --- {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M:%S')} ({len(failed_items)} failed) ---\n")
             for item in failed_items:
                 # Keep the tab-separated log structurally valid even when a
                 # remote URL or exception text contains control characters.
@@ -421,6 +423,12 @@ def write_failed_url_log(
     logger.info(f"Failed URL log saved: {log_path}")
     return log_path
 
-__all__ = ['_derive_mode_flags', '_normalize_batch_mode', 'import_queue_items_from_file',
-           '_google_sheet_csv_export_url', 'import_queue_items_from_source',
-           'export_queue_items_to_file', 'write_failed_url_log']
+__all__ = [
+    '_derive_mode_flags',
+    '_google_sheet_csv_export_url',
+    '_normalize_batch_mode',
+    'export_queue_items_to_file',
+    'import_queue_items_from_file',
+    'import_queue_items_from_source',
+    'write_failed_url_log',
+]

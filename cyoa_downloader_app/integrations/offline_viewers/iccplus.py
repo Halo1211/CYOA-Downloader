@@ -6,7 +6,7 @@ import json
 import os
 import pathlib
 import re
-from typing import Any, Dict, Tuple
+from typing import Any
 
 from ...logging_setup import logger
 
@@ -105,11 +105,11 @@ def _html_escape(value: Any) -> str:
             .replace('"', "&quot;"))
 
 
-def _extract_iccplus_app_and_viewer_config(project_json_str: str) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+def _extract_iccplus_app_and_viewer_config(project_json_str: str) -> tuple[dict[str, Any], dict[str, Any]]:
     """Return (app_obj, viewerConfig) from ICC Plus export variants."""
     try:
         root = json.loads(project_json_str) if project_json_str.strip().startswith("{") else {}
-    except Exception:
+    except (json.JSONDecodeError, TypeError, ValueError):
         return {}, {}
     if not isinstance(root, dict):
         return {}, {}
@@ -135,21 +135,21 @@ def _apply_iccplus_viewer_config_to_html(
     loading_text = str(vc.get("loadingText") or vc.get("loadingMessage") or "").strip()
 
     if title:
-        if re.search(r"<title[^>]*>.*?</title>", html, flags=re.I | re.S):
-            html = re.sub(r"<title[^>]*>.*?</title>", lambda _m: f"<title>{_html_escape(title)}</title>", html, count=1, flags=re.I | re.S)  # literal replacement — raw \g/\1/trailing backslash in project text crashed re.sub
+        if re.search(r"<title[^>]*>.*?</title>", html, flags=re.IGNORECASE | re.DOTALL):
+            html = re.sub(r"<title[^>]*>.*?</title>", lambda _m: f"<title>{_html_escape(title)}</title>", html, count=1, flags=re.IGNORECASE | re.DOTALL)  # literal replacement — raw \g/\1/trailing backslash in project text crashed re.sub
         else:
             html = _inject_into_head(html, f"<title>{_html_escape(title)}</title>\n")
 
     if favicon:
         fav_tag = f'<link rel="icon" href="{_html_escape(favicon)}">'
-        if re.search(r"<link[^>]+rel=[\"\'](?:icon|shortcut icon)[\"\'][^>]*>", html, flags=re.I):
-            html = re.sub(r"<link[^>]+rel=[\"\'](?:icon|shortcut icon)[\"\'][^>]*>", lambda _m: fav_tag, html, count=1, flags=re.I)  # literal replacement — raw \g/\1/trailing backslash in project text crashed re.sub
+        if re.search(r"<link[^>]+rel=[\"\'](?:icon|shortcut icon)[\"\'][^>]*>", html, flags=re.IGNORECASE):
+            html = re.sub(r"<link[^>]+rel=[\"\'](?:icon|shortcut icon)[\"\'][^>]*>", lambda _m: fav_tag, html, count=1, flags=re.IGNORECASE)  # literal replacement — raw \g/\1/trailing backslash in project text crashed re.sub
         else:
             html = _inject_into_head(html, fav_tag + "\n")
 
-    html = re.sub(r"(<[^>]+id=[\"\']projectSize[\"\'][^>]*>)\s*[^<]*", rf'\g<1>{size_bytes}', html, flags=re.I)
+    html = re.sub(r"(<[^>]+id=[\"\']projectSize[\"\'][^>]*>)\s*[^<]*", rf'\g<1>{size_bytes}', html, flags=re.IGNORECASE)
     if loading_text:
-        html = re.sub(r"(<[^>]+id=[\"\']loadingText[\"\'][^>]*>)\s*[^<]*", lambda _m: _m.group(1) + _html_escape(loading_text), html, flags=re.I)  # literal replacement — raw \g/\1/trailing backslash in project text crashed re.sub
+        html = re.sub(r"(<[^>]+id=[\"\']loadingText[\"\'][^>]*>)\s*[^<]*", lambda _m: _m.group(1) + _html_escape(loading_text), html, flags=re.IGNORECASE)  # literal replacement — raw \g/\1/trailing backslash in project text crashed re.sub
 
     if loading_bg or loading_text:
         css_dir = os.path.join(site_folder, "css")
@@ -172,27 +172,31 @@ def _apply_iccplus_viewer_config_to_html(
                       .replace("\r", "").replace("\n", "").replace(")", "%29"))
         if loading_bg:
             css_loading_bg = loading_bg
-            if not re.match(r"^(?:[a-z][a-z0-9+.-]*:|//|data:)", css_loading_bg, re.I):
+            if not re.match(r"^(?:[a-z][a-z0-9+.-]*:|//|data:)", css_loading_bg, re.IGNORECASE):
                 # loading.css lives below css/, while project paths are rooted
                 # beside index.html. Resolve the authored path from that root.
                 css_loading_bg = "../" + css_loading_bg.lstrip("./\\")
-            lines.append(":root{--cyoa-loading-bg:url('%s');}" % _css_url(css_loading_bg))
+            lines.append(f":root{{--cyoa-loading-bg:url('{_css_url(css_loading_bg)}');}}")
             lines.append("body:before{content:'';position:fixed;inset:0;background-image:var(--cyoa-loading-bg);background-size:cover;background-position:center;opacity:.18;pointer-events:none;z-index:0;}")
         if loading_text:
-            lines.append("#loadingText::after{content:' %s';}" % _css_str(loading_text))
+            lines.append(f"#loadingText::after{{content:' {_css_str(loading_text)}';}}")
         try:
             pathlib.Path(loading_css).write_text("\n".join(lines) + "\n", encoding="utf-8")
             if "css/loading.css" not in html:
                 html = _inject_into_head(html, '<link rel="stylesheet" href="css/loading.css">\n')
             logger.info("Applied ICC Plus viewerConfig: title/favicon/loading CSS")
-        except Exception as e:
+        except (OSError, TypeError, UnicodeError, ValueError) as e:
             logger.debug(f"Could not write ICC Plus loading.css: {e}")
     return html
 
 
 __all__ = [
-    "_OFFLINE_PROJECT_PAYLOAD", "_build_project_payload",
-    "_build_html_interceptor", "_inject_into_head", "_unique_folder",
-    "_html_escape", "_extract_iccplus_app_and_viewer_config",
+    "_OFFLINE_PROJECT_PAYLOAD",
     "_apply_iccplus_viewer_config_to_html",
+    "_build_html_interceptor",
+    "_build_project_payload",
+    "_extract_iccplus_app_and_viewer_config",
+    "_html_escape",
+    "_inject_into_head",
+    "_unique_folder",
 ]

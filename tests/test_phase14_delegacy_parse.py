@@ -40,14 +40,14 @@ def test_phase14_project_parser_helpers_moved_out_of_legacy():
     assert cyoa_downloader.extract_project_from_archive_bytes is parse_mod.extract_project_from_archive_bytes
 
     names = _legacy_defined_symbols()
-    for name in {
+    for name in (
         "try_decode_bytes", "is_zip_bytes", "looks_like_project_object",
         "looks_like_project_payload", "extract_balanced_brace_block",
         "extract_embedded_project_from_js", "extract_project_from_archive_bytes",
         "parse_jsonish_text", "normalize_project_payload_text",
         "extract_project_text_from_payload", "extract_json_like_block",
         "_extract_website_from_archive_zip_name",
-    }:
+    ):
         assert name not in names
 
 

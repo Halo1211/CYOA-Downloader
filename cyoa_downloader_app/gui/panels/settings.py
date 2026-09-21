@@ -13,6 +13,16 @@ PANEL_METHOD_NAMES = (
 
 PANEL_METHODS = method_map(PANEL_METHOD_NAMES)
 
-globals().update(PANEL_METHODS)
+_settings_maintenance_panel = PANEL_METHODS["_settings_maintenance_panel"]
+_toggles_panel = PANEL_METHODS["_toggles_panel"]
+_export_settings_dialog = PANEL_METHODS["_export_settings_dialog"]
+_import_settings_dialog = PANEL_METHODS["_import_settings_dialog"]
 
-__all__ = ["PANEL_METHOD_NAMES", "PANEL_METHODS", *PANEL_METHOD_NAMES]
+__all__ = [
+    "PANEL_METHODS",
+    "PANEL_METHOD_NAMES",
+    "_export_settings_dialog",
+    "_import_settings_dialog",
+    "_settings_maintenance_panel",
+    "_toggles_panel",
+]

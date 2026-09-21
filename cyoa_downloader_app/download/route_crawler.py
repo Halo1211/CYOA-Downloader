@@ -8,22 +8,34 @@ import pathlib
 import re
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
-from .archive_policy import ArchivePolicy
-from .asset_scan import _safe_response_text
-from .package import clean_url_path_component
+import requests
+
 from ..core.atomic_io import atomic_write_text
 from ..core.cancellation import _raise_if_cancelled
 from ..core.progress import DownloadCancelledError
 from ..logging_setup import logger
 from ..project.parse import try_decode_bytes
+from .archive_policy import ArchivePolicy
+from .asset_scan import _safe_response_text
+from .package import clean_url_path_component
 
 try:
     from bs4 import BeautifulSoup  # type: ignore
-except Exception:  # pragma: no cover
+except ImportError:  # pragma: no cover
     BeautifulSoup = None  # type: ignore
+
+
+# Headless rendering is an optional backend; a backend-specific failure keeps
+# the normal HTTP result/failure semantics. Cancellation is raised first.
+_OPTIONAL_BROWSER_ERRORS = (Exception,)
+_RESPONSE_CLEANUP_ERRORS = (
+    AttributeError,
+    OSError,
+    RuntimeError,
+    requests.RequestException,
+)
 
 
 _SKIP_PATH_RE = re.compile(
@@ -41,9 +53,9 @@ _TRACKING_QUERY_KEYS = {
 
 @dataclass
 class RouteCrawlResult:
-    pages: Dict[str, str] = field(default_factory=dict)
-    failed: List[Dict[str, str]] = field(default_factory=list)
-    discovered: List[str] = field(default_factory=list)
+    pages: dict[str, str] = field(default_factory=dict)
+    failed: list[dict[str, str]] = field(default_factory=list)
+    discovered: list[str] = field(default_factory=list)
     limit_reached: bool = False
     remaining_queued: int = 0
 
@@ -58,8 +70,8 @@ class RouteCrawler:
         parsed = urlparse(self.start_url)
         self.origin = (parsed.scheme.lower(), parsed.netloc.lower())
         self.scope_path = self._scope_for(parsed.path)
-        self._local_route_owners: Dict[str, str] = {}
-        self._page_link_bases: Dict[str, str] = {}
+        self._local_route_owners: dict[str, str] = {}
+        self._page_link_bases: dict[str, str] = {}
 
     @staticmethod
     def _scope_for(path: str) -> str:
@@ -135,7 +147,7 @@ class RouteCrawler:
         self._local_route_owners[path_key] = canonical
         return local
 
-    def _fetch_html(self, url: str) -> Optional[str]:
+    def _fetch_html(self, url: str) -> str | None:
         _raise_if_cancelled()
         response = self.downloader._fetch(url)
         if response:
@@ -144,8 +156,8 @@ class RouteCrawler:
             finally:
                 try:
                     response.close()
-                except Exception:
-                    pass
+                except _RESPONSE_CLEANUP_ERRORS as exc:
+                    logger.debug("Could not close route response for %s: %s", url, exc)
         if self.policy.strategy in {"smart", "browser"}:
             try:
                 from ..network.browser import _fetch_headless
@@ -154,11 +166,11 @@ class RouteCrawler:
                     return try_decode_bytes(raw)
             except DownloadCancelledError:
                 raise
-            except Exception as exc:
+            except _OPTIONAL_BROWSER_ERRORS as exc:
                 logger.debug("Headless route fetch failed for %s: %s", url, exc)
         return None
 
-    def _links_from(self, html: str, page_url: str) -> List[str]:
+    def _links_from(self, html: str, page_url: str) -> list[str]:
         if BeautifulSoup is None:
             return []
         soup = BeautifulSoup(html, "html.parser")
@@ -172,7 +184,7 @@ class RouteCrawler:
             except (TypeError, ValueError):
                 pass
         self._page_link_bases[self._canonicalize(page_url)] = link_base
-        links: List[str] = []
+        links: list[str] = []
         for tag in soup.find_all("a", href=True):
             href = str(tag.get("href") or "").strip()
             if not href or href.startswith(("#", "javascript:", "mailto:", "tel:", "data:")):
@@ -187,17 +199,17 @@ class RouteCrawler:
 
     def crawl(
         self,
-        seed_urls: Optional[List[str]] = None,
-        existing_pages: Optional[Dict[str, str]] = None,
+        seed_urls: list[str] | None = None,
+        existing_pages: dict[str, str] | None = None,
     ) -> RouteCrawlResult:
         result = RouteCrawlResult(pages=dict(existing_pages or {}))
         for existing_url, existing_local in result.pages.items():
             self._local_route_owners[os.path.normcase(os.path.abspath(existing_local))] = self._canonicalize(existing_url)
         seeds = [self._canonicalize(url) for url in (seed_urls or [self.start_url])]
-        queue: deque[Tuple[str, int]] = deque(
+        queue: deque[tuple[str, int]] = deque(
             (url, 0) for url in seeds if url not in result.pages and self._is_allowed(url)
         )
-        queued: Set[str] = set(result.pages) | set(seeds)
+        queued: set[str] = set(result.pages) | set(seeds)
 
         while queue and len(result.pages) < self.policy.max_pages:
             _raise_if_cancelled()
@@ -211,7 +223,7 @@ class RouteCrawler:
                 self.downloader.download_html_page(url, local, html)
             except DownloadCancelledError:
                 raise
-            except Exception as exc:
+            except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as exc:
                 result.failed.append({"url": url, "error": str(exc)})
                 continue
             result.pages[url] = local
@@ -236,7 +248,7 @@ class RouteCrawler:
         logger.info("Archive route crawl: %d page(s), %d failed", len(result.pages), len(result.failed))
         return result
 
-    def _rewrite_route_links(self, pages: Dict[str, str]) -> None:
+    def _rewrite_route_links(self, pages: dict[str, str]) -> None:
         if BeautifulSoup is None:
             return
         route_map = {self._canonicalize(url): local for url, local in pages.items()}
@@ -280,5 +292,5 @@ class RouteCrawler:
                     atomic_write_text(local, str(soup))
             except DownloadCancelledError:
                 raise
-            except Exception as exc:
+            except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as exc:
                 logger.warning("Could not rewrite route links in %s: %s", local, exc)

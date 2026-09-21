@@ -9,19 +9,19 @@ from types import SimpleNamespace
 import pytest
 
 from cyoa_downloader_app.integrations.offline_viewers import injector, modernizer, registry
+from cyoa_downloader_app.integrations.offline_viewers.iccplus import (
+    _build_html_interceptor,
+    _build_project_payload,
+)
 from cyoa_downloader_app.integrations.offline_viewers.modernizer import (
     SiteFamily,
     analyze_site,
     externalize_inline_project_interceptor,
-    remove_redundant_project_interceptor,
     modernize_collection,
     modernize_site,
+    remove_redundant_project_interceptor,
     resolve_registered_viewer_templates,
     resolve_viewer_templates,
-)
-from cyoa_downloader_app.integrations.offline_viewers.iccplus import (
-    _build_html_interceptor,
-    _build_project_payload,
 )
 
 MARKER = (
@@ -98,9 +98,8 @@ def test_extract_zip_rejects_suspicious_compression_ratio(tmp_path: Path):
     archive_path = tmp_path / "compressed-bomb.zip"
     _write_zip(archive_path, {"index.html": "x" * (2 * 1024 * 1024)})
 
-    with zipfile.ZipFile(archive_path) as archive:
-        with pytest.raises(ValueError, match="compression ratio"):
-            modernizer._extract_zip(archive, tmp_path / "output")
+    with zipfile.ZipFile(archive_path) as archive, pytest.raises(ValueError, match="compression ratio"):
+        modernizer._extract_zip(archive, tmp_path / "output")
 
     assert not (tmp_path / "output" / "index.html").exists()
 

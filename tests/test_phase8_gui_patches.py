@@ -1,7 +1,8 @@
+from pathlib import Path
+
 import cyoa_downloader
 from cyoa_downloader_app.gui import app as gui_app
 from cyoa_downloader_app.gui import patches as patch_mod
-from pathlib import Path
 
 
 def test_phase8_patch_pipeline_is_centralized_and_ordered():
@@ -9,7 +10,7 @@ def test_phase8_patch_pipeline_is_centralized_and_ordered():
     assert patch_mod.apply_gui_patches(cls) is cls
     assert patch_mod.applied_patch_order(cls) == patch_mod.PATCH_ORDER
     assert patch_mod.PATCH_ORDER == ("v24", "v25", "v27", "v46", "v462", "v463", "v465", "v466")
-    assert getattr(cls, "_cyoa_gui_patch_pipeline_mode") == "composed-bootstrap"
+    assert cls._cyoa_gui_patch_pipeline_mode == "composed-bootstrap"
 
 
 def test_phase8_facade_exports_patch_gate():
@@ -22,7 +23,7 @@ def test_phase8_final_gui_patch_surface_is_present():
     cls = gui_app.CYOADownloaderGUI
     missing = patch_mod._verify_patch_surface(cls, strict=False)
     assert missing == []
-    for _patch_id, names in patch_mod.expected_patch_surface().items():
+    for names in patch_mod.expected_patch_surface().values():
         for name in names:
             assert hasattr(cls, name)
     assert cls._apply_theme.__module__ == "cyoa_downloader_app.gui.app"
@@ -81,3 +82,13 @@ def test_phase8_public_gui_class_no_longer_exposes_patch_module_methods():
         if callable(obj) and getattr(obj, "__module__", "").startswith("cyoa_downloader_app.gui.patch")
     }
     assert leaked == {}
+
+
+def test_gui_constructor_ignores_compat_initializer_return_value(monkeypatch):
+    """Compatibility initializers must not leak a value from ``__init__``."""
+    sentinel = object()
+    monkeypatch.setattr(gui_app, "_v46_gui_init", lambda _self, _root: sentinel)
+
+    instance = gui_app.CYOADownloaderGUI(object())
+
+    assert isinstance(instance, gui_app.CYOADownloaderGUI)

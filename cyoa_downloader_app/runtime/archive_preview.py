@@ -7,9 +7,7 @@ import os
 import pathlib
 import re
 from glob import escape as escape_glob
-from typing import Optional
 from urllib.parse import parse_qs, unquote, urlparse
-
 
 _FLIGHT_PUSH_RE = re.compile(
     r'self\.__next_f\.push\(\[1,("(?:\\.|[^"\\])*")\]\)',
@@ -49,7 +47,7 @@ def select_archive_root(output_dir: str) -> str:
     return str(candidates[0].resolve()) if len(candidates) == 1 else str(root)
 
 
-def resolve_archived_page(serve_dir: str, request_route: str) -> Optional[str]:
+def resolve_archived_page(serve_dir: str, request_route: str) -> str | None:
     """Map an original web route to the HTML file recorded in the manifest."""
     root = os.path.abspath(serve_dir)
     root_real = os.path.realpath(root)
@@ -104,7 +102,7 @@ def extract_next_flight_stream(html: str) -> str:
     return "".join(parts)
 
 
-def resolve_next_optimizer_image(serve_dir: str, request_target: str) -> Optional[str]:
+def resolve_next_optimizer_image(serve_dir: str, request_target: str) -> str | None:
     """Resolve a ``/_next/image`` request to an already-downloaded source image."""
     try:
         parsed = urlparse(str(request_target or ""))

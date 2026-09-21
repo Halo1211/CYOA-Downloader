@@ -9,6 +9,8 @@ from pathlib import Path
 import cyoa_downloader
 from cyoa_downloader_app.config import settings as settings_mod
 from cyoa_downloader_app.config.secrets import _is_secret_setting_key, _mask_secret
+from cyoa_downloader_app.core.progress import DownloadCancelledError
+from cyoa_downloader_app.network import fetch as fetch_mod
 from cyoa_downloader_app.storage import cache as cache_mod
 from cyoa_downloader_app.storage import history as history_mod
 from cyoa_downloader_app.storage.resume import (
@@ -17,8 +19,6 @@ from cyoa_downloader_app.storage.resume import (
     resume_job_key,
     save_resume_state,
 )
-from cyoa_downloader_app.core.progress import DownloadCancelledError
-from cyoa_downloader_app.network import fetch as fetch_mod
 
 
 def test_phase2_facade_names_still_match_modules():

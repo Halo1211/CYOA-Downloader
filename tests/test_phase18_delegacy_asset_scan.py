@@ -1,8 +1,7 @@
 import inspect
 
 import cyoa_downloader as facade
-from cyoa_downloader_app.download import asset_scan
-from cyoa_downloader_app.download import image_pipeline
+from cyoa_downloader_app.download import asset_scan, image_pipeline
 
 
 def test_asset_scan_helpers_are_real_module_functions():

@@ -8,22 +8,77 @@ patched public entry point.
 
 from __future__ import annotations
 
+import json
+import os
+import re
+from urllib.parse import urlparse
+
+import requests
+
+from ..app_info import DEFAULT_MAX_WORKERS
+from ..config.settings import _load_settings
+from ..core.output import output_directory_lease, prepare_clean_output_folder
+from ..core.paths import _copytree_merge_safe
+from ..core.progress import DownloadCancelledError
+from ..core.url_utils import canonicalize_url
+from ..gui import final_behaviors as _final_behaviors
+from ..integrations.ai_calls import _ai_analyze_viewer_logic
+from ..integrations.ai_core import (
+    AIUsageBudget,
+    _ai_is_available,
+    _ai_mode_allows,
+    _get_ai_provider,
+    _normalize_ai_mode,
+    _normalize_ai_provider,
+)
+from ..integrations.cyoa_manager import (
+    _cyoa_manager_viewer_pref,
+    _find_cyoa_manager_db,
+    add_to_cyoa_manager,
+)
+from ..integrations.offline_viewers.iccplus import _unique_folder
+from ..integrations.offline_viewers.injector import _apply_offline_viewer
+from ..integrations.offline_viewers.registry import get_viewer_for_site
+from ..logging_setup import logger
+from ..network.fetch import fetch_response
+from ..project.cyoa_cafe import classify_cyoa_cafe_record, fetch_cyoa_cafe_record
+from ..project.cyoap_vue import try_download_cyoap_vue_site
+from ..project.discover import (
+    get_first_folder_from_url,
+    get_project_source,
+    get_source,
+    strip_document_from_url,
+)
+from ..project.parse import (
+    _ARCHIVE_ORG_CYOA_RE,
+    _extract_website_from_archive_zip_name,
+    normalize_project_payload_text,
+)
+from ..runtime import state as _runtime_state
 from ._bridge import legacy as _legacy
 from .archive_policy import ArchivePolicy
 from .archive_profiler import project_archive_profile
 from .archive_runner import run_archive_extensions
+from .asset_scan import _safe_response_text
 from .cyoa_cafe_static import download_cyoa_cafe_static_record
-from ..app_info import DEFAULT_MAX_WORKERS
-from ..runtime.state import _RUN_DOWNLOAD_LOCK
-from ..core.output import output_directory_lease
-from ..core.url_utils import canonicalize_url
-from ..gui.final_behaviors import (
-    _v462_resolve_pure_download_url,
-    _v462_run_download,
-    _v466_run_download,
+from .fonts import _download_fonts_into_folder, analyse_fonts
+from .image_pipeline import _deep_scan_and_download_assets, process_images
+from .package import (
+    _build_output_name,
+    _finalize_site_folder,
+    clean_url_path_component,
+    create_random_temp_folder,
+    delete_temp_folder,
+    get_first_subdomain,
+    save_string_to_file,
+    zip_temp_folder,
 )
-from ..project.parse import _ARCHIVE_ORG_CYOA_RE
-from ..project.cyoa_cafe import classify_cyoa_cafe_record, fetch_cyoa_cafe_record
+from .website import WebsiteDownloader
+
+_RUN_DOWNLOAD_LOCK = _runtime_state._RUN_DOWNLOAD_LOCK
+_v462_resolve_pure_download_url = _final_behaviors._v462_resolve_pure_download_url
+_v462_run_download = _final_behaviors._v462_run_download
+_v466_run_download = _final_behaviors._v466_run_download
 
 _PROTECTED = {
     "_sync_legacy_globals", "_set_last_preview_folder", "_base_run_download",
@@ -32,6 +87,26 @@ _PROTECTED = {
     "_v466_run_download", "_RUN_DOWNLOAD_LOCK", "_LAST_PREVIEW_FOLDER",
     "_classify_project_image_references",
 }
+
+# AI providers and offline-viewer implementations are optional, dynamically
+# registered backends. A broken backend must not abort the normal download;
+# cancellation is always handled immediately before these boundaries.
+_OPTIONAL_AI_ERRORS = (Exception,)
+_OPTIONAL_VIEWER_ERRORS = (Exception,)
+_RESPONSE_CLEANUP_ERRORS = (
+    AttributeError,
+    OSError,
+    RuntimeError,
+    requests.RequestException,
+)
+_NETWORK_OPERATION_ERRORS = (
+    AttributeError,
+    OSError,
+    RuntimeError,
+    TypeError,
+    ValueError,
+    requests.RequestException,
+)
 
 
 def _classify_project_image_references(project: object) -> dict[str, int]:
@@ -77,8 +152,8 @@ def _set_last_preview_folder(value):
     _LAST_PREVIEW_FOLDER = value
     try:
         _legacy()._LAST_PREVIEW_FOLDER = value
-    except Exception:
-        pass
+    except (AttributeError, RuntimeError, TypeError) as exc:
+        logger.debug("Could not mirror the preview folder to the legacy surface: %s", exc)
 
 
 def _recover_captured_project_assets(
@@ -189,8 +264,8 @@ def _base_run_download(
     the viewer HTML/CSS/JS/assets. Useful for custom-format sites like
     lewd_horizon that don't use a standard ICC project file.
     """
-    global wait_time, _LAST_PREVIEW_FOLDER
     _sync_legacy_globals()
+    runtime_wait_time = globals()["wait_time"]
     _set_last_preview_folder(None)
     url = canonicalize_url(url)
     # Clamp worker count at the single CLI/programmatic entry point.
@@ -234,7 +309,7 @@ def _base_run_download(
                     f"Disk hampir penuh! Sisa: {free_mb:.0f} MB. "
                     f"Download will continue but may fail midway."
                 )
-    except Exception as _ignored_exc:
+    except OSError as _ignored_exc:
         logger.debug("Ignored recoverable exception in run_download (line 12626): %s", _ignored_exc)
 
     if not file_name:
@@ -308,7 +383,7 @@ def _base_run_download(
                     url,
                     output_dir=output_dir,
                     max_workers=max_workers,
-                    wait_seconds=wait_time,
+                    wait_seconds=runtime_wait_time,
                 )
             viewer.localize_existing_text_assets()
             # Pure Website used to finish without any asset diagnostics.  Keep
@@ -323,12 +398,10 @@ def _base_run_download(
                         report.write("\n" + "=" * 60 + "\n")
                         report.write("INTEGRITY CHECK — MISSING LOCAL REFS\n")
                         report.write("=" * 60 + "\n")
-                        for missing in integrity["missing"]:
-                            report.write(f"  {missing}\n")
+                        report.writelines(f"  {missing}\n" for missing in integrity["missing"])
                         if integrity.get("external"):
                             report.write("\nREACHABLE EXTERNAL DEPENDENCIES\n")
-                            for external in integrity["external"]:
-                                report.write(f"  {external}\n")
+                            report.writelines(f"  {external}\n" for external in integrity["external"])
                 except OSError as exc:
                     logger.debug("Could not append Pure Website integrity report: %s", exc)
             if download_fonts:
@@ -384,14 +457,16 @@ def _base_run_download(
                             f"data_source={data_src}\n"
                             + "\n".join(f"  → {s}" for s in suggestions[:5])
                         )
-                except Exception as _ignored_exc:
+                except DownloadCancelledError:
+                    raise
+                except _OPTIONAL_AI_ERRORS as _ignored_exc:
                     logger.debug("Ignored recoverable exception in run_download (line 12721): %s", _ignored_exc)
                 finally:
                     if _diag_resp is not None:
                         try:
                             _diag_resp.close()
-                        except Exception:
-                            pass
+                        except _RESPONSE_CLEANUP_ERRORS as exc:
+                            logger.debug("Could not close the AI diagnostic response: %s", exc)
 
             # Many creator-hosted CYOAs are complete custom viewers with no
             # ICC project payload.  If the target is an HTML page, preserve
@@ -402,7 +477,9 @@ def _base_run_download(
             _fallback_html = ""
             try:
                 _fallback_html = get_source(url) or ""
-            except Exception as _ignored_exc:
+            except DownloadCancelledError:
+                raise
+            except _NETWORK_OPERATION_ERRORS as _ignored_exc:
                 logger.debug("Custom viewer fallback probe failed: %s", _ignored_exc)
             if not analysis_only and "<html" in _fallback_html.lower():
                 site_folder = _unique_folder(file_name)
@@ -483,7 +560,7 @@ def _base_run_download(
                 f"Metadata: title={_title!r} rows={len(_rows)} "
                 f"objects={_metadata['objects_total']} images={_meta_img_count}"
             )
-        except Exception:
+        except (AttributeError, KeyError, TypeError, ValueError):
             _metadata = {"source_url": url, "project_url": project_url}
 
 
@@ -524,7 +601,7 @@ def _base_run_download(
                         "CYOA.CAFE authoritative viewer selected for website crawl: "
                         f"{url} → {website_entry_url}"
                     )
-        except Exception as _viewer_url_exc:
+        except (AttributeError, KeyError, TypeError, ValueError) as _viewer_url_exc:
             logger.debug(f"Could not derive authoritative viewer URL: {_viewer_url_exc}")
 
         base_url = strip_document_from_url(website_entry_url)
@@ -572,7 +649,7 @@ def _base_run_download(
                 _, dl_result, _pi_urls = process_images(
                     working, base_url,
                     embed=False, download=True,
-                    temp_folder=tmp, wait_time=wait_time, max_workers=max_workers,
+                    temp_folder=tmp, wait_time=runtime_wait_time, max_workers=max_workers,
                     output_dir=output_dir, source_url=website_entry_url,
                     # WebsiteDownloader/deep-scan may already have saved the
                     # same project images into the ICC folder. Let the JSON
@@ -632,7 +709,7 @@ def _base_run_download(
                         "[Auto] Project assets were localized by process_images; "
                         "skipping redundant post-project JS/CSS deep scan."
                     )
-                elif not _DEEP_SCAN_ENABLED:
+                elif not _runtime_state._DEEP_SCAN_ENABLED:
                     logger.info("Deep scan disabled by toggle — skipping JS/CSS asset pass.")
                 else:
                   _deep_scan_and_download_assets(
@@ -685,13 +762,11 @@ def _base_run_download(
                         _rf.write("\n" + "="*60 + "\n")
                         _rf.write("INTEGRITY CHECK — MISSING LOCAL REFS\n")
                         _rf.write("="*60 + "\n")
-                        for miss in integrity["missing"]:
-                            _rf.write(f"  {miss}\n")
+                        _rf.writelines(f"  {miss}\n" for miss in integrity["missing"])
                         if integrity.get("external"):
                             _rf.write("\nREACHABLE EXTERNAL DEPENDENCIES\n")
-                            for external in integrity["external"]:
-                                _rf.write(f"  {external}\n")
-                except Exception as _ignored_exc:
+                            _rf.writelines(f"  {external}\n" for external in integrity["external"])
+                except (OSError, TypeError, ValueError) as _ignored_exc:
                     logger.debug("Ignored recoverable exception in run_download (line 12869): %s", _ignored_exc)
             _set_last_preview_folder(os.path.abspath(site_folder) if not website_zip_output else None)
             _finalize_site_folder(site_folder, file_name, website_zip_output)
@@ -734,7 +809,9 @@ def _base_run_download(
                 if _viewer_meta_normal and not need_download:
                     need_download = True
                     logger.info("Offline viewer detected: enabling disk asset download for playable viewer output.")
-            except Exception as _vm_e:
+            except DownloadCancelledError:
+                raise
+            except _OPTIONAL_VIEWER_ERRORS as _vm_e:
                 logger.debug(f"Offline viewer pre-check skipped: {_vm_e}")
 
         tmp = None
@@ -751,7 +828,7 @@ def _base_run_download(
         embed_result, dl_result, _pi_urls = process_images(
             working, base_url,
             embed=embed_images, download=need_download,
-            temp_folder=tmp, wait_time=wait_time, max_workers=max_workers,
+            temp_folder=tmp, wait_time=runtime_wait_time, max_workers=max_workers,
             output_dir=output_dir, source_url=url,
             site_folder=site_folder_local,
         )
@@ -813,7 +890,7 @@ def _base_run_download(
             with open(meta_path, "w", encoding="utf-8") as _mf:
                 json.dump(_metadata, _mf, indent=2, ensure_ascii=False)
             logger.info(f"Saved: {meta_path} (metadata)")
-        except Exception as _me:
+        except (OSError, TypeError, ValueError) as _me:
             logger.warning(f"Could not save metadata: {_me}")
 
         # ── Offline Viewer: apply registered viewer if available ────────────
@@ -827,14 +904,16 @@ def _base_run_download(
                         _rp = fetch_response(url, timeout=8, extra_headers={"User-Agent": "Mozilla/5.0"})
                         if _rp is not None:
                             _page_html = _safe_response_text(_rp)
-                    except Exception as e:
+                    except DownloadCancelledError:
+                        raise
+                    except _NETWORK_OPERATION_ERRORS as e:
                         logger.debug(f"Offline viewer page fetch skipped: {e}")
                     finally:
                         if _rp is not None:
                             try:
                                 _rp.close()
-                            except Exception:
-                                pass
+                            except _RESPONSE_CLEANUP_ERRORS as exc:
+                                logger.debug("Could not close the offline-viewer response: %s", exc)
                     _viewer_meta = get_viewer_for_site(
                         _page_html,
                         mode=output_mode_str,
@@ -853,7 +932,7 @@ def _base_run_download(
                     # Pass temp image/audio folders directly into the injected viewer.
                     # Do not copy them to output_dir roots; that can delete/overwrite folders
                     # from other projects.
-                    _offline_asset_sources: Dict[str, str] = {}
+                    _offline_asset_sources: dict[str, str] = {}
                     if tmp and os.path.isdir(tmp):
                         for _asset_dir_name in ("images", "audio"):
                             _src = os.path.join(tmp, _asset_dir_name)
@@ -877,7 +956,9 @@ def _base_run_download(
                             f"Offline viewer: {_viewer_meta.get('name','')} → "
                             f"{os.path.relpath(_viewer_out, output_dir)}"
                         )
-            except Exception as _ov_e:
+            except DownloadCancelledError:
+                raise
+            except _OPTIONAL_VIEWER_ERRORS as _ov_e:
                 logger.debug(f"Offline viewer step skipped: {_ov_e}")
 
         # ── Feature 5: Post-download validation ────────────────────────────
@@ -916,7 +997,7 @@ def _base_run_download(
                                 )
                         except json.JSONDecodeError:
                             logger.error(f"Validation FAIL: {_out_path} — JSON parse error")
-        except Exception as _ve:
+        except (OSError, RuntimeError, TypeError, ValueError) as _ve:
             logger.warning(f"Validation error (non-critical): {_ve}")
 
     finally:
@@ -928,7 +1009,7 @@ def _base_run_download(
         try:
             if tmp and os.path.isdir(tmp):
                 delete_temp_folder(tmp)
-        except Exception as _ignored_tmp_exc:
+        except (OSError, RuntimeError) as _ignored_tmp_exc:
             logger.debug("Ignored temp cleanup exception: %s", _ignored_tmp_exc)
         try:
             os.chdir(original_dir)
@@ -948,15 +1029,20 @@ def _base_run_download(
 run_download = _base_run_download
 _LAST_PREVIEW_FOLDER = None
 _l = _sync_legacy_globals()
-_v462_resolve_pure_download_url = getattr(_l, "_v462_resolve_pure_download_url")
-_v462_run_download = getattr(_l, "_v462_run_download")
-_v466_run_download = getattr(_l, "_v466_run_download")
+_v462_resolve_pure_download_url = _l._v462_resolve_pure_download_url
+_v462_run_download = _l._v462_run_download
+_v466_run_download = _l._v466_run_download
 run_download = getattr(_l, "run_download", _base_run_download)
-_RUN_DOWNLOAD_LOCK = getattr(_l, "_RUN_DOWNLOAD_LOCK")
+_RUN_DOWNLOAD_LOCK = _l._RUN_DOWNLOAD_LOCK
 _LAST_PREVIEW_FOLDER = getattr(_l, "_LAST_PREVIEW_FOLDER", None)
 
 __all__ = [
-    "run_download", "_base_run_download", "_v462_resolve_pure_download_url",
-    "_v462_run_download", "_v466_run_download", "_RUN_DOWNLOAD_LOCK",
-    "_LAST_PREVIEW_FOLDER", "_classify_project_image_references",
+    "_LAST_PREVIEW_FOLDER",
+    "_RUN_DOWNLOAD_LOCK",
+    "_base_run_download",
+    "_classify_project_image_references",
+    "_v462_resolve_pure_download_url",
+    "_v462_run_download",
+    "_v466_run_download",
+    "run_download",
 ]

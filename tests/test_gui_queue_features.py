@@ -1,10 +1,10 @@
 from pathlib import Path
 
-from cyoa_downloader_app.gui.app import CYOADownloaderGUI, _mode_label
 from cyoa_downloader_app.cli import (
     _batch_website_zip_output,
     _configured_ytdlp_cookie_path,
 )
+from cyoa_downloader_app.gui.app import CYOADownloaderGUI, _mode_label
 from cyoa_downloader_app.importers.batch import (
     export_queue_items_to_file,
     import_queue_items_from_file,

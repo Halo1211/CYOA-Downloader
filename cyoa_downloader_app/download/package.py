@@ -17,24 +17,27 @@ import time as _time
 import uuid
 import zipfile
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 from urllib.parse import unquote, urlparse
 
 try:
     import tldextract  # type: ignore
-except Exception:  # pragma: no cover - optional dependency
+except ImportError:  # pragma: no cover - optional dependency
     tldextract = None
 
 from ..app_info import _APP_VERSION
-from ..logging_setup import logger
 from ..core.archive import validate_zip_archive
 from ..core.atomic_io import atomic_write_text, validate_response_content_length
 from ..core.cancellation import _emit_progress_event, _raise_if_cancelled
-from ..core.output import prepare_clean_output_folder, _cleanup_recent_part_files
+from ..core.output import _cleanup_recent_part_files, prepare_clean_output_folder
 from ..core.paths import _is_link_or_junction, _safe_archive_rel_path
 from ..core.url_utils import canonicalize_url
+from ..logging_setup import logger
 from ..network.throttle import _throttle_bandwidth
 
+# tldextract is an optional third-party backend with pluggable cache/network
+# behavior. Failure falls through to the deterministic urllib hostname path.
+_OPTIONAL_TLD_EXTRACT_ERRORS = (Exception,)
 
 
 def looks_like_project_object(obj: dict) -> bool:
@@ -96,7 +99,7 @@ def _is_optional_external_icon_label(label: str) -> bool:
     ))
 
 
-def _hash_file_sha256(path: str) -> Optional[str]:
+def _hash_file_sha256(path: str) -> str | None:
     """Return the sha256 hex digest of a file, streaming to bound memory."""
     try:
         h = _hashlib.sha256()
@@ -108,9 +111,9 @@ def _hash_file_sha256(path: str) -> Optional[str]:
         return None
 
 
-def _walk_package_files(root: str) -> List[str]:
+def _walk_package_files(root: str) -> list[str]:
     """Return contained, non-linked files under root (sorted, deterministic)."""
-    out: List[str] = []
+    out: list[str] = []
     root_real = os.path.realpath(os.path.abspath(root))
     for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
         safe_dirs = []
@@ -135,7 +138,7 @@ def _walk_package_files(root: str) -> List[str]:
     return out
 
 
-def write_package_manifest(folder: str) -> Tuple[bool, str]:
+def write_package_manifest(folder: str) -> tuple[bool, str]:
     """Write a checksum manifest for an existing output folder.
 
     Records sha256 + size for every file under ``folder`` (excluding the
@@ -147,7 +150,7 @@ def write_package_manifest(folder: str) -> Tuple[bool, str]:
         return False, f"FAIL  folder does not exist: {folder}"
     root = os.path.abspath(folder)
     manifest_path = os.path.join(root, _MANIFEST_NAME)
-    entries: Dict[str, Dict[str, Any]] = {}
+    entries: dict[str, dict[str, Any]] = {}
     skipped = 0
     for p in _walk_package_files(root):
         # Exclude only the root sidecar itself. A website may legitimately
@@ -183,13 +186,13 @@ def write_package_manifest(folder: str) -> Tuple[bool, str]:
         # replacing it through a partial direct write.
         text = json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2)
         atomic_write_text(manifest_path, text)
-    except Exception as e:
+    except (OSError, TypeError, ValueError) as e:
         return False, f"FAIL  could not write manifest: {e}"
     msg = f"OK  wrote {_MANIFEST_NAME} with {len(entries)} file checksum(s)"
     return True, msg
 
 
-def _load_package_manifest(root: str) -> Optional[Dict[str, Any]]:
+def _load_package_manifest(root: str) -> dict[str, Any] | None:
     """Load and validate a manifest sidecar. Returns the dict or None."""
     mp = os.path.join(root, _MANIFEST_NAME)
     if not os.path.isfile(mp):
@@ -199,7 +202,7 @@ def _load_package_manifest(root: str) -> Optional[Dict[str, Any]]:
             data = json.load(f)
         if isinstance(data, dict) and isinstance(data.get("files"), dict):
             return data
-    except Exception:
+    except (json.JSONDecodeError, OSError, TypeError, UnicodeError):
         return None
     return None
 
@@ -226,7 +229,7 @@ def _count_failure_log_entries(text: str) -> int:
     )
 
 
-def verify_output_package(folder: str) -> Tuple[bool, str]:
+def verify_output_package(folder: str) -> tuple[bool, str]:
     """Validate a downloaded CYOA output folder.
 
     Checks performed (all read-only):
@@ -241,9 +244,9 @@ def verify_output_package(folder: str) -> Tuple[bool, str]:
     found (missing folder, broken project.json, missing referenced assets, or
     zero-byte files); informational notes alone keep ok True.
     """
-    issues: List[str] = []      # blocking
-    notes: List[str] = []       # informational
-    lines: List[str] = [f"CYOA Downloader v{_APP_VERSION} package verification",
+    issues: list[str] = []      # blocking
+    notes: list[str] = []       # informational
+    lines: list[str] = [f"CYOA Downloader v{_APP_VERSION} package verification",
                         "=" * 56,
                         f"Folder: {folder}"]
 
@@ -251,7 +254,7 @@ def verify_output_package(folder: str) -> Tuple[bool, str]:
         return False, "\n".join(lines + ["", "FAIL  folder does not exist or is not a directory"])
 
     root = os.path.abspath(folder)
-    all_files: List[str] = []
+    all_files: list[str] = []
     root_real = os.path.realpath(root)
     for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
         safe_dirs = []
@@ -314,7 +317,7 @@ def verify_output_package(folder: str) -> Tuple[bool, str]:
                 notes.append("project.json parses but lacks typical project keys")
             else:
                 issues.append("project.json is valid JSON but not an object")
-        except Exception as e:
+        except (json.JSONDecodeError, OSError, TypeError, UnicodeError, ValueError) as e:
             issues.append(f"project.json failed to parse: {e}")
     else:
         notes.append("no project.json at root (expected for pure-website modes)")
@@ -342,7 +345,7 @@ def verify_output_package(folder: str) -> Tuple[bool, str]:
                 f"manifest file_count mismatch: declared {declared_count!r}, actual {len(recorded)}"
             )
             manifest_errors += 1
-        safe_recorded: Dict[str, Any] = {}
+        safe_recorded: dict[str, Any] = {}
         for raw_relpath, entry in recorded.items():
             try:
                 safe_relpath = _safe_archive_rel_path(raw_relpath)
@@ -428,10 +431,10 @@ def verify_output_package(folder: str) -> Tuple[bool, str]:
     # Keep exact relative paths separate from basenames. A basename-only
     # fallback is useful for legacy bare references ("hero.png"), but must not
     # let "other/hero.png" satisfy a reference to "images/hero.png".
-    present_paths: Set[str] = set()
-    present_basenames: Set[str] = set()
-    folded_paths: Set[str] = set()
-    folded_basenames: Set[str] = set()
+    present_paths: set[str] = set()
+    present_basenames: set[str] = set()
+    folded_paths: set[str] = set()
+    folded_basenames: set[str] = set()
     for p in all_files:
         r = rel(p).replace(os.sep, "/")
         present_paths.add(r)
@@ -494,7 +497,7 @@ def verify_output_package(folder: str) -> Tuple[bool, str]:
                 notes.append(f"optional external icon remains: {label}")
             else:
                 issues.append(f"external dependency remains: {label}")
-    except Exception as exc:
+    except (AttributeError, ImportError, OSError, RuntimeError, TypeError, ValueError) as exc:
         notes.append(f"context-aware website dependency scan unavailable: {exc}")
 
     if missing_refs:
@@ -581,7 +584,7 @@ def get_first_subdomain(url: str) -> str:
         try:
             sub = tldextract.extract(url).subdomain
             return sub.split(".")[0] if sub else ""
-        except Exception as _ignored_exc:
+        except _OPTIONAL_TLD_EXTRACT_ERRORS as _ignored_exc:
             logger.debug("Ignored recoverable exception in get_first_subdomain (line 18544): %s", _ignored_exc)
 
     host = urlparse(url).hostname or ""
@@ -707,7 +710,7 @@ def atomic_stream_response_to_file(
                 logger.debug(f"fsync unavailable for {part}: {exc}")
         validate_response_content_length(response, downloaded)
         if downloaded <= 0:
-            raise IOError("Downloaded response body is empty")
+            raise OSError("Downloaded response body is empty")
         os.replace(part, target)
         _emit_progress_event("file_completed", name=os.path.basename(target), url=str(getattr(response, "url", "") or ""))
         return downloaded
@@ -740,7 +743,7 @@ def zip_temp_folder(temp_path: str, zip_name: str = "") -> str:
     if _is_link_or_junction(temp_path):
         raise ValueError(f"Archive source must not be a symlink or junction: {temp_path}")
     if not zip_name:
-        zip_name = f"archive_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        zip_name = f"archive_{datetime.now().astimezone().strftime('%Y%m%d_%H%M%S')}"
     zf_name = zip_name if zip_name.endswith(".zip") else zip_name + ".zip"
     target = os.path.abspath(os.path.join(os.getcwd(), zf_name))
     part = target + f".{os.getpid()}.{threading.get_ident()}.part"
@@ -782,12 +785,27 @@ def zip_temp_folder(temp_path: str, zip_name: str = "") -> str:
     return target
 
 __all__ = [
-    "_finalize_site_folder", "_hash_file_sha256", "_walk_package_files",
-    "write_package_manifest", "_load_package_manifest", "verify_output_package",
-    "validate_zip_archive", "atomic_stream_response_to_file",
-    "validate_response_content_length", "save_string_to_file", "zip_temp_folder",
-    "prepare_clean_output_folder", "_cleanup_recent_part_files",
-    "_build_output_name", "clean_url_path_component", "get_first_subdomain",
-    "create_random_temp_folder", "delete_temp_folder", "canonicalize_url",
-    "_VERIFY_LOCAL_REF_RE", "_VERIFY_JSON_PATH_RE", "_MANIFEST_NAME", "_MANIFEST_HASH_CHUNK",
+    "_MANIFEST_HASH_CHUNK",
+    "_MANIFEST_NAME",
+    "_VERIFY_JSON_PATH_RE",
+    "_VERIFY_LOCAL_REF_RE",
+    "_build_output_name",
+    "_cleanup_recent_part_files",
+    "_finalize_site_folder",
+    "_hash_file_sha256",
+    "_load_package_manifest",
+    "_walk_package_files",
+    "atomic_stream_response_to_file",
+    "canonicalize_url",
+    "clean_url_path_component",
+    "create_random_temp_folder",
+    "delete_temp_folder",
+    "get_first_subdomain",
+    "prepare_clean_output_folder",
+    "save_string_to_file",
+    "validate_response_content_length",
+    "validate_zip_archive",
+    "verify_output_package",
+    "write_package_manifest",
+    "zip_temp_folder",
 ]

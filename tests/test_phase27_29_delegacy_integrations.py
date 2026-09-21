@@ -1,11 +1,9 @@
-import os
 import sqlite3
-import tempfile
 
-from cyoa_downloader_app.runtime import surface as legacy
 from cyoa_downloader_app.config import settings as settings_store
 from cyoa_downloader_app.diagnostics.self_test import run_internal_self_test
 from cyoa_downloader_app.integrations import cyoa_manager, gallery_dl
+from cyoa_downloader_app.runtime import surface as legacy
 
 
 def test_phase27_cyoa_manager_real_module_round_trip(tmp_path):

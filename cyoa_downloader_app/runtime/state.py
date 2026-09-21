@@ -7,18 +7,18 @@ can replace the direct globals with explicit context objects.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Tuple
+import random as _random
 import socket as _socket
 import threading
 import threading as _threading
 import time as _time
-import random as _random
+from typing import Any
 
 from ..app_info import DEFAULT_WAIT_TIME
 
 wait_time: int = DEFAULT_WAIT_TIME
 _RUN_DOWNLOAD_LOCK = threading.RLock()
-_LAST_PREVIEW_FOLDER: Optional[str] = None
+_LAST_PREVIEW_FOLDER: str | None = None
 
 # Cloudflare / downloader feature toggles.
 use_cloudscraper: bool = False
@@ -38,7 +38,7 @@ _FLARESOLVERR_SESSION_POLICY: str = "reuse-domain"
 _FLARESOLVERR_TIMEOUT: int = 60
 _FLARESOLVERR_WAIT_AFTER: int = 3
 _FLARESOLVERR_PROXY_MODE: str = "inherit"
-_FLARESOLVERR_SESSIONS: Dict[str, str] = {}
+_FLARESOLVERR_SESSIONS: dict[str, str] = {}
 _FLARESOLVERR_LOCK = threading.Lock()
 
 # Bandwidth throttle / speed tracking state.
@@ -46,7 +46,7 @@ _bandwidth_limit_kbps: float = 0.0
 _bw_lock = _threading.Lock()
 _bw_last_time: float = 0.0
 _bw_bytes_this_window: int = 0
-_gui_speed_cb: Optional[Any] = None
+_gui_speed_cb: Any | None = None
 
 # Shared HTTP sessions.
 _v465_session_init_lock = threading.RLock()
@@ -54,11 +54,11 @@ _shared_session = None
 _shared_session_cf = None
 
 # Domain rate limiter / exponential backoff.
-_domain_last_request: Dict[str, float] = {}
+_domain_last_request: dict[str, float] = {}
 _domain_lock = _threading.Lock()
 _domain_min_interval: float = 0.3
-_domain_backoff: Dict[str, float] = {}
-_domain_fail_count: Dict[str, int] = {}
+_domain_backoff: dict[str, float] = {}
+_domain_fail_count: dict[str, int] = {}
 _domain_backoff_lock = _threading.Lock()
 _BACKOFF_BASE = 2.0
 _BACKOFF_MAX = 300.0
@@ -68,21 +68,21 @@ _BACKOFF_JITTER = 0.25
 _ytdlp_gui_progress_cb = None
 
 # Proxy config.
-_active_proxy: Optional[str] = None
+_active_proxy: str | None = None
 _proxy_mode: str = "inherit_env"
-_proxy_http: Optional[str] = None
-_proxy_https: Optional[str] = None
+_proxy_http: str | None = None
+_proxy_https: str | None = None
 _proxy_no_proxy: str = "localhost,127.0.0.1,::1"
 
 # DNS config.
-_active_dns: Optional[str] = None
+_active_dns: str | None = None
 _dns_protocol: str = "system"
 _dns_port: int = 0
 _dns_timeout: int = 5
 _dns_fallback_system: bool = True
 _dns_ipv6: bool = True
 _orig_getaddrinfo = _socket.getaddrinfo
-DNS_PRESETS: Dict[str, str] = {
+DNS_PRESETS: dict[str, str] = {
     "System (default)": "",
     "Cloudflare 1.1.1.1 (UDP)": "1.1.1.1",
     "Cloudflare 1.0.0.1 (UDP)": "1.0.0.1",
@@ -102,14 +102,14 @@ DNS_PRESETS: Dict[str, str] = {
     "AdGuard 94.140.14": "94.140.14.14",
     "Custom…": "__custom__",
 }
-BEBASDNS_DOH_VARIANTS: Dict[str, str] = {
+BEBASDNS_DOH_VARIANTS: dict[str, str] = {
     "default": "https://dns.bebasid.com/dns-query",
     "security": "https://security.dns.bebasid.com/dns-query",
     "unfiltered": "https://unfiltered.dns.bebasid.com/dns-query",
     "family": "https://family.dns.bebasid.com/dns-query",
 }
 _dns_bypass_local = _threading.local()
-_dns_cache: Dict[Tuple[object, ...], Tuple[float, str]] = {}
+_dns_cache: dict[tuple[object, ...], tuple[float, str]] = {}
 _DNS_CACHE_TTL_SECONDS = 300
 
 # VPN integration is deliberately a routing guard, not a tunnel manager. The
@@ -119,3 +119,4 @@ _vpn_policy: str = "system"
 _vpn_interface: str = ""
 
 __all__ = [name for name in globals() if not (name.startswith("__") and name.endswith("__"))]
+__all__ += ["_random", "_time"]

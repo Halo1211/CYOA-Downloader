@@ -8,15 +8,27 @@ reads ``_ITCH_ENABLED`` directly.
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, List, Optional, Tuple
+import subprocess
+from typing import Any
 from urllib.parse import urlparse
+
+import requests
 
 from ..config.secrets import _keyring_module
 from ..config.settings import _load_settings
 from ..logging_setup import logger
-from ..network.sessions import create_retry_session, _get_shared_session
+from ..network.sessions import _get_shared_session, create_retry_session
 
 _ITCH_ENABLED: bool = False
+
+# OS keyring implementations are optional and backend-defined.
+_KEYRING_BACKEND_ERRORS = (Exception,)
+_SESSION_CLEANUP_ERRORS = (
+    AttributeError,
+    OSError,
+    RuntimeError,
+    requests.RequestException,
+)
 
 
 def _set_itch_enabled(enabled: bool) -> None:
@@ -29,8 +41,8 @@ def _set_itch_enabled(enabled: bool) -> None:
         legacy_mod = _sys.modules.get("cyoa_downloader_app.runtime.surface")
         if legacy_mod is not None:
             legacy_mod._ITCH_ENABLED = _ITCH_ENABLED
-    except Exception:
-        pass
+    except (AttributeError, RuntimeError, TypeError) as exc:
+        logger.debug("Could not mirror itch state to compatibility surface: %s", exc)
     logger.info(f"itch.io downloader {'enabled' if _ITCH_ENABLED else 'disabled'}.")
 
 
@@ -42,12 +54,12 @@ def _is_itch_url(url: str) -> bool:
     """True if the URL points at an itch.io page/host."""
     try:
         host = urlparse(url).netloc.lower()
-    except Exception:
+    except (TypeError, ValueError):
         return False
     return host == "itch.io" or host.endswith(".itch.io") or "itch.zone" in host
 
 
-def _resolve_itch_api_key(explicit_key: str = "") -> "Tuple[Optional[str], str]":
+def _resolve_itch_api_key(explicit_key: str = "") -> tuple[str | None, str]:
     """
     Resolve an itch.io API key without forcing it into settings.json.
     Order: explicit (this run) → env (ITCH_API_KEY) → keyring → plain settings.
@@ -67,7 +79,7 @@ def _resolve_itch_api_key(explicit_key: str = "") -> "Tuple[Optional[str], str]"
                 k = kr.get_password(_ITCH_KEYRING_SERVICE, _ITCH_KEYRING_USER)
                 if k:
                     return k, "keyring"
-            except Exception as e:
+            except _KEYRING_BACKEND_ERRORS as e:
                 logger.debug(f"itch keyring read failed: {e}")
     plain = (s.get("itch_api_key") or "").strip()
     if plain:
@@ -86,7 +98,7 @@ def _itch_session():
     """
     try:
         return create_retry_session()
-    except Exception:
+    except (OSError, RuntimeError, TypeError, ValueError, requests.RequestException):
         return _get_shared_session()
 
 
@@ -99,15 +111,15 @@ def _itch_session():
 # Each candidate is probed with `--version` (or `--help` fallback) so we only
 # report a backend that can actually execute.
 
-def _which(name: str) -> "Optional[str]":
+def _which(name: str) -> str | None:
     try:
         import shutil as _sh
         return _sh.which(name)
-    except Exception:
+    except (OSError, TypeError):
         return None
 
 
-def _itch_probe(cmd: "List[str]", timeout: int = 25) -> bool:
+def _itch_probe(cmd: list[str], timeout: int = 25) -> bool:
     """Return True if `cmd --version`/`--help` runs without a launch error.
 
     Never raises; a missing launcher returns False quietly.
@@ -115,8 +127,7 @@ def _itch_probe(cmd: "List[str]", timeout: int = 25) -> bool:
     import subprocess as _sp
     for probe in (["--version"], ["--help"]):
         try:
-            r = _sp.run(cmd + probe, stdout=_sp.PIPE, stderr=_sp.PIPE,
-                        timeout=timeout)
+            r = _sp.run(cmd + probe, capture_output=True, timeout=timeout, check=False)
             # itch-dl prints usage/version on these; rc may be 0 or small.
             if r.returncode in (0, 1, 2):
                 out = (r.stdout or b"") + (r.stderr or b"")
@@ -124,12 +135,13 @@ def _itch_probe(cmd: "List[str]", timeout: int = 25) -> bool:
                     return True
         except FileNotFoundError:
             return False
-        except Exception:
+        except (OSError, subprocess.SubprocessError) as exc:
+            logger.debug("itch backend probe failed for %s: %s", probe, exc)
             continue
     return False
 
 
-def detect_itch_backend() -> "Tuple[Optional[List[str]], str]":
+def detect_itch_backend() -> tuple[list[str] | None, str]:
     """Resolve an itch-dl launcher command.
 
     Returns (cmd_prefix or None, label). cmd_prefix is the argv list that, with
@@ -160,9 +172,9 @@ def itch_backend_status() -> str:
             "See https://github.com/DragoonAethis/itch-dl")
 
 
-def build_itch_command(cmd_prefix: "List[str]", page_url: str, dest: str,
-                       api_key: "Optional[str]" = None,
-                       mirror_web: bool = False) -> "List[str]":
+def build_itch_command(cmd_prefix: list[str], page_url: str, dest: str,
+                       api_key: str | None = None,
+                       mirror_web: bool = False) -> list[str]:
     """Construct the full itch-dl argv.
 
     SECURITY: the API key is passed as a CLI argument to the child process only.
@@ -177,9 +189,9 @@ def build_itch_command(cmd_prefix: "List[str]", page_url: str, dest: str,
     return cmd
 
 
-def redact_itch_command(cmd: "List[str]") -> str:
+def redact_itch_command(cmd: list[str]) -> str:
     """Return a log-safe string of an itch-dl command with the key masked."""
-    out: List[str] = []
+    out: list[str] = []
     skip_next = False
     for tok in cmd:
         if skip_next:
@@ -194,7 +206,7 @@ def redact_itch_command(cmd: "List[str]") -> str:
     return " ".join(out)
 
 
-def itch_test_connection(explicit_key: str = "") -> "Tuple[bool, str]":
+def itch_test_connection(explicit_key: str = "") -> tuple[bool, str]:
     """
     Test that the itch-dl backend is available, plus a light reachability check.
 
@@ -225,19 +237,19 @@ def itch_test_connection(explicit_key: str = "") -> "Tuple[bool, str]":
             note = "" if ok else " — install itch-dl to download"
             return ok, f"itch.io reachable (public mode, no API key); {backend_line}{note}."
         return False, f"itch.io not reachable (HTTP {r.status_code}); {backend_line}."
-    except Exception as e:
+    except (OSError, RuntimeError, TypeError, ValueError, requests.RequestException) as e:
         # Backend presence is still useful info even if the network probe fails.
         return (cmd is not None), f"itch.io probe error: {e}; {backend_line}."
     finally:
         try:
             sess.close()
-        except Exception as _close_exc:
+        except _SESSION_CLEANUP_ERRORS as _close_exc:
             logger.debug("itch diagnostic session close failed: %s", _close_exc)
 
 
 def download_itch_assets(page_url: str, output_dir: str,
                          explicit_key: str = "",
-                         mirror_web: bool = False) -> "Dict[str, Any]":
+                         mirror_web: bool = False) -> dict[str, Any]:
     """
     Download an itch.io project via the `itch-dl` backend into
     <output_dir>/itch_assets/.
@@ -251,7 +263,7 @@ def download_itch_assets(page_url: str, output_dir: str,
     """
     import subprocess as _sp
 
-    result: Dict[str, Any] = {"ok": False, "saved": 0, "failed": 0,
+    result: dict[str, Any] = {"ok": False, "saved": 0, "failed": 0,
                               "skipped_auth": False, "backend": "",
                               "returncode": None, "message": ""}
     if not _is_itch_url(page_url):
@@ -272,7 +284,7 @@ def download_itch_assets(page_url: str, output_dir: str,
     dest = os.path.join(output_dir, "itch_assets")
     try:
         os.makedirs(dest, exist_ok=True)
-    except Exception as e:
+    except OSError as e:
         result["message"] = f"Cannot create itch_assets folder: {e}"
         return result
 
@@ -282,7 +294,7 @@ def download_itch_assets(page_url: str, output_dir: str,
     logger.info(f"[itch] running: {redact_itch_command(cmd)} (key source: {source})")
 
     try:
-        proc = _sp.run(cmd, stdout=_sp.PIPE, stderr=_sp.STDOUT, timeout=3600)
+        proc = _sp.run(cmd, stdout=_sp.PIPE, stderr=_sp.STDOUT, timeout=3600, check=False)
         result["returncode"] = proc.returncode
         # Count files actually written under dest as the "saved" signal.
         saved = 0
@@ -299,7 +311,7 @@ def download_itch_assets(page_url: str, output_dir: str,
             tail = ""
             try:
                 tail = (proc.stdout or b"").decode("utf-8", "replace")[-600:]
-            except Exception as _ignored_exc:
+            except (AttributeError, UnicodeError) as _ignored_exc:
                 logger.debug("Ignored recoverable exception in download_itch_assets (line 19781): %s", _ignored_exc)
             if not key:
                 result["skipped_auth"] = True
@@ -316,7 +328,7 @@ def download_itch_assets(page_url: str, output_dir: str,
     except _sp.TimeoutExpired:
         result["message"] = "itch-dl timed out (1h limit)."
         logger.warning("[itch] " + result["message"])
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError) as e:
         result["message"] = f"itch-dl run error: {e}"
         logger.warning("[itch] " + result["message"])
 
@@ -327,9 +339,19 @@ def download_itch_assets(page_url: str, output_dir: str,
 
 
 __all__ = [
-    "_ITCH_ENABLED", "_ITCH_KEYRING_SERVICE", "_ITCH_KEYRING_USER",
-    "_set_itch_enabled", "_is_itch_url", "_resolve_itch_api_key",
-    "_itch_session", "_which", "_itch_probe", "detect_itch_backend",
-    "itch_backend_status", "build_itch_command", "redact_itch_command",
-    "itch_test_connection", "download_itch_assets",
+    "_ITCH_ENABLED",
+    "_ITCH_KEYRING_SERVICE",
+    "_ITCH_KEYRING_USER",
+    "_is_itch_url",
+    "_itch_probe",
+    "_itch_session",
+    "_resolve_itch_api_key",
+    "_set_itch_enabled",
+    "_which",
+    "build_itch_command",
+    "detect_itch_backend",
+    "download_itch_assets",
+    "itch_backend_status",
+    "itch_test_connection",
+    "redact_itch_command",
 ]

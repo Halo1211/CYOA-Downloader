@@ -8,7 +8,6 @@ facade is already loaded.
 from __future__ import annotations
 
 import os
-from typing import Dict, Optional
 from urllib.parse import unquote, urlsplit, urlunsplit
 
 from requests.utils import should_bypass_proxies
@@ -18,7 +17,7 @@ from ..runtime import state
 from ..runtime.compat import mirror_to_legacy
 
 
-def _get_active_proxy() -> Optional[str]:
+def _get_active_proxy() -> str | None:
     """Return currently configured proxy URL, honoring disabled/manual/env modes."""
     if state._proxy_mode == "disabled":
         return None
@@ -37,7 +36,7 @@ def _get_active_proxy() -> Optional[str]:
 _SUPPORTED_PROXY_SCHEMES = {"http", "https", "socks4", "socks4a", "socks5", "socks5h"}
 
 
-def _normalize_proxy_url(value: Optional[str]) -> Optional[str]:
+def _normalize_proxy_url(value: str | None) -> str | None:
     """Validate a proxy URL without exposing embedded credentials in logs."""
     text = str(value or "").strip()
     if not text:
@@ -54,7 +53,7 @@ def _normalize_proxy_url(value: Optional[str]) -> Optional[str]:
     return text
 
 
-def _redact_proxy_url(value: Optional[str]) -> str:
+def _redact_proxy_url(value: str | None) -> str:
     text = str(value or "").strip()
     if not text:
         return ""
@@ -67,17 +66,17 @@ def _redact_proxy_url(value: Optional[str]) -> str:
         if parsed.username is not None:
             netloc = "***:***@" + netloc
         return urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, parsed.fragment))
-    except Exception:
+    except (TypeError, ValueError):
         return "[configured]"
 
 
-def _get_active_proxies() -> Dict[str, str]:
+def _get_active_proxies() -> dict[str, str]:
     """Return the requests-compatible proxy mapping for the active profile."""
     if state._proxy_mode == "disabled":
         return {}
     if state._proxy_mode == "manual":
         common = state._active_proxy
-        mapping: Dict[str, str] = {}
+        mapping: dict[str, str] = {}
         if state._proxy_http or common:
             mapping["http"] = str(state._proxy_http or common)
         if state._proxy_https or common:
@@ -106,7 +105,7 @@ def _should_bypass_manual_proxy(url: str) -> bool:
         return False
 
 
-def _get_browser_proxy_config(url: str) -> Optional[Dict[str, str]]:
+def _get_browser_proxy_config(url: str) -> dict[str, str] | None:
     """Return a Playwright proxy profile matching the manual request route.
 
     An empty mapping means direct/system browser routing. ``None`` means the
@@ -145,9 +144,9 @@ def _get_browser_proxy_config(url: str) -> Optional[Dict[str, str]]:
 def _set_proxy_config(
     *,
     mode: str = "inherit_env",
-    proxy: Optional[str] = None,
-    http_proxy: Optional[str] = None,
-    https_proxy: Optional[str] = None,
+    proxy: str | None = None,
+    http_proxy: str | None = None,
+    https_proxy: str | None = None,
     no_proxy: str = "localhost,127.0.0.1,::1",
 ) -> None:
     """Apply an advanced proxy profile and rebuild pooled sessions."""
@@ -180,7 +179,7 @@ def _set_proxy_config(
         try:
             from .sessions import _v465_reset_shared_sessions
             _v465_reset_shared_sessions()
-        except Exception as exc:
+        except (OSError, RuntimeError) as exc:
             logger.debug("Shared-session reset after proxy change failed: %s", exc)
     if changed:
         if normalized_mode == "manual":
@@ -195,7 +194,7 @@ def _set_proxy_config(
             logger.info("Proxy disabled, including environment proxies")
 
 
-def _set_active_proxy(url: Optional[str], *, mode: Optional[str] = None) -> None:
+def _set_active_proxy(url: str | None, *, mode: str | None = None) -> None:
     """Set global proxy. mode=disabled disables env proxy inheritance too."""
     if mode is None:
         new_mode = "manual" if (url and str(url).strip()) else "disabled"
@@ -207,7 +206,12 @@ def _set_active_proxy(url: Optional[str], *, mode: Optional[str] = None) -> None
 
 
 __all__ = [
-    "_get_active_proxy", "_get_active_proxies", "_set_active_proxy",
-    "_set_proxy_config", "_normalize_proxy_url", "_redact_proxy_url",
-    "_get_browser_proxy_config", "_should_bypass_manual_proxy",
+    "_get_active_proxies",
+    "_get_active_proxy",
+    "_get_browser_proxy_config",
+    "_normalize_proxy_url",
+    "_redact_proxy_url",
+    "_set_active_proxy",
+    "_set_proxy_config",
+    "_should_bypass_manual_proxy",
 ]

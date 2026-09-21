@@ -39,7 +39,7 @@ def _load_module(name: str, path: pathlib.Path):
 def _normalized_signature(obj: Any):
     try:
         sig = inspect.signature(obj)
-    except Exception as exc:  # pragma: no cover - report helper
+    except (TypeError, ValueError) as exc:  # pragma: no cover - report helper
         return ("ERR", type(exc).__name__)
     items = []
     for name, param in sig.parameters.items():

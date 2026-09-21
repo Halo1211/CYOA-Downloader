@@ -7,8 +7,6 @@ legacy.py as the live state store.
 
 from __future__ import annotations
 
-from typing import Set
-
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -71,14 +69,14 @@ def _v465_reset_shared_sessions() -> None:
         state._shared_session_cf = None
         mirror_to_legacy("_shared_session", None)
         mirror_to_legacy("_shared_session_cf", None)
-    seen: Set[int] = set()
+    seen: set[int] = set()
     for session in old_sessions:
         if session is None or id(session) in seen:
             continue
         seen.add(id(session))
         try:
             session.close()
-        except Exception as exc:
+        except (AttributeError, OSError, requests.RequestException) as exc:
             logger.debug(f"Shared session close failed: {exc}")
 
 

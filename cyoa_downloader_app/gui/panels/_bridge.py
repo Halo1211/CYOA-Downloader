@@ -7,7 +7,8 @@ later physical extraction.
 
 from __future__ import annotations
 
-from typing import Callable, Dict, Iterable, Type, TypeVar
+from collections.abc import Callable, Iterable
+from typing import TypeVar
 
 from .._bridge import legacy
 
@@ -25,12 +26,12 @@ def legacy_method(name: str) -> Callable[..., object]:
         raise RuntimeError(f"GUI method missing during panel bridge: {name}") from exc
 
 
-def method_map(names: Iterable[str]) -> Dict[str, Callable[..., object]]:
+def method_map(names: Iterable[str]) -> dict[str, Callable[..., object]]:
     """Build a deterministic method mapping from the composed GUI class."""
     return {name: legacy_method(name) for name in names}
 
 
-def attach_methods(cls: Type[T], methods: Dict[str, Callable[..., object]]) -> Type[T]:
+def attach_methods(cls: type[T], methods: dict[str, Callable[..., object]]) -> type[T]:
     """Attach *methods* to *cls* without wrapping or changing call signatures."""
     for name, fn in methods.items():
         setattr(cls, name, fn)

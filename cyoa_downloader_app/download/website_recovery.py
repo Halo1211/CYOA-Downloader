@@ -3,20 +3,23 @@
 from __future__ import annotations
 
 import json
-import os
 import pathlib
 import re
 from dataclasses import dataclass
-from typing import Dict, List, Set, Tuple
 
+from ..config.settings import _load_settings
 from ..core.atomic_io import atomic_write_text
+from ..core.progress import DownloadCancelledError
+from ..diagnostics.reports import write_failed_assets_log
+from ..logging_setup import logger
 from .archive_policy import ArchivePolicy
 from .archive_runner import resume_existing_archive
 from .website import WebsiteDownloader
-from ..config.settings import _load_settings
-from ..diagnostics.reports import write_failed_assets_log
-from ..logging_setup import logger
 
+# Retry Assets processes independent archive jobs. Contain one broken archive
+# or downloader implementation, report it, and continue; cancellation remains
+# explicit control flow before this boundary.
+_RECOVERY_JOB_ERRORS = (Exception,)
 
 _SOURCE_RE = re.compile(r"^(?:Source|Start URL)\s*:\s*(https?://\S+)", re.IGNORECASE)
 _URL_RE = re.compile(r"^\s*URL\s*:\s*(https?://\S+)", re.IGNORECASE)
@@ -47,9 +50,9 @@ def _archive_policy_from_settings() -> ArchivePolicy:
     ).normalized()
 
 
-def _parse_failure_report(path: pathlib.Path) -> Tuple[str, List[str]]:
+def _parse_failure_report(path: pathlib.Path) -> tuple[str, list[str]]:
     source = ""
-    urls: List[str] = []
+    urls: list[str] = []
     try:
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
@@ -68,7 +71,7 @@ def _parse_failure_report(path: pathlib.Path) -> Tuple[str, List[str]]:
     return source, urls
 
 
-def _mark_recovered_backup_urls(path: pathlib.Path, recovered: Set[str]) -> int:
+def _mark_recovered_backup_urls(path: pathlib.Path, recovered: set[str]) -> int:
     """Mark recovered backup-report rows so they are not retried forever.
 
     ``backup_report.txt`` is also the archive manifest and should not be
@@ -84,7 +87,7 @@ def _mark_recovered_backup_urls(path: pathlib.Path, recovered: Set[str]) -> int:
         return 0
 
     changed = 0
-    updated: List[str] = []
+    updated: list[str] = []
     for line in lines:
         stripped = line.strip()
         failure_row = stripped.startswith(("✗", "×", "âœ—"))
@@ -135,7 +138,7 @@ def retry_website_assets(root: str, policy: ArchivePolicy | None = None) -> Webs
     policy = (policy or _archive_policy_from_settings()).normalized()
     summary = WebsiteRecoverySummary()
 
-    report_groups: Dict[pathlib.Path, Dict[str, object]] = {}
+    report_groups: dict[pathlib.Path, dict[str, object]] = {}
     report_paths = list(base.rglob("failed_assets.txt")) + list(base.rglob("backup_report.txt"))
     for report in report_paths:
         source, urls = _parse_failure_report(report)
@@ -161,14 +164,16 @@ def retry_website_assets(root: str, policy: ArchivePolicy | None = None) -> Webs
             summary.failed_assets += len(urls)
             continue
         downloader = WebsiteDownloader(source, str(folder), archive_strategy=policy.strategy)
-        remaining: List[Dict[str, str]] = []
-        recovered_urls: Set[str] = set()
+        remaining: list[dict[str, str]] = []
+        recovered_urls: set[str] = set()
         try:
             for url in urls:
                 summary.discovered_assets += 1
                 try:
                     local = downloader.download_asset(url)
-                except Exception as exc:
+                except DownloadCancelledError:
+                    raise
+                except _RECOVERY_JOB_ERRORS as exc:
                     local = None
                     error = str(exc)
                 else:
@@ -207,7 +212,9 @@ def retry_website_assets(root: str, policy: ArchivePolicy | None = None) -> Webs
             new_pages = max(0, len(updated.get("pages") or []) - old_pages)
             summary.archives_resumed += 1
             summary.new_routes += new_pages
-        except Exception as exc:
+        except DownloadCancelledError:
+            raise
+        except _RECOVERY_JOB_ERRORS as exc:
             logger.warning("Retry Assets could not resume %s: %s", manifest_path, exc)
 
     return summary

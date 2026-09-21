@@ -7,7 +7,6 @@ import os
 import re
 import shutil
 import stat
-from typing import List
 from urllib.parse import unquote
 
 from ..logging_setup import logger
@@ -64,7 +63,7 @@ def _safe_rel_path(value: str, fallback: str = "asset") -> str:
     """Return a sanitized relative path safe for writing inside an output folder."""
     raw = unquote(str(value or "")).replace("\\", "/")
     raw = raw.split("?", 1)[0].split("#", 1)[0].replace("\x00", "")
-    parts: List[str] = []
+    parts: list[str] = []
     for part in raw.split("/"):
         part = part.strip()
         if not part or part in {".", ".."}:
@@ -114,7 +113,7 @@ def _safe_archive_rel_path(member: str) -> str:
     raw = unquote(str(member or "")).replace("\\", "/")
     if not raw or "\x00" in raw or raw.startswith(("/", "//")) or re.match(r"^[A-Za-z]:", raw):
         raise ValueError(f"Unsafe archive path rejected: {member!r}")
-    parts: List[str] = []
+    parts: list[str] = []
     for part in raw.split("/"):
         if part in {"", ".", ".."} or part.strip() != part:
             raise ValueError(f"Unsafe archive path rejected: {member!r}")
@@ -171,8 +170,8 @@ def _copytree_merge_safe(src_dir: str, dst_dir: str, *, label: str = "assets") -
             try:
                 shutil.copy2(src_file, dst_file)
                 count += 1
-            except Exception as e:
+            except (OSError, shutil.Error) as e:
                 logger.debug(f"Copy {label} failed: {src_file} → {dst_file}: {e}")
     return count
 
-__all__ = ['_is_link_or_junction', '_is_windows_reserved_basename', '_safe_rel_path', '_safe_join', '_safe_archive_rel_path', '_safe_archive_join', '_copytree_merge_safe']
+__all__ = ['_copytree_merge_safe', '_is_link_or_junction', '_is_windows_reserved_basename', '_safe_archive_join', '_safe_archive_rel_path', '_safe_join', '_safe_rel_path']

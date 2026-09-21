@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import re
-from typing import List, Set
 
-IMAGE_FIELDS: List[str] = [
+IMAGE_FIELDS: list[str] = [
     "image",               # primary image on choices and rows
     "backgroundImage",     # row/section background
     "rowBackgroundImage",  # row-level background
@@ -39,7 +38,7 @@ IMAGE_FIELDS: List[str] = [
     "choiceImage",          # generic choice/object image
 ]
 
-ICC_PLUS_IMAGE_KEYS: Set[str] = {
+ICC_PLUS_IMAGE_KEYS: set[str] = {
     "image", "backgroundimage", "rowbackgroundimage", "objectbackgroundimage",
     "defaultimage", "addonbackgroundimage", "rowborderimage",
     "objectborderimage", "addonborderimage", "backpackbgimage",
@@ -48,7 +47,7 @@ ICC_PLUS_IMAGE_KEYS: Set[str] = {
     "choiceimage",
 }
 
-AUDIO_FIELDS: List[str] = [
+AUDIO_FIELDS: list[str] = [
     "audio",           # soundEffects[].audio in ICC Plus (direct URL / base64)
     "audioSrc",        # generic alt name used by some custom viewers
     "backgroundMusic", # some custom viewers
@@ -76,7 +75,7 @@ AUDIO_FIELDS: List[str] = [
     # YouTube ID (skip) or a direct URL depending on sibling "useAudioURL" field.
 ]
 
-BGMLIST_FIELDS: Set[str] = {
+BGMLIST_FIELDS: set[str] = {
     "bgmlist", "bgmplaylist", "bgmtracks", "playlist",
     "audiolist", "musiclist", "bgmqueue",
 }
@@ -93,18 +92,18 @@ _SOUNDCLOUD_URL_RE = re.compile(
     re.IGNORECASE,
 )
 
-FONT_EXTENSIONS: Set[str] = {".woff", ".woff2", ".ttf", ".otf", ".eot"}
+FONT_EXTENSIONS: set[str] = {".woff", ".woff2", ".ttf", ".otf", ".eot"}
 
-IMAGE_EXTENSIONS: Set[str] = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".avif", ".ico"}
+IMAGE_EXTENSIONS: set[str] = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".avif", ".ico"}
 
-AUDIO_EXTENSIONS: Set[str] = {".mp3", ".ogg", ".wav", ".m4a", ".aac", ".flac", ".opus", ".weba"}
+AUDIO_EXTENSIONS: set[str] = {".mp3", ".ogg", ".wav", ".m4a", ".aac", ".flac", ".opus", ".weba"}
 
-VIDEO_EXTENSIONS: Set[str] = {".mp4", ".webm", ".ogv", ".mkv", ".mov", ".m4v"}
+VIDEO_EXTENSIONS: set[str] = {".mp4", ".webm", ".ogv", ".mkv", ".mov", ".m4v"}
 
-SCRIPT_EXTENSIONS: Set[str] = {".js", ".mjs"}
+SCRIPT_EXTENSIONS: set[str] = {".js", ".mjs"}
 
-STYLE_EXTENSIONS: Set[str] = {".css"}
+STYLE_EXTENSIONS: set[str] = {".css"}
 
-TEXT_ASSET_EXTENSIONS: Set[str] = SCRIPT_EXTENSIONS | STYLE_EXTENSIONS | {".html", ".json"}
+TEXT_ASSET_EXTENSIONS: set[str] = SCRIPT_EXTENSIONS | STYLE_EXTENSIONS | {".html", ".json"}
 
-__all__ = ['IMAGE_FIELDS', 'ICC_PLUS_IMAGE_KEYS', 'AUDIO_FIELDS', 'BGMLIST_FIELDS', '_YOUTUBE_URL_RE', '_YOUTUBE_ID_RE', '_SOUNDCLOUD_URL_RE', 'FONT_EXTENSIONS', 'IMAGE_EXTENSIONS', 'AUDIO_EXTENSIONS', 'VIDEO_EXTENSIONS', 'SCRIPT_EXTENSIONS', 'STYLE_EXTENSIONS', 'TEXT_ASSET_EXTENSIONS']
+__all__ = ['AUDIO_EXTENSIONS', 'AUDIO_FIELDS', 'BGMLIST_FIELDS', 'FONT_EXTENSIONS', 'ICC_PLUS_IMAGE_KEYS', 'IMAGE_EXTENSIONS', 'IMAGE_FIELDS', 'SCRIPT_EXTENSIONS', 'STYLE_EXTENSIONS', 'TEXT_ASSET_EXTENSIONS', 'VIDEO_EXTENSIONS', '_SOUNDCLOUD_URL_RE', '_YOUTUBE_ID_RE', '_YOUTUBE_URL_RE']

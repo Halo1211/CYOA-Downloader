@@ -12,16 +12,25 @@ import json
 import os
 import re
 import threading as _threading
-from typing import Dict, Mapping, Optional, Set, Tuple
+from collections.abc import Mapping
 from urllib.parse import urljoin, urlparse, urlunparse
 
 import requests
 
 from ..constants.assets import (
-    IMAGE_EXTENSIONS, AUDIO_EXTENSIONS, VIDEO_EXTENSIONS, FONT_EXTENSIONS,
-    SCRIPT_EXTENSIONS, STYLE_EXTENSIONS, AUDIO_FIELDS, BGMLIST_FIELDS,
-    ICC_PLUS_IMAGE_KEYS, IMAGE_FIELDS, _SOUNDCLOUD_URL_RE,
-    _YOUTUBE_ID_RE, _YOUTUBE_URL_RE,
+    _SOUNDCLOUD_URL_RE,
+    _YOUTUBE_ID_RE,
+    _YOUTUBE_URL_RE,
+    AUDIO_EXTENSIONS,
+    AUDIO_FIELDS,
+    BGMLIST_FIELDS,
+    FONT_EXTENSIONS,
+    ICC_PLUS_IMAGE_KEYS,
+    IMAGE_EXTENSIONS,
+    IMAGE_FIELDS,
+    SCRIPT_EXTENSIONS,
+    STYLE_EXTENSIONS,
+    VIDEO_EXTENSIONS,
 )
 from ..logging_setup import logger
 from ..project.parse import try_decode_bytes
@@ -59,12 +68,12 @@ def _is_image_reference(value: str) -> bool:
     """Return whether a value has an image-like path extension."""
     try:
         path = urlparse(_normalize_embedded_http_url(value)).path.lower()
-    except Exception:
+    except (TypeError, ValueError):
         path = str(value or "").split("?", 1)[0].lower()
     return os.path.splitext(path)[1] in IMAGE_EXTENSIONS
 
 
-def _extract_image_references(value: str, *, allow_bare_path: bool = False) -> Set[str]:
+def _extract_image_references(value: str, *, allow_bare_path: bool = False) -> set[str]:
     """Extract image URLs from either a direct field or rich-text HTML.
 
     ICC project fields named ``image`` are not consistently typed in the wild:
@@ -78,7 +87,7 @@ def _extract_image_references(value: str, *, allow_bare_path: bool = False) -> S
     if not text or text.startswith("data:"):
         return set()
 
-    refs: Set[str] = set()
+    refs: set[str] = set()
 
     def add(raw: str, *, require_image_extension: bool = False) -> None:
         candidate = _normalize_embedded_http_url(raw)
@@ -131,7 +140,7 @@ def _extract_image_references(value: str, *, allow_bare_path: bool = False) -> S
 def _scan_large_json_for_assets(
     text: str,
     file_url: str,
-) -> Set[str]:
+) -> set[str]:
     """Scan a large JSON document structurally in linear time.
 
     Running every JavaScript/CSS-oriented regular expression over a multi-MB
@@ -146,7 +155,7 @@ def _scan_large_json_for_assets(
         # Malformed or JSON-like JavaScript still needs the general scanner.
         return set()
 
-    found: Set[str] = set()
+    found: set[str] = set()
     stack = [root]
 
     def add_candidate(raw: str) -> None:
@@ -201,7 +210,7 @@ def _scan_large_json_for_assets(
 # Raw CDN hosts used by the gallery-dl smart-mode classifier. Kept here as an
 # independent constant so this low-level scanner does not need to import the
 # transitional gallery_dl bridge (which would pull legacy.py back in).
-_RAW_GALLERY_DL_CDN_HOSTS: Set[str] = {
+_RAW_GALLERY_DL_CDN_HOSTS: set[str] = {
     "i.pximg.net", "img-original.pximg.net", "img-zip-ugoira.pximg.net",
     "pbs.twimg.com", "c.deviantart.com", "a.deviantart.net", "wixmp.com",
     "cdn.donmai.us", "static1.e621.net", "static1.e926.net",
@@ -216,7 +225,7 @@ def _is_probable_raw_cdn_asset(url: str) -> bool:
         host = (parsed.hostname or "").lower()
         ext = os.path.splitext(parsed.path.lower())[1]
         return host in _RAW_GALLERY_DL_CDN_HOSTS or ext in IMAGE_EXTENSIONS
-    except Exception as exc:
+    except (AttributeError, TypeError, ValueError) as exc:
         logger.debug(f"gallery-dl URL classification failed for {url}: {exc}")
         return True
 
@@ -224,7 +233,7 @@ def _is_probable_raw_cdn_asset(url: str) -> bool:
 _image_hash_map = {}   # sha256 → first local path (dedup)
 _hash_lock = _threading.Lock()
 
-def _check_image_dedup(content: bytes, local_path: str, scope: str = "") -> Optional[str]:
+def _check_image_dedup(content: bytes, local_path: str, scope: str = "") -> str | None:
     """Check for identical content within one output scope."""
     if not content:
         return None
@@ -237,7 +246,7 @@ def _check_image_dedup(content: bytes, local_path: str, scope: str = "") -> Opti
     return None
 
 
-def _safe_response_text(r: "requests.Response") -> str:
+def _safe_response_text(r: requests.Response) -> str:
     """
     Decode response content with correct encoding.
     Always passes through try_decode_bytes() which tries UTF-8 first.
@@ -257,7 +266,7 @@ def _scan_file_for_assets(
     file_url: str,
     base_url: str,
     file_ext: str = ".js",
-) -> Set[str]:
+) -> set[str]:
     """
     Scan a downloaded JS or CSS file for asset URL references and return
     a set of absolute URLs that should be downloaded.
@@ -307,7 +316,7 @@ def _scan_file_for_assets(
         except (TypeError, ValueError, json.JSONDecodeError):
             pass
 
-    found: Set[str] = set()
+    found: set[str] = set()
     file_base = file_url.rsplit('/', 1)[0] + '/'   # directory of this file
 
     # Some viewer bootstraps resolve resources from a path derived from the
@@ -316,8 +325,8 @@ def _scan_file_for_assets(
     # ``basePath + 'css/app.css'``. Those literals are not relative to the JS
     # file directory. Follow this explicit browser expression without guessing
     # any author-chosen folder names.
-    js_base_prefixes: Dict[str, str] = {}
-    base_prefixed_literals: Set[str] = set()
+    js_base_prefixes: dict[str, str] = {}
+    base_prefixed_literals: set[str] = set()
     if file_ext in ('.js', '.mjs', '.cjs'):
         for base_match in _re.finditer(
             r'\b([A-Za-z_$][\w$]*)\s*=\s*new\s+URL\(\s*["\']([^"\']+)["\']\s*,\s*'
@@ -345,7 +354,7 @@ def _scan_file_for_assets(
     # identifiers in the dependency table, for example
     # ``},{"./maps/entities.json":22}]``. They look like fetchable paths to a
     # literal scanner but no network request exists at runtime.
-    bundled_module_ids: Set[str] = set()
+    bundled_module_ids: set[str] = set()
     if file_ext in ('.js', '.mjs', '.cjs'):
         bundled_module_re = _re.compile(
             Q + r'(?P<path>[^"\'`\n\r<>{}()|\\]{1,300}' + ASSET_EXTS + r')' +
@@ -388,7 +397,7 @@ def _scan_file_for_assets(
             and bool(_re.search(r"(?:\.\s*img|\bimg)\s*[:=]\s*$", before, _re.IGNORECASE))
         )
 
-    def _resolve(raw: str) -> Optional[str]:
+    def _resolve(raw: str) -> str | None:
         raw = raw.strip().lstrip()
         if not raw or len(raw) > 400:
             return None
@@ -408,11 +417,11 @@ def _scan_file_for_assets(
         if raw.startswith(('data:', '#', 'javascript:', 'mailto:',
                             'http://www.w3.org', 'blob:')):
             return None
-        if raw.startswith('https://') or raw.startswith('http://'):
+        if raw.startswith(('https://', 'http://')):
             return raw
         if raw.startswith('//'):
             return 'https:' + raw
-        if raw.startswith('./') or raw.startswith('../'):
+        if raw.startswith(('./', '../')):
             resolved = urljoin(file_base, raw)
             # ── Fix: Vite encodes asset paths relative to site root, not JS file ──
             # If JS file is inside /assets/ and path starts with ./assets/,
@@ -439,7 +448,7 @@ def _scan_file_for_assets(
             return f"{parsed_base.scheme}://{parsed_base.netloc}{raw}"
         return urljoin(file_base, raw)
 
-    def _resolve_js_literal(raw: str) -> Optional[str]:
+    def _resolve_js_literal(raw: str) -> str | None:
         """Resolve non-explicit JS asset literals from the viewer base.
 
         A browser fetch such as ``fetch('project.json')`` resolves against the
@@ -778,19 +787,19 @@ def _scan_file_for_assets(
                 logger.debug("Ignored recoverable exception in _scan_file_for_assets (line 19032): %s", _ignored_exc)
 
     # ── Deduplicate / validate ────────────────────────────────────────
-    cleaned: Set[str] = set()
+    cleaned: set[str] = set()
     for u in found:
         try:
             parsed = urlparse(u)
             if parsed.scheme in ('http', 'https') and parsed.netloc:
                 cleaned.add(urlunparse(parsed._replace(fragment='')))
-        except Exception as _ignored_exc:
+        except (TypeError, ValueError) as _ignored_exc:
             logger.debug("Ignored recoverable exception in _scan_file_for_assets (line 19042): %s", _ignored_exc)
 
     return cleaned
 
 
-def _infer_dynamic_asset_paths(text: str) -> Dict[str, Set[str]]:
+def _infer_dynamic_asset_paths(text: str) -> dict[str, set[str]]:
     """Map image-array tokens to paths formed with a JS base variable.
 
     Only literals inside explicitly image/asset-named arrays are considered.
@@ -885,7 +894,7 @@ def _infer_dynamic_asset_paths(text: str) -> Dict[str, Set[str]]:
         r'(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*\[(.*?)\]\s*;?',
         _re.IGNORECASE | _re.DOTALL,
     )
-    inferred: Dict[str, Set[str]] = {}
+    inferred: dict[str, set[str]] = {}
     for array_match in asset_array.finditer(text or ""):
         if not _re.search(r"(?:img|image|asset)", array_match.group(1), _re.IGNORECASE):
             continue
@@ -909,7 +918,7 @@ def _infer_dynamic_asset_paths(text: str) -> Dict[str, Set[str]]:
     # mark the Tk application "Not Responding" during final integrity checks.
     # Collapse hints at the same source offset, sort once, and inspect only the
     # neighbours around each image offset.
-    best_hint_at: Dict[int, tuple[int, str]] = {}
+    best_hint_at: dict[int, tuple[int, str]] = {}
     for order, (position, prefix) in enumerate(directory_hints):
         current = best_hint_at.get(position)
         if current is None or order < current[0]:
@@ -947,7 +956,7 @@ def _infer_dynamic_asset_paths(text: str) -> Dict[str, Set[str]]:
     return inferred
 
 
-def _infer_generated_entry_images(sources: Mapping[str, str]) -> Set[str]:
+def _infer_generated_entry_images(sources: Mapping[str, str]) -> set[str]:
     """Infer image names only from a site's explicit Entry ID contract."""
     import re as _re
 
@@ -963,7 +972,7 @@ def _infer_generated_entry_images(sources: Mapping[str, str]) -> Set[str]:
     if not id_factory.search(combined) or not image_template.search(combined):
         return set()
 
-    class_groups: Dict[str, str] = {}
+    class_groups: dict[str, str] = {}
     class_pattern = _re.compile(
         r"class\s+(?P<class>[A-Za-z_$][\w$]*)\s+extends\s+"
         r"(?:[A-Za-z_$][\w$]*\.)?Entry\s*\{(?P<body>.*?)\n\s*\}",
@@ -978,7 +987,7 @@ def _infer_generated_entry_images(sources: Mapping[str, str]) -> Set[str]:
         if group_match:
             class_groups[match.group("class")] = group_match.group("group")
 
-    inferred: Set[str] = set()
+    inferred: set[str] = set()
     for class_name, group in class_groups.items():
         constructor = _re.compile(
             rf"new\s+{_re.escape(class_name)}\s*\(\s*"
@@ -997,9 +1006,12 @@ def _infer_generated_entry_images(sources: Mapping[str, str]) -> Set[str]:
 
 
 __all__ = [
-    "_is_probable_raw_cdn_asset", "_check_image_dedup",
-    "_safe_response_text", "_scan_file_for_assets", "_infer_dynamic_asset_paths",
+    "_check_image_dedup",
+    "_infer_dynamic_asset_paths",
     "_infer_generated_entry_images",
+    "_is_probable_raw_cdn_asset",
+    "_safe_response_text",
+    "_scan_file_for_assets",
 ]
 
 
@@ -1007,7 +1019,7 @@ __all__ = [
 def _deep_scan_project_assets(
     project_str: str,
     base_url: str,
-) -> Tuple[Set[str], Set[str], Set[str]]:
+) -> tuple[set[str], set[str], set[str]]:
     """
     Parse project.json as JSON and walk the entire object tree to find ALL
     image, audio, and YouTube URLs — including nested structures that the
@@ -1022,9 +1034,9 @@ def _deep_scan_project_assets(
         (image_paths, audio_paths, youtube_ids)
         where each is a set of raw strings from the JSON (relative or absolute).
     """
-    image_paths:   Set[str] = set()
-    audio_paths:   Set[str] = set()
-    youtube_ids:   Set[str] = set()
+    image_paths:   set[str] = set()
+    audio_paths:   set[str] = set()
+    youtube_ids:   set[str] = set()
 
     image_keys = {f.lower() for f in IMAGE_FIELDS} | set(ICC_PLUS_IMAGE_KEYS)
     audio_keys = {f.lower() for f in AUDIO_FIELDS}
@@ -1040,7 +1052,7 @@ def _deep_scan_project_assets(
         ext = os.path.splitext(path)[1]
         return ext in AUDIO_EXTENSIONS or v.startswith(("http://", "https://")) and not _YOUTUBE_ID_RE.match(v)
 
-    def _walk(obj, parent_key: str = "", siblings: Optional[Dict] = None) -> None:
+    def _walk(obj, parent_key: str = "", siblings: dict | None = None) -> None:
         """Recursively walk any JSON value."""
         if obj is None:
             return

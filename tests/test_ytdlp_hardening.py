@@ -1,13 +1,16 @@
+import pytest
+
+from cyoa_downloader_app.core.progress import DownloadCancelledError
+from cyoa_downloader_app.download import image_pipeline
 from cyoa_downloader_app.download.audio_download import (
     _download_youtube_audio,
     _is_cookie_database_lock_error,
     _summarize_ytdlp_error,
-    _ytdlp_cookie_files,
     _yt_dlp_public_client_fallback_options,
     _yt_dlp_runtime_options,
+    _ytdlp_cookie_files,
 )
 from cyoa_downloader_app.download.audio_reports import _write_youtube_skip_log
-from cyoa_downloader_app.download import image_pipeline
 
 
 def test_ytdlp_cookie_files_accepts_environment_and_output_candidates(tmp_path, monkeypatch):
@@ -162,6 +165,36 @@ def test_ytdlp_auth_gate_skips_redundant_anonymous_default_retry(monkeypatch, tm
     assert len(calls) == 2
     assert calls[0]["extractor_args"]["youtube"]["player_client"] == ["tv", "mweb"]
     assert calls[1]["cookiefile"] == str(cookie_file)
+
+
+def test_ytdlp_backend_does_not_turn_cancellation_into_audio_failure(monkeypatch, tmp_path):
+    import types
+
+    class CancellingYoutubeDL:
+        def __init__(self, _options):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def download(self, _urls):
+            raise DownloadCancelledError("cancelled in yt-dlp")
+
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "yt_dlp",
+        types.SimpleNamespace(YoutubeDL=CancellingYoutubeDL),
+    )
+
+    with pytest.raises(DownloadCancelledError, match="cancelled in yt-dlp"):
+        _download_youtube_audio(
+            ["https://www.youtube.com/watch?v=dQw4w9WgXcQ"],
+            str(tmp_path / "output"),
+            log_dir=str(tmp_path / "report"),
+        )
 
 
 def test_youtube_skip_log_records_actionable_reason_without_cookie_contents(tmp_path):

@@ -35,12 +35,12 @@ def test_phase15_discovery_helpers_are_real_module_exports():
 
 def test_phase15_low_risk_discovery_helpers_moved_out_of_legacy():
     names = _legacy_defined_symbols()
-    for name in {
+    for name in (
         "find_candidate_urls_in_text", "_script_priority", "find_script_sources",
         "_scan_html_for_project_hints", "find_scripts", "extract_placeholder_url",
         "extract_iframe_urls", "get_first_folder_from_url", "extract_app_js_path",
         "build_default_project_candidates", "strip_document_from_url",
-    }:
+    ):
         assert name not in names
 
 

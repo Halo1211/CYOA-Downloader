@@ -15,14 +15,13 @@ import pathlib
 import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, List, Optional, Set
+from typing import ClassVar
 from urllib.parse import parse_qsl, unquote, urlencode, urljoin, urlparse, urlunparse
 
 import requests
 
 from ..config.settings import _load_settings
 from ..constants.assets import (
-    _YOUTUBE_URL_RE,
     AUDIO_EXTENSIONS,
     FONT_EXTENSIONS,
     IMAGE_EXTENSIONS,
@@ -65,7 +64,7 @@ from .package import (
 
 try:
     from bs4 import BeautifulSoup  # type: ignore
-except Exception:  # pragma: no cover - mirrors legacy fallback behavior
+except ImportError:  # pragma: no cover - mirrors legacy fallback behavior
     def BeautifulSoup(*_args, **_kwargs):  # type: ignore
         raise RuntimeError(
             "Missing dependency: beautifulsoup4 is required for HTML/ICC parsing. "
@@ -74,6 +73,33 @@ except Exception:  # pragma: no cover - mirrors legacy fallback behavior
 
 
 _ASSET_IN_PROGRESS = object()
+
+_RESPONSE_CLEANUP_ERRORS = (
+    AttributeError,
+    OSError,
+    RuntimeError,
+    requests.RequestException,
+)
+_NETWORK_OPERATION_ERRORS = (
+    AttributeError,
+    KeyError,
+    OSError,
+    RuntimeError,
+    TypeError,
+    ValueError,
+    requests.RequestException,
+)
+_TEXT_ANALYSIS_ERRORS = (
+    AttributeError,
+    IndexError,
+    KeyError,
+    OSError,
+    RuntimeError,
+    TypeError,
+    UnicodeError,
+    ValueError,
+    re.error,
+)
 
 
 def _is_downloaded_local_file(value: object) -> bool:
@@ -119,7 +145,7 @@ _ATOB_VARIABLE_RE = re.compile(
 )
 
 
-def _infer_runtime_chunk_paths(text: str) -> List[str]:
+def _infer_runtime_chunk_paths(text: str) -> list[str]:
     """Expand finite Webpack/Vue lazy-chunk maps into concrete paths."""
     if not text:
         return []
@@ -145,7 +171,7 @@ def _infer_runtime_chunk_paths(text: str) -> List[str]:
         r"\b[A-Za-z_$][\w$]*\.p\s*=\s*([\"'])([^\"']*)\1", text
     )
     public_prefix = public_match.group(2) if public_match else ""
-    paths: List[str] = []
+    paths: list[str] = []
     for pattern in patterns:
         for chunk_map in pattern.finditer(text):
             for chunk_id, digest in pair_re.findall(chunk_map.group("map"))[:500]:
@@ -249,7 +275,7 @@ class WebsiteDownloader:
         re.IGNORECASE,
     )
     _css_comment_re = re.compile(r'/\*.*?\*/', re.DOTALL)
-    _telemetry_hosts = {
+    _telemetry_hosts: ClassVar[set[str]] = {
         "www.googletagmanager.com", "googletagmanager.com",
         "www.google-analytics.com", "google-analytics.com",
         "stats.g.doubleclick.net", "cct.google", "vercel.live",
@@ -259,7 +285,7 @@ class WebsiteDownloader:
     def __init__(self, start_url: str, output_folder: str, max_workers: int = 4,
                  ai_api_key: str = "", ai_provider: str = "",
                  ai_mode: str = "auto_fallback",
-                 ai_budget: Optional[AIUsageBudget] = None,
+                 ai_budget: AIUsageBudget | None = None,
                  archive_strategy: str = "classic") -> None:
         self.start_url     = canonicalize_url(start_url)
         self.output_folder = output_folder
@@ -280,18 +306,18 @@ class WebsiteDownloader:
         self._path_lock = threading.Lock()
         # Values are local paths after success, None after failure, or the
         # private in-progress sentinel while recursive text assets are parsed.
-        self._downloaded: Dict[str, object] = {}
-        self._download_events: Dict[str, threading.Event] = {}
-        self._download_owners: Dict[str, int] = {}
-        self._source_for_local: Dict[str, str] = {}
-        self._used_local_paths: Set[str] = set()
+        self._downloaded: dict[str, object] = {}
+        self._download_events: dict[str, threading.Event] = {}
+        self._download_owners: dict[str, int] = {}
+        self._source_for_local: dict[str, str] = {}
+        self._used_local_paths: set[str] = set()
         parsed = urlparse(self.start_url)
         self.base_origin = f"{parsed.scheme}://{parsed.netloc}"
         self.start_html_local = _safe_join(self.output_folder, "index.html")
-        self._success_items: List[Dict[str, str]] = []
-        self._failed_items: List[Dict[str, str]] = []
-        self._project_aliases: List[str] = []
-        self._collision_log: List[Dict[str, str]] = []
+        self._success_items: list[dict[str, str]] = []
+        self._failed_items: list[dict[str, str]] = []
+        self._project_aliases: list[str] = []
+        self._collision_log: list[dict[str, str]] = []
         self._custom_viewer_route = False
         self._browser_fetch_session = None
         self._browser_transport_preferred = False
@@ -303,16 +329,16 @@ class WebsiteDownloader:
         if session is not None:
             try:
                 session.close()
-            except Exception:
-                pass
+            except _RESPONSE_CLEANUP_ERRORS as exc:
+                logger.debug("Could not close reusable browser transport: %s", exc)
 
     def __del__(self) -> None:  # pragma: no cover - best-effort process cleanup
         try:
             self.close()
-        except Exception:
-            pass
+        except (AttributeError, OSError, RuntimeError) as exc:
+            logger.debug("Website downloader finalizer cleanup failed: %s", exc)
 
-    def _fetch_with_browser(self, url: str) -> Optional[requests.Response]:
+    def _fetch_with_browser(self, url: str) -> requests.Response | None:
         """Return a requests-compatible response from a shared browser page."""
         if self.archive_strategy not in {"auto", "browser"}:
             return None
@@ -355,7 +381,7 @@ class WebsiteDownloader:
             return response
         except DownloadCancelledError:
             raise
-        except Exception as exc:
+        except _NETWORK_OPERATION_ERRORS as exc:
             logger.debug("Browser transport unavailable for %s: %s", url, exc)
             return None
 
@@ -380,7 +406,7 @@ class WebsiteDownloader:
                 self.archive_auto_profile = auto_profile
             except DownloadCancelledError:
                 raise
-            except Exception as exc:
+            except (ImportError, OSError, RuntimeError, TypeError, ValueError, requests.RequestException) as exc:
                 # Profiling is an optimization. Falling back to deep scan is
                 # safer than silently reducing archive coverage.
                 logger.warning(
@@ -412,7 +438,7 @@ class WebsiteDownloader:
           )
           self._register_deep_scan_results(deep_results)
 
-    def _register_deep_scan_results(self, results: Optional[Dict[str, str]]) -> None:
+    def _register_deep_scan_results(self, results: dict[str, str] | None) -> None:
         """Seed the normal asset cache with files saved by deep-scan.
 
         Deep-scan writes files directly because it must discover assets inside
@@ -444,7 +470,7 @@ class WebsiteDownloader:
                 if item not in self._success_items:
                     self._success_items.append(item)
 
-    def validate_integrity(self) -> Dict[str, List[str]]:
+    def validate_integrity(self) -> dict[str, list[str]]:
         """
         Walk downloaded HTML/CSS/JS and verify concrete local file references.
 
@@ -454,9 +480,9 @@ class WebsiteDownloader:
         application routes for missing files on modern sites.
         Returns {"missing": [...], "ok": [...], "external": [...]}
         """
-        missing_refs: Set[str] = set()
-        ok_refs: Set[str] = set()
-        external_refs: Set[str] = set()
+        missing_refs: set[str] = set()
+        ok_refs: set[str] = set()
+        external_refs: set[str] = set()
         asset_extensions = (
             IMAGE_EXTENSIONS | AUDIO_EXTENSIONS | VIDEO_EXTENSIONS |
             FONT_EXTENSIONS | SCRIPT_EXTENSIONS | STYLE_EXTENSIONS |
@@ -497,7 +523,7 @@ class WebsiteDownloader:
             except (TypeError, ValueError):
                 return False
 
-        def _record(refs: Set[str], ref: object) -> None:
+        def _record(refs: set[str], ref: object) -> None:
             if not isinstance(ref, str):
                 return
             value = ref.strip().strip("'\"")
@@ -513,7 +539,7 @@ class WebsiteDownloader:
                 return os.path.normpath(os.path.join(self.output_folder, clean.lstrip("/\\")))
             return os.path.normpath(os.path.join(os.path.dirname(owner), clean))
 
-        directory_entries: Dict[str, Set[str]] = {}
+        directory_entries: dict[str, set[str]] = {}
 
         def _exists_with_exact_case(candidate: str) -> bool:
             """Check portable path casing even on case-insensitive Windows."""
@@ -545,8 +571,8 @@ class WebsiteDownloader:
         # page actually links. Missing dependencies in such an orphan must not
         # make the usable archive fail integrity. Follow stylesheet imports
         # starting from every HTML entry point instead.
-        reachable_styles: Set[str] = set()
-        style_queue: List[str] = []
+        reachable_styles: set[str] = set()
+        style_queue: list[str] = []
         for html_path in pathlib.Path(self.output_folder).rglob("*.htm*"):
             if "__original_site__" in html_path.relative_to(
                 self.output_folder
@@ -562,7 +588,7 @@ class WebsiteDownloader:
                         if os.path.isfile(candidate) and candidate not in reachable_styles:
                             reachable_styles.add(candidate)
                             style_queue.append(candidate)
-            except Exception as exc:
+            except _TEXT_ANALYSIS_ERRORS as exc:
                 logger.debug("Unable to seed reachable styles from %s: %s", html_path, exc)
         while style_queue:
             css_path = style_queue.pop()
@@ -576,7 +602,7 @@ class WebsiteDownloader:
                         if os.path.isfile(candidate) and candidate not in reachable_styles:
                             reachable_styles.add(candidate)
                             style_queue.append(candidate)
-            except Exception as exc:
+            except _TEXT_ANALYSIS_ERRORS as exc:
                 logger.debug("Unable to follow stylesheet imports from %s: %s", css_path, exc)
 
         for root, directories, files in os.walk(self.output_folder):
@@ -599,8 +625,8 @@ class WebsiteDownloader:
                     continue
                 try:
                     text = pathlib.Path(local_path).read_text(encoding="utf-8", errors="ignore")
-                    refs: Set[str] = set()
-                    optional_font_fallbacks: Set[str] = set()
+                    refs: set[str] = set()
+                    optional_font_fallbacks: set[str] = set()
 
                     if ext in {".html", ".htm"}:
                         soup = BeautifulSoup(text, "html.parser")
@@ -737,7 +763,7 @@ class WebsiteDownloader:
                             )
                         else:
                             missing_refs.add(label)
-                except Exception as _ignored_exc:
+                except _TEXT_ANALYSIS_ERRORS as _ignored_exc:
                     logger.debug("Ignored recoverable exception in validate_integrity: %s", _ignored_exc)
 
         missing = sorted(missing_refs)
@@ -803,17 +829,17 @@ class WebsiteDownloader:
                         logger.info(f"  Re-analysed: {os.path.relpath(local_path, self.output_folder)}")
                 except DownloadCancelledError:
                     raise
-                except Exception as e:
+                except _TEXT_ANALYSIS_ERRORS as e:
                     logger.warning(f"  Failed to analyse {local_path}: {e}")
 
-    def _headers_for(self, url: str) -> Dict[str, str]:
+    def _headers_for(self, url: str) -> dict[str, str]:
         parsed = urlparse(url)
         base = f"{parsed.scheme}://{parsed.netloc}/" if parsed.scheme and parsed.netloc else self.base_origin + "/"
         headers = dict(self.session.headers)
         headers.update({"Referer": base, "Origin": base.rstrip("/")})
         return headers
 
-    def _fetch(self, url: str) -> Optional[requests.Response]:
+    def _fetch(self, url: str) -> requests.Response | None:
         headers = self._headers_for(url)
         try:
             _raise_if_cancelled()
@@ -844,14 +870,14 @@ class WebsiteDownloader:
                     )
                     try:
                         r.close()
-                    except Exception:
-                        pass
+                    except _RESPONSE_CLEANUP_ERRORS as close_exc:
+                        logger.debug("Response close failed for missing asset %s: %s", url, close_exc)
                     return None
                 if status >= 400:
                     try:
                         r.close()
-                    except Exception:
-                        pass
+                    except _RESPONSE_CLEANUP_ERRORS as close_exc:
+                        logger.debug("Response close failed for HTTP error %s: %s", url, close_exc)
                     r = None
                 if r is None:
                     r = self._fetch_with_browser(url)
@@ -884,13 +910,13 @@ class WebsiteDownloader:
             # true infinite loop, but deep chains may still overflow stack.
             logger.warning(f"  Circular dependency (skipped): {url}")
             return None
-        except Exception as e:
+        except _NETWORK_OPERATION_ERRORS as e:
             err = str(e)
             logger.warning(f"  Could not fetch {url}: {err}")
             self._failed_items.append({"url": url, "error": err})
             return None
 
-    def _normalize_remote_url(self, url: str, referrer_url: Optional[str] = None) -> Optional[str]:
+    def _normalize_remote_url(self, url: str, referrer_url: str | None = None) -> str | None:
         if not url:
             return None
         url = url.strip().strip('"\'')
@@ -946,7 +972,7 @@ class WebsiteDownloader:
                 if key.lower() not in cache_busters
             ]
             return urlunparse((p.scheme.lower(), p.netloc.lower(), p.path, "", urlencode(query), ""))
-        except Exception:
+        except (TypeError, ValueError):
             return url
 
     def _safe_filename(self, url: str, fallback: str = "asset", ext_hint: str = "") -> str:
@@ -995,7 +1021,7 @@ class WebsiteDownloader:
             return "fonts"
         if lower_ct.startswith("image/") or ext in IMAGE_EXTENSIONS:
             return "images"
-        if lower_ct.startswith("audio/") or lower_ct.startswith("video/") or ext in AUDIO_EXTENSIONS | VIDEO_EXTENSIONS:
+        if lower_ct.startswith(("audio/", "video/")) or ext in AUDIO_EXTENSIONS | VIDEO_EXTENSIONS:
             return "media"
         if lower_ct == "application/json" or path.endswith(("project.json", "project.txt", "project.zip")) or ext in {".json", ".txt", ".zip"}:
             return "json"
@@ -1118,7 +1144,7 @@ class WebsiteDownloader:
             "json": ".json",
             "media": ".bin",
         }.get(kind, "")
-        filename = self._safe_filename(url, fallback=kind[:-1] if kind.endswith("s") else kind, ext_hint=ext_hint)
+        filename = self._safe_filename(url, fallback=kind.removesuffix("s"), ext_hint=ext_hint)
         filename_root, filename_ext = os.path.splitext(filename)
         if kind == "js" and filename_ext.lower() not in SCRIPT_EXTENSIONS:
             filename = filename_root + ".js"
@@ -1169,7 +1195,7 @@ class WebsiteDownloader:
         self,
         requested_full: str,
         requested_cache_key: str,
-        local: Optional[str],
+        local: str | None,
     ) -> None:
         """Publish one asset result and wake workers waiting for that URL."""
         reservation_key = requested_cache_key or requested_full
@@ -1183,7 +1209,7 @@ class WebsiteDownloader:
         if event is not None:
             event.set()
 
-    def _download_asset(self, url: str, preferred_kind: str = "", referrer_url: Optional[str] = None) -> Optional[str]:
+    def _download_asset(self, url: str, preferred_kind: str = "", referrer_url: str | None = None) -> str | None:
         _raise_if_cancelled()
         full = self._normalize_remote_url(url, referrer_url)
         if not full:
@@ -1271,16 +1297,18 @@ class WebsiteDownloader:
                     cached = self._downloaded.get(requested_cache_key)
                 return None if cached is _ASSET_IN_PROGRESS else cached
 
+        initial_fetch_completed = False
         try:
             r = self._fetch(full)
             _raise_if_cancelled()
-        except BaseException:
+            initial_fetch_completed = True
+        finally:
             # Do not leave followers waiting on a reservation when a custom
             # fetch hook, cancellation, or another unexpected error escapes.
-            self._complete_asset_reservation(
-                requested_full, requested_cache_key, None,
-            )
-            raise
+            if not initial_fetch_completed:
+                self._complete_asset_reservation(
+                    requested_full, requested_cache_key, None,
+                )
 
         # ── JS root-relative fallback ──────────────────────────────
         # Paths in JS/data files like "images/headers/foo.avif" are
@@ -1335,14 +1363,16 @@ class WebsiteDownloader:
                                 if event is not None:
                                     event.set()
                                 return cached
+                    fallback_fetch_completed = False
                     try:
                         r_alt = self._fetch(alt)
                         _raise_if_cancelled()
-                    except BaseException:
-                        self._complete_asset_reservation(
-                            requested_full, requested_cache_key, None,
-                        )
-                        raise
+                        fallback_fetch_completed = True
+                    finally:
+                        if not fallback_fetch_completed:
+                            self._complete_asset_reservation(
+                                requested_full, requested_cache_key, None,
+                            )
                     if r_alt:
                         logger.info(f"  root-fallback: {url} → {alt}")
                         self._failed_items = [
@@ -1387,14 +1417,16 @@ class WebsiteDownloader:
                                 if event is not None:
                                     event.set()
                                 return cached
+                    fallback_fetch_completed = False
                     try:
                         r_alt = self._fetch(alt)
                         _raise_if_cancelled()
-                    except BaseException:
-                        self._complete_asset_reservation(
-                            requested_full, requested_cache_key, None,
-                        )
-                        raise
+                        fallback_fetch_completed = True
+                    finally:
+                        if not fallback_fetch_completed:
+                            self._complete_asset_reservation(
+                                requested_full, requested_cache_key, None,
+                            )
                     if r_alt:
                         logger.info(f"  route-fallback: {url} → {alt}")
                         self._failed_items = [
@@ -1440,7 +1472,7 @@ class WebsiteDownloader:
             )
             try:
                 r.close()
-            except Exception as exc:
+            except _RESPONSE_CLEANUP_ERRORS as exc:
                 logger.debug(f"Response close failed for rejected asset {full}: {exc}")
             self._complete_asset_reservation(
                 requested_full, requested_cache_key, None,
@@ -1456,7 +1488,7 @@ class WebsiteDownloader:
                 self._failed_items.append({"url": full, "error": error})
                 try:
                     r.close()
-                except Exception as exc:
+                except _RESPONSE_CLEANUP_ERRORS as exc:
                     logger.debug("Response close failed for rejected asset %s: %s", full, exc)
                 self._complete_asset_reservation(
                     requested_full, requested_cache_key, None,
@@ -1466,6 +1498,7 @@ class WebsiteDownloader:
         abs_local = os.path.abspath(local)
         os.makedirs(os.path.dirname(local), exist_ok=True)
 
+        asset_write_succeeded = False
         try:
             if effective_kind == "css":
                 raw_text = _safe_response_text(r)
@@ -1486,16 +1519,16 @@ class WebsiteDownloader:
                 self._download_html(full, local_html=local, html_text=html_text)
             else:
                 atomic_stream_response_to_file(r, local)
-        except BaseException:
-            self._complete_asset_reservation(
-                requested_full, requested_cache_key, None,
-            )
-            raise
+            asset_write_succeeded = True
         finally:
             try:
                 r.close()
-            except Exception as exc:
+            except _RESPONSE_CLEANUP_ERRORS as exc:
                 logger.debug(f"Response close failed for {full}: {exc}")
+            if not asset_write_succeeded:
+                self._complete_asset_reservation(
+                    requested_full, requested_cache_key, None,
+                )
 
         with self._lock:
             self._downloaded[full] = local
@@ -1517,7 +1550,7 @@ class WebsiteDownloader:
         logger.info(f"  Asset: {os.path.relpath(local, self.output_folder)}")
         return local
 
-    def download_asset(self, url: str, preferred_kind: str = "", referrer_url: Optional[str] = None) -> Optional[str]:
+    def download_asset(self, url: str, preferred_kind: str = "", referrer_url: str | None = None) -> str | None:
         """Public archive-extension hook that retains the normal safety path."""
         return self._download_asset(url, preferred_kind=preferred_kind, referrer_url=referrer_url)
 
@@ -1558,9 +1591,7 @@ class WebsiteDownloader:
         if path.endswith(("project.json", "project.txt", "project.zip")):
             return True
         ext = os.path.splitext(path)[1]
-        if ext in FONT_EXTENSIONS | IMAGE_EXTENSIONS | AUDIO_EXTENSIONS | VIDEO_EXTENSIONS | STYLE_EXTENSIONS | SCRIPT_EXTENSIONS | {".json", ".txt", ".zip"}:
-            return True
-        return False
+        return ext in FONT_EXTENSIONS | IMAGE_EXTENSIONS | AUDIO_EXTENSIONS | VIDEO_EXTENSIONS | STYLE_EXTENSIONS | SCRIPT_EXTENSIONS | {".json", ".txt", ".zip"}
 
     def _existing_local_asset(self, reference: str, owner_path: str) -> bool:
         """Return True when a relative asset reference already exists locally."""
@@ -1655,8 +1686,8 @@ class WebsiteDownloader:
                     )
                     if os.path.isfile(candidate_local):
                         return m.group(0)
-                except Exception:
-                    pass
+                except (OSError, TypeError, ValueError) as exc:
+                    logger.debug("Could not check localized candidate %s: %s", original, exc)
             local = self._download_asset(
                 original,
                 preferred_kind=self._asset_kind_from_path(original),
@@ -1768,7 +1799,7 @@ class WebsiteDownloader:
         if not text:
             return
 
-        seen_runtime: Set[str] = set()
+        seen_runtime: set[str] = set()
         seen_runtime_lock = threading.Lock()
 
         def prefetch(raw_path: str, *, module_relative: bool = False) -> None:
@@ -1852,7 +1883,7 @@ class WebsiteDownloader:
                     match.start(),
                 )
             )
-            direct_paths: List[str] = []
+            direct_paths: list[str] = []
             for direct in direct_matches[:500]:
                 direct_path = direct.group("path")
                 direct_ext = pathlib.PurePosixPath(
@@ -2046,7 +2077,7 @@ class WebsiteDownloader:
         # Treating that prose as executable CSS caused bogus requests such as
         # ``/is`` and matching false integrity failures. Preserve comments
         # byte-for-byte and rewrite only executable CSS segments.
-        pieces: List[str] = []
+        pieces: list[str] = []
         cursor = 0
         for comment in self._css_comment_re.finditer(css):
             pieces.append(rewrite_code(css[cursor:comment.start()]))
@@ -2076,7 +2107,7 @@ class WebsiteDownloader:
     # These must NOT be path-rewritten — URLs are computed by the browser,
     # not as literal strings we can safely replace.
     # Each tuple: (detection_pattern, url_extractor_pattern, url_base_func)
-    _DYNAMIC_LOADER_PATTERNS = [
+    _DYNAMIC_LOADER_PATTERNS: ClassVar[list[tuple]] = [
         # ICC Plus v2 core.js: basePath = new URL('../', currentScript.src)
         # Extracts: basePath + 'relpath'
         (
@@ -2092,7 +2123,7 @@ class WebsiteDownloader:
         ),
     ]
 
-    def _detect_dynamic_loader(self, js: str) -> Optional[tuple]:
+    def _detect_dynamic_loader(self, js: str) -> tuple | None:
         """
         Detect if a JS file is a dynamic asset loader (like ICC Plus v2 core.js).
         Returns (extractor_re, base_url_fn) if detected, else None.
@@ -2152,7 +2183,7 @@ class WebsiteDownloader:
 
         return self._rewrite_direct_urls(js, js_url, js_local)
 
-    def _rewrite_css_url(self, m: "re.Match", css_url: str, css_local: str) -> str:
+    def _rewrite_css_url(self, m: re.Match, css_url: str, css_local: str) -> str:
         """Rewrite a single CSS url() match to a local path."""
         raw = m.group(1).strip().strip('"\'')
         if self._existing_local_asset(raw, css_local):
@@ -2177,7 +2208,7 @@ class WebsiteDownloader:
             # Split on commas only when NOT inside a data: URI. The srcset grammar
             # separates candidates by comma + whitespace; a data: URI candidate
             # is left intact and passed through unchanged (it needs no download).
-            def _split_srcset(s: str) -> List[str]:
+            def _split_srcset(s: str) -> list[str]:
                 out, buf, i, n = [], [], 0, len(s)
                 while i < n:
                     # Detect start of a data: URI at a candidate boundary.
@@ -2249,7 +2280,7 @@ class WebsiteDownloader:
             basename = str(value).split("?", 1)[0].split("#", 1)[0]
             if bare_relative and basename:
                 page = urlparse(page_url)
-                candidates: Dict[str, str] = {}
+                candidates: dict[str, str] = {}
                 for cached_url, cached_local in self._downloaded.items():
                     if not _is_downloaded_local_file(cached_local):
                         continue
@@ -2347,7 +2378,7 @@ class WebsiteDownloader:
             except (OSError, UnicodeError) as exc:
                 logger.debug("Could not patch local audio player %s: %s", local, exc)
 
-    def _download_html(self, url: str, local_html: Optional[str] = None, html_text: Optional[str] = None) -> None:
+    def _download_html(self, url: str, local_html: str | None = None, html_text: str | None = None) -> None:
         _raise_if_cancelled()
         local_html = local_html or self.start_html_local
         abs_local = os.path.abspath(local_html)
@@ -2363,7 +2394,7 @@ class WebsiteDownloader:
                         html_text = try_decode_bytes(raw) if raw else None
                     except DownloadCancelledError:
                         raise
-                    except Exception as exc:
+                    except (ImportError, OSError, RuntimeError, TypeError, ValueError) as exc:
                         logger.debug("Headless entry fetch failed for %s: %s", url, exc)
                 if not html_text:
                     raise RuntimeError(f"Could not download entry HTML: {url}")
@@ -2373,8 +2404,8 @@ class WebsiteDownloader:
                 finally:
                     try:
                         r.close()
-                    except Exception:
-                        pass
+                    except _RESPONSE_CLEANUP_ERRORS as close_exc:
+                        logger.debug("Entry response close failed for %s: %s", url, close_exc)
 
         html_text = _decode_inline_document_payload(html_text)
 
@@ -2522,7 +2553,6 @@ class WebsiteDownloader:
 
         for tag in soup.find_all("script", src=True):
             _raise_if_cancelled()
-            src_val = tag.get("src", "")
             self._set_attr_local(tag, "src", asset_page_url, local_html, preferred_kind="js")
 
         self._patch_local_audio_scripts()
@@ -2610,7 +2640,7 @@ class WebsiteDownloader:
         # The fallback waits for React first and only acts when the status did
         # not change, so a functioning application remains authoritative.
         if (
-            soup.find("button", attrs={"aria-label": re.compile(r"^Roll dice again$", re.I)})
+            soup.find("button", attrs={"aria-label": re.compile(r"^Roll dice again$", re.IGNORECASE)})
             and not soup.find(attrs={"data-cyoa-offline-dice-fallback": True})
         ):
             fallback = soup.new_tag("script")
@@ -2662,7 +2692,7 @@ setTimeout(()=>{const status=findStatus();if(placeholder(status))localRoll(statu
             with self._lock:
                 self._downloaded[project_url] = root_local
 
-        alias_paths: Set[str] = set()
+        alias_paths: set[str] = set()
         if project_url:
             parsed = urlparse(project_url)
             basename = os.path.basename(parsed.path)
@@ -2680,8 +2710,8 @@ setTimeout(()=>{const status=findStatus();if(placeholder(status))localRoll(statu
             logger.info(f"  Project alias: {rel_alias}")
 
     def write_manifest(self, project_url: str = "") -> str:
-        def _uniq(items: List[Dict[str, str]]) -> List[Dict[str, str]]:
-            seen: Set[tuple] = set()
+        def _uniq(items: list[dict[str, str]]) -> list[dict[str, str]]:
+            seen: set[tuple] = set()
             out = []
             for item in items:
                 key = (item.get("url"), item.get("local"), item.get("kind"), item.get("error"))
@@ -2694,11 +2724,11 @@ setTimeout(()=>{const status=findStatus();if(placeholder(status))localRoll(statu
         success = _uniq(self._success_items)
         failed  = _uniq(self._failed_items)
 
-        grouped_success: Dict[str, List[str]] = {}
+        grouped_success: dict[str, list[str]] = {}
         for item in success:
             grouped_success.setdefault(item.get("kind", "assets"), []).append(item.get("local", ""))
 
-        grouped_failed: Dict[str, List[str]] = {}
+        grouped_failed: dict[str, list[str]] = {}
         for item in failed:
             item_url = item.get("url", "")
             ext  = os.path.splitext(urlparse(item_url).path)[1].lower()
@@ -2758,7 +2788,13 @@ setTimeout(()=>{const status=findStatus();if(placeholder(status))localRoll(statu
 
 
 __all__ = [
-    "WebsiteDownloader", "get_headers_for_url", "is_zip_bytes", "get_source",
-    "url_file_exists", "_directory_base_url", "get_first_folder_from_url",
-    "get_first_subdomain", "strip_document_from_url",
+    "WebsiteDownloader",
+    "_directory_base_url",
+    "get_first_folder_from_url",
+    "get_first_subdomain",
+    "get_headers_for_url",
+    "get_source",
+    "is_zip_bytes",
+    "strip_document_from_url",
+    "url_file_exists",
 ]

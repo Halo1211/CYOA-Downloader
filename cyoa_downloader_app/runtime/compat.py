@@ -11,6 +11,7 @@ import sys
 from types import ModuleType
 from typing import Any
 
+from ..logging_setup import logger
 from . import state
 
 
@@ -25,8 +26,8 @@ def mirror_to_legacy(name: str, value: Any) -> Any:
     if mod is not None:
         try:
             setattr(mod, name, value)
-        except Exception:
-            pass
+        except (AttributeError, TypeError) as exc:
+            logger.debug("Could not mirror runtime value %s to legacy facade: %s", name, exc)
     return value
 
 
@@ -48,4 +49,4 @@ def get_state_attr(name: str, default: Any = None) -> Any:
     return default
 
 
-__all__ = ["legacy_module", "mirror_to_legacy", "set_state_attr", "get_state_attr"]
+__all__ = ["get_state_attr", "legacy_module", "mirror_to_legacy", "set_state_attr"]

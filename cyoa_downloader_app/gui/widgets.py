@@ -7,7 +7,7 @@ intentionally behavior-preserving.
 from __future__ import annotations
 
 import os
-from typing import Any, List
+from typing import Any
 
 from ..logging_setup import logger
 from .logging_ui import GUILogHandler
@@ -69,7 +69,7 @@ def _v25_center_window(win: Any, root: Any, width: int, height: int, *, min_w: i
         except Exception as _ignored_exc:
             logger.debug("Ignored recoverable exception in _v25_center_window (line 20324): %s", _ignored_exc)
 
-def _v27_ai_provider_values() -> List[str]:
+def _v27_ai_provider_values() -> list[str]:
     return ["anthropic", "openai", "gemini", "ollama", "deepseek", "qwen", "groq", "openrouter", "custom"]
 
 def _v27_safe_after(win: Any, fn: Any) -> None:
@@ -84,7 +84,8 @@ def _v27_open_path(path: str) -> None:
     # Mirrors CYOADownloaderGUI._open_path_in_os; the previous call to an
     # undefined open_path() raised NameError, silently breaking this button.
     try:
-        import subprocess, platform
+        import platform
+        import subprocess
         if not path or not os.path.exists(path):
             logger.warning(f"Open path failed: path not found: {path}")
             return
@@ -100,7 +101,11 @@ def _v27_open_path(path: str) -> None:
 
 
 __all__ = [
-    "GUILogHandler", "_v25_safe_after", "_v25_safe_after_widget",
-    "_v25_center_window", "_v27_safe_after", "_v27_open_path",
+    "GUILogHandler",
+    "_v25_center_window",
+    "_v25_safe_after",
+    "_v25_safe_after_widget",
     "_v27_ai_provider_values",
+    "_v27_open_path",
+    "_v27_safe_after",
 ]

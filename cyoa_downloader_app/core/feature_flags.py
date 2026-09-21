@@ -41,6 +41,8 @@ def _set_cheat_enabled(enabled: bool) -> None:
 
 
 __all__ = [
-    "_set_deep_scan_enabled", "_set_selenium_enabled",
-    "_set_serve_enabled", "_set_cheat_enabled",
+    "_set_cheat_enabled",
+    "_set_deep_scan_enabled",
+    "_set_selenium_enabled",
+    "_set_serve_enabled",
 ]

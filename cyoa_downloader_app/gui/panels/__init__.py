@@ -6,7 +6,7 @@ this module is deliberately mechanical and idempotent.
 
 from __future__ import annotations
 
-from typing import Dict, Tuple, Type, TypeVar
+from typing import TypeVar
 
 T = TypeVar("T")
 
@@ -14,39 +14,51 @@ T = TypeVar("T")
 # this package is imported directly, a nested runtime bootstrap can safely call
 # attach_panel_methods while module initialization is in progress; the final
 # mappings are attached once the imports below complete.
-PANEL_MODULES: Tuple[object, ...] = ()
-PANEL_BIND_ORDER: Tuple[str, ...] = ()
+PANEL_MODULES: tuple[object, ...] = ()
+PANEL_BIND_ORDER: tuple[str, ...] = ()
 
 
-def panel_method_names() -> Tuple[str, ...]:
+def panel_method_names() -> tuple[str, ...]:
     names = []
     for module in PANEL_MODULES:
         names.extend(module.PANEL_METHOD_NAMES)
     return tuple(names)
 
 
-def panel_method_map() -> Dict[str, object]:
-    methods: Dict[str, object] = {}
+def panel_method_map() -> dict[str, object]:
+    methods: dict[str, object] = {}
     for module in PANEL_MODULES:
         methods.update(module.PANEL_METHODS)
     return methods
 
 
-def attach_panel_methods(cls: Type[T]) -> Type[T]:
+def attach_panel_methods(cls: type[T]) -> type[T]:
     """Attach all panel-group methods to *cls* and record bind metadata."""
     for name, fn in panel_method_map().items():
         setattr(cls, name, fn)
-    setattr(cls, "_cyoa_gui_panel_bind_order", PANEL_BIND_ORDER)
-    setattr(cls, "_cyoa_gui_panel_method_names", panel_method_names())
+    cls._cyoa_gui_panel_bind_order = PANEL_BIND_ORDER
+    cls._cyoa_gui_panel_method_names = panel_method_names()
     return cls
 
 
-def bound_panel_methods(cls: Type[object]) -> Tuple[str, ...]:
+def bound_panel_methods(cls: type[object]) -> tuple[str, ...]:
     """Return panel method names recorded on a GUI class."""
     return tuple(getattr(cls, "_cyoa_gui_panel_method_names", ()))
 
 
-from . import ai, batch, cache, cloudflare, credits, cyoa_manager, diagnostics, guide, offline_viewers, settings, updates
+from . import (
+    ai,
+    batch,
+    cache,
+    cloudflare,
+    credits,
+    cyoa_manager,
+    diagnostics,
+    guide,
+    offline_viewers,
+    settings,
+    updates,
+)
 
 PANEL_MODULES = (
     settings,
@@ -73,10 +85,10 @@ except Exception:
 
 
 __all__ = [
-    "PANEL_MODULES",
     "PANEL_BIND_ORDER",
+    "PANEL_MODULES",
     "attach_panel_methods",
     "bound_panel_methods",
-    "panel_method_names",
     "panel_method_map",
+    "panel_method_names",
 ]

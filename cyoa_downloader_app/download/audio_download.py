@@ -6,15 +6,15 @@ those values lazily so the public behavior and callback wiring remain unchanged.
 
 from __future__ import annotations
 
-import os
 import glob
+import os
 import shutil
+import subprocess
 import sys
-from typing import Dict, List, Optional, Tuple
 
+from ..core.progress import DownloadCancelledError
 from ..logging_setup import logger
 from .audio_reports import _find_ffmpeg, _write_youtube_skip_log
-
 
 _COOKIE_DATABASE_LOCK_MARKERS = (
     "could not copy chrome cookie database",
@@ -23,14 +23,21 @@ _COOKIE_DATABASE_LOCK_MARKERS = (
     "access is denied",
 )
 
+# GUI callbacks and yt-dlp/browser-cookie integrations are dynamic extension
+# boundaries.  Keep their failures contained and reported, but never consume
+# cancellation control flow.
+_PROGRESS_CALLBACK_ERRORS = (Exception,)
+_YTDLP_BACKEND_ERRORS = (Exception,)
+_COOKIE_BACKEND_ERRORS = (Exception,)
 
-def _is_cookie_database_lock_error(error: Optional[str]) -> bool:
+
+def _is_cookie_database_lock_error(error: str | None) -> bool:
     """Return whether yt-dlp failed before downloading because a cookie DB is locked."""
     text = str(error or "").lower()
     return "cookie database" in text and any(marker in text for marker in _COOKIE_DATABASE_LOCK_MARKERS)
 
 
-def _summarize_ytdlp_error(error: Optional[str]) -> str:
+def _summarize_ytdlp_error(error: str | None) -> str:
     """Turn noisy yt-dlp/browser-cookie errors into an actionable report reason."""
     if _is_cookie_database_lock_error(error):
         return (
@@ -93,12 +100,14 @@ def _make_ytdlp_hook(vid_id: str, idx: int, total: int):
             if cb:
                 try:
                     cb(vid_id, idx, total, pct, speed)
-                except Exception as _ignored_exc:
+                except DownloadCancelledError:
+                    raise
+                except _PROGRESS_CALLBACK_ERRORS as _ignored_exc:
                     logger.debug("Ignored recoverable exception in _hook: %s", _ignored_exc)
     return _hook
 
 
-def _yt_dlp_runtime_options() -> Dict[str, object]:
+def _yt_dlp_runtime_options() -> dict[str, object]:
     """Return safe yt-dlp options for YouTube's current JS challenge flow.
 
     Recent yt-dlp releases need an external JavaScript runtime for full
@@ -107,7 +116,7 @@ def _yt_dlp_runtime_options() -> Dict[str, object]:
     installed.  The official EJS scripts are allowed to be fetched only when
     the companion package is not installed.
     """
-    def _runtime_path(name: str) -> Optional[str]:
+    def _runtime_path(name: str) -> str | None:
         # GUI-launched processes do not always inherit the PATH that an
         # interactive PowerShell has.  Prefer an explicit override, then PATH,
         # then the per-user install locations used by the Windows installers.
@@ -147,17 +156,17 @@ def _yt_dlp_runtime_options() -> Dict[str, object]:
                 major = int(output.split(".", 1)[0])
                 if major < 22:
                     return None
-            except Exception:
+            except (IndexError, TypeError, ValueError):
                 return None
         return path
 
-    runtimes: Dict[str, Dict[str, str]] = {}
+    runtimes: dict[str, dict[str, str]] = {}
     for name in ("deno", "bun", "node", "qjs"):
         path = _runtime_path(name)
         if path:
             runtimes[name] = {"path": path}
 
-    options: Dict[str, object] = {}
+    options: dict[str, object] = {}
     if runtimes:
         options["js_runtimes"] = runtimes
         logger.debug(
@@ -167,7 +176,7 @@ def _yt_dlp_runtime_options() -> Dict[str, object]:
         try:
             import importlib.util
             has_ejs = importlib.util.find_spec("yt_dlp_ejs") is not None
-        except Exception:
+        except (AttributeError, ImportError, ValueError):
             has_ejs = False
         if not has_ejs:
             # This is the upstream-supported fallback for a plain PyPI
@@ -181,7 +190,7 @@ def _yt_dlp_runtime_options() -> Dict[str, object]:
     return options
 
 
-def _yt_dlp_public_client_fallback_options() -> Dict[str, object]:
+def _yt_dlp_public_client_fallback_options() -> dict[str, object]:
     """Use public YouTube clients that can expose a non-PO-token fallback.
 
     Current YouTube web clients can return only SABR/PO-token-bound formats or
@@ -200,7 +209,7 @@ def _yt_dlp_public_client_fallback_options() -> Dict[str, object]:
     }
 
 
-def _ytdlp_cookie_files(output_dir: str, log_dir: str) -> List[str]:
+def _ytdlp_cookie_files(output_dir: str, log_dir: str) -> list[str]:
     """Find explicitly supplied Netscape cookie files without exposing them."""
     candidates = [
         os.environ.get("CYOA_YTDLP_COOKIES", ""),
@@ -208,7 +217,7 @@ def _ytdlp_cookie_files(output_dir: str, log_dir: str) -> List[str]:
         os.path.join(output_dir, "cookies.txt") if output_dir else "",
         os.path.join(log_dir, "cookies.txt") if log_dir else "",
     ]
-    found: List[str] = []
+    found: list[str] = []
     for candidate in candidates:
         path = os.path.abspath(os.path.expanduser(candidate)) if candidate else ""
         if path and os.path.isfile(path) and path not in found:
@@ -216,7 +225,7 @@ def _ytdlp_cookie_files(output_dir: str, log_dir: str) -> List[str]:
     return found
 
 
-def _ytdlp_browser_profiles(browser: str) -> List[Optional[str]]:
+def _ytdlp_browser_profiles(browser: str) -> list[str | None]:
     """Return installed Chromium/Firefox profiles worth trying.
 
     Native yt-dlp cookie loading supports a profile argument.  The old code
@@ -250,11 +259,11 @@ def _ytdlp_browser_profiles(browser: str) -> List[Optional[str]]:
 
 
 def _download_youtube_audio(
-    youtube_urls: List[str],
+    youtube_urls: list[str],
     output_dir: str,
     source_url: str = "",
     log_dir: str = "",
-) -> Dict[str, str]:
+) -> dict[str, str]:
     """
     Download YouTube audio as MP3 using yt-dlp.
     output_dir : where to save audio files (may be temp folder)
@@ -280,9 +289,9 @@ def _download_youtube_audio(
 
     audio_dir = os.path.join(output_dir, "audio")
     os.makedirs(audio_dir, exist_ok=True)
-    result: Dict[str, str] = {}
-    failed: List[str]      = []
-    failure_reasons: Dict[str, str] = {}
+    result: dict[str, str] = {}
+    failed: list[str]      = []
+    failure_reasons: dict[str, str] = {}
 
     logger.info(f"yt-dlp: Downloading {len(youtube_urls)} YouTube audio track(s)…")
 
@@ -298,7 +307,7 @@ def _download_youtube_audio(
             import re as _re
             vid_m = _re.search(r'(?:v=|youtu\.be/)([A-Za-z0-9_-]{11})', url_clean)
             vid_id = vid_m.group(1) if vid_m else "unknown"
-        except Exception:
+        except (AttributeError, TypeError):
             vid_id = "unknown"
 
         if vid_id == "unknown":
@@ -315,7 +324,7 @@ def _download_youtube_audio(
                     url_clean.encode("utf-8"), usedforsecurity=False
                 ).hexdigest()[:8]
                 vid_id = f"{_slug or 'audio'}-{_digest}"
-            except Exception:
+            except (AttributeError, TypeError, ValueError):
                 vid_id = "audio"
 
         out_template = os.path.join(audio_dir, f"{vid_id}.%(ext)s")
@@ -364,7 +373,7 @@ def _download_youtube_audio(
             ydl_opts["ffmpeg_location"] = ffmpeg_dir
             logger.debug(f"  ffmpeg: {ffmpeg_dir}")
 
-        def _any_audio_exists() -> Optional[str]:
+        def _any_audio_exists(vid_id: str = vid_id) -> str | None:
             """Return first audio file found for this vid_id, or None."""
             _exts = (".mp3", ".m4a", ".opus", ".webm", ".ogg", ".aac", ".wav")
             found = sorted([
@@ -373,9 +382,14 @@ def _download_youtube_audio(
             ])
             return found[0] if found else None
 
-        def _try_ytdlp(opts: dict) -> Tuple[bool, Optional[str]]:
+        def _try_ytdlp(
+            opts: dict,
+            url_clean: str = url_clean,
+        ) -> tuple[bool, str | None]:
             """Run yt-dlp. Returns (success, error_str|None). Suppresses stderr output."""
-            import yt_dlp, io
+            import io
+
+            import yt_dlp
             try:
                 # Redirect yt-dlp's own stderr to suppress noisy cookie errors
                 # while still capturing the message for our own logic
@@ -390,11 +404,13 @@ def _download_youtube_audio(
                 with yt_dlp.YoutubeDL(opts2) as ydl:
                     ydl.download([url_clean])
                 return True, None
-            except Exception as e:
+            except DownloadCancelledError:
+                raise
+            except _YTDLP_BACKEND_ERRORS as e:
                 err = str(e) + "\n" + captured.getvalue()
                 return False, err
 
-        def _is_bot_error(err: Optional[str]) -> bool:
+        def _is_bot_error(err: str | None) -> bool:
             if not err: return False
             return any(p.lower() in err.lower() for p in [
                 "Sign in to confirm", "bot", "confirm your age",
@@ -402,7 +418,7 @@ def _download_youtube_audio(
                 "This video is not available",
             ])
 
-        def _try_with_cookie_file(browser: str, profile: Optional[str], opts: dict) -> Tuple[bool, Optional[str]]:
+        def _try_with_cookie_file(browser: str, profile: str | None, opts: dict) -> tuple[bool, str | None]:
             """
             Try the browser's authenticated cookie store, not its HTTP asset
             cache. yt-dlp's native reader is first because it understands
@@ -438,12 +454,15 @@ def _download_youtube_audio(
                     if pairs:
                         headers["Cookie"] = "; ".join(pairs)
                         return _try_ytdlp({**opts, "http_headers": headers})
-            except Exception as exc:
+            except DownloadCancelledError:
+                raise
+            except _COOKIE_BACKEND_ERRORS as exc:
                 logger.debug("Browser cookie session unavailable for %s: %s", browser, exc)
             return native_ok, native_err
 
         try:
-            import yt_dlp
+            import yt_dlp as _yt_dlp
+            del _yt_dlp
 
             # ── First attempt (no cookies) ─────────────────────────────
             # Current YouTube web clients commonly spend several minutes
@@ -452,7 +471,7 @@ def _download_youtube_audio(
             # so use them first.
             opts = {k: v for k, v in ydl_opts.items() if k != "cookiesfrombrowser"}
             logger.info("  yt-dlp: trying public TV/mobile clients")
-            ok1, err1 = _try_ytdlp({
+            _ok1, err1 = _try_ytdlp({
                 **opts,
                 **_yt_dlp_public_client_fallback_options(),
             })
@@ -547,9 +566,9 @@ def _download_youtube_audio(
                     dst_path = os.path.join(audio_dir, f"{vid_id}.mp3")
                     try:
                         import subprocess as _sp
-                        r2 = _sp.run(
+                        _sp.run(
                             [ffmpeg_exe, "-i", src_path, "-q:a", "2", "-y", dst_path],
-                            capture_output=True, timeout=60,
+                            capture_output=True, timeout=60, check=False,
                         )
                         if os.path.exists(dst_path):
                             os.remove(src_path)
@@ -560,7 +579,7 @@ def _download_youtube_audio(
                             rel_path = f"audio/{found_file}"
                             result[yt_url] = rel_path
                             logger.info(f"  yt-dlp OK (kept {found_ext}): {rel_path}")
-                    except Exception:
+                    except (OSError, subprocess.SubprocessError):
                         rel_path = f"audio/{found_file}"
                         result[yt_url] = rel_path
                         logger.warning(
@@ -574,7 +593,9 @@ def _download_youtube_audio(
                 logger.warning(f"  yt-dlp: file not found after download: {url_clean} — {reason}")
                 failed.append(yt_url)
                 failure_reasons[yt_url] = reason
-        except Exception as e:
+        except DownloadCancelledError:
+            raise
+        except _YTDLP_BACKEND_ERRORS as e:
             logger.error(f"  yt-dlp FAILED: {url_clean} — {e}")
             failed.append(yt_url)
             failure_reasons[yt_url] = str(e)[:500]
@@ -594,4 +615,4 @@ def _download_youtube_audio(
     return result
 
 
-__all__ = ["_make_ytdlp_hook", "_download_youtube_audio"]
+__all__ = ["_download_youtube_audio", "_make_ytdlp_hook"]

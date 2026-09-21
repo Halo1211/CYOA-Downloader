@@ -7,10 +7,7 @@ to legacy until the full serve subsystem is extracted.
 
 from __future__ import annotations
 
-from typing import Any
-
 from .app_info import _APP_VERSION
-
 
 _INT_CYOA_ENHANCER_INFO = {
     "name": "IntCyoaEnhancer",
@@ -142,7 +139,7 @@ def userscript_integration_report() -> str:
 
 
 __all__ = [
-    "_INT_CYOA_ENHANCER_INFO",
     "_BUNDLED_INTCYOAENHANCER_USERSCRIPT",
+    "_INT_CYOA_ENHANCER_INFO",
     "userscript_integration_report",
 ]

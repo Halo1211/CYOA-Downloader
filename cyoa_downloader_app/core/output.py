@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
-import hashlib
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
-from typing import Iterator, Optional
 
+from ..logging_setup import logger
 from .atomic_io import interprocess_file_lock
 from .paths import _is_link_or_junction
-from ..logging_setup import logger
 
 
 @contextmanager
@@ -19,7 +19,7 @@ def output_directory_lease(
     output_dir: str,
     *,
     timeout: float = 0.25,
-    lock_root: Optional[str] = None,
+    lock_root: str | None = None,
 ) -> Iterator[str]:
     """Exclusively lease one canonical output root across app processes."""
     canonical = os.path.realpath(os.path.abspath(output_dir or os.getcwd()))
@@ -49,10 +49,10 @@ def prepare_clean_output_folder(folder: str) -> None:
     if os.path.lexists(target) and _is_link_or_junction(target):
         raise ValueError(f"Output folder must not be a symlink or junction: {target}")
     if os.path.isdir(target) and os.listdir(target):
-        backup = target + ".pre_v46_" + datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup = target + ".pre_v46_" + datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
         suffix = 1
         while os.path.exists(backup):
-            backup = target + f".pre_v46_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{suffix}"
+            backup = target + f".pre_v46_{datetime.now().astimezone().strftime('%Y%m%d_%H%M%S')}_{suffix}"
             suffix += 1
         os.replace(target, backup)
         logger.warning(f"Existing output folder preserved as: {backup}")
@@ -89,7 +89,7 @@ def _cleanup_recent_part_files(root: str, since: float) -> int:
 
 
 __all__ = [
+    "_cleanup_recent_part_files",
     "output_directory_lease",
     "prepare_clean_output_folder",
-    "_cleanup_recent_part_files",
 ]

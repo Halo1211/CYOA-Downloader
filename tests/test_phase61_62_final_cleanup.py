@@ -2,9 +2,9 @@
 
 
 def test_phase61_gui_bootstrap_owns_patch_wiring():
-    from cyoa_downloader_app.runtime import surface as legacy
     from cyoa_downloader_app.gui.bootstrap import bootstrap_gui_runtime
     from cyoa_downloader_app.gui.final_behaviors import _V469_PROGRESS_STRINGS, _V469_STATE_LABELS_ID
+    from cyoa_downloader_app.runtime import surface as legacy
 
     assert callable(bootstrap_gui_runtime)
     assert _V469_STATE_LABELS_ID["IDLE"] == "SIAP"
@@ -14,8 +14,8 @@ def test_phase61_gui_bootstrap_owns_patch_wiring():
 
 
 def test_phase62_runtime_state_reexport_identity():
-    from cyoa_downloader_app.runtime import surface as legacy
     from cyoa_downloader_app.runtime import state
+    from cyoa_downloader_app.runtime import surface as legacy
 
     assert legacy._RUN_DOWNLOAD_LOCK is state._RUN_DOWNLOAD_LOCK
     assert isinstance(state._RUN_DOWNLOAD_LOCK, threading.RLock().__class__)

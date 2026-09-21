@@ -1,15 +1,14 @@
-import importlib
 
 
 def test_phase63_feature_flags_use_runtime_state_and_mirror_legacy():
-    from cyoa_downloader_app.runtime import surface as legacy
     from cyoa_downloader_app.core.feature_flags import (
+        _set_cheat_enabled,
         _set_deep_scan_enabled,
         _set_selenium_enabled,
         _set_serve_enabled,
-        _set_cheat_enabled,
     )
     from cyoa_downloader_app.runtime import state
+    from cyoa_downloader_app.runtime import surface as legacy
 
     _set_deep_scan_enabled(False)
     _set_selenium_enabled(False)
@@ -32,10 +31,10 @@ def test_phase63_feature_flags_use_runtime_state_and_mirror_legacy():
 
 
 def test_phase64_proxy_sessions_use_runtime_state_owner(monkeypatch):
-    from cyoa_downloader_app.runtime import surface as legacy
     from cyoa_downloader_app.network.proxy import _get_active_proxy, _set_active_proxy
     from cyoa_downloader_app.network.sessions import _get_shared_session, _v465_reset_shared_sessions
     from cyoa_downloader_app.runtime import state
+    from cyoa_downloader_app.runtime import surface as legacy
 
     monkeypatch.delenv("HTTPS_PROXY", raising=False)
     monkeypatch.delenv("https_proxy", raising=False)
@@ -63,9 +62,9 @@ def test_phase64_proxy_sessions_use_runtime_state_owner(monkeypatch):
 
 
 def test_phase65_archive_org_regex_owned_by_project_parse():
-    from cyoa_downloader_app.runtime import surface as legacy
     from cyoa_downloader_app.download import orchestrator
     from cyoa_downloader_app.project import parse
+    from cyoa_downloader_app.runtime import surface as legacy
 
     assert legacy._ARCHIVE_ORG_CYOA_RE is parse._ARCHIVE_ORG_CYOA_RE
     assert orchestrator._ARCHIVE_ORG_CYOA_RE is parse._ARCHIVE_ORG_CYOA_RE

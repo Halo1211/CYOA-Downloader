@@ -24,7 +24,7 @@ def test_phase54_60_patch_bodies_left_legacy():
 
 
 def test_phase54_60_modules_export_moved_patch_helpers():
-    from cyoa_downloader_app.gui import final_behaviors, final_behaviors, final_behaviors, final_behaviors, final_behaviors
+    from cyoa_downloader_app.gui import final_behaviors
     from cyoa_downloader_app.storage import history
 
     assert callable(final_behaviors._v25_cloudflare_panel)

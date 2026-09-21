@@ -12,12 +12,12 @@ import re
 import threading
 import zipfile
 from collections.abc import Mapping
-from typing import Dict, List, Optional
 
-from ...logging_setup import logger
 from ...core.archive import validate_zip_archive
 from ...core.atomic_io import atomic_write_bytes, atomic_write_text, interprocess_file_lock
 from ...core.paths import _safe_archive_rel_path
+from ...logging_setup import logger
+
 
 def _public_script_dir() -> str:
     return os.path.abspath(
@@ -41,7 +41,7 @@ _VIEWERS_LOCK = threading.RLock()
 
 # Viewer type tags — used to match a CYOA site to the right viewer
 # Detected from: script names, meta tags, HTML patterns in the CYOA site
-VIEWER_TYPE_HINTS: Dict[str, List[str]] = {
+VIEWER_TYPE_HINTS: dict[str, list[str]] = {
     "icc_plus2": ["core.js", "vite_is_modern_browser", "js/app.js", "js/polyfills.js"],
     "icc_original": ["Viewer 1.8"],
     "icc_plus_legacy": ["New Viewer 1.18.9", "New.Viewer.1.18.9"],
@@ -183,14 +183,14 @@ def _safe_viewer_relative_path(value: object, *, default: str = "") -> str:
         return ""
 
 
-def _load_viewers_manifest() -> Dict[str, Dict]:
+def _load_viewers_manifest() -> dict[str, dict]:
     """Load offline viewer registry. Returns {viewer_id: {...metadata}}."""
     try:
         if os.path.exists(_VIEWERS_MANIFEST):
             with open(_VIEWERS_MANIFEST, encoding="utf-8") as f:
                 data = json.load(f)
             if isinstance(data, dict):
-                cleaned: Dict[str, Dict] = {}
+                cleaned: dict[str, dict] = {}
                 for viewer_id, meta in data.items():
                     if not isinstance(viewer_id, str) or not isinstance(meta, dict):
                         continue
@@ -240,12 +240,12 @@ def _load_viewers_manifest() -> Dict[str, Dict]:
                     normalized["inner_archive"] = inner_archive
                     cleaned[viewer_id] = normalized
                 return cleaned
-    except Exception as _ignored_exc:
+    except (json.JSONDecodeError, OSError, TypeError, UnicodeError, ValueError) as _ignored_exc:
         logger.debug("Ignored recoverable exception in _load_viewers_manifest (line 2415): %s", _ignored_exc)
     return {}
 
 
-def _save_viewers_manifest(manifest: Dict[str, Dict]) -> None:
+def _save_viewers_manifest(manifest: dict[str, dict]) -> None:
     """Atomically save offline viewer registry."""
     try:
         os.makedirs(_VIEWERS_DIR, exist_ok=True)
@@ -253,7 +253,7 @@ def _save_viewers_manifest(manifest: Dict[str, Dict]) -> None:
             _VIEWERS_MANIFEST,
             json.dumps(manifest, indent=2, ensure_ascii=False),
         )
-    except Exception as e:
+    except (OSError, TypeError, ValueError) as e:
         logger.warning(f"Could not save viewers manifest: {e}")
 
 
@@ -264,7 +264,7 @@ def register_offline_viewer(
     description: str = "",
     project_json_path: str = "",
     entry_point: str = "index.html",
-) -> Optional[str]:
+) -> str | None:
     """
     Register an offline viewer ZIP, RAR, or unpacked viewer folder.
     Folders are packaged into the private viewer store without changing the
@@ -272,7 +272,8 @@ def register_offline_viewer(
     metadata to the manifest.
     Returns viewer_id or None on failure.
     """
-    import shutil, zipfile as _zf
+    import shutil
+    import zipfile as _zf
 
     if not os.path.exists(zip_path):
         logger.error(f"Offline viewer file not found: {zip_path}")
@@ -359,7 +360,7 @@ def register_offline_viewer(
             )
             with _zf.ZipFile(zip_path) as arc:
                 names = arc.namelist()
-    except Exception as e:
+    except (OSError, RuntimeError, ValueError, zipfile.BadZipFile, zipfile.LargeZipFile) as e:
         logger.error(f"Cannot open archive {zip_path}: {e}")
         return None
 
@@ -439,34 +440,33 @@ def register_offline_viewer(
     os.makedirs(_VIEWERS_DIR, exist_ok=True)
     viewer_id = os.path.splitext(os.path.basename(zip_path))[0]
     dest      = os.path.join(_VIEWERS_DIR, os.path.basename(zip_path))
-    with _VIEWERS_LOCK:
-        with interprocess_file_lock(_VIEWERS_MANIFEST):
-            if os.path.abspath(dest) != os.path.abspath(zip_path):
-                part = dest + f".{os.getpid()}.{threading.get_ident()}.part"
+    with _VIEWERS_LOCK, interprocess_file_lock(_VIEWERS_MANIFEST):
+        if os.path.abspath(dest) != os.path.abspath(zip_path):
+            part = dest + f".{os.getpid()}.{threading.get_ident()}.part"
+            try:
+                shutil.copy2(zip_path, part)
+                os.replace(part, dest)
+            finally:
                 try:
-                    shutil.copy2(zip_path, part)
-                    os.replace(part, dest)
-                finally:
-                    try:
-                        if os.path.exists(part):
-                            os.remove(part)
-                    except OSError as exc:
-                        logger.debug(f"Could not remove partial viewer archive {part}: {exc}")
+                    if os.path.exists(part):
+                        os.remove(part)
+                except OSError as exc:
+                    logger.debug(f"Could not remove partial viewer archive {part}: {exc}")
 
-            manifest = _load_viewers_manifest()
-            manifest[viewer_id] = {
-                "name":              name or viewer_id,
-                "zip_filename":      os.path.basename(zip_path),
-                "viewer_type":       detected_type,
-                "description":       description,
-                "entry_point":       entry_point or "index.html",
-                "project_json_path": project_json_path,
-                "inner_archive":     inner_archive,
-                "runtime_family":    runtime_family,
-                "viewer_variant":    viewer_variant,
-                "registered_at":     __import__("datetime").datetime.now().isoformat(),
-            }
-            _save_viewers_manifest(manifest)
+        manifest = _load_viewers_manifest()
+        manifest[viewer_id] = {
+            "name":              name or viewer_id,
+            "zip_filename":      os.path.basename(zip_path),
+            "viewer_type":       detected_type,
+            "description":       description,
+            "entry_point":       entry_point or "index.html",
+            "project_json_path": project_json_path,
+            "inner_archive":     inner_archive,
+            "runtime_family":    runtime_family,
+            "viewer_variant":    viewer_variant,
+            "registered_at":     __import__("datetime").datetime.now().isoformat(),
+        }
+        _save_viewers_manifest(manifest)
     logger.info(f"Offline viewer registered: '{viewer_id}' (type: {detected_type})")
     return viewer_id
 
@@ -516,7 +516,8 @@ def _extract_iccplus_subviewers(iccplus_zip_path: str) -> None:
     its direct child ``<root>/<segment>/``. This deliberately ignores nested
     decoys such as ``<root>/Old/Viewer/`` that would otherwise collide.
     """
-    import zipfile as _zf, io
+    import io
+    import zipfile as _zf
 
     manifest = _load_viewers_manifest()
 
@@ -587,30 +588,29 @@ def _extract_iccplus_subviewers(iccplus_zip_path: str) -> None:
                 )
                 logger.info(f"Extracted ICC Plus subviewer: {dest_fname} ({len(matched)} files)")
 
-    except Exception as e:
+    except (KeyError, OSError, RuntimeError, ValueError, zipfile.BadZipFile, zipfile.LargeZipFile) as e:
         logger.warning(f"Could not process ICC Plus source ZIP: {e}")
 
 
 
 def unregister_offline_viewer(viewer_id: str, delete_zip: bool = False) -> bool:
     """Remove a viewer from the registry, optionally delete the ZIP."""
-    with _VIEWERS_LOCK:
-        with interprocess_file_lock(_VIEWERS_MANIFEST):
-            manifest = _load_viewers_manifest()
-            if viewer_id not in manifest:
-                return False
-            entry = manifest.pop(viewer_id)
-            if delete_zip:
-                zip_filename = _safe_viewer_archive_name(entry.get("zip_filename", ""))
-                zip_path = os.path.join(_VIEWERS_DIR, zip_filename) if zip_filename else ""
-                try:
-                    if zip_path and os.path.exists(zip_path):
-                        os.remove(zip_path)
-                    elif not zip_filename:
-                        logger.warning("Refusing to delete unsafe offline viewer archive path")
-                except Exception as e:
-                    logger.warning(f"Could not delete viewer ZIP: {e}")
-            _save_viewers_manifest(manifest)
+    with _VIEWERS_LOCK, interprocess_file_lock(_VIEWERS_MANIFEST):
+        manifest = _load_viewers_manifest()
+        if viewer_id not in manifest:
+            return False
+        entry = manifest.pop(viewer_id)
+        if delete_zip:
+            zip_filename = _safe_viewer_archive_name(entry.get("zip_filename", ""))
+            zip_path = os.path.join(_VIEWERS_DIR, zip_filename) if zip_filename else ""
+            try:
+                if zip_path and os.path.exists(zip_path):
+                    os.remove(zip_path)
+                elif not zip_filename:
+                    logger.warning("Refusing to delete unsafe offline viewer archive path")
+            except OSError as e:
+                logger.warning(f"Could not delete viewer ZIP: {e}")
+        _save_viewers_manifest(manifest)
     logger.info(f"Offline viewer removed: {viewer_id!r}")
     return True
 
@@ -738,7 +738,7 @@ def _archive_viewer_variant(meta: Mapping) -> str:
     return ""
 
 
-def select_offline_iccplus_asset(assets: object) -> Optional[dict]:
+def select_offline_iccplus_asset(assets: object) -> dict | None:
     """Pick only a downloadable ICC Plus offline/local release asset.
 
     The online bundle is intentionally never used as a fallback because it
@@ -807,7 +807,7 @@ def get_viewer_for_site(
     *,
     project_data: object = None,
     preferred_viewer_id: str = "auto",
-) -> Optional[Dict]:
+) -> dict | None:
     """
     Given the HTML content of a CYOA site and the download mode,
     return the best matching registered offline viewer (or None).
@@ -876,7 +876,7 @@ def get_viewer_for_site(
         elif detected_site_type == "icc_original":
             selection_reason = "classic ICC project.json uses the original Viewer 1.8 contract"
 
-    scored: List[tuple] = []
+    scored: list[tuple] = []
     for vid, meta in manifest.items():
         score = 0
         vtype = meta.get("viewer_type", "custom")
@@ -937,11 +937,18 @@ def get_viewer_for_site(
 
 
 __all__ = [
-    "_VIEWERS_DIR", "_VIEWERS_MANIFEST", "VIEWER_TYPE_HINTS", "_ICC_MARKER_RE",
-    "_load_viewers_manifest", "_save_viewers_manifest",
-    "register_offline_viewer", "_auto_register_bundled_viewers",
-    "_extract_iccplus_subviewers", "unregister_offline_viewer",
+    "VIEWER_TYPE_HINTS",
+    "_ICC_MARKER_RE",
+    "_VIEWERS_DIR",
+    "_VIEWERS_MANIFEST",
+    "_auto_register_bundled_viewers",
+    "_extract_iccplus_subviewers",
+    "_load_viewers_manifest",
+    "_save_viewers_manifest",
+    "detect_project_runtime_family",
     "get_viewer_for_site",
-    "detect_project_runtime_family", "get_viewer_recommendations",
+    "get_viewer_recommendations",
+    "register_offline_viewer",
     "select_offline_iccplus_asset",
+    "unregister_offline_viewer",
 ]
