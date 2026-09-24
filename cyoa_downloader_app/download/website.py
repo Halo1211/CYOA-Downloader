@@ -10,9 +10,11 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+import json
 import os
 import pathlib
 import re
+import shutil
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import ClassVar
@@ -389,6 +391,7 @@ class WebsiteDownloader:
         os.makedirs(self.output_folder, exist_ok=True)
         logger.info(f"ICC download started: {self.start_url}")
         self._download_html(self.start_url, self.start_html_local)
+        self.repair_missing_entry_scripts()
         logger.info(f"ICC package saved: {self.output_folder}/")
 
         # Auto profiling depends on the localized entry HTML and its directly
@@ -437,6 +440,59 @@ class WebsiteDownloader:
             ai_budget=self.ai_budget,
           )
           self._register_deep_scan_results(deep_results)
+        self.repair_missing_google_fonts()
+
+    def repair_missing_entry_scripts(self) -> None:
+        """Retry scripts still referenced by the entry HTML but absent on disk."""
+        entry = pathlib.Path(self.start_html_local)
+        if not entry.is_file():
+            return
+        soup = BeautifulSoup(entry.read_text(encoding="utf-8"), "html.parser")
+        references = [str(tag.get("src") or "") for tag in soup.find_all("script", src=True)]
+        references.extend(
+            str(tag.get("href") or "") for tag in soup.find_all("link", href=True)
+            if "script" == str(tag.get("as") or "").lower()
+        )
+        seen: set[str] = set()
+        root = pathlib.Path(self.output_folder).resolve()
+        for reference in references[:20]:
+            parsed = urlparse(reference)
+            if parsed.scheme or parsed.netloc or not parsed.path or parsed.path in seen:
+                continue
+            seen.add(parsed.path)
+            target = (entry.parent / parsed.path.replace("/", os.sep)).resolve()
+            if not target.is_relative_to(root) or target.is_file():
+                continue
+            remote = self._normalize_remote_url(reference, self.start_url)
+            if not remote:
+                continue
+            logger.info("  Retrying missing entry script: %s", reference)
+            with self._lock:
+                self._downloaded.pop(remote, None)
+                self._downloaded.pop(self._normalize_cache_key(remote), None)
+            self._download_asset(reference, preferred_kind="js", referrer_url=self.start_url)
+
+    def repair_missing_google_fonts(self) -> None:
+        """Resolve proxied Google Fonts CSS URLs against the original font host."""
+        root = pathlib.Path(self.output_folder).resolve()
+        css_dir = root / "external" / "fonts.googleapis.com"
+        if not css_dir.is_dir():
+            return
+        for css_file in css_dir.glob("*.css"):
+            css = css_file.read_text(encoding="utf-8", errors="replace")
+            for font_path in set(re.findall(
+                r"\.\./fonts\.gstatic\.com/([^)'\"\s]+\.woff2?)(?:\?[^)'\"\s]*)?",
+                css, flags=re.IGNORECASE,
+            )):
+                target = root / "external" / "fonts.gstatic.com" / font_path
+                if target.is_file():
+                    continue
+                remote = "https://fonts.gstatic.com/" + font_path
+                saved = self._download_asset(remote, preferred_kind="fonts", referrer_url=self.start_url)
+                if saved:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    if pathlib.Path(saved).resolve() != target.resolve():
+                        shutil.copy2(saved, target)
 
     def _register_deep_scan_results(self, results: dict[str, str] | None) -> None:
         """Seed the normal asset cache with files saved by deep-scan.
@@ -1520,6 +1576,20 @@ class WebsiteDownloader:
             else:
                 atomic_stream_response_to_file(r, local)
             asset_write_succeeded = True
+        except (requests.RequestException, TimeoutError) as exc:
+            # A streamed response may fail while its body is read, after the
+            # initial GET has already succeeded. Keep the remaining website
+            # assets downloadable and report this one as incomplete.
+            error = f"response body failed: {exc}"
+            logger.warning("  Asset body failed for %s: %s", full, exc)
+            self._failed_items.append({"url": full, "error": error})
+            _emit_progress_event(
+                "file_failed",
+                name=os.path.basename(urlparse(full).path) or full,
+                url=full,
+                error=error,
+            )
+            return None
         finally:
             try:
                 r.close()
@@ -2153,6 +2223,12 @@ class WebsiteDownloader:
           Webpack/Vite bundles are skipped entirely — their internal paths are
           resolved by the module bundler, not as literal filesystem URLs.
         """
+        # Vercel's editor feedback loader is unrelated to the archived game.
+        # Keep the script expression valid while removing its network request.
+        js = js.replace(
+            "https://vercel.live/_next-live/feedback/feedback.js",
+            "data:text/javascript,",
+        )
         # Guard 1: dynamic loader
         loader = self._detect_dynamic_loader(js)
         if loader:
@@ -2494,6 +2570,10 @@ class WebsiteDownloader:
             href = tag.get("href")
             if not href or href.startswith(("data:", "javascript:", "#", "mailto:")):
                 continue
+            resolved_href = self._normalize_remote_url(href, asset_page_url)
+            if resolved_href and _is_archive_noise_url(resolved_href):
+                tag.decompose()
+                continue
 
             # Resolve absolute-path hrefs (e.g. /favicon.ico) against the
             # document base. When <base href> changes origin, HTML semantics
@@ -2708,6 +2788,49 @@ setTimeout(()=>{const status=findStatus();if(placeholder(status))localRoll(statu
             self._project_aliases.append(rel_alias)
             self._source_for_local[os.path.abspath(alias)] = project_url or self.start_url
             logger.info(f"  Project alias: {rel_alias}")
+
+        self.localize_project_google_fonts(project_text)
+
+    def localize_project_google_fonts(self, project_text: str) -> int:
+        """Save ICC project fonts and point its runtime loader at local CSS."""
+        try:
+            project = json.loads(project_text)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return 0
+        fonts = project.get("googleFonts") if isinstance(project, dict) else None
+        if not isinstance(fonts, list):
+            return 0
+        root = pathlib.Path(self.output_folder)
+        stylesheet = root / "css" / "offline-google-fonts.css"
+        imports: list[str] = []
+        for font in fonts[:16]:
+            if not isinstance(font, str) or not font.strip():
+                continue
+            remote = "https://fonts.googleapis.com/css2?" + urlencode({
+                "family": font.strip(), "display": "swap",
+            })
+            saved = self._download_asset(remote, preferred_kind="css", referrer_url=self.start_url)
+            if saved:
+                relative = os.path.relpath(saved, stylesheet.parent).replace("\\", "/")
+                imports.append(f'@import url("{relative}");')
+        stylesheet.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(str(stylesheet), "\n".join(imports) + "\n")
+
+        replacement = '"css/offline-google-fonts.css"'
+        patterns = (
+            r'"https://fonts\.googleapis\.com/css2\?family="\.concat\(\w+,"&display=swap"\)',
+            r'`https://fonts\.googleapis\.com/css2\?family=\$\{\w+\}&display=swap`',
+        )
+        changed = 0
+        for script in root.rglob("*.js"):
+            content = script.read_text(encoding="utf-8", errors="replace")
+            revised = content
+            for pattern in patterns:
+                revised = re.sub(pattern, replacement, revised)
+            if revised != content:
+                atomic_write_text(str(script), revised)
+                changed += 1
+        return changed
 
     def write_manifest(self, project_url: str = "") -> str:
         def _uniq(items: list[dict[str, str]]) -> list[dict[str, str]]:

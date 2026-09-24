@@ -1,9 +1,9 @@
 """Application metadata and stable defaults."""
 
 _APP_DISPLAY_NAME = "CYOA Downloader"
-_APP_VERSION = "1.0.9"
-_STABILIZATION_PATCH_ID = "CYOA-v1.0.9"
-_GITHUB_RELEASE_API = ""
+_APP_VERSION = "1.1.0"
+_STABILIZATION_PATCH_ID = "CYOA-v1.1.0"
+_GITHUB_RELEASE_API = "https://api.github.com/repos/Halo1211/CYOA-Downloader/releases/latest"
 
 DEFAULT_WAIT_TIME = 60
 DEFAULT_MAX_WORKERS = 4

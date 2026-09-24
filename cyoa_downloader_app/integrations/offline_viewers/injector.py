@@ -12,6 +12,8 @@ import json
 import os
 import pathlib
 import re
+import shutil
+import subprocess
 import zipfile
 from urllib.parse import unquote, urljoin, urlsplit
 
@@ -52,6 +54,31 @@ _RESPONSE_CLEANUP_ERRORS = (
     RuntimeError,
     requests.RequestException,
 )
+
+
+def _read_rar_viewer_member(archive, archive_path: str, member: str) -> bytes:
+    """Read a RAR member with the system tar when rarfile lacks an extractor."""
+    import rarfile
+
+    try:
+        return archive.read(member)
+    except rarfile.RarCannotExec as exc:
+        tar = shutil.which("tar")
+        if not tar:
+            raise OSError("RAR viewer requires an extractor (unrar, 7z, or tar)") from exc
+        try:
+            result = subprocess.run(
+                [tar, "-xOf", archive_path, "--", member],
+                capture_output=True,
+                timeout=180,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError) as tar_exc:
+            raise OSError(f"System tar could not read RAR member {member}: {tar_exc}") from tar_exc
+        if result.returncode != 0:
+            detail = result.stderr.decode("utf-8", errors="replace").strip()[:200]
+            raise OSError(f"System tar could not read RAR member {member}: {detail}") from exc
+        return result.stdout
 
 
 def _localize_preserved_index_assets(
@@ -144,7 +171,9 @@ def _localize_preserved_index_assets(
 
         return css_url_re.sub(replace_url, css_import_re.sub(replace_import, text))
 
-    def _process_js(text: str, js_url: str, js_path: str) -> str:
+    def _process_js(
+        text: str, js_url: str, js_path: str, *, allow_relative_download: bool = True
+    ) -> str:
         count = 0
 
         def replace_asset(match: re.Match[str]) -> str:
@@ -152,6 +181,13 @@ def _localize_preserved_index_assets(
             if count >= 500:
                 return match.group(0)
             reference = match.group("url")
+            parsed_reference = urlsplit(reference)
+            if not allow_relative_download and not (
+                parsed_reference.scheme in {"http", "https"} or parsed_reference.netloc
+            ):
+                # Bundled viewer code contains parser tables and other quoted
+                # relative filenames that are not network dependencies.
+                return match.group(0)
             existing = _safe_existing(reference, js_path)
             if existing:
                 return match.group(0)
@@ -227,6 +263,14 @@ def _localize_preserved_index_assets(
                 return None
         except ValueError:
             return None
+
+        # A previous offline build may have populated this exact URL path.
+        # Reuse its localized bytes (including rewritten CSS/JS dependencies)
+        # instead of requesting the same asset again.
+        if os.path.isfile(destination) and os.path.getsize(destination) > 0:
+            local_reference = "./" + relative.as_posix()
+            downloaded[cache_key] = (local_reference, destination)
+            return downloaded[cache_key]
 
         response = None
         processing.add(cache_key)
@@ -345,7 +389,10 @@ def _localize_preserved_index_assets(
             elif kind == "js":
                 js_text = pathlib.Path(existing).read_text(encoding="utf-8", errors="replace")
                 js_url = urljoin(source_url, reference)
-                atomic_write_text(existing, _process_js(js_text, js_url, existing))
+                atomic_write_text(
+                    existing,
+                    _process_js(js_text, js_url, existing, allow_relative_download=False),
+                )
             if tag.has_attr("integrity"):
                 del tag["integrity"]
             if tag.has_attr("crossorigin"):
@@ -436,6 +483,7 @@ def _apply_offline_viewer(
     asset_source_dirs: dict[str, str] | None = None,
     source_html: str = "",
     source_url: str = "",
+    preserved_asset_cache_dir: str = "",
 ) -> str | None:
     """
     Extract an offline viewer ZIP into output_dir and inject project data.
@@ -459,7 +507,6 @@ def _apply_offline_viewer(
     strategies; B is marker injection, and the interceptor lives in C and
     overrides fetch only (no XHR) â€” see deferred note in the handoff.
     """
-    import shutil
     import zipfile as _zf
 
     zip_filename = _safe_viewer_archive_name(viewer_meta.get("zip_filename", ""))
@@ -508,6 +555,11 @@ def _apply_offline_viewer(
     site_folder = _unique_folder(os.path.join(output_dir, file_name + "_offline"))
     os.makedirs(site_folder, exist_ok=True)
 
+    rar_errors = (_rf.Error,) if is_rar else ()
+    archive_errors = (
+        EOFError, KeyError, OSError, RuntimeError, ValueError,
+        zipfile.BadZipFile, zipfile.LargeZipFile,
+    ) + rar_errors
     try:
         if is_rar:
             arc = _rf.RarFile(zip_path)
@@ -581,7 +633,7 @@ def _apply_offline_viewer(
                     raise ValueError(f"Viewer archive member too large (declared): {member} ({_declared} bytes)")
                 if _total_written + _declared > _MAX_TOTAL_BYTES:
                     raise ValueError("Viewer archive exceeds total decompression budget (4 GB)")
-                data = arc.read(member)
+                data = _read_rar_viewer_member(arc, zip_path, member) if is_rar else arc.read(member)
                 if len(data) > _MAX_MEMBER_BYTES:
                     raise ValueError(f"Viewer archive member too large: {member} ({len(data)} bytes)")
                 _total_written += len(data)
@@ -590,7 +642,7 @@ def _apply_offline_viewer(
                 atomic_write_bytes(target_path, data)
 
         logger.info(f"Offline viewer extracted: {site_folder}/")
-    except (EOFError, KeyError, OSError, RuntimeError, ValueError, zipfile.BadZipFile, zipfile.LargeZipFile) as e:
+    except archive_errors as e:
         logger.error(f"Failed to extract viewer: {e}")
         shutil.rmtree(site_folder, ignore_errors=True)
         return None
@@ -636,6 +688,13 @@ def _apply_offline_viewer(
     # broke the offline viewer. "<\/" is a valid, semantically identical JSON
     # escape, so this is lossless for JSON.parse and JS literals alike.
     data_js = data_js.replace("</", "<\\/")
+    # Some ICC viewers still request project.json even after the embedded
+    # state has been injected. Keep the physical fallback beside index.html
+    # for every strategy so Serve and file:// do not emit a 404.
+    atomic_write_text(
+        os.path.join(os.path.dirname(index_path), "project.json"),
+        project_json_str,
+    )
 
     # â”€â”€ Strategy A: Template markers (ICC_Remix style) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if "{{ICC_PROJECT_DATA_SCRIPT}}" in html:
@@ -657,14 +716,6 @@ def _apply_offline_viewer(
         # template-marker path with it.
         html = html.replace("{{ICC_SITE_TITLE}}", _html_escape(proj_title))
         html = html.replace("{{ICC_FAVICON_TAG}}", "")
-        # Colocate the fallback project.json with the
-        # RESOLVED index (which may sit one level deep in multi-root viewer
-        # ZIPs); writing to site_folder root broke relative fetch("project.json").
-        # Also write physical project.json for fallback
-        atomic_write_text(
-            os.path.join(os.path.dirname(index_path), "project.json"),
-            project_json_str,
-        )
 
     # â”€â”€ Strategy B: ICC Plus marker injection (version-agnostic) â”€â”€â”€â”€â”€â”€
     # ICC Plus has a documented injection point in app.js:
@@ -755,11 +806,6 @@ def _apply_offline_viewer(
         # â”€â”€ Strategy C: fetch() patch + prepend data to app.js â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         if not icc_marker_file:
             logger.info("Offline inject: Strategy C - fetch() patch in app.js")
-
-            atomic_write_text(
-                os.path.join(os.path.dirname(index_path), "project.json"),
-                project_json_str,
-            )
 
             _fetch_patterns = [
                 re.compile(r'fetch\("project\.json"\)'),
@@ -1042,7 +1088,7 @@ setTimeout(function(){clearInterval(t);},30000);
                 if os.path.isdir(_candidate):
                     _asset_sources.setdefault(_asset_dir_name, _candidate)
                     break
-    for _asset_dir_name in ("images", "audio"):
+    for _asset_dir_name in ("images", "audio", "assets", "media", "videos", "fonts", "img", "backgrounds"):
         _asset_src_dir = _asset_sources.get(_asset_dir_name, "")
         if os.path.isdir(_asset_src_dir):
             _asset_dst = os.path.join(site_folder, _asset_dir_name)
@@ -1054,6 +1100,12 @@ setTimeout(function(){clearInterval(t);},30000);
                 )
 
     html = _inject_project_font_links(html, parsed_project)
+    if preserved_asset_cache_dir and os.path.isdir(preserved_asset_cache_dir):
+        shutil.copytree(
+            preserved_asset_cache_dir,
+            os.path.join(site_folder, "__source_assets__"),
+            dirs_exist_ok=True,
+        )
     html = _localize_preserved_index_assets(
         html,
         source_url,

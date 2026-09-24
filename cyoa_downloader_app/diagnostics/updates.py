@@ -42,12 +42,14 @@ def _check_for_app_updates() -> dict[str, str] | None:
                            extra_headers={"Accept": "application/vnd.github+json",
                                           "User-Agent": "CYOA-Downloader"},
                            as_bytes=True)
-        if r is None or r.status_code != 200:
-            return None
+        if r is None:
+            raise RuntimeError("Update check failed: no response from GitHub")
+        if r.status_code != 200:
+            raise RuntimeError(f"Update check failed: GitHub returned HTTP {r.status_code}")
         data = r.json()
         remote_tag = data.get("tag_name", "").lstrip("vV").strip()
         if not remote_tag:
-            return None
+            raise RuntimeError("Update check failed: release tag is missing")
         def _ver(s):
             # Old parser dropped any component that wasn't
             # pure digits, so "1.0.2-rev4" → (1, 0) and the identical remote
@@ -67,8 +69,8 @@ def _check_for_app_updates() -> dict[str, str] | None:
                 "url": data.get("html_url", ""),
                 "notes": (data.get("body") or "")[:500],
             }
-    except (AttributeError, OSError, TypeError, ValueError) as _ignored_exc:
-        logger.debug("Ignored recoverable exception in _check_for_app_updates: %s", _ignored_exc)
+    except (AttributeError, OSError, TypeError, ValueError) as exc:
+        raise RuntimeError(f"Update check failed: {exc}") from exc
     finally:
         if r is not None:
             try:

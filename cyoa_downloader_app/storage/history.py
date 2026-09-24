@@ -93,13 +93,13 @@ def _record_history(url: str, file_name: str, mode: str, success: bool) -> None:
             # a second contradictory Results row. The worker will observe the
             # still-set cancellation event before starting the next job.
             logger.debug("History metadata probe cancelled after completed download: %s", url)
-        except (AttributeError, OSError, TypeError, ValueError) as exc:
+        except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as exc:
             logger.debug(f"History metadata probe failed for {url}: {exc}")
         finally:
             if response is not None:
                 try:
                     response.close()
-                except (AttributeError, OSError) as exc:
+                except (AttributeError, OSError, RuntimeError, ValueError) as exc:
                     logger.debug(f"History response close failed for {url}: {exc}")
     try:
         with _v465_history_lock, interprocess_file_lock(_HISTORY_FILE):

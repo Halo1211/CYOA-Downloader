@@ -880,6 +880,14 @@ def test_cyoa_cafe_resolver_closes_probe_responses():
     assert resolver._responses == {}
 
 
+def test_cyoa_cafe_legacy_fetcher_failure_is_a_recoverable_probe():
+    def legacy_fetcher(_url):
+        raise RuntimeError("backend unavailable")
+
+    resolver = cyoa_cafe.CYOACafeResolver(fetcher=legacy_fetcher)
+    assert resolver._fetch("https://viewer.example/project.json") is None
+
+
 def test_cyoa_cafe_metadata_cache_cannot_reuse_another_games_viewer(monkeypatch):
     source = "https://cyoa.cafe/game/current123"
     record = {

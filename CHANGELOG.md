@@ -2,6 +2,35 @@
 
 This project uses a single changelog file. Older split release notes and patch reports have been consolidated here so users do not have to search through multiple Markdown files.
 
+## v1.1.0 — offline archives, local previews, and integration reliability
+
+- Fixed CYOA.CAFE resolution and asset caching, including concurrent downloads
+  of the same resource and offline folder/ZIP outputs for Handler and Tensura.
+- Expanded pure website archiving for JavaScript route trees and local asset
+  references. Verified Isekai Quest folder and ZIP variants offline.
+- Improved CYOAP Vue discovery of external styles, JSON, images, and media.
+  Verified HypnosisApp, Anqowk, and Newroad outputs with viewer options on and
+  off; source asset references are retained in the offline copies.
+- Added CYOA Manager JSON and ZIP import compatibility, local library browsing,
+  and Serve previews for JSON-only entries. Preview asset caches are isolated by
+  project, and Manager ZIPs receive decompression and path safety checks.
+- Expanded the localhost Serve cheat panel with choice search, individual
+  selection, soft select all, reset, point editing, requirement unlocking, and
+  restoration of original local preview state.
+- Upgraded the optional itch-dl wrapper with installed-backend preference,
+  mirror and parallel options, cancellation, accurate file counts, and masked
+  API keys. Connectivity tests now report network failure correctly.
+- Refreshed AI Assist model recommendations and verified all nine provider
+  transports with mocks; no paid API calls were needed.
+- Restored the public GitHub release update endpoint and made update-check
+  failures visible instead of displaying a false “up to date” result.
+- Synchronized the runtime, Windows version metadata, tests, and English
+  documentation on 1.1.0. Corrected the executable's embedded license label.
+
+The live download matrix used each source once and derived viewer and archive
+variants locally. CYOA Manager's own UI and a live itch.io game download were
+not exercised because the Manager app and an itch.io target were unavailable.
+
 ## v1.0.9 — safe offline viewer modernization
 
 - Added opt-in offline-viewer automation with independent switches for

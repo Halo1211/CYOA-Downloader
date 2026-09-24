@@ -25,7 +25,7 @@ from ..constants.assets import (
 from ..core.progress import DownloadCancelledError
 from ..core.url_utils import canonicalize_url, is_probable_url
 from ..download.asset_scan import _safe_response_text
-from ..integrations.ai import _host_resolves_internal
+from ..integrations.ai_core import _host_resolves_internal
 from ..logging_setup import logger
 from ..network.fetch import fetch_response
 from ..project.parse import (
@@ -378,9 +378,10 @@ class CYOACafeResolver:
         if len(self.visited) >= self.max_hops * 8:
             return None
         try:
-            response = self.fetcher(url, timeout=self.timeout)
-        except TypeError:
-            response = self.fetcher(url)
+            try:
+                response = self.fetcher(url, timeout=self.timeout)
+            except TypeError:
+                response = self.fetcher(url)
         except DownloadCancelledError:
             raise
         except _FETCHER_CALLBACK_ERRORS as exc:

@@ -2,6 +2,7 @@ import base64
 from pathlib import Path
 from urllib.parse import urlparse
 
+import requests
 from bs4 import BeautifulSoup
 
 from cyoa_downloader_app.core.url_utils import canonicalize_url
@@ -13,6 +14,128 @@ from cyoa_downloader_app.download.website import (
     _decode_inline_document_payload,
 )
 from cyoa_downloader_app.gui.final_behaviors import _v462_resolve_pure_download_url
+
+
+def test_missing_entry_script_is_retried_once_before_deep_scan(tmp_path, monkeypatch):
+    entry = tmp_path / "index.html"
+    entry.write_text('<script src="./js/app.js"></script>', encoding="utf-8")
+    downloader = WebsiteDownloader("https://example.test/story/", str(tmp_path))
+    calls = []
+
+    def save_script(url, preferred_kind="", referrer_url=None):
+        calls.append(url)
+        path = tmp_path / "js" / "app.js"
+        path.parent.mkdir(exist_ok=True)
+        path.write_text("ok", encoding="utf-8")
+        return str(path)
+
+    monkeypatch.setattr(downloader, "_download_asset", save_script)
+    downloader.repair_missing_entry_scripts()
+    downloader.repair_missing_entry_scripts()
+    assert calls == ["./js/app.js"]
+
+
+def test_project_google_fonts_loader_uses_downloaded_local_css(tmp_path, monkeypatch):
+    script_dir = tmp_path / "js"
+    script_dir.mkdir()
+    module = script_dir / "app.js"
+    module.write_text(
+        'const t="https://fonts.googleapis.com/css2?family=".concat(e,"&display=swap");'
+        'const u=`https://fonts.googleapis.com/css2?family=${e}&display=swap`;',
+        encoding="utf-8",
+    )
+    downloader = WebsiteDownloader("https://example.test/story/", str(tmp_path))
+    calls = []
+
+    def save_css(url, preferred_kind="", referrer_url=""):
+        calls.append(url)
+        path = tmp_path / "external" / "fonts.googleapis.com" / "orbitron.css"
+        path.parent.mkdir(parents=True)
+        path.write_text("@font-face {}", encoding="utf-8")
+        return str(path)
+
+    monkeypatch.setattr(downloader, "_download_asset", save_css)
+    assert downloader.localize_project_google_fonts('{"googleFonts":["Orbitron"]}') == 1
+    assert calls == ["https://fonts.googleapis.com/css2?family=Orbitron&display=swap"]
+    assert "fonts.googleapis.com" not in module.read_text(encoding="utf-8")
+    assert '"css/offline-google-fonts.css"' in module.read_text(encoding="utf-8")
+    assert "orbitron.css" in (tmp_path / "css" / "offline-google-fonts.css").read_text(encoding="utf-8")
+
+
+def test_offline_mirror_drops_telemetry_preload_and_feedback_script(tmp_path, monkeypatch):
+    downloader = WebsiteDownloader("https://example.test/story/", str(tmp_path))
+    monkeypatch.setattr(downloader, "_download_asset", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(downloader, "_download_runtime_template_assets", lambda *_args, **_kwargs: None)
+    html = (
+        '<html><head><link rel="preload" as="script" '
+        'href="https://www.googletagmanager.com/gtag/js?id=G-123"></head>'
+        '<body><p>Story</p></body></html>'
+    )
+    downloader._download_html(downloader.start_url, downloader.start_html_local, html_text=html)
+    assert "googletagmanager" not in (tmp_path / "index.html").read_text(encoding="utf-8")
+    script = 'const feedback="https://vercel.live/_next-live/feedback/feedback.js";'
+    rewritten = downloader._process_js(script, "https://example.test/turbopack.js", str(tmp_path / "turbopack.js"))
+    assert "vercel.live" not in rewritten
+
+
+def test_proxied_google_font_is_recovered_at_css_relative_path(tmp_path, monkeypatch):
+    css_dir = tmp_path / "external" / "fonts.googleapis.com"
+    css_dir.mkdir(parents=True)
+    (css_dir / "font.css").write_text(
+        "@font-face{src:url(../fonts.gstatic.com/s/roboto/example.woff2)}",
+        encoding="utf-8",
+    )
+    downloader = WebsiteDownloader("https://example.test/story/", str(tmp_path))
+    saved = tmp_path / "fonts" / "example.woff2"
+    saved.parent.mkdir()
+    saved.write_bytes(b"font")
+    calls = []
+    monkeypatch.setattr(
+        downloader, "_download_asset",
+        lambda url, **_kwargs: calls.append(url) or str(saved),
+    )
+    downloader.repair_missing_google_fonts()
+    downloader.repair_missing_google_fonts()
+    assert calls == ["https://fonts.gstatic.com/s/roboto/example.woff2"]
+    assert (tmp_path / "external/fonts.gstatic.com/s/roboto/example.woff2").read_bytes() == b"font"
+
+
+def test_stream_timeout_in_one_text_asset_does_not_abort_website_mirror(tmp_path, monkeypatch):
+    downloader = WebsiteDownloader("https://example.test/story/", str(tmp_path))
+
+    class AssetResponse:
+        encoding = "utf-8"
+
+        def __init__(self, url):
+            self.headers = {"Content-Type": "text/css"}
+            self.url = url
+            self.closed = False
+
+        def __bool__(self):
+            return True
+
+        @property
+        def content(self):
+            if self.url.endswith("broken.css"):
+                raise requests.ConnectionError("stream timed out")
+            return b"body { color: blue; }"
+
+        def close(self):
+            self.closed = True
+
+    responses = {}
+
+    def fetch(url):
+        responses[url] = AssetResponse(url)
+        return responses[url]
+
+    monkeypatch.setattr(downloader, "_fetch", fetch)
+    assert downloader._download_asset("https://example.test/story/broken.css") is None
+    good_path = downloader._download_asset("https://example.test/story/good.css")
+    assert good_path is not None
+    assert Path(good_path).read_text(encoding="utf-8") == "body { color: blue; }"
+    assert responses["https://example.test/story/broken.css"].closed
+    assert any(item["url"].endswith("broken.css") for item in downloader._failed_items)
 
 
 def test_html_base_and_lazy_assets_are_localized_for_offline_use(tmp_path, monkeypatch):

@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import os
 import subprocess
+import tempfile
+import time
+from threading import Event
 from typing import Any
 from urllib.parse import urlparse
 
@@ -53,10 +56,14 @@ _ITCH_KEYRING_USER = "itch_api_key"
 def _is_itch_url(url: str) -> bool:
     """True if the URL points at an itch.io page/host."""
     try:
-        host = urlparse(url).netloc.lower()
-    except (TypeError, ValueError):
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").lower()
+    except (AttributeError, TypeError, ValueError):
         return False
-    return host == "itch.io" or host.endswith(".itch.io") or "itch.zone" in host
+    return parsed.scheme.lower() in {"http", "https"} and (
+        host in {"itch.io", "itch.zone"}
+        or host.endswith((".itch.io", ".itch.zone"))
+    )
 
 
 def _resolve_itch_api_key(explicit_key: str = "") -> tuple[str | None, str]:
@@ -105,10 +112,10 @@ def _itch_session():
 # ── itch-dl backend detection ────────────────────────────────────────────────
 # We do NOT reimplement an itch.io scraper. We wrap the proven community tool
 # DragoonAethis/itch-dl. Resolution order (no silent auto-install):
-#   1) uvx itch-dl        (uv ephemeral run — preferred, no global install)
-#   2) pipx run itch-dl   (pipx ephemeral run)
-#   3) itch-dl            (already installed on PATH)
-# Each candidate is probed with `--version` (or `--help` fallback) so we only
+#   1) itch-dl            (already installed on PATH; no repeat setup)
+#   2) uvx itch-dl        (uv ephemeral run)
+#   3) pipx run itch-dl   (pipx ephemeral run)
+# Each candidate is probed with `--help` (or `--version` fallback) so we only
 # report a backend that can actually execute.
 
 def _which(name: str) -> str | None:
@@ -120,19 +127,21 @@ def _which(name: str) -> str | None:
 
 
 def _itch_probe(cmd: list[str], timeout: int = 25) -> bool:
-    """Return True if `cmd --version`/`--help` runs without a launch error.
+    """Return True only when the command identifies itself as itch-dl.
 
     Never raises; a missing launcher returns False quietly.
     """
     import subprocess as _sp
-    for probe in (["--version"], ["--help"]):
+    for probe in (["--help"], ["--version"]):
         try:
             r = _sp.run(cmd + probe, capture_output=True, timeout=timeout, check=False)
-            # itch-dl prints usage/version on these; rc may be 0 or small.
-            if r.returncode in (0, 1, 2):
-                out = (r.stdout or b"") + (r.stderr or b"")
-                if b"itch" in out.lower() or probe == ["--version"]:
-                    return True
+            # Current itch-dl does not implement --version and exits 1 with
+            # usage text. Check identity in actual output, not exit code alone.
+            out = ((r.stdout or b"") + (r.stderr or b"")).lower()
+            if r.returncode in (0, 1, 2) and b"itch-dl" in out and (
+                b"--download-to" in out or b"version" in out
+            ):
+                return True
         except FileNotFoundError:
             return False
         except (OSError, subprocess.SubprocessError) as exc:
@@ -147,18 +156,19 @@ def detect_itch_backend() -> tuple[list[str] | None, str]:
     Returns (cmd_prefix or None, label). cmd_prefix is the argv list that, with
     itch-dl arguments appended, runs the tool. Never raises.
     """
-    # 1) uvx
-    uvx = _which("uvx")
-    if uvx and _itch_probe([uvx, "itch-dl"]):
-        return [uvx, "itch-dl"], "uvx itch-dl"
-    # 2) pipx run
-    pipx = _which("pipx")
-    if pipx and _itch_probe([pipx, "run", "itch-dl"]):
-        return [pipx, "run", "itch-dl"], "pipx run itch-dl"
-    # 3) direct executable
+    # Prefer a local installation to avoid uvx/pipx resolving or downloading
+    # the same package on each diagnostic and download.
     direct = _which("itch-dl")
     if direct and _itch_probe([direct]):
         return [direct], "itch-dl (PATH)"
+    # 2) uvx
+    uvx = _which("uvx")
+    if uvx and _itch_probe([uvx, "itch-dl"]):
+        return [uvx, "itch-dl"], "uvx itch-dl"
+    # 3) pipx run
+    pipx = _which("pipx")
+    if pipx and _itch_probe([pipx, "run", "itch-dl"]):
+        return [pipx, "run", "itch-dl"], "pipx run itch-dl"
     return None, "not found"
 
 
@@ -174,7 +184,8 @@ def itch_backend_status() -> str:
 
 def build_itch_command(cmd_prefix: list[str], page_url: str, dest: str,
                        api_key: str | None = None,
-                       mirror_web: bool = False) -> list[str]:
+                       mirror_web: bool = False,
+                       parallel: int = 1) -> list[str]:
     """Construct the full itch-dl argv.
 
     SECURITY: the API key is passed as a CLI argument to the child process only.
@@ -184,6 +195,10 @@ def build_itch_command(cmd_prefix: list[str], page_url: str, dest: str,
     cmd = list(cmd_prefix) + [page_url, "--download-to", dest]
     if mirror_web:
         cmd += ["--mirror-web"]
+    if not 1 <= parallel <= 16:
+        raise ValueError("itch-dl parallel must be between 1 and 16")
+    if parallel > 1:
+        cmd += ["--parallel", str(parallel)]
     if api_key:
         cmd += ["--api-key", api_key]
     return cmd
@@ -193,8 +208,10 @@ def redact_itch_command(cmd: list[str]) -> str:
     """Return a log-safe string of an itch-dl command with the key masked."""
     out: list[str] = []
     skip_next = False
+    secrets: list[str] = []
     for tok in cmd:
         if skip_next:
+            secrets.append(tok)
             out.append("***")
             skip_next = False
             continue
@@ -203,7 +220,49 @@ def redact_itch_command(cmd: list[str]) -> str:
             skip_next = True
             continue
         out.append(tok)
-    return " ".join(out)
+    safe = " ".join(out)
+    for secret in secrets:
+        if secret:
+            safe = safe.replace(secret, "***")
+    return safe
+
+
+def _redact_itch_output(message: str, api_key: str | None) -> str:
+    """Remove the session key from child output and exception details."""
+    return message.replace(api_key, "***") if api_key else message
+
+
+def _run_itch_process(cmd: list[str], cancel_event: Event | None = None) -> tuple[int, str]:
+    """Run itch-dl with bounded output memory and responsive cancellation."""
+    from ..core.progress import DownloadCancelledError
+
+    with tempfile.TemporaryFile() as output:
+        proc = subprocess.Popen(
+            cmd, stdout=output, stderr=subprocess.STDOUT,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        deadline = time.monotonic() + 3600
+        try:
+            while True:
+                if cancel_event is not None and cancel_event.is_set():
+                    raise DownloadCancelledError("itch-dl cancelled")
+                try:
+                    returncode = proc.wait(timeout=0.25)
+                    break
+                except subprocess.TimeoutExpired:
+                    if time.monotonic() >= deadline:
+                        raise subprocess.TimeoutExpired(cmd, 3600)
+        except (DownloadCancelledError, subprocess.TimeoutExpired):
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+            raise
+        output.seek(0, os.SEEK_END)
+        output.seek(max(0, output.tell() - 4096))
+        return returncode, output.read().decode("utf-8", "replace")
 
 
 def itch_test_connection(explicit_key: str = "") -> tuple[bool, str]:
@@ -238,8 +297,7 @@ def itch_test_connection(explicit_key: str = "") -> tuple[bool, str]:
             return ok, f"itch.io reachable (public mode, no API key); {backend_line}{note}."
         return False, f"itch.io not reachable (HTTP {r.status_code}); {backend_line}."
     except (OSError, RuntimeError, TypeError, ValueError, requests.RequestException) as e:
-        # Backend presence is still useful info even if the network probe fails.
-        return (cmd is not None), f"itch.io probe error: {e}; {backend_line}."
+        return False, f"itch.io probe error: {_redact_itch_output(str(e), key)}; {backend_line}."
     finally:
         try:
             sess.close()
@@ -249,21 +307,24 @@ def itch_test_connection(explicit_key: str = "") -> tuple[bool, str]:
 
 def download_itch_assets(page_url: str, output_dir: str,
                          explicit_key: str = "",
-                         mirror_web: bool = False) -> dict[str, Any]:
+                         mirror_web: bool = False,
+                         parallel: int = 1,
+                         cancel_event: Event | None = None) -> dict[str, Any]:
     """
     Download an itch.io project via the `itch-dl` backend into
     <output_dir>/itch_assets/.
 
     - Fully independent of the CYOA pipeline; never affects CYOA success/failure.
-    - Never raises; failures are reported in the returned dict and logged.
+    - Failures are reported in the returned dict; cancellation propagates.
     - The API key is passed only to the child process and never logged.
     - Respects the user's account access only (itch-dl downloads what the key /
       public visibility permits; this wrapper adds no bypass).
     Returns a summary dict.
     """
-    import subprocess as _sp
+    from ..core.progress import DownloadCancelledError
 
     result: dict[str, Any] = {"ok": False, "saved": 0, "failed": 0,
+                              "existing": 0,
                               "skipped_auth": False, "backend": "",
                               "returncode": None, "message": ""}
     if not _is_itch_url(page_url):
@@ -288,48 +349,61 @@ def download_itch_assets(page_url: str, output_dir: str,
         result["message"] = f"Cannot create itch_assets folder: {e}"
         return result
 
-    cmd = build_itch_command(cmd_prefix, page_url, dest,
-                             api_key=key, mirror_web=mirror_web)
+    try:
+        cmd = build_itch_command(cmd_prefix, page_url, dest,
+                                 api_key=key, mirror_web=mirror_web,
+                                 parallel=parallel)
+    except ValueError as exc:
+        result["message"] = str(exc)
+        return result
     # Log a redacted form only — never the raw key.
     logger.info(f"[itch] running: {redact_itch_command(cmd)} (key source: {source})")
 
+    def _snapshot() -> dict[str, tuple[int, int]]:
+        files = {}
+        for root, _dirs, names in os.walk(dest):
+            for name in names:
+                path = os.path.join(root, name)
+                try:
+                    stat = os.stat(path)
+                    files[os.path.relpath(path, dest)] = (stat.st_size, stat.st_mtime_ns)
+                except OSError:
+                    continue
+        return files
+
     try:
-        proc = _sp.run(cmd, stdout=_sp.PIPE, stderr=_sp.STDOUT, timeout=3600, check=False)
-        result["returncode"] = proc.returncode
-        # Count files actually written under dest as the "saved" signal.
-        saved = 0
-        for root, _dirs, files in os.walk(dest):
-            saved += len(files)
+        before = _snapshot()
+        returncode, output_tail = _run_itch_process(cmd, cancel_event=cancel_event)
+        result["returncode"] = returncode
+        after = _snapshot()
+        saved = sum(1 for path, meta in after.items() if before.get(path) != meta)
         result["saved"] = saved
-        if proc.returncode == 0:
-            result.update(ok=saved > 0,
+        result["existing"] = len(after) - saved
+        if returncode == 0:
+            result.update(ok=bool(after),
                           message=(f"itch.io: completed via {label}; "
-                                   f"{saved} file(s) in itch_assets/ "
+                                   f"{saved} new/updated, {result['existing']} existing file(s) in itch_assets/ "
                                    f"(key source: {source})."))
         else:
-            # Surface a trimmed tail of itch-dl output for diagnosis (no key in it).
-            tail = ""
-            try:
-                tail = (proc.stdout or b"").decode("utf-8", "replace")[-600:]
-            except (AttributeError, UnicodeError) as _ignored_exc:
-                logger.debug("Ignored recoverable exception in download_itch_assets (line 19781): %s", _ignored_exc)
             if not key:
                 result["skipped_auth"] = True
-            result.update(ok=saved > 0,
-                          message=(f"itch-dl exited with code {proc.returncode} "
+            result.update(ok=False, failed=1,
+                          message=(f"itch-dl exited with code {returncode} "
                                    f"via {label}; {saved} file(s) saved. "
                                    f"{'(no API key — some projects need auth) ' if not key else ''}"
                                    f"Details logged."))
-            if tail.strip():
-                logger.warning(f"[itch] itch-dl output tail:\n{tail}")
+            if output_tail.strip():
+                logger.warning("[itch] itch-dl output tail:\n%s", _redact_itch_output(output_tail[-600:], key))
+    except DownloadCancelledError:
+        raise
     except FileNotFoundError:
         result["message"] = f"itch-dl launcher disappeared ({label})."
         logger.warning("[itch] " + result["message"])
-    except _sp.TimeoutExpired:
+    except subprocess.TimeoutExpired:
         result["message"] = "itch-dl timed out (1h limit)."
         logger.warning("[itch] " + result["message"])
     except (OSError, subprocess.SubprocessError) as e:
-        result["message"] = f"itch-dl run error: {e}"
+        result["message"] = f"itch-dl run error: {_redact_itch_output(str(e), key)}"
         logger.warning("[itch] " + result["message"])
 
     return result

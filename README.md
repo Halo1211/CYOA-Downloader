@@ -15,9 +15,9 @@
 
 <p align="center">
   <a href="https://github.com/Halo1211/CYOA-Downloader/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Halo1211/CYOA-Downloader/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/Halo1211/CYOA-Downloader/releases/latest"><img alt="Version" src="https://img.shields.io/badge/version-v1.0.9-20c997.svg"></a>
+  <a href="https://github.com/Halo1211/CYOA-Downloader/releases/latest"><img alt="Version" src="https://img.shields.io/badge/version-v1.1.0-20c997.svg"></a>
   <img alt="Python" src="https://img.shields.io/badge/Python-3.10%2B-3aa6d0.svg">
-  <img alt="UI" src="https://img.shields.io/badge/UI-PySide6-d633b8.svg">
+  <img alt="UI" src="https://img.shields.io/badge/UI-CustomTkinter-d633b8.svg">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg"></a>
 </p>
 
@@ -240,6 +240,35 @@ python cyoa_downloader.py "https://example.com/story/" `
 python cyoa_downloader.py --verify "output"
 ```
 
+## CYOA Manager and Serve cheat
+
+In the GUI, open **Browse CYOA Manager**. Queue entries with a source URL, or
+select one local entry and choose **Serve Local**. A folder with `index.html`
+opens directly. For a JSON-only entry, the downloader builds a local ICC viewer
+and caches its template assets, so the same assets are not fetched for every
+project. Local `images`, `audio`, `assets`, `media`, `videos`, `fonts`, `img`,
+and `backgrounds` folders are copied into the preview.
+
+With the **Cheat panel** toggle enabled, open **Serve Tools → Load Cheat** in
+the browser. The panel can edit points, unlock requirements and choice limits,
+filter/select individual choices, select all, and restore the original values
+captured when it first detected the project. These changes affect the local
+preview session.
+
+## itch.io downloads
+
+Enable the **itch.io downloader** toggle to run `itch-dl` alongside queued
+itch.io URLs in the GUI. Its web mirror pass is enabled there. For a standalone
+itch.io download without CYOA parsing, use:
+
+```powershell
+python cyoa_downloader.py "https://creator.itch.io/game" --itch-only --itch-parallel 4 -o "output"
+```
+
+The CLI also supports `--itch` for an optional pass alongside CYOA parsing,
+and `--itch-mirror-web` to include page assets. The wrapper prefers an already
+installed `itch-dl` executable and can cancel an active GUI download.
+
 ## Diagnostics and media helpers
 
 The Diagnostics panel checks Python packages, command-line tools, browser
@@ -293,7 +322,7 @@ python -m pytest -q
 ruff check cyoa_downloader.py cyoa_downloader_app
 ```
 
-The current offline regression suite contains 505 passing tests with 8 optional
+The current offline regression suite contains 625 passing tests with 8 optional
 tests skipped when their runtime conditions are unavailable.
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes. Security

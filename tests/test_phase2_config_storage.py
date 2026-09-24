@@ -152,6 +152,41 @@ def test_history_probe_cancellation_does_not_relabel_completed_download(tmp_path
     assert payload["https://example.test/completed"]["success"] is True
 
 
+def test_history_response_cleanup_failure_does_not_relabel_completed_download(tmp_path, monkeypatch):
+    history_file = tmp_path / "history.json"
+    monkeypatch.setattr(history_mod, "_HISTORY_FILE", str(history_file))
+
+    class BrokenCloseResponse:
+        status_code = 200
+
+        def __init__(self):
+            self.headers = {"ETag": '"saved"'}
+
+        def close(self):
+            raise RuntimeError("browser response already closed")
+
+    monkeypatch.setattr(fetch_mod, "fetch_response", lambda *_args, **_kwargs: BrokenCloseResponse())
+    history_mod._record_history("https://example.test/completed", "completed", "zip", success=True)
+
+    entry = json.loads(history_file.read_text(encoding="utf-8"))["https://example.test/completed"]
+    assert entry["success"] is True
+    assert entry["etag"] == '"saved"'
+
+
+def test_history_metadata_backend_failure_does_not_relabel_completed_download(tmp_path, monkeypatch):
+    history_file = tmp_path / "history.json"
+    monkeypatch.setattr(history_mod, "_HISTORY_FILE", str(history_file))
+
+    def failed_probe(*_args, **_kwargs):
+        raise RuntimeError("optional browser backend stopped")
+
+    monkeypatch.setattr(fetch_mod, "fetch_response", failed_probe)
+    history_mod._record_history("https://example.test/completed", "completed", "zip", success=True)
+
+    entry = json.loads(history_file.read_text(encoding="utf-8"))["https://example.test/completed"]
+    assert entry["success"] is True
+
+
 def test_history_lock_failure_is_nonfatal_to_batch_job(tmp_path, monkeypatch):
     monkeypatch.setattr(history_mod, "_HISTORY_FILE", str(tmp_path / "history.json"))
 

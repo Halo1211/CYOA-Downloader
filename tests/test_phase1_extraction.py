@@ -16,7 +16,7 @@ from cyoa_downloader_app.importers.batch import (
 
 def test_phase1_facade_names_still_match_modules():
     assert cyoa_downloader._APP_VERSION == _APP_VERSION
-    assert _APP_VERSION == "1.0.9"
+    assert _APP_VERSION == "1.1.0"
     assert cyoa_downloader.IMAGE_FIELDS is IMAGE_FIELDS
     assert ".mp3" in AUDIO_EXTENSIONS
     assert cyoa_downloader._derive_mode_flags is _derive_mode_flags
@@ -62,5 +62,5 @@ def test_cli_version_is_available_without_starting_a_download():
     )
 
     assert completed.returncode == 0
-    assert "CYOA Downloader 1.0.9" in completed.stdout
-    assert "CYOA-v1.0.9" in completed.stdout
+    assert "CYOA Downloader 1.1.0" in completed.stdout
+    assert "CYOA-v1.1.0" in completed.stdout

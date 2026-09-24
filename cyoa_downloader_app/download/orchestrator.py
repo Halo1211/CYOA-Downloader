@@ -32,8 +32,8 @@ from ..integrations.ai_core import (
     _normalize_ai_provider,
 )
 from ..integrations.cyoa_manager import (
-    _cyoa_manager_viewer_pref,
     _find_cyoa_manager_db,
+    add_archive_to_cyoa_manager,
     add_to_cyoa_manager,
 )
 from ..integrations.offline_viewers.iccplus import _unique_folder
@@ -859,22 +859,6 @@ def _base_run_download(
                     _n = _copytree_merge_safe(_tmp_audio, _out_audio, label="audio")
                     logger.info(f"Saved/merged: audio/ ({_n} file(s))")
 
-            # ── CYOA Manager integration ───────────────────────────────────
-            # Only runs if user has enabled "→ CYOA Mgr" checkbox
-            if cyoa_mgr_enabled:
-                _cm_json_path = os.path.join(output_dir or os.getcwd(), file_name + ".json")
-                _s  = _load_settings()
-                _custom_db = _s.get("cyoa_mgr_db_path", "").strip()
-                _cm_db = (_custom_db if _custom_db and os.path.exists(_custom_db)
-                          else _find_cyoa_manager_db())
-                if _cm_db:
-                    add_to_cyoa_manager(
-                        project_json_path=_cm_json_path,
-                        name=file_name,
-                        source_url=url,
-                        viewer_preference=_cyoa_manager_viewer_pref(output_mode_str),
-                        db_path=_cm_db,
-                    )
         if both_output or not embed_images:
             has_edits_zip = (dl_result != cleaned)
             if has_edits_zip:
@@ -883,6 +867,24 @@ def _base_run_download(
             logger.info(f"Saving: {file_name}.zip ({'with project_original.json' if has_edits_zip else 'no URL changes'})")
             zip_temp_folder(tmp, zip_name=file_name + ".zip")
             # Keep tmp until after offline viewer injection; it contains images/audio.
+
+        if cyoa_mgr_enabled:
+            _s = _load_settings()
+            _custom_db = _s.get("cyoa_mgr_db_path", "").strip()
+            _cm_db = (_custom_db if _custom_db and os.path.exists(_custom_db)
+                      else _find_cyoa_manager_db())
+            if _cm_db:
+                _cm_output = output_dir or os.getcwd()
+                if embed_images or both_output:
+                    add_to_cyoa_manager(
+                        os.path.join(_cm_output, file_name + ".json"),
+                        name=file_name, source_url=url, db_path=_cm_db,
+                    )
+                else:
+                    add_archive_to_cyoa_manager(
+                        os.path.join(_cm_output, file_name + ".zip"),
+                        name=file_name, source_url=url, db_path=_cm_db,
+                    )
 
         # ── Feature 4: Save metadata.json ─────────────────────────────────
         try:

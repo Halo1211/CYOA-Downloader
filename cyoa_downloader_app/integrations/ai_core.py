@@ -59,25 +59,25 @@ AI_MODEL_OPTIONS: dict[str, list[str]] = {
     # Editable recommendations. Providers add/deprecate models over time; users can pass
     # any custom model id via CLI --ai-model or the GUI field. Treat these as
     # convenience presets, not a guarantee that a provider account has access.
-    "anthropic": ["claude-sonnet-4-6", "claude-opus-4-7", "claude-haiku-4-5-20251001"],
-    "openai": ["gpt-5.5", "gpt-5.4", "gpt-4.1-mini"],
-    "gemini": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-3.1-pro-preview", "gemini-3.5-flash"],
-    "ollama": ["llama3.1", "qwen2.5-coder", "mistral", "gemma2"],
-    "deepseek": ["deepseek-chat", "deepseek-reasoner"],
-    "qwen": ["qwen-plus", "qwen-max", "qwen-turbo", "qwen2.5-coder-32b-instruct"],
-    "groq": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"],
-    "openrouter": ["openai/gpt-4.1-mini", "anthropic/claude-sonnet-4-6", "google/gemini-2.5-flash"],
+    "anthropic": ["claude-sonnet-5", "claude-opus-5-5", "claude-haiku-4-5-20251001"],
+    "openai": ["gpt-6-luna", "gpt-6-sol", "gpt-6-astra"],
+    "gemini": ["gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-3.7-flash"],
+    "ollama": ["qwen3.5", "gemma3", "llama3.1", "qwen2.5-coder"],
+    "deepseek": ["deepseek-v4-flash", "deepseek-v4-pro"],
+    "qwen": ["qwen3.8-flash", "qwen3.7-plus", "qwen3.8-max"],
+    "groq": ["openai/gpt-oss-20b", "openai/gpt-oss-120b", "qwen/qwen3.8-27b"],
+    "openrouter": ["openai/gpt-6-luna", "anthropic/claude-sonnet-5", "google/gemini-3.8-flash"],
     "custom": ["gpt-4o-mini"],
 }
 AI_PROVIDER_DEFAULT_MODEL: dict[str, str] = {
-    "anthropic": "claude-sonnet-4-6",
-    "openai": "gpt-5.5",
-    "gemini": "gemini-2.5-flash",
-    "ollama": "llama3.1",
-    "deepseek": "deepseek-chat",
-    "qwen": "qwen-plus",
-    "groq": "llama-3.3-70b-versatile",
-    "openrouter": "openai/gpt-4.1-mini",
+    "anthropic": "claude-sonnet-5",
+    "openai": "gpt-6-luna",
+    "gemini": "gemini-3.8-flash",
+    "ollama": "qwen3.5",
+    "deepseek": "deepseek-v4-flash",
+    "qwen": "qwen3.8-flash",
+    "groq": "openai/gpt-oss-20b",
+    "openrouter": "openai/gpt-6-luna",
     "custom": "gpt-4o-mini",
 }
 OLLAMA_DEFAULT_URL = "http://localhost:11434"
@@ -125,7 +125,7 @@ def _ai_model_options(provider: str | None = None) -> list[str]:
 
 def _default_ai_model(provider: str | None = None) -> str:
     p = _normalize_ai_provider(provider or _get_ai_provider())
-    return AI_PROVIDER_DEFAULT_MODEL.get(p, "claude-sonnet-4-6")
+    return AI_PROVIDER_DEFAULT_MODEL.get(p, "claude-sonnet-5")
 
 
 def _normalize_ai_key_storage(value: str) -> str:
@@ -409,6 +409,13 @@ def _get_ai_model(provider: str | None = None) -> str:
     p = _normalize_ai_provider(provider or st.get("ai_provider", "anthropic"))
     m = (st.get("ai_model") or "").strip()
     if not m:
+        return _default_ai_model(p)
+    # These saved presets no longer accept API calls on their providers.
+    retired = {
+        "deepseek": {"deepseek-chat", "deepseek-reasoner"},
+        "groq": {"llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"},
+    }
+    if m in retired.get(p, set()):
         return _default_ai_model(p)
     # If provider changed but the old provider's default model is still saved, move to the new provider default.
     other_defaults = {v for k, v in AI_PROVIDER_DEFAULT_MODEL.items() if k != p}

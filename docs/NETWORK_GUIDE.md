@@ -151,9 +151,9 @@ If a download fails:
    and Requests SOCKS support are available.
 6. For source installs, run `python cyoa_downloader.py --version`. For the GUI
    EXE, open **Properties → Details** and confirm that File Version and Product
-   Version are `1.0.9`; the in-app Help/Guide header also shows patch ID
-   `CYOA-v1.0.9`. Older executables do not contain the Teen Titans asset-cache
-   correction.
+   Version are `1.1.0`; the in-app Help/Guide header also shows patch ID
+   `CYOA-v1.1.0`. Older executables may lack the asset-cache and offline
+   preview corrections.
 
 Settings validation itself never downloads a favicon or probes the target
 website.

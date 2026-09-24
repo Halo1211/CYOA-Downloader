@@ -98,7 +98,9 @@ from ..integrations.ai_core import (
 from ..integrations.cyoa_manager import (
     _find_cyoa_manager_db,
     _list_cyoa_manager_projects,
+    add_archive_to_cyoa_manager,
     add_to_cyoa_manager,
+    prepare_cyoa_manager_serve_folder,
 )
 from ..integrations.gallery_dl import _set_gallery_dl_mode
 from ..integrations.itch import (
@@ -7301,7 +7303,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
         ctk.CTkSwitch(card, text="", variable=gallery_var, command=lambda: _set_gallery_from_toggle(gallery_var.get()), progress_color="#14b8a6", width=46).grid(row=0, column=2, rowspan=2, padx=(8, 12), pady=12)
 
         _switch_card(r, 1, "🎮", "itch.io downloader" if is_en else "Downloader itch.io",
-                     "Optional backend; public mode works without an API key." if is_en else "Backend opsional; mode publik tetap bisa tanpa API key.",
+                     "Runs itch-dl for queued itch.io URLs; mirrors web assets, no key needed for public games." if is_en else "Menjalankan itch-dl untuk URL itch.io di antrean; aset web disalin, game publik tanpa key.",
                      "itch_enabled", False, _set_itch_enabled, "#ef4444")
         r += 1
 
@@ -8619,14 +8621,15 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                           command=cmd).grid(row=0, column=2, rowspan=2, padx=(0, 12), pady=12)
 
         def _manual_add() -> None:
-            json_path = filedialog.askopenfilename(parent=win, title=("Select project.json" if is_en else "Pilih project.json"), filetypes=[("JSON", "*.json"), ("All", "*.*")])
+            json_path = filedialog.askopenfilename(parent=win, title=("Select project JSON or ZIP" if is_en else "Pilih project JSON atau ZIP"), filetypes=[("CYOA project", "*.json *.zip"), ("All", "*.*")])
             if not json_path:
                 return
             db_path = _get_db()
             if not db_path:
                 messagebox.showerror("CYOA Manager", "Library DB not found." if is_en else "Library DB tidak ditemukan.", parent=win)
                 return
-            ok = add_to_cyoa_manager(json_path, name=os.path.splitext(os.path.basename(json_path))[0], db_path=db_path)
+            add_project = add_archive_to_cyoa_manager if json_path.lower().endswith(".zip") else add_to_cyoa_manager
+            ok = add_project(json_path, name=os.path.splitext(os.path.basename(json_path))[0], db_path=db_path)
             _set_status(("Project added." if ok else "Add failed.") if is_en else ("Project ditambahkan." if ok else "Tambah project gagal."), ok)
 
         def _add_session() -> None:
@@ -8640,7 +8643,12 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 if r.get("status") != "OK":
                     continue
                 fp = os.path.join(self._outdir_var.get() or os.getcwd(), r.get("filename", "") + ".json")
-                if add_to_cyoa_manager(fp, name=r.get("filename", ""), source_url=r.get("url", ""), db_path=db_path):
+                if os.path.isfile(fp):
+                    ok = add_to_cyoa_manager(fp, name=r.get("filename", ""), source_url=r.get("url", ""), db_path=db_path)
+                else:
+                    archive = os.path.splitext(fp)[0] + ".zip"
+                    ok = add_archive_to_cyoa_manager(archive, name=r.get("filename", ""), source_url=r.get("url", ""), db_path=db_path)
+                if ok:
                     added += 1
             _set_status((f"{added} session project(s) added." if is_en else f"{added} project sesi ditambahkan."), True)
 
@@ -8676,7 +8684,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 return
             child = ctk.CTkToplevel(win)
             self._apply_window_icon_to(child)
-            child.title("Import from CYOA Manager" if is_en else "Impor dari CYOA Manager")
+            child.title("CYOA Manager Library" if is_en else "Library CYOA Manager")
             child.geometry("720x520")
             child.configure(fg_color=p["bg"])
             child.transient(win)
@@ -8696,9 +8704,9 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                     logger.debug("Ignored recoverable exception in _close_child (line 9296): %s", _ignored_exc)
             child.protocol("WM_DELETE_WINDOW", _close_child)
             ctk.CTkLabel(child, text=(f"CYOA Manager Library — {len(projects)} project(s)" if is_en else f"Library CYOA Manager — {len(projects)} project"), font=ctk.CTkFont("Segoe UI", 14, "bold"), text_color=p["fg"]).pack(anchor="w", padx=16, pady=(14, 4))
-            ctk.CTkLabel(child, text=("Select projects to add to the current queue. The Manager Center stays open." if is_en else "Pilih project untuk ditambahkan ke antrean. Pusat Manager tetap terbuka."), font=ctk.CTkFont("Segoe UI", 10), text_color=p["muted"]).pack(anchor="w", padx=16, pady=(0, 8))
+            ctk.CTkLabel(child, text=("Queue projects with URLs, or Serve one local project." if is_en else "Antrekan project ber-URL, atau buka satu project lokal lewat Serve."), font=ctk.CTkFont("Segoe UI", 10), text_color=p["muted"]).pack(anchor="w", padx=16, pady=(0, 8))
             search_var = ctk.StringVar()
-            ctk.CTkEntry(child, textvariable=search_var, placeholder_text=("🔍 Search name or URL…" if is_en else "🔍 Cari nama atau URL…"), height=32, fg_color=p["input_bg"], text_color=p["input_fg"], border_color=p["border"]).pack(fill="x", padx=16, pady=(0, 8))
+            ctk.CTkEntry(child, textvariable=search_var, placeholder_text=("🔍 Search name, URL or file…" if is_en else "🔍 Cari nama, URL atau file…"), height=32, fg_color=p["input_bg"], text_color=p["input_fg"], border_color=p["border"]).pack(fill="x", padx=16, pady=(0, 8))
             lf = ctk.CTkScrollableFrame(child, fg_color=p["surface"], corner_radius=10, border_width=1, border_color=p["border"])
             lf.pack(fill="both", expand=True, padx=16, pady=(0, 10))
             check_vars = []
@@ -8710,7 +8718,8 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                 for proj in projects:
                     name = proj.get("name") or proj.get("id") or "-"
                     url = proj.get("source_url", "")
-                    if ft and ft not in name.lower() and ft not in url.lower():
+                    local_path = proj.get("file_path", "")
+                    if ft and not any(ft in value.lower() for value in (name, url, local_path)):
                         continue
                     var = ctk.BooleanVar(value=False)
                     row = ctk.CTkFrame(lf, fg_color=p["surface2"], corner_radius=8)
@@ -8719,7 +8728,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                     meta = ctk.CTkFrame(row, fg_color="transparent")
                     meta.pack(side="left", fill="x", expand=True, pady=6)
                     ctk.CTkLabel(meta, text=name[:80], anchor="w", font=ctk.CTkFont("Segoe UI", 11, "bold"), text_color=p["fg"]).pack(anchor="w")
-                    ctk.CTkLabel(meta, text=url[:110], anchor="w", font=ctk.CTkFont("Consolas", 9), text_color=p["muted"]).pack(anchor="w")
+                    ctk.CTkLabel(meta, text=(url or local_path or "No URL or local file")[:110], anchor="w", font=ctk.CTkFont("Consolas", 9), text_color=p["muted"]).pack(anchor="w")
                     check_vars.append((var, proj))
             _rebuild()
             search_var.trace_add("write", _rebuild)
@@ -8730,17 +8739,45 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                     v.set(True)
             def _queue_selected() -> None:
                 queued = 0
+                local_only = 0
                 for v, proj in check_vars:
                     if v.get():
-                        self._add_url_to_queue(proj.get("source_url", ""), filename=proj.get("name", ""))
+                        url = proj.get("source_url", "")
+                        if not url:
+                            local_only += 1
+                            continue
+                        self._add_url_to_queue(url, filename=proj.get("name", ""))
                         queued += 1
                 if queued:
-                    _set_status((f"{queued} project(s) queued from CYOA Manager." if is_en else f"{queued} project ditambahkan ke antrean dari CYOA Manager."), True)
+                    _set_status((f"{queued} queued; {local_only} local-only entries skipped." if is_en else f"{queued} masuk antrean; {local_only} entri lokal dilewati."), True)
                     _close_child()
                 else:
-                    _set_status("Select at least one project first." if is_en else "Pilih minimal satu project dulu.", False)
+                    _set_status("Select a project with a URL, or use Serve Local." if is_en else "Pilih project ber-URL, atau gunakan Serve Lokal.", False)
+            def _serve_selected() -> None:
+                if not _SERVE_ENABLED:
+                    _set_status("Enable Serve in settings first." if is_en else "Aktifkan Serve di pengaturan dahulu.", False)
+                    return
+                selected = [proj for var, proj in check_vars if var.get()]
+                if len(selected) != 1:
+                    _set_status("Select exactly one project for Serve." if is_en else "Pilih tepat satu project untuk Serve.", False)
+                    return
+                project_path = selected[0].get("file_path", "")
+                if not project_path:
+                    _set_status("This Manager entry has no local project file." if is_en else "Entri Manager ini tidak punya file project lokal.", False)
+                    return
+                try:
+                    folder = prepare_cyoa_manager_serve_folder(project_path)
+                except (OSError, TypeError, ValueError) as exc:
+                    _set_status(str(exc), False)
+                    return
+                _close_child()
+                _set_status((f"Serving {selected[0].get('name') or project_path}" if is_en else f"Serve {selected[0].get('name') or project_path}"), True)
+                if self._server_running:
+                    self._stop_server()
+                self.root.after(300, lambda: self._start_server(folder=folder))
             ctk.CTkButton(bf, text=("Select All" if is_en else "Pilih Semua"), width=100, height=30, fg_color=p["surface2"], hover_color=p["surface"], text_color=p["fg"], command=_select_all).pack(side="left", padx=(16, 6), pady=7)
-            ctk.CTkButton(bf, text=("Queue Selected" if is_en else "Masukkan Antrean"), width=140, height=30, fg_color=p["manager_bg"], hover_color=p["manager_hv"], text_color=p["manager_fg"], command=_queue_selected).pack(side="left", padx=(0, 6), pady=7)
+            ctk.CTkButton(bf, text=("Queue URLs" if is_en else "Antrekan URL"), width=120, height=30, fg_color=p["manager_bg"], hover_color=p["manager_hv"], text_color=p["manager_fg"], command=_queue_selected).pack(side="left", padx=(0, 6), pady=7)
+            ctk.CTkButton(bf, text=("Serve Local" if is_en else "Serve Lokal"), width=115, height=30, fg_color="#2563eb", hover_color="#1d4ed8", text_color="#ffffff", command=_serve_selected).pack(side="left", padx=(0, 6), pady=7)
             ctk.CTkButton(bf, text=("Close" if is_en else "Tutup"), width=86, height=30, fg_color=p["surface2"], hover_color=p["surface"], text_color=p["fg"], command=_close_child).pack(side="right", padx=16, pady=7)
 
         def _open_batch_export_panel() -> None:
@@ -8770,8 +8807,8 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
 
         r = 2
         r = _section(r, "Library actions" if is_en else "Aksi library")
-        _action(r, 0, "📚", "Import from CYOA Manager" if is_en else "Impor dari CYOA Manager",
-                "Pull projects from an existing CYOA Manager library into the queue." if is_en else "Ambil project dari library CYOA Manager ke antrean.",
+        _action(r, 0, "📚", "Browse CYOA Manager" if is_en else "Jelajahi CYOA Manager",
+                "Queue URLs or Serve local projects from the Manager library." if is_en else "Antrekan URL atau Serve project lokal dari library Manager.",
                 _open_import_panel, color="manager_bg", hover="manager_hv", fg="manager_fg")
         _action(r, 1, "📦", "Export to CYOA Manager" if is_en else "Ekspor ke CYOA Manager",
                 "Export finished downloads or selected project.json files to the library." if is_en else "Ekspor hasil download atau project.json terpilih ke library.",

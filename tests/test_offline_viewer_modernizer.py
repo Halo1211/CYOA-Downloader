@@ -749,6 +749,7 @@ def test_normal_injector_preserves_plus2_source_html_customizations(
     )
 
     assert output is not None
+    assert (Path(output).parent / "project.json").read_text(encoding="utf-8") == _project(version="2.10.3")
     html = Path(output).read_text(encoding="utf-8")
     assert "Site title" in html
     assert "site.ico" in html

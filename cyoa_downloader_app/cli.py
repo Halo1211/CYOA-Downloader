@@ -375,10 +375,14 @@ def main() -> None:
                         help="Disable the headless browser image fallback (default: on).")
     parser.add_argument("--itch", action="store_true",
                         help="Enable the optional itch.io asset downloader for itch.io URLs (default: off).")
+    parser.add_argument("--itch-only", action="store_true",
+                        help="Download an itch.io URL with itch-dl only; skip CYOA parsing and mirror web assets.")
     parser.add_argument("--itch-test", action="store_true",
                         help="Test itch.io backend (itch-dl) + connectivity and exit.")
     parser.add_argument("--itch-mirror-web", action="store_true",
                         help="Pass --mirror-web to itch-dl (mirror linked web builds) when supported.")
+    parser.add_argument("--itch-parallel", type=int, choices=range(1, 17), default=1, metavar="1-16",
+                        help="itch-dl game download workers (default: 1, maximum: 16).")
     parser.add_argument("--dependency-check", action="store_true", help="Print optional/required dependency status and exit.")
     parser.add_argument("--userscript-info", action="store_true", help="Print Serve-only userscript integration credit/source notes and exit.")
     parser.add_argument("--self-test", action="store_true", help="Run offline internal smoke tests and exit.")
@@ -744,6 +748,17 @@ def main() -> None:
     if not args.list_file and not args.url:
         parser.error("Provide a URL or use --list with a batch source.")
 
+    if args.itch_only:
+        if args.list_file or not _is_itch_url(args.url):
+            parser.error("--itch-only requires one http(s) itch.io URL and no --list.")
+        result = download_itch_assets(
+            args.url, args.output_dir, mirror_web=True, parallel=args.itch_parallel,
+        )
+        logger.info("[itch] %s", result["message"])
+        if not result["ok"]:
+            raise SystemExit(1)
+        return
+
     if args.list_file:
         items = import_queue_items_from_source(args.list_file)
         if not items:
@@ -752,9 +767,23 @@ def main() -> None:
         logger.info(f"Items         : {len(items)}")
         failed_items: list[dict[str, str]] = []
         ok = 0
+        itch_seen_urls: set[str] = set()
         for idx, item in enumerate(items, 1):
             logger.info(f"Batch {idx}/{len(items)}: {item['url']}")
             try:
+                if (runtime_state._ITCH_ENABLED and _is_itch_url(item["url"])
+                        and item["url"] not in itch_seen_urls):
+                    itch_seen_urls.add(item["url"])
+                    try:
+                        itch_result = download_itch_assets(
+                            item["url"], args.output_dir,
+                            mirror_web=bool(args.itch_mirror_web), parallel=args.itch_parallel,
+                        )
+                        logger.info("[itch] %s", itch_result["message"])
+                    except DownloadCancelledError:
+                        raise
+                    except _CLI_BOUNDARY_ERRORS as exc:
+                        logger.warning("[itch] Optional backend failed: %s", type(exc).__name__)
                 mode_i = (item.get("mode", "") or "").lower().replace("-", "_").replace(" ", "_")
                 # [STAB-rev18] Per-row flags come from the shared derivation
                 # helper (parity with the GUI loop); global CLI flags are then
@@ -852,6 +881,18 @@ def main() -> None:
                  if _vpn_log_status.get("requested_interface") else ""))
 
     engine_mode = "cyoap_vue" if (args.cyoap_vue_website or args.cyoap_vue_folder) else ("auto" if args.cyoap_vue else "standard")
+    if runtime_state._ITCH_ENABLED and _is_itch_url(args.url):
+        logger.info("itch.io downloader enabled — invoking itch-dl backend.")
+        try:
+            res = download_itch_assets(
+                args.url, args.output_dir, explicit_key="",
+                mirror_web=bool(args.itch_mirror_web), parallel=args.itch_parallel,
+            )
+            logger.info("[itch] %s", res.get("message", ""))
+        except DownloadCancelledError:
+            raise
+        except _CLI_BOUNDARY_ERRORS as e:
+            logger.warning("[itch] downloader error (CYOA result unaffected): %s", type(e).__name__)
     run_download(
         url=args.url,
         file_name=args.filename,
@@ -874,18 +915,6 @@ def main() -> None:
         archive_max_pages=args.archive_max_pages,
         archive_max_depth=args.archive_max_depth,
     )
-    # ── v7.5.8 Item 8 (rewritten v7.6): optional itch.io pass via itch-dl ──
-    if runtime_state._ITCH_ENABLED and _is_itch_url(args.url):
-        logger.info("itch.io downloader enabled — invoking itch-dl backend.")
-        try:
-            res = download_itch_assets(
-                args.url, args.output_dir, explicit_key="",
-                mirror_web=bool(getattr(args, "itch_mirror_web", False)))
-            logger.info(f"[itch] {res.get('message','')}")
-        except DownloadCancelledError:
-            raise
-        except _CLI_BOUNDARY_ERRORS as e:
-            logger.warning(f"[itch] downloader error (CYOA result unaffected): {e}")
     if args.serve:
         # Respect the serve toggle in the CLI path too (Item 6 parity with GUI).
         if not runtime_state._SERVE_ENABLED:

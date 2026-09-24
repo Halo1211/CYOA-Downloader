@@ -38,7 +38,7 @@ version_info_path.write_text(
          StringStruct('FileDescription', 'CYOA Downloader'),
          StringStruct('FileVersion', '{APP_VERSION}'),
          StringStruct('InternalName', 'CYOA Downloader'),
-         StringStruct('LegalCopyright', 'Licensed under GPL-3.0'),
+         StringStruct('LegalCopyright', 'Licensed under MIT'),
          StringStruct('OriginalFilename', 'CYOA Downloader.exe'),
          StringStruct('ProductName', 'CYOA Downloader'),
          StringStruct('ProductVersion', '{APP_VERSION}')])

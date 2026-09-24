@@ -34,13 +34,22 @@ if (-not $SkipChecks) {
     Write-Host "[2/4] Running release checks..."
     Invoke-Python -m compileall -q cyoa_downloader_app cyoa_downloader.py
     Invoke-Python -m pytest -q
-    Invoke-Python -m ruff check cyoa_downloader.py --select "F821,F811,F601"
+    Invoke-Python -m ruff check .
     Invoke-Python cyoa_downloader.py --self-test
 }
 
 $LegacyBundle = Join-Path $Root "dist\CYOA Downloader"
 if (Test-Path -LiteralPath $LegacyBundle) {
-    [System.IO.Directory]::Delete((Resolve-Path -LiteralPath $LegacyBundle).Path, $true)
+    $LegacyItem = Get-Item -LiteralPath $LegacyBundle -Force
+    if (($LegacyItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "Refusing to remove a reparse-point build output: $LegacyBundle"
+    }
+    $ResolvedLegacyBundle = (Resolve-Path -LiteralPath $LegacyBundle).Path
+    $ResolvedDist = [System.IO.Path]::GetFullPath((Join-Path $Root "dist"))
+    if (-not $ResolvedLegacyBundle.StartsWith($ResolvedDist + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to remove a bundle outside the build output directory: $ResolvedLegacyBundle"
+    }
+    [System.IO.Directory]::Delete($ResolvedLegacyBundle, $true)
 }
 
 Write-Host "[3/4] Creating the Windows executable with the black icon..."

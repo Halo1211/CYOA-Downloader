@@ -58,34 +58,34 @@ def _candidate_urls_for_cyoap_asset(base_url: str, value: str, kind: str) -> lis
     value = (value or "").strip()
     if not value or value.startswith("data:"):
         return []
-    try:
-        # Scheme-relative references inherit the page scheme; host-like
-        # values without a scheme use canonicalize_url's HTTPS default.
-        absolute = urljoin(base_url, value) if value.startswith("//") else value
-        return [canonicalize_url(absolute)]
-    except (TypeError, ValueError):
-        # A normal relative asset path is expanded through the candidates
-        # below; only absolute/host-like values canonicalize successfully.
-        pass
+    explicit_url = value.startswith(("http://", "https://", "//"))
+    host_like = "/" in value and "." in value.split("/", 1)[0]
+    if explicit_url or host_like:
+        try:
+            absolute = urljoin(base_url, value) if value.startswith("//") else value
+            return [canonicalize_url(absolute)]
+        except (TypeError, ValueError):
+            pass
 
     norm = value.lstrip("/")
-    candidates: list[str] = [
+    root_candidates: list[str] = [
         urljoin(base_url, norm),
         urljoin(base_url, quote(norm, safe="/:_.-")),
     ]
+    candidates: list[str] = []
 
-    if not norm.startswith("dist/"):
-        if kind == "images":
+    if kind == "images" and not norm.startswith("dist/"):
+        candidates.extend([
+            urljoin(base_url, "dist/images/" + norm),
+            urljoin(base_url, "dist/images/" + quote(norm, safe="/:_.-")),
+        ])
+    candidates.extend(root_candidates)
+    if kind != "images" and not norm.startswith("dist/"):
+        for folder in ("dist/audio/", "dist/media/", "dist/images/", "audio/", "media/"):
             candidates.extend([
-                urljoin(base_url, "dist/images/" + norm),
-                urljoin(base_url, "dist/images/" + quote(norm, safe="/:_.-")),
+                urljoin(base_url, folder + norm),
+                urljoin(base_url, folder + quote(norm, safe="/:_.-")),
             ])
-        else:
-            for folder in ("dist/audio/", "dist/media/", "dist/images/", "audio/", "media/"):
-                candidates.extend([
-                    urljoin(base_url, folder + norm),
-                    urljoin(base_url, folder + quote(norm, safe="/:_.-")),
-                ])
 
     dedup: list[str] = []
     seen: set[str] = set()

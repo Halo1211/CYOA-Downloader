@@ -1,13 +1,37 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import zipfile
 from pathlib import Path
 from typing import ClassVar
 
+import pytest
+
 from cyoa_downloader_app.config.settings import _SETTINGS_DEFAULTS
 from cyoa_downloader_app.integrations.offline_viewers import injector, registry
 from cyoa_downloader_app.project.parse import extract_embedded_project_from_js
+
+
+def test_rar_viewer_member_uses_system_tar_when_rarfile_has_no_extractor(monkeypatch):
+    rarfile = pytest.importorskip("rarfile")
+
+    class RarWithoutExtractor:
+        def read(self, _member):
+            raise rarfile.RarCannotExec("Cannot find working tool")
+
+    calls = []
+    monkeypatch.setattr(injector.shutil, "which", lambda name: "tar.exe" if name == "tar" else None)
+
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs))
+        return subprocess.CompletedProcess(command, 0, stdout=b"viewer data", stderr=b"")
+
+    monkeypatch.setattr(injector.subprocess, "run", fake_run)
+    assert injector._read_rar_viewer_member(
+        RarWithoutExtractor(), "viewer.rar", "Viewer 1.8/index.html"
+    ) == b"viewer data"
+    assert calls[0][0] == ["tar.exe", "-xOf", "viewer.rar", "--", "Viewer 1.8/index.html"]
 
 
 def _project(*, version: str = "") -> str:
@@ -362,6 +386,26 @@ def test_preserved_host_script_is_downloaded_and_rewritten_for_file_url(
     assert "./__source_assets__/irontiger.nekoweb.org/.nekoweb-api/static/site.js" in localized
     assert './js/app.js' in localized
     assert calls == ["https://irontiger.nekoweb.org/.nekoweb-api/static/site.js"]
+
+
+def test_bundled_viewer_script_does_not_probe_speculative_relative_json(tmp_path):
+    site = tmp_path / "viewer"
+    (site / "js").mkdir(parents=True)
+    script = site / "js" / "app.js"
+    original = 'const parserMaps = ["maps/entities.json", "maps/xml.json"];'
+    script.write_text(original, encoding="utf-8")
+    calls = []
+
+    localized = injector._localize_preserved_index_assets(
+        '<script src="js/app.js"></script>',
+        "https://publisher.test/game/",
+        str(site),
+        fetcher=lambda url, **_kwargs: calls.append(url),
+    )
+
+    assert 'src="js/app.js"' in localized
+    assert script.read_text(encoding="utf-8") == original
+    assert calls == []
 
 
 def test_failed_preserved_asset_keeps_reference_and_writes_failure_report(

@@ -64,6 +64,7 @@ from ..integrations.ai_core import (
     _resolve_ai_api_key,
     _write_ai_key_to_keyring,
 )
+from ..integrations.itch import _is_itch_url, download_itch_assets
 from ..integrations.offline_viewers.injector import _apply_offline_viewer
 from ..integrations.offline_viewers.registry import (
     _VIEWERS_DIR,
@@ -2627,6 +2628,27 @@ def _v46_start(self) -> None:
     )
     self._worker_thread.start()
 
+def _v46_optional_itch_download(url, outdir, threads, cancel_event, *, enabled):
+    """Run the opt-in itch-dl pass for a GUI job independently of CYOA parsing."""
+    if not enabled or not _is_itch_url(url):
+        return None
+    try:
+        result = download_itch_assets(
+            url, outdir, mirror_web=True, parallel=min(4, max(1, int(threads))),
+            cancel_event=cancel_event,
+        )
+    except DownloadCancelledError:
+        raise
+    except _GUI_JOB_BOUNDARY_ERRORS as exc:
+        logger.warning("[itch] Optional backend failed: %s", type(exc).__name__)
+        return {"ok": False, "message": "Optional itch-dl backend failed"}
+    if result["ok"]:
+        logger.info("[itch] %s", result["message"])
+    else:
+        logger.warning("[itch] %s", result["message"])
+    return result
+
+
 def _v46_worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_analysis, cloudflare_mode, http2_enabled, ytdlp_enabled, bw_limit, cyoa_mgr) -> None:
     global wait_time, _ytdlp_enabled, _bandwidth_limit_kbps
     self._v46_set_event_sink()
@@ -2687,6 +2709,7 @@ def _v46_worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_a
     # name/folder from the queue snapshot.
     job_counts = Counter(str(item.get("_resume_key") or "") for item in items if item.get("_resume_key"))
     duplicate_jobs = {key for key, count in job_counts.items() if count > 1}
+    itch_seen_urls: set[str] = set()
 
     # Surface prior-session state on the queue dots before the
     # run starts, matching the legacy GUI worker. `prev_failed` was previously
@@ -2740,7 +2763,15 @@ def _v46_worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_a
             self._v46_enqueue_progress({"type": "job_started", "job_index": idx, "total_jobs": len(items), "mode": mode, "source_url": url, "time": time.monotonic()})
             self._set_dot(idx - 1, "running")
             self._set_status(f"Job {idx} of {len(items)} — {mode} — {truncate_display_url(url, 68)}")
+            itch_result = None
             try:
+                itch_enabled = bool(_load_settings().get("itch_enabled", False))
+                if itch_enabled and _is_itch_url(url) and url not in itch_seen_urls:
+                    itch_seen_urls.add(url)
+                    itch_result = _v46_optional_itch_download(
+                        url, outdir, threads, self._cancel_event, enabled=True,
+                    )
+                _raise_if_cancelled()
                 is_pure = mode in {"pure_website_zip", "pure_website_folder"}
                 is_cyoap = mode in {"cyoap_vue_zip", "cyoap_vue_folder"}
                 run_download(
@@ -2766,21 +2797,21 @@ def _v46_worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_a
                     completed_jobs.append(resume_key)
                 if item.get("_queue_id"):
                     self._active_run_success_ids.add(str(item["_queue_id"]))
-                self._last_results.append({"url": url, "mode": mode, "status": "OK", "filename": item.get("filename", ""), "error": "", "queue_id": item.get("_queue_id", ""), "result_type": "job"})
+                self._last_results.append({"url": url, "mode": mode, "status": "OK", "filename": item.get("filename", ""), "error": "", "queue_id": item.get("_queue_id", ""), "result_type": "job", "itch_result": itch_result})
                 self._set_dot(idx - 1, "done")
                 _record_history(url, item.get("filename", ""), mode, success=True)
                 save_resume_state(outdir, completed_jobs, [f["url"] for f in failed_items])
                 self._v46_enqueue_progress({"type": "job_completed", "failed_assets": 0, "time": time.monotonic()})
             except DownloadCancelledError:
                 cancelled = True
-                self._last_results.append({"url": url, "mode": mode, "status": "CANCELLED", "filename": item.get("filename", ""), "error": "Cancelled by user", "queue_id": item.get("_queue_id", ""), "result_type": "job"})
+                self._last_results.append({"url": url, "mode": mode, "status": "CANCELLED", "filename": item.get("filename", ""), "error": "Cancelled by user", "queue_id": item.get("_queue_id", ""), "result_type": "job", "itch_result": itch_result})
                 self._set_dot(idx - 1, "skip")
                 self._v46_enqueue_progress({"type": "job_cancelled", "time": time.monotonic()})
                 break
             except _GUI_JOB_BOUNDARY_ERRORS as exc:
                 logger.error(f"Failed [{url}]: {exc}")
                 failed_items.append({"url": url, "error": str(exc)})
-                self._last_results.append({"url": url, "mode": mode, "status": "FAIL", "filename": item.get("filename", ""), "error": str(exc), "queue_id": item.get("_queue_id", ""), "result_type": "job"})
+                self._last_results.append({"url": url, "mode": mode, "status": "FAIL", "filename": item.get("filename", ""), "error": str(exc), "queue_id": item.get("_queue_id", ""), "result_type": "job", "itch_result": itch_result})
                 self._set_dot(idx - 1, "error")
                 _record_history(url, item.get("filename", ""), mode, success=False)
                 save_resume_state(outdir, completed_jobs, [f["url"] for f in failed_items])

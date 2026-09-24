@@ -196,6 +196,12 @@ def test_cyoap_absolute_candidates_are_canonical_http_urls() -> None:
     assert _candidate_urls_for_cyoap_asset(
         "https://origin.example/game/", "//cdn.example/assets/a.png", "images"
     ) == ["https://cdn.example/assets/a.png"]
+    assert _candidate_urls_for_cyoap_asset(
+        "https://origin.example/game/", "phone.webp", "images"
+    ) == [
+        "https://origin.example/game/dist/images/phone.webp",
+        "https://origin.example/game/phone.webp",
+    ]
 
 
 def test_same_origin_rejects_malformed_ports() -> None:

@@ -14,7 +14,7 @@ import re
 import shutil
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlencode, urljoin, urlparse
 
 import requests
 
@@ -49,6 +49,7 @@ from ..diagnostics.reports import format_backup_report_text, write_asset_failure
 from ..download.asset_scan import _safe_response_text
 from ..download.headers import get_headers_for_url
 from ..download.package import zip_temp_folder
+from ..download.website import WebsiteDownloader
 from ..integrations.ai_core import _ssrf_block_cross_origin
 from ..logging_setup import logger
 from ..network.fetch import fetch_response
@@ -68,6 +69,114 @@ _RESPONSE_CLEANUP_ERRORS = (
     RuntimeError,
     requests.RequestException,
 )
+
+
+def localize_cyoap_external_styles(page_path: str, page_url: str) -> int:
+    """Save explicit external stylesheet and font URLs beside a cyoap Vue page."""
+    page = pathlib.Path(page_path)
+    soup = BeautifulSoup(page.read_text(encoding="utf-8"), "html.parser")
+    downloader = WebsiteDownloader(page_url, str(page.parent))
+    localized = 0
+
+    def local_reference(remote: str, kind: str) -> str | None:
+        if _same_origin(remote, page_url):
+            return None
+        local = downloader._download_asset(remote, preferred_kind=kind, referrer_url=page_url)
+        if not local:
+            return None
+        return os.path.relpath(local, page.parent).replace("\\", "/")
+
+    for tag in soup.find_all("link", href=True):
+        relations = {str(rel).lower() for rel in (tag.get("rel") or [])}
+        if "preconnect" in relations and not _same_origin(urljoin(page_url, str(tag["href"])), page_url):
+            tag.decompose()
+            localized += 1
+            continue
+        if "stylesheet" not in relations:
+            continue
+        href = str(tag["href"])
+        remote = urljoin(page_url, href)
+        replacement = local_reference(remote, "css")
+        if replacement:
+            tag["href"] = replacement
+            localized += 1
+
+    for tag in soup.find_all("style"):
+        css = tag.string or tag.get_text() or ""
+
+        def replace_url(match):
+            nonlocal localized
+            raw = match.group(2)
+            if not raw.startswith(("http://", "https://", "//")):
+                return match.group(0)
+            remote = urljoin(page_url, raw)
+            replacement = local_reference(remote, "fonts")
+            if not replacement:
+                return match.group(0)
+            localized += 1
+            return f"url({match.group(1)}{replacement}{match.group(1)})"
+
+        revised = re.sub(r"url\(\s*(['\"]?)([^)'\"]+)\1\s*\)", replace_url, css, flags=re.IGNORECASE)
+        if revised != css:
+            tag.string = revised
+
+    # The WebFont helper only injects remote stylesheets. Explicit Google Fonts
+    # CSS above is saved locally, so retaining the helper recreates a network
+    # dependency on otherwise complete offline pages.
+    for tag in soup.find_all("script", src=True):
+        source = urljoin(page_url, str(tag["src"]))
+        parsed = urlparse(source)
+        if parsed.hostname == "ajax.googleapis.com" and parsed.path.startswith("/ajax/libs/webfont/"):
+            tag.decompose()
+            localized += 1
+
+    if localized:
+        atomic_write_text(str(page), str(soup))
+    return localized
+
+
+def localize_cyoap_runtime_fonts(page_path: str, page_url: str = "") -> int:
+    """Keep Vue's optional Google Fonts loader on the local origin."""
+    page = pathlib.Path(page_path)
+    changed = 0
+    families: set[str] = set()
+    scripts = list((page.parent / "js").rglob("*.js"))
+    scripts.extend((page.parent / "assets").rglob("*.js"))
+    for script in scripts:
+        content = script.read_text(encoding="utf-8", errors="replace")
+        for match in re.finditer(r"families:\[([^\]]+)\]", content):
+            families.update(
+                family for family in re.findall(r'["\']([^"\']+)["\']', match.group(1))
+                if len(family) <= 150
+            )
+        revised = content.replace(
+            '"https://fonts.googleapis.com/css"',
+            '"css/offline-fonts.css"',
+        )
+        if revised != content:
+            atomic_write_text(str(script), revised)
+            changed += 1
+    if changed or (page_url and families):
+        css_file = page.parent / "css" / "offline-fonts.css"
+        imports: list[str] = []
+        if page_url and families and not (
+            css_file.is_file() and "@import" in css_file.read_text(encoding="utf-8", errors="replace")
+        ):
+            downloader = WebsiteDownloader(page_url, str(page.parent))
+            for family in sorted(families)[:16]:
+                family_name = family.split("&", 1)[0]
+                remote = "https://fonts.googleapis.com/css?" + urlencode({
+                    "family": family_name, "display": "swap",
+                })
+                saved = downloader._download_asset(remote, preferred_kind="css", referrer_url=page_url)
+                if saved:
+                    relative = os.path.relpath(saved, css_file.parent).replace("\\", "/")
+                    imports.append(f'@import url("{relative}");')
+        if imports:
+            atomic_write_text(str(css_file), "\n".join(imports) + "\n")
+        elif not css_file.exists():
+            atomic_write_text(str(css_file), "/* Local font fallback for offline viewing. */\n")
+    return changed
 
 
 def _legacy():
@@ -197,6 +306,7 @@ def try_download_cyoap_vue_site(
     failed_by_kind: dict[str, list[str]] = {}
     seen_downloads: set[str] = set()
     seen_lock = threading.Lock()
+    corrected_assets: dict[str, str] = {}
     image_set: set[str] = set()
     media_set: set[str] = set()
     report_lock = threading.Lock()
@@ -212,14 +322,18 @@ def try_download_cyoap_vue_site(
             failed_items.append({"url": remote_url, "local": "", "kind": kind, "error": error})
             failed_by_kind.setdefault(kind, []).append(remote_url)
 
-    def fetch_remote(remote_url: str, *, kind: str = "assets", binary: bool = False, referrer: str = ""):
+    def fetch_remote(
+        remote_url: str, *, kind: str = "assets", binary: bool = False,
+        referrer: str = "", record_errors: bool = True,
+    ):
         # Project JSON is remote input. Apply the same cross-origin internal-host
         # policy used by the standard website/image pipelines before any request
         # reaches the network stack. Exact same-origin localhost CYOAP sites
         # remain supported by the guard.
         ssrf_base = referrer or base_url
         if _ssrf_block_cross_origin(remote_url, ssrf_base):
-            record_failed(remote_url, kind, "blocked: cross-origin internal host")
+            if record_errors:
+                record_failed(remote_url, kind, "blocked: cross-origin internal host")
             logger.warning("[SSRF blocked] CYOAP Vue asset: %s", remote_url)
             return None
         headers = get_headers_for_url(remote_url) or {"User-Agent": "Mozilla/5.0"}
@@ -231,16 +345,19 @@ def try_download_cyoap_vue_site(
         try:
             r = fetch_response(remote_url, timeout=30, extra_headers=headers, as_bytes=True)
             if r is None:
-                record_failed(remote_url, kind, "request failed")
+                if record_errors:
+                    record_failed(remote_url, kind, "request failed")
                 return None
             if r.status_code != 200:
-                record_failed(remote_url, kind, f"HTTP {r.status_code}")
+                if record_errors:
+                    record_failed(remote_url, kind, f"HTTP {r.status_code}")
                 return None
             return r.content if binary else _safe_response_text(r)
         except DownloadCancelledError:
             raise
         except _NETWORK_OPERATION_ERRORS as e:
-            record_failed(remote_url, kind, str(e))
+            if record_errors:
+                record_failed(remote_url, kind, str(e))
             return None
         finally:
             if r is not None:
@@ -307,7 +424,10 @@ def try_download_cyoap_vue_site(
         if item.startswith("data:"):
             return
         for remote_url in _candidate_urls_for_cyoap_asset(base_url, item, bucket):
-            payload = fetch_remote(remote_url, kind=bucket, binary=True, referrer=base_url)
+            payload = fetch_remote(
+                remote_url, kind=bucket, binary=True, referrer=base_url,
+                record_errors=False,
+            )
             if payload is None:
                 continue
             local_path = _cyoap_local_path(output_folder, remote_url)
@@ -317,6 +437,33 @@ def try_download_cyoap_vue_site(
                 seen_downloads.add(remote_url)
             record_success(remote_url, local_path, bucket)
             return
+        # Some published CYOAP projects accidentally append a numeric build
+        # suffix after the image extension (e.g. cover.webp123). Repair only
+        # after the literal asset has failed, and only when the corrected file
+        # exists locally or can actually be fetched.
+        corrected = re.sub(
+            r"(?i)(\.(?:avif|gif|jpe?g|png|svg|webp))\d+$", r"\1", item
+        ) if bucket == "images" else item
+        if corrected != item:
+            for remote_url in _candidate_urls_for_cyoap_asset(base_url, corrected, bucket):
+                local_path = _cyoap_local_path(output_folder, remote_url)
+                if os.path.isfile(local_path):
+                    with seen_lock:
+                        corrected_assets[item] = corrected
+                    return
+                payload = fetch_remote(
+                    remote_url, kind=bucket, binary=True, referrer=base_url,
+                    record_errors=False,
+                )
+                if payload is None:
+                    continue
+                os.makedirs(os.path.dirname(local_path), exist_ok=True)
+                atomic_write_bytes(local_path, payload)
+                with seen_lock:
+                    seen_downloads.add(remote_url)
+                    corrected_assets[item] = corrected
+                record_success(remote_url, local_path, bucket)
+                return
         record_failed(item, bucket, "asset not found in candidate cyoap_vue locations")
 
     all_assets: list[tuple[str, str]] = (
@@ -327,6 +474,27 @@ def try_download_cyoap_vue_site(
         logger.info(f"Downloading {len(all_assets)} cyoap_vue asset(s) with {max_workers} thread(s)…")
         with ThreadPoolExecutor(max_workers=max_workers) as ex:
             list(ex.map(_download_one_cyoap_asset, all_assets))
+
+    if corrected_assets:
+        def replace_asset_values(value):
+            if isinstance(value, str):
+                return corrected_assets.get(value, value)
+            if isinstance(value, list):
+                return [replace_asset_values(item) for item in value]
+            if isinstance(value, dict):
+                return {key: replace_asset_values(item) for key, item in value.items()}
+            return value
+
+        for json_path in pathlib.Path(output_folder).rglob("*.json"):
+            try:
+                original = json.loads(json_path.read_text(encoding="utf-8-sig"))
+                repaired = replace_asset_values(original)
+                if repaired != original:
+                    atomic_write_text(
+                        str(json_path), json.dumps(repaired, ensure_ascii=False, separators=(",", ":"))
+                    )
+            except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+                logger.warning("Could not repair CYOAP asset reference in %s: %s", json_path, exc)
 
     page_text = fetch_remote(start_url, kind="html", binary=False, referrer=base_url)
     if page_text is not None:
@@ -397,6 +565,16 @@ def try_download_cyoap_vue_site(
                     child = urljoin(remote_url, raw)
                     if _same_origin(child, base_url):
                         site_assets.append(child)
+
+        try:
+            localized_styles = localize_cyoap_external_styles(page_local, start_url)
+            if localized_styles:
+                logger.info("Localized %d external cyoap_vue style reference(s)", localized_styles)
+            localized_loaders = localize_cyoap_runtime_fonts(page_local, start_url)
+            if localized_loaders:
+                logger.info("Localized %d cyoap_vue runtime font loader(s)", localized_loaders)
+        except (OSError, TypeError, ValueError, requests.RequestException) as exc:
+            logger.warning("cyoap_vue external style localization skipped: %s", exc)
 
     report_path = os.path.join(output_folder, "backup_report.txt")
     report_text = format_backup_report_text(
