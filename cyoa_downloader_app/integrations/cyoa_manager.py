@@ -31,6 +31,8 @@ from ..logging_setup import logger
 _CYOA_MANAGER_DB_CANDIDATES = [
     # Windows (portable — next to the .exe)
     # We can't know the exe path, so we check common install locations
+    os.path.join(os.environ.get("LOCALAPPDATA", ""),
+                 "CYOA Manager", "save", "library.sqlite3"),
     os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs",
                  "CYOA Manager", "save", "library.sqlite3"),
     os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs",

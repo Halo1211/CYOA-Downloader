@@ -1,6 +1,7 @@
 """Focused regressions found while auditing less common download paths."""
 
 import json
+import os
 import zipfile
 from pathlib import Path
 
@@ -9,6 +10,16 @@ import requests
 from cyoa_downloader_app.core.url_utils import _candidate_urls_for_cyoap_asset
 from cyoa_downloader_app.download.website import WebsiteDownloader
 from cyoa_downloader_app.integrations import cyoa_manager, itch
+
+
+def test_manager_installer_location_is_detected(monkeypatch):
+    expected = os.path.join(
+        os.environ.get("LOCALAPPDATA", ""), "CYOA Manager", "save", "library.sqlite3",
+    )
+    assert expected in cyoa_manager._CYOA_MANAGER_DB_CANDIDATES
+    monkeypatch.setattr(cyoa_manager.os.path, "exists", lambda path: path == expected)
+    assert cyoa_manager._find_cyoa_manager_db() == expected
+    assert cyoa_manager._scan_for_cyoa_manager_db() == [expected]
 
 
 def test_cyoap_root_relative_asset_uses_origin_root():

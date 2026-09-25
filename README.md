@@ -248,6 +248,8 @@ opens directly. For a JSON-only entry, the downloader builds a local ICC viewer
 and caches its template assets, so the same assets are not fetched for every
 project. Local `images`, `audio`, `assets`, `media`, `videos`, `fonts`, `img`,
 and `backgrounds` folders are copied into the preview.
+The browser detects libraries from both the standard Windows installer and
+common portable locations; a custom database path remains available in Settings.
 
 With the **Cheat panel** toggle enabled, open **Serve Tools → Load Cheat** in
 the browser. The panel can edit points, unlock requirements and choice limits,

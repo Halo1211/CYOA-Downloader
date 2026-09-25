@@ -10,6 +10,7 @@ This project uses a single changelog file. Older split release notes and patch r
   copying a font file.
 - Rebuilt CYOA Manager Serve previews when a registered viewer archive changes;
   a locked or unreadable import ZIP now returns a reported failure.
+- Detected CYOA Manager libraries in the standard Windows installer location.
 - Reported an empty itch-dl result as a failure even if its process exited with
   code zero.
 - Contained interrupted HTML responses while validating script/style assets,
