@@ -2,15 +2,28 @@
 
 This project uses a single changelog file. Older split release notes and patch reports have been consolidated here so users do not have to search through multiple Markdown files.
 
+## Unreleased — follow-up reliability fixes
+
+- Resolved origin-root asset URLs and retried missing root-relative entry
+  scripts correctly in offline website packages.
+- Rejected unsafe parent paths in locally saved font CSS before downloading or
+  copying a font file.
+- Rebuilt CYOA Manager Serve previews when a registered viewer archive changes;
+  a locked or unreadable import ZIP now returns a reported failure.
+- Reported an empty itch-dl result as a failure even if its process exited with
+  code zero.
+- Contained interrupted HTML responses while validating script/style assets,
+  so one failed body does not abort the website mirror.
+
 ## v1.1.0 — offline archives, local previews, and integration reliability
 
-- Fixed CYOA.CAFE resolution and asset caching, including concurrent downloads
-  of the same resource and offline folder/ZIP outputs for Handler and Tensura.
+- Fixed catalog resolution and asset caching, including concurrent downloads
+  of the same resource and offline folder/ZIP outputs.
 - Expanded pure website archiving for JavaScript route trees and local asset
-  references. Verified Isekai Quest folder and ZIP variants offline.
+  references. Verified folder and ZIP variants offline.
 - Improved CYOAP Vue discovery of external styles, JSON, images, and media.
-  Verified HypnosisApp, Anqowk, and Newroad outputs with viewer options on and
-  off; source asset references are retained in the offline copies.
+  Verified multiple outputs with viewer options on and off; source asset
+  references are retained in the offline copies.
 - Added CYOA Manager JSON and ZIP import compatibility, local library browsing,
   and Serve previews for JSON-only entries. Preview asset caches are isolated by
   project, and Manager ZIPs receive decompression and path safety checks.
@@ -80,11 +93,10 @@ not exercised because the Manager app and an itch.io target were unavailable.
   effective proxy route so profile changes cannot reuse an old route.
 - Added `--version` for quickly checking which CLI/EXE build is running.
 - Embedded File Version and Product Version in Windows executable properties.
-- Added an offline Teen Titans resolver regression that requires exactly one
+- Added an offline catalog resolver regression that requires exactly one
   metadata lookup and one bounded viewer validation.
 - Fixed the concurrent website-asset cache bug that could treat an in-progress
-  marker as a filesystem path and repeatedly break CYOA.CAFE downloads such as
-  Teen Titans.
+  marker as a filesystem path and repeatedly break interactive-site downloads.
 - Fixed Windows GitHub builds that mistook ordinary 8.3 path aliases such as
   `RUNNER~1` for symlinks or junctions while keeping real reparse-point guards.
 - Fixed Linux CI imports by invoking pytest through the selected Python

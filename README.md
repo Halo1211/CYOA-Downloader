@@ -322,8 +322,9 @@ python -m pytest -q
 ruff check cyoa_downloader.py cyoa_downloader_app
 ```
 
-The current offline regression suite contains 625 passing tests with 8 optional
-tests skipped when their runtime conditions are unavailable.
+The offline regression suite covers download modes, local previews, integrations,
+and release checks. Some optional GUI/browser tests skip when their runtime is
+unavailable.
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes. Security
 reports belong in [SECURITY.md](SECURITY.md). This project is distributed under

@@ -33,7 +33,7 @@ from ..constants.assets import (
 )
 from ..core.atomic_io import atomic_write_text
 from ..core.cancellation import _emit_progress_event, _raise_if_cancelled
-from ..core.paths import _safe_join
+from ..core.paths import _safe_archive_join, _safe_archive_rel_path, _safe_join
 from ..core.progress import DownloadCancelledError
 from ..core.url_utils import _directory_base_url, canonicalize_url
 from ..diagnostics.reports import format_backup_report_text
@@ -460,7 +460,10 @@ class WebsiteDownloader:
             if parsed.scheme or parsed.netloc or not parsed.path or parsed.path in seen:
                 continue
             seen.add(parsed.path)
-            target = (entry.parent / parsed.path.replace("/", os.sep)).resolve()
+            if parsed.path.startswith("/"):
+                target = (root / parsed.path.lstrip("/")).resolve()
+            else:
+                target = (entry.parent / parsed.path).resolve()
             if not target.is_relative_to(root) or target.is_file():
                 continue
             remote = self._normalize_remote_url(reference, self.start_url)
@@ -484,7 +487,14 @@ class WebsiteDownloader:
                 r"\.\./fonts\.gstatic\.com/([^)'\"\s]+\.woff2?)(?:\?[^)'\"\s]*)?",
                 css, flags=re.IGNORECASE,
             )):
-                target = root / "external" / "fonts.gstatic.com" / font_path
+                try:
+                    safe_path = _safe_archive_rel_path(font_path)
+                    target = pathlib.Path(_safe_archive_join(
+                        str(root), "external/fonts.gstatic.com/" + safe_path,
+                    ))
+                except ValueError:
+                    logger.warning("Skipping unsafe font path in saved CSS: %s", font_path)
+                    continue
                 if target.is_file():
                     continue
                 remote = "https://fonts.gstatic.com/" + font_path
@@ -1537,7 +1547,26 @@ class WebsiteDownloader:
         if effective_kind in {"js", "css"} and content_type in {
             "text/html", "application/xhtml+xml",
         }:
-            prefix = bytes(r.content or b"")[:512].lstrip().lower()
+            try:
+                prefix = bytes(r.content or b"")[:512].lstrip().lower()
+            except (OSError, requests.RequestException, TimeoutError) as exc:
+                error = f"response body failed: {exc}"
+                logger.warning("  Asset body failed for %s: %s", full, exc)
+                self._failed_items.append({"url": full, "error": error})
+                _emit_progress_event(
+                    "file_failed",
+                    name=os.path.basename(urlparse(full).path) or full,
+                    url=full,
+                    error=error,
+                )
+                try:
+                    r.close()
+                except _RESPONSE_CLEANUP_ERRORS as close_exc:
+                    logger.debug("Response close failed for %s: %s", full, close_exc)
+                self._complete_asset_reservation(
+                    requested_full, requested_cache_key, None,
+                )
+                return None
             if prefix.startswith((b"<!doctype html", b"<html", b"<head", b"<body")):
                 error = f"Content-Type mismatch for {effective_kind} asset: HTML document"
                 logger.warning("  %s: %s", error, full)

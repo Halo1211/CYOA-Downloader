@@ -380,10 +380,16 @@ def download_itch_assets(page_url: str, output_dir: str,
         result["saved"] = saved
         result["existing"] = len(after) - saved
         if returncode == 0:
-            result.update(ok=bool(after),
-                          message=(f"itch.io: completed via {label}; "
-                                   f"{saved} new/updated, {result['existing']} existing file(s) in itch_assets/ "
-                                   f"(key source: {source})."))
+            if not after:
+                result.update(failed=1, message=(
+                    f"itch-dl exited successfully via {label}, but no files were saved "
+                    "in itch_assets/. Check whether this page offers downloadable files."
+                ))
+            else:
+                result.update(ok=True,
+                              message=(f"itch.io: completed via {label}; "
+                                       f"{saved} new/updated, {result['existing']} existing file(s) in itch_assets/ "
+                                       f"(key source: {source})."))
         else:
             if not key:
                 result["skipped_auth"] = True

@@ -202,9 +202,13 @@ def add_archive_to_cyoa_manager(
     if not archive.is_file() or archive.suffix.lower() != ".zip":
         return False
     digest = hashlib.sha256()
-    with archive.open("rb") as source_bytes:
-        for chunk in iter(lambda: source_bytes.read(1024 * 1024), b""):
-            digest.update(chunk)
+    try:
+        with archive.open("rb") as source_bytes:
+            for chunk in iter(lambda: source_bytes.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except OSError as exc:
+        logger.error("CYOA Manager: cannot read ZIP for import: %s", exc)
+        return False
     source_hash = digest.hexdigest()
     destination = archive.with_name(archive.stem + "_manager")
     created = False
@@ -340,7 +344,9 @@ def prepare_cyoa_manager_serve_folder(project_json_path: str) -> str:
 
     from .offline_viewers.injector import _apply_offline_viewer
     from .offline_viewers.registry import (
+        _VIEWERS_DIR,
         _auto_register_bundled_viewers,
+        _safe_viewer_archive_name,
         get_viewer_for_site,
     )
 
@@ -359,7 +365,13 @@ def prepare_cyoa_manager_serve_folder(project_json_path: str) -> str:
     root_media = [entry for entry in project.parent.iterdir()
                   if entry.is_file() and not entry.is_symlink() and entry.suffix.lower() in media_suffixes]
     signature = hashlib.sha256(project_text.encode("utf-8"))
-    signature.update(str(viewer["id"]).encode("utf-8"))
+    signature.update(json.dumps(viewer, sort_keys=True, default=str).encode("utf-8"))
+    archive_name = _safe_viewer_archive_name(viewer.get("zip_filename", ""))
+    if archive_name:
+        archive = Path(_VIEWERS_DIR) / archive_name
+        if archive.is_file() and not archive.is_symlink():
+            archive_stat = archive.stat()
+            signature.update(f"{archive_stat.st_size}:{archive_stat.st_mtime_ns}".encode())
     for name, source in sorted(asset_dirs.items()):
         for asset in sorted(Path(source).rglob("*")):
             if asset.is_file() and not asset.is_symlink():

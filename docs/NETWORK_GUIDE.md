@@ -134,8 +134,7 @@ profile saved by the GUI.
 ## CYOA.CAFE troubleshooting
 
 A `cyoa.cafe/game/...` page is a catalog record. The downloader reads the
-record and follows its actual creator `iframe_url`. Teen Titans currently
-points to `laath.cyoa.cafe/teen-titans-cyoa/`; changing DNS or VPN is not
+record and follows its actual creator `iframe_url`. Changing DNS or VPN is not
 normally necessary when both hosts are reachable.
 
 If a download fails:

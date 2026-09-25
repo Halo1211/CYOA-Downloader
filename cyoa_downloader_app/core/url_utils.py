@@ -58,6 +58,9 @@ def _candidate_urls_for_cyoap_asset(base_url: str, value: str, kind: str) -> lis
     value = (value or "").strip()
     if not value or value.startswith("data:"):
         return []
+    if value.startswith("/") and not value.startswith("//"):
+        # A leading slash is relative to the origin, not the CYOAP directory.
+        return [canonicalize_url(urljoin(base_url, value))]
     explicit_url = value.startswith(("http://", "https://", "//"))
     host_like = "/" in value and "." in value.split("/", 1)[0]
     if explicit_url or host_like:
