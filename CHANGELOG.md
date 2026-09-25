@@ -13,6 +13,10 @@ This project uses a single changelog file. Older split release notes and patch r
 - Detected CYOA Manager libraries in the standard Windows installer location.
 - Reported an empty itch-dl result as a failure even if its process exited with
   code zero.
+- Prepared downloaded itch.io HTML5 ZIPs as cached offline folders while
+  retaining the original archives; encrypted ZIPs are left intact and reported.
+- Corrected itch.io API key guidance and connectivity reporting so a reachable
+  public page is not presented as a download-ready backend.
 - Contained interrupted HTML responses while validating script/style assets,
   so one failed body does not abort the website mirror.
 

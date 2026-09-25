@@ -1,6 +1,7 @@
 import logging
 import sys
 import threading
+import zipfile
 from types import SimpleNamespace
 
 import pytest
@@ -73,12 +74,14 @@ def test_itch_failed_run_does_not_claim_old_files_and_masks_key(tmp_path, monkey
 def test_itch_success_counts_only_new_files(tmp_path, monkeypatch):
     existing = tmp_path / "itch_assets" / "old.zip"
     existing.parent.mkdir()
-    existing.write_bytes(b"old")
+    with zipfile.ZipFile(existing, "w") as archive:
+        archive.writestr("readme.txt", "old")
     monkeypatch.setattr(itch, "detect_itch_backend", lambda: (["itch-dl"], "itch-dl (PATH)"))
     monkeypatch.setattr(itch, "_resolve_itch_api_key", lambda _explicit: (None, "none"))
 
     def fake_run(_cmd, **_kwargs):
-        (existing.parent / "new.zip").write_bytes(b"new")
+        with zipfile.ZipFile(existing.parent / "new.zip", "w") as archive:
+            archive.writestr("readme.txt", "new")
         return 0, "complete"
 
     monkeypatch.setattr(itch, "_run_itch_process", fake_run)
@@ -115,6 +118,22 @@ def test_itch_connection_failure_is_reported_even_when_backend_exists(monkeypatc
     ok, message = itch.itch_test_connection()
     assert ok is False
     assert "offline" in message
+
+
+def test_itch_reachability_without_key_does_not_claim_download_ready(monkeypatch):
+    class ReachableSession:
+        def get(self, *_args, **_kwargs):
+            return SimpleNamespace(status_code=200)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(itch, "detect_itch_backend", lambda: (["itch-dl"], "itch-dl (PATH)"))
+    monkeypatch.setattr(itch, "_resolve_itch_api_key", lambda _explicit: (None, "none"))
+    monkeypatch.setattr(itch, "_itch_session", ReachableSession)
+    ok, message = itch.itch_test_connection()
+    assert ok is False
+    assert "API key is required" in message
 
 
 def test_gui_optional_itch_pass_uses_mirror_and_cancel(monkeypatch, tmp_path):

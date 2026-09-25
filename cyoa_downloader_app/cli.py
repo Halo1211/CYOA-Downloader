@@ -380,7 +380,7 @@ def main() -> None:
     parser.add_argument("--itch-test", action="store_true",
                         help="Test itch.io backend (itch-dl) + connectivity and exit.")
     parser.add_argument("--itch-mirror-web", action="store_true",
-                        help="Pass --mirror-web to itch-dl (mirror linked web builds) when supported.")
+                        help="Mirror linked web builds; downloaded HTML5 ZIPs are prepared offline automatically.")
     parser.add_argument("--itch-parallel", type=int, choices=range(1, 17), default=1, metavar="1-16",
                         help="itch-dl game download workers (default: 1, maximum: 16).")
     parser.add_argument("--dependency-check", action="store_true", help="Print optional/required dependency status and exit.")

@@ -269,7 +269,17 @@ python cyoa_downloader.py "https://creator.itch.io/game" --itch-only --itch-para
 
 The CLI also supports `--itch` for an optional pass alongside CYOA parsing,
 and `--itch-mirror-web` to include page assets. The wrapper prefers an already
-installed `itch-dl` executable and can cancel an active GUI download.
+installed `itch-dl` executable and can cancel an active GUI download. `itch-dl`
+requires an itch.io API key, including for publicly visible games. Provide it
+through the masked GUI field, OS keyring, or `ITCH_API_KEY`; do not add it to
+scripts or the repository.
+
+Downloaded HTML5 ZIPs also receive an extracted offline folder beside the
+original archive. External styles, scripts, and fonts referenced by the entry
+page are saved locally. Repeating
+the operation reuses a completed folder when the ZIP has not changed. Other
+ZIPs stay untouched. Password-protected ZIPs remain available as originals;
+offline extraction is skipped and reported without storing a password.
 
 ## Diagnostics and media helpers
 

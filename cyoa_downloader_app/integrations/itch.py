@@ -11,6 +11,8 @@ import os
 import subprocess
 import tempfile
 import time
+import zipfile
+from pathlib import Path
 from threading import Event
 from typing import Any
 from urllib.parse import urlparse
@@ -21,6 +23,11 @@ from ..config.secrets import _keyring_module
 from ..config.settings import _load_settings
 from ..logging_setup import logger
 from ..network.sessions import _get_shared_session, create_retry_session
+from .itch_offline import (
+    HTML5_MARKER_FILENAME,
+    EncryptedHtml5ArchiveError,
+    materialize_itch_html5_archive,
+)
 
 _ITCH_ENABLED: bool = False
 
@@ -70,7 +77,8 @@ def _resolve_itch_api_key(explicit_key: str = "") -> tuple[str | None, str]:
     """
     Resolve an itch.io API key without forcing it into settings.json.
     Order: explicit (this run) → env (ITCH_API_KEY) → keyring → plain settings.
-    Returns (key_or_None, source_label). Empty key is fine — caller uses public mode.
+    Returns (key_or_None, source_label). A missing key permits reachability
+    checks, but itch-dl currently requires a key for downloads.
     """
     if explicit_key:
         return explicit_key, "session"
@@ -269,9 +277,9 @@ def itch_test_connection(explicit_key: str = "") -> tuple[bool, str]:
     """
     Test that the itch-dl backend is available, plus a light reachability check.
 
-    With a key configured, also verifies the key against the itch API /me
-    endpoint. Without one, checks itch.io reachability (public mode). The API key
-    is never printed. Returns (ok, message). Never raises.
+    With a key configured, also verifies it against the itch API /me endpoint.
+    Without one, checks reachability but does not claim download readiness.
+    The API key is never printed. Returns (ok, message). Never raises.
     """
     cmd, label = detect_itch_backend()
     backend_line = (f"backend: {label}" if cmd
@@ -292,9 +300,10 @@ def itch_test_connection(explicit_key: str = "") -> tuple[bool, str]:
                            f"Check the API key (source: {source}); {backend_line}.")
         r = sess.get("https://itch.io/", timeout=20)
         if r.status_code < 400:
-            ok = cmd is not None
-            note = "" if ok else " — install itch-dl to download"
-            return ok, f"itch.io reachable (public mode, no API key); {backend_line}{note}."
+            return False, (
+                f"itch.io reachable; {backend_line}. "
+                "An itch.io API key is required by itch-dl to download."
+            )
         return False, f"itch.io not reachable (HTTP {r.status_code}); {backend_line}."
     except (OSError, RuntimeError, TypeError, ValueError, requests.RequestException) as e:
         return False, f"itch.io probe error: {_redact_itch_output(str(e), key)}; {backend_line}."
@@ -309,7 +318,8 @@ def download_itch_assets(page_url: str, output_dir: str,
                          explicit_key: str = "",
                          mirror_web: bool = False,
                          parallel: int = 1,
-                         cancel_event: Event | None = None) -> dict[str, Any]:
+                         cancel_event: Event | None = None,
+                         *, prepare_html5: bool = True) -> dict[str, Any]:
     """
     Download an itch.io project via the `itch-dl` backend into
     <output_dir>/itch_assets/.
@@ -317,6 +327,7 @@ def download_itch_assets(page_url: str, output_dir: str,
     - Fully independent of the CYOA pipeline; never affects CYOA success/failure.
     - Failures are reported in the returned dict; cancellation propagates.
     - The API key is passed only to the child process and never logged.
+    - HTML5 ZIPs are expanded to reusable offline folders by default.
     - Respects the user's account access only (itch-dl downloads what the key /
       public visibility permits; this wrapper adds no bypass).
     Returns a summary dict.
@@ -325,6 +336,9 @@ def download_itch_assets(page_url: str, output_dir: str,
 
     result: dict[str, Any] = {"ok": False, "saved": 0, "failed": 0,
                               "existing": 0,
+                              "offline_ready": 0, "offline_cached": 0,
+                              "offline_failed": 0, "offline_encrypted": 0,
+                              "offline_entries": [],
                               "skipped_auth": False, "backend": "",
                               "returncode": None, "message": ""}
     if not _is_itch_url(page_url):
@@ -361,7 +375,10 @@ def download_itch_assets(page_url: str, output_dir: str,
 
     def _snapshot() -> dict[str, tuple[int, int]]:
         files = {}
-        for root, _dirs, names in os.walk(dest):
+        for root, dirs, names in os.walk(dest):
+            dirs[:] = [directory for directory in dirs if not os.path.isfile(
+                os.path.join(root, directory, HTML5_MARKER_FILENAME)
+            )]
             for name in names:
                 path = os.path.join(root, name)
                 try:
@@ -390,6 +407,42 @@ def download_itch_assets(page_url: str, output_dir: str,
                               message=(f"itch.io: completed via {label}; "
                                        f"{saved} new/updated, {result['existing']} existing file(s) in itch_assets/ "
                                        f"(key source: {source})."))
+                if prepare_html5:
+                    for relative in sorted(after):
+                        if not relative.lower().endswith(".zip"):
+                            continue
+                        archive = Path(dest) / relative
+                        try:
+                            entry, reused, complete = materialize_itch_html5_archive(
+                                archive, page_url,
+                            )
+                            if entry is None:
+                                continue
+                            result["offline_entries"].append(entry)
+                            if not complete:
+                                result["offline_failed"] += 1
+                                logger.warning("[itch] HTML5 offline assets incomplete: %s", entry)
+                            else:
+                                result["offline_cached" if reused else "offline_ready"] += 1
+                                logger.info("[itch] HTML5 offline entry: %s", entry)
+                        except EncryptedHtml5ArchiveError:
+                            result["offline_encrypted"] += 1
+                            logger.warning("[itch] ZIP needs a password; original retained: %s", relative)
+                        except (OSError, RuntimeError, UnicodeError, ValueError,
+                                zipfile.BadZipFile) as exc:
+                            result["offline_failed"] += 1
+                            logger.warning("[itch] HTML5 offline preparation failed for %s: %s", relative, exc)
+                    if result["offline_failed"]:
+                        result["ok"] = False
+                        result["failed"] = result["offline_failed"]
+                    if (result["offline_entries"] or result["offline_failed"]
+                            or result["offline_encrypted"]):
+                        result["message"] += (
+                            f" HTML5 offline: {result['offline_ready']} prepared, "
+                            f"{result['offline_cached']} reused, "
+                            f"{result['offline_failed']} failed, "
+                            f"{result['offline_encrypted']} password-protected ZIP(s) left intact."
+                        )
         else:
             if not key:
                 result["skipped_auth"] = True

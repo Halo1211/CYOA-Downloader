@@ -2201,8 +2201,8 @@ class CYOADownloaderGUI:
         ctk.CTkLabel(key_card, text="KEY", width=34, height=28, font=ctk.CTkFont("Segoe UI", 8, "bold"),
                      text_color="#ffffff", fg_color="#2563eb", corner_radius=8).grid(row=0, column=0, rowspan=2, padx=(10, 8), pady=10)
         ctk.CTkLabel(key_card, text=("itch.io API key" if is_en else "API key itch.io"), font=ctk.CTkFont("Segoe UI", 11, "bold"), text_color=p["fg"], anchor="w").grid(row=0, column=1, sticky="ew", pady=(9, 0))
-        ctk.CTkLabel(key_card, text="Optional; keyring storage is preferred." if is_en else "Opsional; penyimpanan keyring lebih aman.", font=ctk.CTkFont("Segoe UI", 9), text_color=p["muted"], anchor="w").grid(row=1, column=1, sticky="ew", pady=(0, 9))
-        key_entry = ctk.CTkEntry(key_card, show="*", width=220, height=30, placeholder_text="optional API key", fg_color=p["input_bg"], text_color=p["input_fg"], border_color=p["border"])
+        ctk.CTkLabel(key_card, text="Required by itch-dl; keyring storage is preferred." if is_en else "Diperlukan itch-dl; penyimpanan keyring lebih aman.", font=ctk.CTkFont("Segoe UI", 9), text_color=p["muted"], anchor="w").grid(row=1, column=1, sticky="ew", pady=(0, 9))
+        key_entry = ctk.CTkEntry(key_card, show="*", width=220, height=30, placeholder_text="itch.io API key", fg_color=p["input_bg"], text_color=p["input_fg"], border_color=p["border"])
         key_entry.grid(row=0, column=2, rowspan=2, padx=6, pady=10)
         def _load_itch_key() -> None:
             try:
@@ -3483,8 +3483,8 @@ class CYOADownloaderGUI:
         # switch serializes ON/OFF back to the established SMART/OFF values.
         r += 1
         _feature_card(r, 0, "IT", "itch.io downloader" if is_en else "Downloader itch.io",
-                      "Optional backend; public mode needs no API key." if is_en else
-                      "Backend opsional; mode publik tidak perlu API key.",
+                      "itch-dl requires an API key to download." if is_en else
+                      "itch-dl memerlukan API key untuk mengunduh.",
                       "itch_enabled", False, _set_itch_enabled, "#ef4444")
 
         r = _section(r + 1, "itch.io API key" if is_en else "API key itch.io")
@@ -3497,18 +3497,18 @@ class CYOADownloaderGUI:
                      fg_color="#2563eb", corner_radius=8).grid(
                          row=0, column=0, rowspan=2, padx=(10, 8), pady=10, sticky="n")
         ctk.CTkLabel(
-            key_card, text=("Optional API key" if is_en else "API key opsional"),
+            key_card, text=("itch.io API key" if is_en else "API key itch.io"),
             font=ctk.CTkFont("Segoe UI", 11, "bold"), text_color=p["fg"], anchor="w",
         ).grid(row=0, column=1, sticky="ew", padx=(0, 8), pady=(9, 1))
         ctk.CTkLabel(
             key_card,
-            text=("Leave blank for public assets; secrets are never printed."
-                  if is_en else "Kosongkan untuk aset publik; secret tidak pernah dicetak."),
+            text=("Required by itch-dl; secrets are never printed."
+                  if is_en else "Diperlukan itch-dl; secret tidak pernah dicetak."),
             font=ctk.CTkFont("Segoe UI", 9), text_color=p["muted"], anchor="w",
         ).grid(row=1, column=1, sticky="ew", padx=(0, 8), pady=(0, 9))
         key_entry = ctk.CTkEntry(
             key_card, show="*", height=30,
-            placeholder_text=("leave blank for public assets" if is_en else "kosongkan untuk aset publik"),
+            placeholder_text="itch.io API key",
             fg_color=p["input_bg"], text_color=p["input_fg"], border_color=p["border"],
         )
         key_entry.grid(row=0, column=2, rowspan=2, padx=(4, 6), pady=10)
@@ -7303,7 +7303,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
         ctk.CTkSwitch(card, text="", variable=gallery_var, command=lambda: _set_gallery_from_toggle(gallery_var.get()), progress_color="#14b8a6", width=46).grid(row=0, column=2, rowspan=2, padx=(8, 12), pady=12)
 
         _switch_card(r, 1, "🎮", "itch.io downloader" if is_en else "Downloader itch.io",
-                     "Runs itch-dl for queued itch.io URLs; mirrors web assets, no key needed for public games." if is_en else "Menjalankan itch-dl untuk URL itch.io di antrean; aset web disalin, game publik tanpa key.",
+                     "Runs itch-dl with an API key; HTML5 ZIPs become offline folders." if is_en else "Menjalankan itch-dl dengan API key; ZIP HTML5 dibuat jadi folder offline.",
                      "itch_enabled", False, _set_itch_enabled, "#ef4444")
         r += 1
 
@@ -7312,9 +7312,9 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
         key_card.grid(row=r, column=0, columnspan=2, sticky="ew", padx=6, pady=6)
         key_card.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(key_card, text="🔐", width=30, font=ctk.CTkFont("Segoe UI Emoji", 18), text_color="#60a5fa").grid(row=0, column=0, rowspan=3, padx=(12, 8), pady=14, sticky="n")
-        ctk.CTkLabel(key_card, text=("Optional API key" if is_en else "API key opsional"), font=ctk.CTkFont("Segoe UI", 12, "bold"), text_color=p["fg"], anchor="w").grid(row=0, column=1, sticky="ew", pady=(12, 2))
-        ctk.CTkLabel(key_card, text=("Leave blank for public assets. Secrets are never printed in diagnostics/logs." if is_en else "Biarkan kosong untuk aset publik. Secret tidak dicetak di diagnostik/log."), font=ctk.CTkFont("Segoe UI", 10), text_color=p["muted"], anchor="w").grid(row=1, column=1, sticky="ew", pady=(0, 4))
-        key_entry = ctk.CTkEntry(key_card, show="•", placeholder_text=("leave blank for public assets" if is_en else "kosongkan untuk aset publik"), height=32, fg_color=p["input_bg"], text_color=p["input_fg"], border_color=p["border"])
+        ctk.CTkLabel(key_card, text=("itch.io API key" if is_en else "API key itch.io"), font=ctk.CTkFont("Segoe UI", 12, "bold"), text_color=p["fg"], anchor="w").grid(row=0, column=1, sticky="ew", pady=(12, 2))
+        ctk.CTkLabel(key_card, text=("Required by itch-dl. Secrets are never printed in diagnostics/logs." if is_en else "Diperlukan itch-dl. Secret tidak dicetak di diagnostik/log."), font=ctk.CTkFont("Segoe UI", 10), text_color=p["muted"], anchor="w").grid(row=1, column=1, sticky="ew", pady=(0, 4))
+        key_entry = ctk.CTkEntry(key_card, show="•", placeholder_text="itch.io API key", height=32, fg_color=p["input_bg"], text_color=p["input_fg"], border_color=p["border"])
         key_entry.grid(row=2, column=1, sticky="ew", pady=(0, 12))
         try:
             existing_key, _src = _resolve_itch_api_key("")
