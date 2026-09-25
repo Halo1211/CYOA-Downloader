@@ -2,7 +2,7 @@
 
 This project uses a single changelog file. Older split release notes and patch reports have been consolidated here so users do not have to search through multiple Markdown files.
 
-## Unreleased — follow-up reliability fixes
+## v1.1.1 — offline reliability and itch.io HTML5 support
 
 - Resolved origin-root asset URLs and retried missing root-relative entry
   scripts correctly in offline website packages.

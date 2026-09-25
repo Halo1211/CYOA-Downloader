@@ -15,7 +15,7 @@
 
 <p align="center">
   <a href="https://github.com/Halo1211/CYOA-Downloader/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Halo1211/CYOA-Downloader/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/Halo1211/CYOA-Downloader/releases/latest"><img alt="Version" src="https://img.shields.io/badge/version-v1.1.0-20c997.svg"></a>
+  <a href="https://github.com/Halo1211/CYOA-Downloader/releases/latest"><img alt="Version" src="https://img.shields.io/badge/version-v1.1.1-20c997.svg"></a>
   <img alt="Python" src="https://img.shields.io/badge/Python-3.10%2B-3aa6d0.svg">
   <img alt="UI" src="https://img.shields.io/badge/UI-CustomTkinter-d633b8.svg">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg"></a>
