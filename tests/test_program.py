@@ -4965,7 +4965,7 @@ class TestLiveGuiLayout:
         try:
             root.update_idletasks()
             root.update()
-            assert root.title() == "CYOA Downloader v1.1.2"
+            assert root.title() == "CYOA Downloader v1.1.3"
 
             input_panel, queue_panel = gui._dispatch_gui_patch("_v462_find_main_panels")
             gui._v46_apply_progress_visibility(True)
@@ -9645,7 +9645,7 @@ from cyoa_downloader_app.importers.batch import (
 
 def test_phase1_extraction__phase1_facade_names_still_match_modules():
     assert _phase1_extraction_cyoa_downloader._APP_VERSION == _phase1_extraction__APP_VERSION
-    assert _phase1_extraction__APP_VERSION == "1.1.2"
+    assert _phase1_extraction__APP_VERSION == "1.1.3"
     assert _phase1_extraction_cyoa_downloader.IMAGE_FIELDS is _phase1_extraction_IMAGE_FIELDS
     assert ".mp3" in _phase1_extraction_AUDIO_EXTENSIONS
     assert _phase1_extraction_cyoa_downloader._derive_mode_flags is _phase1_extraction__derive_mode_flags
@@ -9693,8 +9693,8 @@ def test_phase1_extraction__cli_version_is_available_without_starting_a_download
     )
 
     assert completed.returncode == 0
-    assert "CYOA Downloader 1.1.2" in completed.stdout
-    assert "CYOA-v1.1.2" in completed.stdout
+    assert "CYOA Downloader 1.1.3" in completed.stdout
+    assert "CYOA-v1.1.3" in completed.stdout
 
 
 # ============================================================================
@@ -16652,11 +16652,23 @@ def test_fifth_audit__preview_selects_correct_query_variant(tmp_path, target):
     assert resolve_archived_page(str(tmp_path), target) == str(tmp_path / "id.html")
 
 
-def test_fifth_audit__preview_skips_invalid_local_path_and_uses_later_valid_entry(tmp_path):
+@_fifth_audit_pytest.mark.parametrize("strict_path_resolver", [False, True])
+def test_fifth_audit__preview_skips_invalid_local_path_and_uses_later_valid_entry(
+    tmp_path, monkeypatch, strict_path_resolver
+):
     import json
 
+    from cyoa_downloader_app.runtime import archive_preview
     from cyoa_downloader_app.runtime.archive_preview import resolve_archived_page
 
+    original_realpath = archive_preview.os.path.realpath
+
+    def realpath(path, *args, **kwargs):
+        if strict_path_resolver and "\x00" in path:
+            raise ValueError("embedded null character in path")
+        return original_realpath(path, *args, **kwargs)
+
+    monkeypatch.setattr(archive_preview.os.path, "realpath", realpath)
     (tmp_path / "index.html").write_text("fixture", encoding="utf-8")
     (tmp_path / "archive_manifest.json").write_text(
         json.dumps(

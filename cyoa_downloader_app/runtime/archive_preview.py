@@ -84,16 +84,18 @@ def resolve_archived_page(serve_dir: str, request_route: str) -> str | None:
         if page_route != wanted:
             continue
         local = str(page.get("local") or "").replace("/", os.sep)
-        candidate = os.path.abspath(os.path.join(root, local))
-        candidate_real = os.path.realpath(candidate)
+        if "\x00" in local:
+            continue
         try:
+            candidate = os.path.abspath(os.path.join(root, local))
+            candidate_real = os.path.realpath(candidate)
             if (
                 os.path.commonpath([root_real, candidate_real]) == root_real
                 and os.path.isfile(candidate_real)
             ):
                 return candidate_real
-        except ValueError:
-            return None
+        except (OSError, ValueError):
+            continue
     return None
 
 

@@ -2,6 +2,17 @@
 
 This project uses a single changelog file. Older split release notes and patch reports have been consolidated here so users do not have to search through multiple Markdown files.
 
+## v1.1.3 — cross-platform preview validation
+
+- Fixed malformed local manifest paths causing Linux previews to fail before
+  containment validation. Invalid paths are skipped so later valid entries can
+  still resolve the requested route. Added a strict resolver regression case
+  that also reproduces the Linux failure on Windows.
+- Includes the full-program audit from v1.1.2, with rebuilt Windows downloads
+  and matching SHA-256 checksums.
+- Validation: 951 tests passed with GUI/browser smoke checks enabled, 4 Windows
+  symlink cases skipped, and all 37 internal self-tests passed.
+
 ## v1.1.2 — full-program bug audit
 
 - Rebuilt the Windows executable and ZIP for v1.1.2. Verified embedded version
