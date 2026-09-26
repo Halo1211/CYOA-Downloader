@@ -24,7 +24,6 @@ import json
 import os
 import re
 import tempfile
-import time
 import uuid
 from collections.abc import Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -34,6 +33,8 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import unquote, urlsplit
 from urllib.request import Request, urlopen
+
+from ..core.cancellation import _cancel_aware_sleep, _raise_if_cancelled
 
 DEFAULT_API_VERSION = "10"
 DEFAULT_API_ROOT = "https://discord.com/api"
@@ -257,10 +258,12 @@ class DiscordAttachmentClient:
         if body is not None:
             headers["Content-Type"] = "application/json"
         for attempt in range(3):
+            _raise_if_cancelled()
             request = Request(url, data=body, headers=headers, method=method)
             try:
                 with urlopen(request, timeout=self.timeout) as response:
                     raw = response.read()
+                    _raise_if_cancelled()
                     if response.status < 200 or response.status >= 300:
                         raise DiscordAttachmentError(f"Discord API HTTP {response.status}")
                     parsed = json.loads(raw.decode("utf-8"))
@@ -268,19 +271,22 @@ class DiscordAttachmentClient:
                         raise DiscordAttachmentError("Discord API returned a non-object response")
                     return parsed
             except HTTPError as error:
-                raw = error.read()
+                try:
+                    raw = error.read()
+                finally:
+                    error.close()
                 if error.code == 429 and attempt < 2:
-                    time.sleep(_retry_after(error.headers, raw))
+                    _cancel_aware_sleep(_retry_after(error.headers, raw))
                     continue
                 detail = raw.decode("utf-8", errors="replace")[:300].strip()
                 suffix = f": {detail}" if detail else ""
                 raise DiscordAttachmentError(f"Discord API HTTP {error.code}{suffix}") from error
             except (URLError, TimeoutError, OSError) as error:
                 if attempt < 2:
-                    time.sleep(2**attempt)
+                    _cancel_aware_sleep(2**attempt)
                     continue
                 raise DiscordAttachmentError(f"Discord API network error: {error}") from error
-            except json.JSONDecodeError as error:
+            except (json.JSONDecodeError, UnicodeDecodeError) as error:
                 raise DiscordAttachmentError("Discord API returned invalid JSON") from error
         raise DiscordAttachmentError("Discord API request failed after retries")
 
@@ -315,9 +321,6 @@ class DiscordAttachmentClient:
 
         if not is_discord_attachment_url(url):
             return DownloadAttempt(False, error="URL is not a supported Discord attachment URL")
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        if destination.exists() and not overwrite:
-            return DownloadAttempt(True)
 
         request = Request(
             url,
@@ -328,6 +331,13 @@ class DiscordAttachmentClient:
         )
         temporary_path = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.part")
         try:
+            _raise_if_cancelled()
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            if destination.exists():
+                if not destination.is_file():
+                    return DownloadAttempt(False, error="destination is not a regular file")
+                if not overwrite and 0 < destination.stat().st_size <= self.max_file_bytes:
+                    return DownloadAttempt(True)
             with urlopen(request, timeout=self.timeout) as response:
                 if response.status != 200:
                     return DownloadAttempt(False, status=response.status, error=f"HTTP {response.status}")
@@ -345,6 +355,7 @@ class DiscordAttachmentClient:
                 received = 0
                 with open(temporary_path, "wb") as output:
                     while True:
+                        _raise_if_cancelled()
                         chunk = response.read(1024 * 1024)
                         if not chunk:
                             break
@@ -358,9 +369,11 @@ class DiscordAttachmentClient:
                     raise DiscordAttachmentError(
                         f"incomplete attachment: expected {expected_length} bytes, received {received}"
                     )
+                _raise_if_cancelled()
                 os.replace(temporary_path, destination)
                 return DownloadAttempt(True, status=response.status)
         except HTTPError as error:
+            error.close()
             return DownloadAttempt(False, status=error.code, error=f"HTTP {error.code}")
         except (URLError, TimeoutError, OSError, DiscordAttachmentError) as error:
             return DownloadAttempt(False, error=str(error))

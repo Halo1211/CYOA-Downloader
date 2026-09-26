@@ -12,9 +12,12 @@ import os
 import subprocess as _sp
 import sys
 import tempfile
+import time
 from urllib.parse import urlparse
 
 from ..config.settings import _load_settings, _update_setting
+from ..core.cancellation import _raise_if_cancelled
+from ..core.progress import DownloadCancelledError
 from ..download.asset_scan import _is_probable_raw_cdn_asset
 from ..logging_setup import logger
 from ..network.proxy import _get_active_proxy, _should_bypass_manual_proxy
@@ -109,6 +112,8 @@ def _is_gallery_dl_candidate(url: str) -> str | None:
     try:
         parsed = urlparse(url)
         host = (parsed.hostname or "").lower()
+        if parsed.scheme.lower() not in {"http", "https"} or not host:
+            return None
         path = parsed.path.lower()
         if _gallery_dl_mode == "smart" and _is_probable_raw_cdn_asset(url):
             return None
@@ -130,11 +135,44 @@ def _is_gallery_dl_site(url: str) -> str | None:
     return _is_gallery_dl_candidate(url)
 
 
+def _run_gallery_dl(cmd: list[str]) -> tuple[int, str]:
+    """Run a bounded gallery job with cancellation and bounded diagnostic output."""
+    _raise_if_cancelled()
+    with tempfile.TemporaryFile() as output:
+        proc = _sp.Popen(
+            cmd, stdout=output, stderr=_sp.STDOUT,
+            creationflags=getattr(_sp, "CREATE_NO_WINDOW", 0),
+        )
+        deadline = time.monotonic() + 90
+        try:
+            while True:
+                _raise_if_cancelled()
+                try:
+                    returncode = proc.wait(timeout=0.25)
+                    break
+                except _sp.TimeoutExpired:
+                    if time.monotonic() >= deadline:
+                        raise _sp.TimeoutExpired(cmd, 90)
+        except (DownloadCancelledError, _sp.TimeoutExpired):
+            proc.terminate()
+            try:
+                proc.wait(timeout=2)
+            except _sp.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+            raise
+        _raise_if_cancelled()
+        output.seek(0, os.SEEK_END)
+        output.seek(max(0, output.tell() - 4096))
+        return returncode, output.read().decode("utf-8", "replace")
+
+
 def _fetch_via_gallery_dl(url: str) -> bytes | None:
     """
     Download a single file through gallery-dl only when explicitly enabled.
     Uses gallery/page URLs best. Raw CDN image URLs are skipped in smart mode.
     """
+    _raise_if_cancelled()
     site = _is_gallery_dl_candidate(url)
     if not site:
         return None
@@ -159,11 +197,12 @@ def _fetch_via_gallery_dl(url: str) -> bytes | None:
             cmd.extend(["--proxy", proxy])
         cmd.append(url)
 
-        r = _sp.run(cmd, capture_output=True, timeout=90, text=True, check=False)
+        _raise_if_cancelled()
+        returncode, diagnostics = _run_gallery_dl(cmd)
         image_files = _gdl_collect_files(tmpdir)
 
         if not image_files:
-            logger.debug(f"[gallery-dl] No output for {url} | rc={r.returncode} | stderr={(r.stderr or '')[:200]}")
+            logger.debug(f"[gallery-dl] No output for {url} | rc={returncode} | output={diagnostics[:200]}")
             return None
 
         best = max(image_files, key=os.path.getsize)
@@ -174,6 +213,8 @@ def _fetch_via_gallery_dl(url: str) -> bytes | None:
         logger.info(f"  [gallery-dl ✓] {os.path.basename(best)} ({len(data)//1024}KB)")
         return data
 
+    except DownloadCancelledError:
+        raise
     except _sp.TimeoutExpired:
         logger.warning(f"[gallery-dl] Timeout: {url}")
         return None

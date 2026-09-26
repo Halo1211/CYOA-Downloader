@@ -12,7 +12,7 @@ def get_headers_for_url(url: str) -> dict | None:
     """
     try:
         parsed  = urlparse(url)
-        hostname = (parsed.hostname or "").lower()
+        hostname = (parsed.hostname or "").lower().rstrip(".")
     except (TypeError, ValueError):
         return {"User-Agent": "Mozilla/5.0"}
 

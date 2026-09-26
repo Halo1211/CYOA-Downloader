@@ -7855,6 +7855,8 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
         def _do_retry():
             import base64
             import mimetypes
+
+            from ..core.atomic_io import atomic_write_text
             headers = {"User-Agent": "Mozilla/5.0"}
             patched_total = 0
             embedded_by_url: dict[str, str] = {}
@@ -7872,7 +7874,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
 
                 changed = False
                 for url in failed_urls:
-                    if url not in project_str:
+                    if url not in project_str and url.replace("/", "\\/") not in project_str:
                         continue
                     cached_data_uri = embedded_by_url.get(url)
                     if cached_data_uri:
@@ -7895,6 +7897,8 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                         if not mime.startswith("image/"):
                             raise RuntimeError(f"response is not an image ({mime})")
                         content = r.content
+                        if not content:
+                            raise RuntimeError("downloaded image is empty")
                         b64   = base64.b64encode(content).decode()
                         new_  = f"data:{mime};base64,{b64}"
                         embedded_by_url[url] = new_
@@ -7920,8 +7924,7 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
 
                 if changed:
                     try:
-                        with open(json_path, "w", encoding="utf-8") as fout:
-                            fout.write(project_str)
+                        atomic_write_text(json_path, project_str)
                         logger.info(f"  Updated: {os.path.basename(json_path)}")
                     except _GUI_WIDGET_ERRORS as e:
                         logger.error(f"  Write failed for {json_path}: {e}")
@@ -7958,7 +7961,8 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
                     )
                     logger.info("[Retry Assets] %s", message)
                 except DownloadCancelledError:
-                    raise
+                    message = "Retry Assets dibatalkan (cancelled)."
+                    logger.info("[Retry Assets] %s", message)
                 # Website recovery is a top-level GUI retry job boundary.
                 except _GUI_JOB_BOUNDARY_ERRORS as exc:
                     logger.exception("[Retry Assets] website recovery failed: %s", exc)

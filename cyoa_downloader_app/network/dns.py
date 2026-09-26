@@ -8,6 +8,7 @@ from urllib.parse import urlsplit
 
 import requests
 
+from ..core.progress import DownloadCancelledError
 from ..runtime import state
 from ..runtime.compat import mirror_to_legacy
 from ._bridge import legacy
@@ -21,10 +22,12 @@ def _build_dns_query_wire(host: str, qtype: int = 1) -> tuple[int, bytes]:
 
     tx_id = _rnd.randint(0, 65535)
     header = struct.pack(">HHHHHH", tx_id, 0x0100, 1, 0, 0, 0)
-    qname = b"".join(
-        len(p).to_bytes(1, "big") + p.encode("idna")
-        for p in host.rstrip(".").split(".")
-    ) + b"\x00"
+    labels = [p.encode("idna") for p in host.rstrip(".").split(".")]
+    if any(not p or len(p) > 63 for p in labels):
+        raise ValueError("DNS hostname contains an invalid label")
+    qname = b"".join(len(p).to_bytes(1, "big") + p for p in labels) + b"\x00"
+    if len(qname) > 255:
+        raise ValueError("DNS hostname exceeds the wire-format limit")
     return tx_id, header + qname + struct.pack(">HH", qtype, 1)
 
 
@@ -35,8 +38,10 @@ def _parse_dns_address_response(data: bytes, tx_id: int | None = None, qtype: in
         import struct
         if len(data) < 12:
             return None
-        rid, _flags, qdcount, ancount, _nscount, _arcount = struct.unpack(">HHHHHH", data[:12])
+        rid, flags, qdcount, ancount, _nscount, _arcount = struct.unpack(">HHHHHH", data[:12])
         if tx_id is not None and rid != tx_id:
+            return None
+        if not flags & 0x8000 or flags & 0x0200 or flags & 0x000F:
             return None
         offset = 12
 
@@ -85,6 +90,7 @@ def _doh_resolve_via(
             "Content-Type": "application/dns-message",
             "User-Agent": "Mozilla/5.0",
         }
+        previous_bypass = getattr(l._dns_bypass_local, "enabled", False)
         l._dns_bypass_local.enabled = True
         session = None
         try:
@@ -104,21 +110,21 @@ def _doh_resolve_via(
                 **request_kwargs,
             )
         finally:
-            if session is not None:
-                try:
-                    session.close()
-                except (OSError, requests.RequestException) as close_exc:
-                    l.logger.debug("DoH session close failed: %s", close_exc)
-            l._dns_bypass_local.enabled = False
+            try:
+                if session is not None:
+                    try:
+                        session.close()
+                    except DownloadCancelledError:
+                        raise
+                    except (OSError, requests.RequestException, RuntimeError, TypeError, ValueError) as close_exc:
+                        l.logger.debug("DoH session close failed: %s", close_exc)
+            finally:
+                l._dns_bypass_local.enabled = previous_bypass
         if r.status_code != 200:
             l.logger.debug(f"DoH {doh_url} returned HTTP {r.status_code} for {host}")
             return None
         return _parse_dns_address_response(r.content, tx_id=tx_id, qtype=qtype)
     except (OSError, requests.RequestException, TypeError, ValueError) as e:
-        try:
-            l._dns_bypass_local.enabled = False
-        except (AttributeError, RuntimeError) as exc:
-            l.logger.debug("Ignored recoverable exception in _doh_resolve_via: %s", exc)
         l.logger.debug(f"DoH resolve failed for {host} via {doh_url}: {e}")
         return None
 
@@ -177,6 +183,8 @@ def _validate_dns_configuration(server: str, protocol: str) -> None:
         parsed = urlsplit(endpoint_text)
         if parsed.scheme.lower() != "https" or not parsed.hostname:
             raise ValueError("DoH requires a full https:// resolver URL")
+        if parsed.port is not None and not 1 <= parsed.port <= 65535:
+            raise ValueError("DoH resolver port must be between 1 and 65535")
         return
     endpoint, _query_port = _split_dns_endpoint(endpoint_text, protocol)
     if not endpoint:
@@ -207,13 +215,14 @@ def _resolve_dot_bootstrap(hostname: str, port: int) -> str:
     resolver here also avoids recursing through our patched ``getaddrinfo``.
     """
     l = legacy()
+    previous_bypass = getattr(state._dns_bypass_local, "enabled", False)
     state._dns_bypass_local.enabled = True
     try:
         addresses = l._orig_getaddrinfo(
             hostname, port, 0, l._socket.SOCK_STREAM,
         )
     finally:
-        state._dns_bypass_local.enabled = False
+        state._dns_bypass_local.enabled = previous_bypass
     for _family, _type, _proto, _canonname, sockaddr in addresses:
         if sockaddr and sockaddr[0]:
             return str(sockaddr[0])
@@ -271,6 +280,7 @@ def _dns_resolve_via(
             # missing server_hostname disables hostname verification.
             tls_name = endpoint
             tls_address = _resolve_dot_bootstrap(endpoint, query_port)
+            previous_bypass = getattr(state._dns_bypass_local, "enabled", False)
             state._dns_bypass_local.enabled = True
             try:
                 answer = _dq.tls(
@@ -278,7 +288,7 @@ def _dns_resolve_via(
                     server_hostname=tls_name,
                 )
             finally:
-                state._dns_bypass_local.enabled = False
+                state._dns_bypass_local.enabled = previous_bypass
         else:
             answer = _dq.udp(query, endpoint, port=query_port, timeout=effective_timeout)
         wanted = _rdt.AAAA if qtype == 28 else _rdt.A
@@ -295,45 +305,20 @@ def _dns_resolve_via(
     # The dependency-free fallback is intentionally UDP-only. Silently
     # downgrading a requested TCP or TLS transport to UDP would violate the
     # selected privacy/transport policy.
-    if qtype != 1 or transport != "udp":
+    if qtype not in {1, 28} or transport != "udp":
         return None
 
     try:
-        import random as _rnd
+        import ipaddress
         import struct
-        tx_id = _rnd.randint(0, 65535)
-        header = struct.pack(">HHHHHH", tx_id, 0x0100, 1, 0, 0, 0)
-        qname = b"".join(len(p).to_bytes(1, "big") + p.encode() for p in host.rstrip(".").split(".")) + b"\x00"
-        packet = header + qname + struct.pack(">HH", 1, 1)
+        tx_id, packet = _build_dns_query_wire(host, qtype=qtype)
         endpoint, query_port = _split_dns_endpoint(dns_ip, transport, effective_port)
-        with l._socket.socket(l._socket.AF_INET, l._socket.SOCK_DGRAM) as sock:
+        socket_family = l._socket.AF_INET6 if ipaddress.ip_address(endpoint).version == 6 else l._socket.AF_INET
+        with l._socket.socket(socket_family, l._socket.SOCK_DGRAM) as sock:
             sock.settimeout(effective_timeout)
             sock.sendto(packet, (endpoint, query_port))
             data, _ = sock.recvfrom(512)
-        if len(data) < 12 or struct.unpack(">H", data[:2])[0] != tx_id:
-            return None
-        ancount = struct.unpack(">H", data[6:8])[0]
-        if ancount == 0:
-            return None
-        offset = 12
-        while data[offset] != 0:
-            if data[offset] & 0xC0 == 0xC0:
-                offset += 2
-                break
-            offset += data[offset] + 1
-        else:
-            offset += 1
-        offset += 4
-        if data[offset] & 0xC0 == 0xC0:
-            offset += 2
-        else:
-            while data[offset] != 0:
-                offset += data[offset] + 1
-            offset += 1
-        rtype, _, _, rdlen = struct.unpack(">HHIH", data[offset:offset + 10])
-        offset += 10
-        if rtype == 1 and rdlen == 4:
-            return _store(".".join(str(b) for b in data[offset:offset + 4]))
+        return _store(_parse_dns_address_response(data, tx_id=tx_id, qtype=qtype))
     except (IndexError, OSError, UnicodeError, ValueError, struct.error) as exc:
         l.logger.debug("Ignored recoverable exception in _dns_resolve_via: %s", exc)
     return None
@@ -352,10 +337,11 @@ def _patched_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
         return l._orig_getaddrinfo(host, port, family, type, proto, flags)
     except ValueError as exc:
         l.logger.debug("Ignored recoverable exception in _patched_getaddrinfo: %s", exc)
-    if host in ("localhost", "127.0.0.1", "::1"):
+    if host.lower().rstrip(".") == "localhost":
         return l._orig_getaddrinfo(host, port, family, type, proto, flags)
     if not state._active_dns or state._dns_protocol == "system":
         return l._orig_getaddrinfo(host, port, family, type, proto, flags)
+    addresses = []
     try:
         qtypes = []
         if family in (0, l._socket.AF_UNSPEC, l._socket.AF_INET):
@@ -377,11 +363,13 @@ def _patched_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
                 )
                 ip_family = l._socket.AF_INET6 if qtype == 28 else l._socket.AF_INET
                 requested_family = family if family not in (0, l._socket.AF_UNSPEC) else ip_family
-                return l._orig_getaddrinfo(
+                addresses.extend(l._orig_getaddrinfo(
                     ip, port, requested_family, type, proto, flags,
-                )
+                ))
     except (OSError, RuntimeError, TypeError, ValueError) as e:
         l.logger.debug(f"Custom DNS failed for {host}: {e}")
+    if addresses:
+        return addresses
     if state._dns_fallback_system:
         return l._orig_getaddrinfo(host, port, family, type, proto, flags)
     raise l._socket.gaierror(

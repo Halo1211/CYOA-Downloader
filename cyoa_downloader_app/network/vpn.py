@@ -99,7 +99,7 @@ def list_active_network_interfaces(*, refresh: bool = False) -> list[dict[str, o
                 rows = _windows_active_interfaces()
             else:
                 rows = _posix_active_interfaces()
-        except (OSError, RuntimeError, ValueError) as exc:
+        except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
             logger.debug("VPN interface discovery failed: %s", exc)
             rows = []
         if not rows:

@@ -7,6 +7,7 @@ import io
 import os
 import re
 from datetime import datetime
+from urllib.parse import urlparse
 
 from ..constants.modes import (
     _BATCH_VALID_MODES,
@@ -16,6 +17,7 @@ from ..constants.modes import (
     _WEBSITE_MODES,
 )
 from ..core.atomic_io import atomic_write_text, interprocess_file_lock
+from ..core.cancellation import _raise_if_cancelled
 from ..core.progress import DownloadCancelledError
 from ..core.url_utils import is_probable_url
 from ..logging_setup import logger
@@ -39,6 +41,7 @@ def _safe_response_text(response):
 
 def _read_remote_batch_text(response) -> str:
     """Read an untrusted remote list without materializing an oversized body."""
+    _raise_if_cancelled()
     raw_length = response.headers.get("Content-Length")
     try:
         declared_length = int(raw_length) if raw_length not in (None, "") else None
@@ -49,11 +52,14 @@ def _read_remote_batch_text(response) -> str:
 
     payload = bytearray()
     for chunk in response.iter_content(chunk_size=_REMOTE_BATCH_CHUNK_BYTES):
+        _raise_if_cancelled()
         if not chunk:
             continue
         if len(payload) + len(chunk) > _REMOTE_BATCH_MAX_BYTES:
             raise ValueError("Remote batch list exceeds the 32 MiB import limit")
         payload.extend(chunk)
+
+    _raise_if_cancelled()
 
     ignored_encodings = {"iso-8859-1", "iso8859-1", "latin-1", "latin1", ""}
     encoding = str(getattr(response, "encoding", "") or "")
@@ -194,7 +200,7 @@ def import_queue_items_from_file(file_path: str) -> list[dict[str, str]]:
 
     try:
         if ext in {".xlsx", ".xls"}:
-            df = pd.read_excel(file_path)
+            df = pd.read_excel(file_path, dtype=str, keep_default_na=False)
         elif ext == ".csv":
             # Skip malformed rows instead of failing the whole
             # import. Previously a single row with the wrong column count made
@@ -202,12 +208,12 @@ def import_queue_items_from_file(file_path: str) -> list[dict[str, str]]:
             # plain-text path already tolerates bad lines. on_bad_lines='skip' is
             # pandas>=1.3; fall back to the legacy kwarg, then to a plain read.
             try:
-                df = pd.read_csv(file_path, on_bad_lines="skip")
+                df = pd.read_csv(file_path, on_bad_lines="skip", dtype=str, keep_default_na=False)
             except TypeError:
                 try:
-                    df = pd.read_csv(file_path, error_bad_lines=False)
+                    df = pd.read_csv(file_path, error_bad_lines=False, dtype=str, keep_default_na=False)
                 except TypeError:
-                    df = pd.read_csv(file_path)
+                    df = pd.read_csv(file_path, dtype=str, keep_default_na=False)
         else:
             logger.warning(f"Unsupported import file: {file_path}")
             return items
@@ -279,21 +285,56 @@ def import_queue_items_from_source(source: str) -> list[dict[str, str]]:
         text = _read_remote_batch_text(r)
     except DownloadCancelledError:
         raise
-    except (AttributeError, OSError, UnicodeError, TypeError, ValueError) as e:
+    except (AttributeError, OSError, RuntimeError, UnicodeError, TypeError, ValueError) as e:
         logger.error(f"Failed to import remote list: {e}")
         return []
     finally:
         if r is not None:
             try:
                 r.close()
-            except (AttributeError, OSError) as exc:
+            except DownloadCancelledError:
+                raise
+            except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as exc:
                 logger.debug("Could not close remote batch response: %s", exc)
 
     # A remote source is untrusted input. Keep an accidental HTML dump or a
     # giant generated sheet from freezing the GUI while materializing every
     # row, and contain csv.Error instead of crashing the import callback.
     try:
-        rows = list(csv.reader(io.StringIO(text)))
+        # Remote TXT lists use the same pipe-separated format as local TXT.
+        # Keep CSV parsing for URL-only lists and real comma-separated rows.
+        if os.path.splitext(urlparse(url).path)[1].lower() == ".txt":
+            rows = []
+            for line in text.splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "|" in line:
+                    rows.append([field.strip() for field in line.split("|", 2)])
+                else:
+                    literal_url = is_probable_url(line)
+                    parsed_line = urlparse(line) if literal_url else None
+                    csv_row = next(csv.reader([line]), [])
+                    csv_header = bool(
+                        rows and any(field.strip().lower() in {"url", "link", "urls", "links"} for field in rows[0])
+                    )
+                    csv_mode = (
+                        csv_row[2].strip().lower().replace("-", "_").replace(" ", "_")
+                        if len(csv_row) > 2 else ""
+                    )
+                    # Keep the historical CSV-in-TXT format when a header or
+                    # explicit mode identifies it. Otherwise commas in a URL's
+                    # query/fragment belong to the URL, as in local TXT lists.
+                    if (
+                        not csv_header and csv_mode not in _BATCH_VALID_MODES
+                        and literal_url
+                        and ("," in parsed_line.query or "," in parsed_line.fragment)
+                    ):
+                        rows.append([line])
+                    else:
+                        rows.append(csv_row)
+        else:
+            rows = list(csv.reader(io.StringIO(text)))
     except (csv.Error, UnicodeError) as exc:
         logger.error(f"Failed parsing remote batch list: {exc}")
         return []

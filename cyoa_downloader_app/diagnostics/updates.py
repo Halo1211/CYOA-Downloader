@@ -7,12 +7,15 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from ..app_info import _APP_VERSION, _GITHUB_RELEASE_API
+from ..core.atomic_io import identity_response_total_length
+from ..core.progress import DownloadCancelledError
 from ..logging_setup import logger
 from ..network.fetch import fetch_response
 
 # Desktop notification providers are optional third-party callbacks. Failures
 # are logged and contained inside the daemon worker by design.
 _NOTIFICATION_ERRORS = (Exception,)
+_PROGRESS_CALLBACK_ERRORS = (Exception,)
 
 
 def _send_desktop_notification(title: str, message: str) -> None:
@@ -75,7 +78,9 @@ def _check_for_app_updates() -> dict[str, str] | None:
         if r is not None:
             try:
                 r.close()
-            except (AttributeError, OSError) as _close_exc:
+            except DownloadCancelledError:
+                raise
+            except (AttributeError, OSError, RuntimeError) as _close_exc:
                 logger.debug("Update response close failed: %s", _close_exc)
     return None
 
@@ -128,15 +133,16 @@ def _batch_check_updates(history: dict[str, dict],
                         "status": "unreachable", "reason": f"HTTP {_status or 'request failed'}"}
             old_etag = meta.get("etag", "")
             old_lm   = meta.get("last_modified", "")
-            old_cl   = meta.get("content_length", "")
+            old_length = meta.get("content_length")
+            old_cl = str(old_length) if old_length is not None else ""
             new_etag = r.headers.get("ETag", "")
             new_lm   = r.headers.get("Last-Modified", "")
             # Identity total from Content-Range, same
             # extraction as the recorder; Content-Length is the fallback for
             # servers that ignore Range (then it is the identity full length,
             # because we requested Accept-Encoding: identity).
-            _cr_match = re.search(r"/(\d+)$", r.headers.get("Content-Range", ""))
-            new_cl = _cr_match.group(1) if _cr_match else r.headers.get("Content-Length", "")
+            length = identity_response_total_length(r)
+            new_cl = str(length) if length is not None else ""
             changed, reason = False, []
             if old_etag and new_etag and old_etag != new_etag:
                 changed = True; reason.append("ETag")
@@ -146,15 +152,20 @@ def _batch_check_updates(history: dict[str, dict],
                 changed = True; reason.append(f"size {old_cl}→{new_cl}")
             return {"url": url, "name": meta.get("filename", ""),
                     "status": "updated" if changed else "current",
-                    "reason": ", ".join(reason), "date": meta.get("date", "")}
-        except (AttributeError, OSError, TypeError, ValueError) as e:
+                    "reason": ", ".join(reason),
+                    "date": meta.get("date") or meta.get("last_downloaded", "")}
+        except DownloadCancelledError:
+            raise
+        except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as e:
             return {"url": url, "name": meta.get("filename", ""),
                     "status": "error", "reason": str(e)[:80]}
         finally:
             if r is not None:
                 try:
                     r.close()
-                except (AttributeError, OSError) as _close_exc:
+                except DownloadCancelledError:
+                    raise
+                except (AttributeError, OSError, RuntimeError) as _close_exc:
                     logger.debug("Update-check response close failed: %s", _close_exc)
 
     try:
@@ -168,7 +179,12 @@ def _batch_check_updates(history: dict[str, dict],
             if res:
                 results.append(res)
             if progress_cb:
-                progress_cb(done_n, total)
+                try:
+                    progress_cb(done_n, total)
+                except DownloadCancelledError:
+                    raise
+                except _PROGRESS_CALLBACK_ERRORS as exc:
+                    logger.debug("Update progress callback failed: %s", exc)
     return results
 
 

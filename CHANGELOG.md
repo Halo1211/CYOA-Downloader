@@ -2,6 +2,156 @@
 
 This project uses a single changelog file. Older split release notes and patch reports have been consolidated here so users do not have to search through multiple Markdown files.
 
+## v1.1.2 — full-program bug audit
+
+- Rebuilt the Windows executable and ZIP for v1.1.2. Verified embedded version
+  metadata, matching ZIP/EXE hashes, packaged CLI diagnostics and self-test,
+  and localhost folder/ZIP downloads with compressed CSS and manifest checks.
+  Release downloads include SHA-256 checksums.
+- Contained malformed resume state and itch.io offline manifests; an unavailable
+  resume directory no longer aborts otherwise completed jobs.
+- Handled failed remote batch requests, UTF-8 BOMs, and pipe-separated remote
+  TXT lists without losing URL, filename, or output mode.
+- Preserved URL path parameters and explicit port zero during canonicalization;
+  domain backoff recovery now uses the same case-insensitive key as failures.
+- Accepted drive-root output paths while retaining containment and link checks.
+- Prevented ZIPs from including their own output or partial file, preserved
+  literal percent-encoded filenames, and allowed highly compressible local
+  content without relaxing validation of incoming archives.
+- Continued route crawling after an interrupted response body and retained
+  individual route failure details.
+- Observed cancellation before committing a streamed file; GUI completion
+  no longer counts an interrupted job twice or retains stale progress callbacks.
+- Treated non-finite byte counts and compressed wire lengths as unknown in
+  decoded-body progress, avoiding incorrect file totals and ETA estimates.
+- Preserved concurrent cache replacements during stale reads and repaired
+  corrupted cache files when their original content is downloaded again.
+- Added offline regression coverage and enabled combined live GUI/browser
+  smoke validation with Tk objects finalized on their owning test thread.
+- A second audit fixed Discord reuse of empty files/directories, contained
+  destination errors, closed HTTP error streams, handled invalid API encoding,
+  and observed cancellation during streams and retry backoff.
+- AI calls now observe cancellation before and after provider requests and
+  treat null response content as unavailable instead of the text "None".
+- DNS queries use IDNA byte lengths; wire replies reject query, truncated,
+  and error packets, and the UDP fallback follows CNAME answer chains.
+- Website recovery preserves parentheses in asset URLs, skips malformed
+  manifests and unavailable folders, isolates session cleanup errors, and
+  includes skipped assets in discovered totals.
+- CSV/Excel queue imports preserve literal filenames such as `00017`, `NA`,
+  and `NULL`. Cancelled GUI asset recovery releases its running state.
+- Retry Images handles JSON-escaped URLs, rejects empty image bodies, and
+  writes project updates atomically to preserve the original on commit failure.
+- Consolidated 71 test files into `tests/test_program.py`, preserving all 717
+  collected cases, independent helper names, optional smoke-test marks, and
+  the shared GUI fixture's lifetime. Feature sections remain selectable with
+  pytest's `-k` option.
+- A third audit added 49 regression and control cases to the same test file.
+  Atomic writes now use exclusive temporary files, preserving unrelated partial
+  files and avoiding filename collisions.
+- Log redaction covers short credentials, signed URL parameters, exception
+  tracebacks, and stack details without removing useful diagnostic context.
+- Settings accept UTF-8 BOMs, reject non-finite AI temperatures, and report
+  failed import transactions instead of raising into the caller.
+- History retention tolerates malformed timestamps; history and update probes
+  share identity-length handling, preserve zero-byte sizes, avoid compressed
+  length false positives, and display the recorded download date.
+- DNS preserves nested bypass state even when session cleanup fails, validates
+  DoH ports, handles IPv6 UDP resolvers and AAAA fallback, and returns both
+  enabled address families while keeping localhost on the system resolver.
+- Update checks isolate callback and response cleanup failures while preserving
+  cancellation. Gallery-dl rejects non-HTTP inputs and terminates its active
+  subprocess when cancelled.
+- Asset recovery continues across localization and report-writing failures;
+  failed localization leaves affected assets pending for another attempt.
+- Third-audit validation with optional live GUI/browser checks enabled: 762 passed, 4
+  skipped (Windows symlink creation unavailable). Offline self-test: 37/37.
+  Compilation, CLI help, dependency checks, repository Ruff checks, and diff
+  whitespace checks also passed.
+- A fourth audit added 43 regression and control cases to the consolidated
+  test file. Font discovery retains query/fragment URLs, ignores malformed
+  references, and continues after individual stylesheet failures.
+- Font downloads reject empty or incomplete identity bodies, preserve
+  cancellation, continue after individual write failures, and rewrite
+  overlapping plain/JSON-escaped URL aliases in one pass.
+- Asset scanner plugins reject invalid return shapes and non-string entries;
+  engine detectors ignore non-dictionary results so later detectors still run.
+- Unusable Node probes no longer abort other available audio runtimes. Audio
+  progress hooks observe cancellation even without a GUI callback.
+- Audio reuse requires a nonempty file with the exact expected name. Conversion
+  commits a validated MP3 atomically only after ffmpeg succeeds; failures retain
+  the source audio and remove temporary outputs.
+- Proxy profiles reject port zero. Shared HTTP pool reset continues closing
+  other sessions after an individual cleanup failure and preserves cancellation.
+- Fourth-audit standard suite: 801 passed, 8 skipped; offline self-test: 37/37.
+  Compilation, CLI help, dependency checks, repository Ruff checks, and diff
+  whitespace checks passed. Combined GUI runs exposed native Tcl initialization
+  failures after earlier layout roots; the performance smoke now executes its
+  assertions in a fresh process matching the application's single-root lifecycle.
+- Final fourth-audit suite with live GUI/browser checks enabled: 805 passed,
+  4 skipped because Windows symlink creation is unavailable.
+- A fifth audit added 49 regression/control cases to `tests/test_program.py`.
+  Archive resume closes its downloader on success, failure, and cancellation,
+  handles malformed page collections, and rejects entries outside the story.
+- Local previews preserve content query variants, including the root route,
+  while ignoring tracking, RSC, cache, token, and preview-tools parameters.
+  Tests exercise the real CLI HTTP handler on localhost.
+- Embedded JSON5 extraction ignores braces inside JavaScript comments. Project
+  and manifest readers contain excessive JSON nesting instead of crashing.
+- Invalid request types, malformed hosts, and invalid ports are rejected before
+  creating a session. CDN headers support trailing-dot DNS names. Abandoned
+  response cleanup preserves the original cancellation exception.
+- Viewer registration reports copy, lock, storage, and manifest failures;
+  failed imports roll back archive replacements, including folder imports.
+  Unregistration saves metadata before deleting the ZIP and reports failed
+  registry transactions without consuming cancellation.
+- Fifth-audit validation: standard suite 850 passed, 8 skipped; live GUI/browser
+  suite 854 passed, 4 skipped (Windows symlink creation unavailable). Offline
+  self-test 37/37; compilation, CLI help, dependency, Ruff, and diff checks passed.
+- A sixth audit added 51 regression/control cases to `tests/test_program.py`.
+  Responsive image discovery keeps fallback `src` and every `srcset` candidate,
+  handles unquoted HTML attributes and character references, and skips inline
+  data images without losing later candidates. Literal punctuation in direct
+  image URLs is preserved. Large-project scanning retains CSS, audio, and video
+  poster references without duplicating HTML-encoded URLs.
+  The HTML/JavaScript scanner shares the same srcset token parser, preserving
+  commas inside URLs and preventing inline Base64 fragments from becoming
+  bogus download requests.
+- Resume and cache readers contain excessive JSON nesting; cache index merging
+  repairs an overdeep disk index. Unserializable resume data is reported without
+  aborting the job. Asset-manifest traversal is iterative so valid nested
+  projects retain their assets beyond Python's function-call depth limit.
+- Stream and ZIP transactions use exclusive temporary files and preserve
+  unrelated partial files on both success and failure. ZIP creation observes
+  cancellation again after validation, before replacing an existing output.
+- The main download orchestrator explicitly closes its website browser transport
+  on success, failure, and cancellation, isolates ordinary cleanup failures,
+  restores the working directory, and releases the output lock. Auto engine
+  probing propagates cancellation instead of starting another resolver.
+- Final sixth-audit validation with live GUI/browser checks enabled: 905 passed,
+  4 skipped because Windows symlink creation is unavailable. All 51 new cases
+  passed; offline self-test 37/37. Compilation, CLI help/dependency checks,
+  repository Ruff checks, test formatting, and diff whitespace checks passed.
+
+- A seventh audit added 45 regression/control cases to `tests/test_program.py`.
+  Static-gallery responses close on every validation and streaming path;
+  ordinary cleanup failures preserve the original result or cancellation.
+  The gallery executor shuts down after submission errors, and invalid or
+  non-finite worker counts use safe defaults at both download entry points.
+- Remote batch streams observe cancellation before, during, and after body
+  reads. Response cleanup no longer replaces successful imports or read errors.
+  TXT imports preserve commas in URL queries/fragments while retaining legacy
+  CSV rows with headers or explicit modes; malformed URLs do not stop later jobs.
+- Timed-out VPN interface discovery returns unverified fallback interfaces,
+  preserving the fail-closed guard. GUI speed callbacks propagate cancellation.
+- Settings and history contain excessive JSON nesting on both read and save
+  paths, preserving existing files after serialization failure. Settings imports
+  now report actual commit failures instead of claiming unsaved changes succeeded.
+- Final seventh-audit validation with live GUI/browser checks enabled: 950 passed,
+  4 skipped because Windows symlink creation is unavailable. All 45 new cases
+  passed; offline self-test 37/37. Compilation, CLI help/dependency checks,
+  repository Ruff checks, test formatting, and diff whitespace checks passed.
+
 ## v1.1.1 — offline reliability and itch.io HTML5 support
 
 - Resolved origin-root asset URLs and retried missing root-relative entry

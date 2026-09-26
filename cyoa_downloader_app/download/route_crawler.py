@@ -214,7 +214,13 @@ class RouteCrawler:
         while queue and len(result.pages) < self.policy.max_pages:
             _raise_if_cancelled()
             url, depth = queue.popleft()
-            html = self._fetch_html(url)
+            try:
+                html = self._fetch_html(url)
+            except DownloadCancelledError:
+                raise
+            except (OSError, requests.RequestException, RuntimeError, TypeError, ValueError) as exc:
+                result.failed.append({"url": url, "error": str(exc)})
+                continue
             if not html:
                 result.failed.append({"url": url, "error": "could not fetch route HTML"})
                 continue

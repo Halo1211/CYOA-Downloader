@@ -57,9 +57,12 @@ def format_bytes(value: float | None) -> str:
     if value is None:
         return "Unknown"
     try:
-        n = max(0.0, float(value))
-    except (TypeError, ValueError):
+        n = float(value)
+    except (TypeError, ValueError, OverflowError):
         return "Unknown"
+    if not math.isfinite(n):
+        return "Unknown"
+    n = max(0.0, n)
     units = ("B", "KB", "MB", "GB", "TB")
     idx = 0
     while n >= 1024.0 and idx < len(units) - 1:

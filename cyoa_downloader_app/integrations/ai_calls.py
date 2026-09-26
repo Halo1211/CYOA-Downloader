@@ -22,6 +22,7 @@ from ..constants.assets import (
     STYLE_EXTENSIONS,
     VIDEO_EXTENSIONS,
 )
+from ..core.cancellation import _raise_if_cancelled
 from ..core.progress import DownloadCancelledError
 from ..logging_setup import logger
 from ..network.sessions import _get_shared_session
@@ -115,7 +116,15 @@ def _ai_call(api_key: str, prompt: str, max_tokens: int = 1024,
     if provider != "ollama" and not api_key:
         return None
     try:
+        _raise_if_cancelled()
         session = _get_shared_session(use_cf=False)
+
+        def post(url: str, **kwargs: Any) -> Any:
+            _raise_if_cancelled()
+            response = session.post(url, **kwargs)
+            _raise_if_cancelled()
+            return response
+
         if provider == "anthropic":
             body: dict[str, Any] = {
                 "model": model,
@@ -124,7 +133,7 @@ def _ai_call(api_key: str, prompt: str, max_tokens: int = 1024,
             }
             if system:
                 body["system"] = system
-            r = session.post(
+            r = post(
                 "https://api.anthropic.com/v1/messages",
                 headers={"Content-Type": "application/json",
                          "x-api-key": api_key,
@@ -144,7 +153,7 @@ def _ai_call(api_key: str, prompt: str, max_tokens: int = 1024,
                 input_payload.append({"role": "system", "content": system})
             input_payload.append({"role": "user", "content": prompt})
             body = {"model": model, "input": input_payload, "max_output_tokens": max_tokens}
-            r = session.post(
+            r = post(
                 "https://api.openai.com/v1/responses",
                 headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
                 json=body,
@@ -172,7 +181,7 @@ def _ai_call(api_key: str, prompt: str, max_tokens: int = 1024,
             }
             if system:
                 body["systemInstruction"] = {"parts": [{"text": system}]}
-            r = session.post(url, headers={"Content-Type": "application/json"}, json=body, timeout=60)
+            r = post(url, headers={"Content-Type": "application/json"}, json=body, timeout=60)
             if r.status_code != 200:
                 logger.debug(f"[{label}] Gemini API {r.status_code}: {r.text[:300]}")
                 return None
@@ -193,12 +202,13 @@ def _ai_call(api_key: str, prompt: str, max_tokens: int = 1024,
                 "stream": False,
                 "options": {"num_predict": max_tokens},
             }
-            r = session.post(base + "/api/generate", headers={"Content-Type": "application/json"}, json=body, timeout=120)
+            r = post(base + "/api/generate", headers={"Content-Type": "application/json"}, json=body, timeout=120)
             if r.status_code != 200:
                 logger.debug(f"[{label}] Ollama API {r.status_code}: {r.text[:300]}")
                 return None
             data = r.json()
-            return str(data.get("response", "")).strip() or None
+            text = data.get("response")
+            return (text.strip() or None) if isinstance(text, str) else None
 
         if provider in ("deepseek", "qwen", "groq", "openrouter", "custom"):
             # OpenAI-compatible /chat/completions. Groq and OpenRouter use fixed
@@ -233,13 +243,14 @@ def _ai_call(api_key: str, prompt: str, max_tokens: int = 1024,
                 # OpenRouter recommends identifying the calling app.
                 headers["HTTP-Referer"] = "https://github.com/cyoa-downloader"
                 headers["X-Title"] = "CYOA Downloader"
-            r = session.post(base + "/chat/completions", headers=headers, json=body, timeout=60)
+            r = post(base + "/chat/completions", headers=headers, json=body, timeout=60)
             if r.status_code != 200:
                 logger.debug(f"[{label}] {provider} API {r.status_code}: {r.text[:300]}")
                 return None
             data = r.json()
             try:
-                return str(data["choices"][0]["message"]["content"]).strip() or None
+                text = data["choices"][0]["message"]["content"]
+                return (text.strip() or None) if isinstance(text, str) else None
             except (KeyError, IndexError, TypeError):
                 return None
 

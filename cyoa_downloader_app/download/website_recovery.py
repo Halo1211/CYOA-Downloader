@@ -23,7 +23,7 @@ _RECOVERY_JOB_ERRORS = (Exception,)
 
 _SOURCE_RE = re.compile(r"^(?:Source|Start URL)\s*:\s*(https?://\S+)", re.IGNORECASE)
 _URL_RE = re.compile(r"^\s*URL\s*:\s*(https?://\S+)", re.IGNORECASE)
-_FAILED_LINE_RE = re.compile(r"(https?://\S+?)(?:\s{2,}|\s*\(|$)", re.IGNORECASE)
+_FAILED_LINE_RE = re.compile(r"(https?://\S+)", re.IGNORECASE)
 
 
 @dataclass
@@ -65,7 +65,7 @@ def _parse_failure_report(path: pathlib.Path) -> tuple[str, list[str]]:
         failure_row = stripped.startswith(("✗", "×", "âœ—"))
         match = _URL_RE.match(line) or (_FAILED_LINE_RE.search(line) if failure_row else None)
         if match:
-            url = match.group(1).rstrip().rstrip(")")
+            url = match.group(1)
             if url not in urls:
                 urls.append(url)
     return source, urls
@@ -92,7 +92,7 @@ def _mark_recovered_backup_urls(path: pathlib.Path, recovered: set[str]) -> int:
         stripped = line.strip()
         failure_row = stripped.startswith(("✗", "×", "âœ—"))
         match = _URL_RE.match(line) or (_FAILED_LINE_RE.search(line) if failure_row else None)
-        url = match.group(1).rstrip().rstrip(")") if match else ""
+        url = match.group(1) if match else ""
         if url not in recovered:
             updated.append(line)
             continue
@@ -152,23 +152,31 @@ def retry_website_assets(root: str, policy: ArchivePolicy | None = None) -> Webs
 
     for folder, group in report_groups.items():
         urls = sorted(group["urls"])
+        summary.discovered_assets += len(urls)
         source = str(group.get("source") or "")
         if not source:
             manifest = folder / "archive_manifest.json"
             try:
-                source = str(json.loads(manifest.read_text(encoding="utf-8")).get("start_url") or "")
+                data = json.loads(manifest.read_text(encoding="utf-8"))
+                source = str(data.get("start_url") or "") if isinstance(data, dict) else ""
             except (OSError, ValueError, TypeError):
                 source = ""
         if not source:
             logger.warning("Retry Assets skipped %s: source URL is missing", folder)
             summary.failed_assets += len(urls)
             continue
-        downloader = WebsiteDownloader(source, str(folder), archive_strategy=policy.strategy)
+        try:
+            downloader = WebsiteDownloader(source, str(folder), archive_strategy=policy.strategy)
+        except DownloadCancelledError:
+            raise
+        except _RECOVERY_JOB_ERRORS as exc:
+            logger.warning("Retry Assets could not open %s: %s", folder, exc)
+            summary.failed_assets += len(urls)
+            continue
         remaining: list[dict[str, str]] = []
         recovered_urls: set[str] = set()
         try:
             for url in urls:
-                summary.discovered_assets += 1
                 try:
                     local = downloader.download_asset(url)
                 except DownloadCancelledError:
@@ -185,14 +193,40 @@ def retry_website_assets(root: str, policy: ArchivePolicy | None = None) -> Webs
                     summary.failed_assets += 1
                     remaining.append({"url": url, "error": error})
             if recovered_urls:
-                downloader.localize_existing_text_assets()
+                try:
+                    downloader.localize_existing_text_assets()
+                except DownloadCancelledError:
+                    raise
+                except _RECOVERY_JOB_ERRORS as exc:
+                    # Downloaded bytes alone do not make an offline page ready.
+                    # Preserve pending work until its references can be rewritten.
+                    logger.warning("Retry Assets could not localize %s: %s", folder, exc)
+                    summary.recovered_assets -= len(recovered_urls)
+                    summary.failed_assets += len(recovered_urls)
+                    remaining.extend({"url": url, "error": str(exc)} for url in sorted(recovered_urls))
+                    recovered_urls.clear()
         finally:
-            downloader.close()
+            try:
+                downloader.close()
+            except DownloadCancelledError:
+                raise
+            except _RECOVERY_JOB_ERRORS as exc:
+                logger.warning("Retry Assets could not close %s: %s", folder, exc)
         for report in group.get("reports", []):
-            _mark_recovered_backup_urls(pathlib.Path(report), recovered_urls)
+            try:
+                _mark_recovered_backup_urls(pathlib.Path(report), recovered_urls)
+            except DownloadCancelledError:
+                raise
+            except _RECOVERY_JOB_ERRORS as exc:
+                logger.warning("Retry Assets could not update %s: %s", report, exc)
         failed_log = folder / "failed_assets.txt"
         if remaining:
-            write_failed_assets_log(remaining, str(folder), source_url=source)
+            try:
+                write_failed_assets_log(remaining, str(folder), source_url=source)
+            except DownloadCancelledError:
+                raise
+            except _RECOVERY_JOB_ERRORS as exc:
+                logger.warning("Retry Assets could not write failures for %s: %s", folder, exc)
         elif failed_log.exists():
             try:
                 failed_log.unlink()

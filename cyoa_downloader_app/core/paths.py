@@ -89,7 +89,7 @@ def _safe_join(root: str, rel_path: str, fallback: str = "asset") -> str:
     root_abs = os.path.abspath(root or os.getcwd())
     safe_rel = _safe_rel_path(rel_path, fallback=fallback)
     target = os.path.abspath(os.path.join(root_abs, *safe_rel.split("/")))
-    if target != root_abs and not target.startswith(root_abs + os.sep):
+    if os.path.commonpath([root_abs, target]) != root_abs:
         raise ValueError(f"Unsafe output path rejected: {rel_path!r}")
     # The lexical check above is insufficient when an existing directory or
     # file component is a symlink/junction/reparse point. Resolve existing
@@ -99,7 +99,7 @@ def _safe_join(root: str, rel_path: str, fallback: str = "asset") -> str:
     if os.path.lexists(root_abs) and _is_link_or_junction(root_abs):
         raise ValueError(f"Output root must not be a symlink or junction: {root!r}")
     target_real = os.path.realpath(target)
-    if target_real != root_real and not target_real.startswith(root_real + os.sep):
+    if os.path.commonpath([root_real, target_real]) != root_real:
         raise ValueError(f"Unsafe linked output path rejected: {rel_path!r}")
     return target
 
@@ -131,13 +131,13 @@ def _safe_archive_join(root: str, member: str) -> str:
     root_abs = os.path.abspath(root or os.getcwd())
     rel = _safe_archive_rel_path(member)
     target = os.path.abspath(os.path.join(root_abs, *rel.split("/")))
-    if target == root_abs or not target.startswith(root_abs + os.sep):
+    if target == root_abs or os.path.commonpath([root_abs, target]) != root_abs:
         raise ValueError(f"Unsafe archive path rejected: {member!r}")
     root_real = os.path.realpath(root_abs)
     if os.path.lexists(root_abs) and _is_link_or_junction(root_abs):
         raise ValueError(f"Archive output root must not be a symlink or junction: {root!r}")
     target_real = os.path.realpath(target)
-    if target_real == root_real or not target_real.startswith(root_real + os.sep):
+    if target_real == root_real or os.path.commonpath([root_real, target_real]) != root_real:
         raise ValueError(f"Unsafe linked archive path rejected: {member!r}")
     return target
 

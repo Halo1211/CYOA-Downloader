@@ -12,7 +12,6 @@ import os
 import re
 import shutil
 import tempfile
-import threading
 import time as _time
 import uuid
 import zipfile
@@ -27,7 +26,7 @@ except ImportError:  # pragma: no cover - optional dependency
 
 from ..app_info import _APP_VERSION
 from ..core.archive import validate_zip_archive
-from ..core.atomic_io import atomic_write_text, validate_response_content_length
+from ..core.atomic_io import atomic_write_text, decoded_response_content_length, validate_response_content_length
 from ..core.cancellation import _emit_progress_event, _raise_if_cancelled
 from ..core.output import _cleanup_recent_part_files, prepare_clean_output_folder
 from ..core.paths import _is_link_or_junction, _safe_archive_rel_path
@@ -679,22 +678,20 @@ def atomic_stream_response_to_file(
     """
     target = os.path.abspath(path)
     os.makedirs(os.path.dirname(target) or os.getcwd(), exist_ok=True)
-    part = target + f".{os.getpid()}.{threading.get_ident()}.part"
     downloaded = 0
-    headers = getattr(response, "headers", {}) or {}
-    raw_total = headers.get("Content-Length") or headers.get("content-length")
-    try:
-        total = int(raw_total) if raw_total not in (None, "") else None
-    except (TypeError, ValueError):
-        total = None
+    total = decoded_response_content_length(response)
     _emit_progress_event(
         "file_started",
         name=os.path.relpath(target, os.path.dirname(target)),
         url=str(getattr(response, "url", "") or ""),
         total_bytes=total,
     )
+    fd, part = tempfile.mkstemp(
+        prefix="." + os.path.basename(target)[:40] + ".", suffix=".part",
+        dir=os.path.dirname(target),
+    )
     try:
-        with open(part, "wb") as fh:
+        with os.fdopen(fd, "wb") as fh:
             for chunk in response.iter_content(chunk_size=max(4096, int(chunk_size))):
                 _raise_if_cancelled()
                 if not chunk:
@@ -711,6 +708,7 @@ def atomic_stream_response_to_file(
         validate_response_content_length(response, downloaded)
         if downloaded <= 0:
             raise OSError("Downloaded response body is empty")
+        _raise_if_cancelled()
         os.replace(part, target)
         _emit_progress_event("file_completed", name=os.path.basename(target), url=str(getattr(response, "url", "") or ""))
         return downloaded
@@ -746,9 +744,12 @@ def zip_temp_folder(temp_path: str, zip_name: str = "") -> str:
         zip_name = f"archive_{datetime.now().astimezone().strftime('%Y%m%d_%H%M%S')}"
     zf_name = zip_name if zip_name.endswith(".zip") else zip_name + ".zip"
     target = os.path.abspath(os.path.join(os.getcwd(), zf_name))
-    part = target + f".{os.getpid()}.{threading.get_ident()}.part"
+    fd, part = tempfile.mkstemp(
+        prefix="." + os.path.basename(target)[:40] + ".", suffix=".part",
+        dir=os.path.dirname(target),
+    )
     try:
-        with zipfile.ZipFile(part, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as archive:
+        with os.fdopen(fd, "w+b") as handle, zipfile.ZipFile(handle, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as archive:
             for root, dirs, files in os.walk(temp_path, followlinks=False):
                 _raise_if_cancelled()
                 # Do not dereference a symlink/junction while packaging. The
@@ -762,6 +763,10 @@ def zip_temp_folder(temp_path: str, zip_name: str = "") -> str:
                 for file in files:
                     _raise_if_cancelled()
                     abs_path = os.path.join(root, file)
+                    if os.path.normcase(os.path.abspath(abs_path)) in {
+                        os.path.normcase(target), os.path.normcase(part),
+                    }:
+                        continue
                     if _is_link_or_junction(abs_path):
                         logger.warning(f"Skipping linked file while creating ZIP: {abs_path}")
                         continue
@@ -770,9 +775,13 @@ def zip_temp_folder(temp_path: str, zip_name: str = "") -> str:
                     # like "images\\a.png" would extract as one literal filename
                     # on macOS/Linux instead of an images/ subfolder. Normalize.
                     arc = os.path.relpath(abs_path, start=temp_path).replace("\\", "/")
-                    arc = _safe_archive_rel_path(arc)
+                    _safe_archive_rel_path(arc)
                     archive.write(abs_path, arcname=arc)
-        validate_zip_archive(part)
+        # This ZIP was produced from bounded local files, not received from
+        # an untrusted server. Repetitive JS/JSON is legitimately compressible;
+        # the incoming-archive bomb heuristic must not reject our own output.
+        validate_zip_archive(part, max_ratio=float("inf"))
+        _raise_if_cancelled()
         os.replace(part, target)
     except Exception:
         try:

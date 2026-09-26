@@ -7,7 +7,7 @@ import os
 import pathlib
 import re
 from glob import escape as escape_glob
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, parse_qsl, unquote, urlencode, urlparse
 
 _FLIGHT_PUSH_RE = re.compile(
     r'self\.__next_f\.push\(\[1,("(?:\\.|[^"\\])*")\]\)',
@@ -16,9 +16,17 @@ _FLIGHT_PUSH_RE = re.compile(
 
 
 def _normalized_route(value: str) -> str:
-    path = unquote(urlparse(str(value or "")).path or "/")
+    parsed = urlparse(str(value or ""))
+    path = unquote(parsed.path or "/")
     path = re.sub(r"/+", "/", path)
-    return "/" if path == "/" else path.rstrip("/")
+    path = "/" if path == "/" else path.rstrip("/")
+    # Navigation/tracking and local preview metadata do not change page content.
+    ignored = {"from", "ref", "source", "fbclid", "gclid", "returnto", "_rsc", "ptok", "cb",
+               "no_tools", "serve_tools", "cyoa_tools", "tools"}
+    pairs = [(key, val) for key, val in parse_qsl(parsed.query, keep_blank_values=True)
+             if key.lower() not in ignored and not key.lower().startswith("utm_")]
+    query = urlencode(sorted(pairs, key=lambda pair: pair[0]))
+    return path + ("?" + query if query else "")
 
 
 def select_archive_root(output_dir: str) -> str:
@@ -54,7 +62,7 @@ def resolve_archived_page(serve_dir: str, request_route: str) -> str | None:
     manifest_path = os.path.join(root, "archive_manifest.json")
     try:
         manifest = json.loads(pathlib.Path(manifest_path).read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError, TypeError):
+    except (OSError, UnicodeError, json.JSONDecodeError, RecursionError, TypeError):
         return None
     if not isinstance(manifest, dict):
         return None

@@ -1,4 +1,4 @@
-# GUI Queue Guide — CYOA Downloader v1.1.1
+# GUI Queue Guide — CYOA Downloader v1.1.2
 
 ## Change a mode without removing the URL
 

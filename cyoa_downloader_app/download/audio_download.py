@@ -11,6 +11,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 
 from ..core.progress import DownloadCancelledError
 from ..logging_setup import logger
@@ -29,6 +30,13 @@ _COOKIE_DATABASE_LOCK_MARKERS = (
 _PROGRESS_CALLBACK_ERRORS = (Exception,)
 _YTDLP_BACKEND_ERRORS = (Exception,)
 _COOKIE_BACKEND_ERRORS = (Exception,)
+
+
+def _usable_audio_file(path: str) -> bool:
+    try:
+        return os.path.isfile(path) and os.path.getsize(path) > 0
+    except OSError:
+        return False
 
 
 def _is_cookie_database_lock_error(error: str | None) -> bool:
@@ -89,6 +97,8 @@ def _yt_dlp_progress_cb():
 def _make_ytdlp_hook(vid_id: str, idx: int, total: int):
     """Build a yt-dlp progress_hook that forwards to GUI callback."""
     def _hook(d: dict) -> None:
+        from ..core.cancellation import _raise_if_cancelled
+        _raise_if_cancelled()
         if d.get("status") == "downloading":
             pct   = d.get("_percent_str", "?%").strip()
             speed = d.get("_speed_str",   "?B/s").strip()
@@ -156,7 +166,7 @@ def _yt_dlp_runtime_options() -> dict[str, object]:
                 major = int(output.split(".", 1)[0])
                 if major < 22:
                     return None
-            except (IndexError, TypeError, ValueError):
+            except (OSError, subprocess.SubprocessError, IndexError, TypeError, ValueError):
                 return None
         return path
 
@@ -332,7 +342,7 @@ def _download_youtube_audio(
         rel_path     = f"audio/{vid_id}.mp3"
 
         # Already downloaded in a previous run — skip
-        if os.path.exists(expected_mp3):
+        if _usable_audio_file(expected_mp3):
             logger.info(f"  yt-dlp: already exists — {rel_path}")
             result[yt_url] = rel_path
             continue
@@ -378,7 +388,8 @@ def _download_youtube_audio(
             _exts = (".mp3", ".m4a", ".opus", ".webm", ".ogg", ".aac", ".wav")
             found = sorted([
                 f for f in os.listdir(audio_dir)
-                if f.startswith(vid_id) and f.lower().endswith(_exts)
+                if os.path.splitext(f)[0] == vid_id and f.lower().endswith(_exts)
+                and _usable_audio_file(os.path.join(audio_dir, f))
             ])
             return found[0] if found else None
 
@@ -564,13 +575,17 @@ def _download_youtube_audio(
                         ffmpeg_exe = "ffmpeg"
                     src_path = os.path.join(audio_dir, found_file)
                     dst_path = os.path.join(audio_dir, f"{vid_id}.mp3")
+                    conversion_path = None
                     try:
                         import subprocess as _sp
-                        _sp.run(
-                            [ffmpeg_exe, "-i", src_path, "-q:a", "2", "-y", dst_path],
+                        fd, conversion_path = tempfile.mkstemp(prefix=".cyoa-audio-", suffix=".part.mp3", dir=audio_dir)
+                        os.close(fd)
+                        converted = _sp.run(
+                            [ffmpeg_exe, "-i", src_path, "-q:a", "2", "-y", conversion_path],
                             capture_output=True, timeout=60, check=False,
                         )
-                        if os.path.exists(dst_path):
+                        if converted.returncode == 0 and _usable_audio_file(conversion_path):
+                            os.replace(conversion_path, dst_path)
                             os.remove(src_path)
                             rel_path = f"audio/{vid_id}.mp3"
                             result[yt_url] = rel_path
@@ -588,6 +603,12 @@ def _download_youtube_audio(
                             "                  brew install ffmpeg           (macOS)\n"
                             "                  sudo apt install ffmpeg       (Linux)"
                         )
+                    finally:
+                        if conversion_path and os.path.exists(conversion_path):
+                            try:
+                                os.remove(conversion_path)
+                            except OSError as exc:
+                                logger.debug("Could not remove temporary audio conversion: %s", exc)
             else:
                 reason = _summarize_ytdlp_error(last_error)
                 logger.warning(f"  yt-dlp: file not found after download: {url_clean} — {reason}")

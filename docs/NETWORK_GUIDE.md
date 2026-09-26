@@ -150,8 +150,8 @@ If a download fails:
    and Requests SOCKS support are available.
 6. For source installs, run `python cyoa_downloader.py --version`. For the GUI
    EXE, open **Properties → Details** and confirm that File Version and Product
-   Version are `1.1.1`; the in-app Help/Guide header also shows patch ID
-   `CYOA-v1.1.1`. Older executables may lack the asset-cache and offline
+   Version are `1.1.2`; the in-app Help/Guide header also shows patch ID
+   `CYOA-v1.1.2`. Older executables may lack the asset-cache and offline
    preview corrections.
 
 Settings validation itself never downloads a favicon or probes the target

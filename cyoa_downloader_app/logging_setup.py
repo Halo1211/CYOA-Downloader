@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import traceback
 from typing import Any
 
 logger = logging.getLogger("cyoa_downloader")
@@ -22,10 +23,13 @@ _SECRET_LOG_RE = re.compile(
     r'(?:[_-][a-z0-9]+)*'
     r')\b'
     r'(\s*[:=]\s*|[\'"]?\s*:\s*[\'"]?)'
-    r'([^,\s\'"}]{6,}|[\'"][^\'"]{6,}[\'"])'
+    r'([\'"][^\'"]+[\'"]|[^,\s\'"}&]+)'
 )
 
-_BEARER_LOG_RE = re.compile(r'(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{8,}')
+_BEARER_LOG_RE = re.compile(r'(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+')
+_URL_QUERY_SECRET_RE = re.compile(
+    r'(?i)([?&](?:key|api[_-]?key|access[_-]?token|token|signature|sig)=)[^&#\s\'"<>]+'
+)
 _URL_USERINFO_RE = re.compile(
     r"(?i)\b(?P<scheme>https?|socks[45]h?)://"
     r"(?P<username>[^/@:\s]+):(?P<password>[^/@\s]+)@"
@@ -38,6 +42,7 @@ def _redact_sensitive_text(value: Any) -> str:
     except _LOGGING_BOUNDARY_ERRORS:
         return "<unprintable>"
     text = _BEARER_LOG_RE.sub("Bearer __REDACTED__", text)
+    text = _URL_QUERY_SECRET_RE.sub(r"\1__REDACTED__", text)
     text = _URL_USERINFO_RE.sub(
         lambda match: (
             f"{match.group('scheme')}://{match.group('username')}:__REDACTED__@"
@@ -51,6 +56,13 @@ class _SecretRedactionFilter(logging.Filter):
         try:
             record.msg = _redact_sensitive_text(record.getMessage())
             record.args = ()
+            if record.exc_info:
+                record.exc_text = _redact_sensitive_text("".join(traceback.format_exception(*record.exc_info)))
+                record.exc_info = None
+            elif record.exc_text:
+                record.exc_text = _redact_sensitive_text(record.exc_text)
+            if record.stack_info:
+                record.stack_info = _redact_sensitive_text(record.stack_info)
         except _LOGGING_BOUNDARY_ERRORS:
             record.msg = "<unprintable log record>"; record.args = ()
         return True

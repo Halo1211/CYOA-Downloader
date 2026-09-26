@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import inspect
 import threading
+from collections.abc import Mapping
 from typing import Any
 
 from ..core.progress import DownloadCancelledError
@@ -84,7 +85,12 @@ def run_asset_scanner_plugins(
         try:
             res = fn(text, file_url, base_url, file_ext)
             if res:
-                out |= set(res)
+                if isinstance(res, (str, bytes, Mapping)):
+                    raise TypeError("Asset scanner must return an iterable of URL strings")
+                urls = set(res)
+                if any(not isinstance(url, str) or not url.strip() for url in urls):
+                    raise TypeError("Asset scanner returned an invalid URL entry")
+                out |= urls
         except DownloadCancelledError:
             raise
         except _PLUGIN_CALLBACK_ERRORS as e:
@@ -97,8 +103,10 @@ def run_engine_detector_plugins(html_text: str, mode: str = "auto") -> dict | No
     for name, fn in _ENGINE_DETECTOR_PLUGINS.items():
         try:
             res = fn(html_text, mode)
-            if res:
+            if isinstance(res, dict) and res:
                 return res
+            if res:
+                logger.debug("[plugin:detector:%s] ignored non-dictionary result", name)
         except DownloadCancelledError:
             raise
         except _PLUGIN_CALLBACK_ERRORS as e:

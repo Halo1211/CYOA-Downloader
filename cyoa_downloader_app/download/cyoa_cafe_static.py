@@ -72,19 +72,22 @@ def _download_one(record: dict[str, Any], folder: str, entry: tuple[str, str, st
         return_error_response=True,
         extra_headers={"Accept": "image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8,*/*;q=0.1"},
     )
-    if response is None or int(getattr(response, "status_code", 0) or 0) >= 400:
-        status = int(getattr(response, "status_code", 0) or 0) if response is not None else 0
-        if response is not None:
-            response.close()
-        raise OSError(f"HTTP {status or 'request failed'}")
-    content_type = str(response.headers.get("Content-Type") or "").split(";", 1)[0].lower()
-    if content_type and not content_type.startswith("image/"):
-        response.close()
-        raise OSError(f"unexpected content type {content_type}")
     try:
+        status = int(getattr(response, "status_code", 0) or 0) if response is not None else 0
+        if response is None or status >= 400:
+            raise OSError(f"HTTP {status or 'request failed'}")
+        content_type = str(response.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+        if content_type and not content_type.startswith("image/"):
+            raise OSError(f"unexpected content type {content_type}")
         size = atomic_stream_response_to_file(response, target)
     finally:
-        response.close()
+        if response is not None:
+            try:
+                response.close()
+            except DownloadCancelledError:
+                raise
+            except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as exc:
+                logger.debug("Could not close static gallery response: %s", exc)
     return {
         "kind": kind,
         "source_name": remote_name,
@@ -136,11 +139,14 @@ def download_cyoa_cafe_static_record(
         raise ValueError("cyoa.cafe record contains no supported image pages")
     downloaded: list[dict[str, Any]] = []
     failures: list[dict[str, str]] = []
-    workers = max(1, min(16, int(max_workers or 4)))
+    try:
+        workers = max(1, min(16, int(max_workers or 4)))
+    except (TypeError, ValueError, OverflowError):
+        workers = 4
     executor = ThreadPoolExecutor(max_workers=workers)
-    future_map = {executor.submit(_download_one, record, folder, entry): entry for entry in entries}
     completed_normally = False
     try:
+        future_map = {executor.submit(_download_one, record, folder, entry): entry for entry in entries}
         for future in as_completed(future_map):
             _raise_if_cancelled()
             kind, remote_name, _local = future_map[future]

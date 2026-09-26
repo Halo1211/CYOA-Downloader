@@ -47,7 +47,8 @@ def _normalize_proxy_url(value: str | None) -> str | None:
             "Proxy must use http://, https://, socks4://, socks5://, or socks5h://"
         )
     try:
-        _ = parsed.port
+        if parsed.port is not None and not 1 <= parsed.port <= 65535:
+            raise ValueError("Proxy port is invalid")
     except ValueError as exc:
         raise ValueError("Proxy port is invalid") from exc
     return text

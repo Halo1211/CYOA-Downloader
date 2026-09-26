@@ -50,7 +50,12 @@ def base_fetch_response(
     # for custom adapters). Scheme-relative "//host/x" is allowed upstream
     # because callers urljoin it first.
     try:
-        _scheme = urlparse(url).scheme.lower()
+        if not isinstance(url, str):
+            return None
+        parsed_url = urlparse(url)
+        _scheme = parsed_url.scheme.lower()
+        if not parsed_url.hostname or (parsed_url.port is not None and not 1 <= parsed_url.port <= 65535):
+            return None
     except (AttributeError, TypeError, ValueError):
         _scheme = ""
     if _scheme not in ("http", "https"):

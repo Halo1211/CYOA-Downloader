@@ -11,6 +11,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+from ..core.progress import DownloadCancelledError
 from ..logging_setup import logger
 from ..runtime import state
 from ..runtime.compat import mirror_to_legacy
@@ -76,7 +77,9 @@ def _v465_reset_shared_sessions() -> None:
         seen.add(id(session))
         try:
             session.close()
-        except (AttributeError, OSError, requests.RequestException) as exc:
+        except DownloadCancelledError:
+            raise
+        except (AttributeError, OSError, RuntimeError, TypeError, ValueError, requests.RequestException) as exc:
             logger.debug(f"Shared session close failed: {exc}")
 
 

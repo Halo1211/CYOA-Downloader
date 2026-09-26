@@ -15,7 +15,7 @@
 
 <p align="center">
   <a href="https://github.com/Halo1211/CYOA-Downloader/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Halo1211/CYOA-Downloader/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/Halo1211/CYOA-Downloader/releases/latest"><img alt="Version" src="https://img.shields.io/badge/version-v1.1.1-20c997.svg"></a>
+  <a href="https://github.com/Halo1211/CYOA-Downloader/releases/latest"><img alt="Version" src="https://img.shields.io/badge/version-v1.1.2-20c997.svg"></a>
   <img alt="Python" src="https://img.shields.io/badge/Python-3.10%2B-3aa6d0.svg">
   <img alt="UI" src="https://img.shields.io/badge/UI-CustomTkinter-d633b8.svg">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg"></a>
@@ -334,9 +334,11 @@ python -m pytest -q
 ruff check cyoa_downloader.py cyoa_downloader_app
 ```
 
-The offline regression suite covers download modes, local previews, integrations,
-and release checks. Some optional GUI/browser tests skip when their runtime is
-unavailable.
+The regression suite is consolidated in `tests/test_program.py`, with labeled
+sections covering download modes, local previews, integrations, and release
+checks. Run a section with `python -m pytest -q -k discord_attachments` (replace
+the section name as needed). Optional GUI/browser tests require
+`CYOA_GUI_SMOKE=1` / `CYOA_RUNTIME_SMOKE=1` and their installed runtimes.
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes. Security
 reports belong in [SECURITY.md](SECURITY.md). This project is distributed under

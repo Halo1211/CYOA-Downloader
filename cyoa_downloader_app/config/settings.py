@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import shutil
@@ -318,7 +319,8 @@ def _normalize_loaded_settings(data: dict[str, Any]) -> dict[str, Any]:
     temperature = merged.get("ai_temperature")
     if temperature is not None:
         try:
-            merged["ai_temperature"] = max(0.0, min(2.0, float(temperature)))
+            temperature = float(temperature)
+            merged["ai_temperature"] = max(0.0, min(2.0, temperature)) if math.isfinite(temperature) else None
         except (TypeError, ValueError, OverflowError):
             merged["ai_temperature"] = None
     return merged
@@ -359,7 +361,7 @@ def _format_settings_json(settings: dict[str, Any]) -> str:
 def _load_settings() -> dict[str, Any]:
     try:
         if os.path.exists(_SETTINGS_FILE):
-            with open(_SETTINGS_FILE, encoding="utf-8") as f:
+            with open(_SETTINGS_FILE, encoding="utf-8-sig") as f:
                 data = json.load(f)
             if not isinstance(data, dict):
                 raise ValueError("top-level value must be a JSON object")
@@ -387,7 +389,7 @@ def _load_settings() -> dict[str, Any]:
             if source.get("ai_api_key") and "ai_key_storage" not in source:
                 merged["ai_key_storage"] = "plain"
             return merged
-    except (OSError, UnicodeError, TypeError, ValueError) as e:
+    except (OSError, UnicodeError, TypeError, ValueError, RecursionError) as e:
         logger.warning(f"settings.json unreadable ({e}) — using defaults; "
                        f"backup saved as settings.json.corrupt")
         try:
@@ -397,15 +399,18 @@ def _load_settings() -> dict[str, Any]:
     return dict(_SETTINGS_DEFAULTS)
 
 
-def _save_settings(settings: dict[str, Any]) -> None:
+def _save_settings(settings: dict[str, Any]) -> bool:
+    """Return whether the atomic settings commit succeeded."""
     try:
         os.makedirs(os.path.dirname(os.path.abspath(_SETTINGS_FILE)) or ".", exist_ok=True)
         atomic_write_text(
             _SETTINGS_FILE,
             _format_settings_json(_normalize_loaded_settings(settings)),
         )
-    except (OSError, UnicodeError, TypeError, ValueError) as e:
+        return True
+    except (OSError, UnicodeError, TypeError, ValueError, RecursionError) as e:
         logger.warning(f"Could not save settings: {e}")
+        return False
 
 
 _SETTINGS_LOCK = threading.Lock()
@@ -419,12 +424,12 @@ def _update_setting(key: str, value: Any) -> None:
         _save_settings(s)
 
 
-def _update_settings(updates: dict[str, Any]) -> None:
-    """Thread-safe multi-key update under one lock acquisition."""
+def _update_settings(updates: dict[str, Any]) -> bool:
+    """Update keys under one lock and report whether they were persisted."""
     with _SETTINGS_LOCK, interprocess_file_lock(_SETTINGS_FILE):
         s = _load_settings()
         s.update(updates)
-        _save_settings(s)
+        return _save_settings(s)
 
 
 _THEME_MODE_CANONICAL = {
@@ -562,9 +567,9 @@ def import_settings(path: str) -> tuple[bool, str]:
     try:
         if not os.path.exists(path):
             return False, f"Import failed: file not found: {path}"
-        with open(path, encoding="utf-8") as f:
+        with open(path, encoding="utf-8-sig") as f:
             raw = json.load(f)
-    except json.JSONDecodeError as e:
+    except (json.JSONDecodeError, RecursionError) as e:
         return False, f"Import failed: invalid JSON ({e})."
     except (OSError, UnicodeError) as e:
         return False, f"Import failed: {e}"
@@ -620,7 +625,12 @@ def import_settings(path: str) -> tuple[bool, str]:
                        f"(secret={skipped_secret}, unknown={skipped_unknown}, "
                        f"type-mismatch={skipped_type}, redacted={skipped_redacted}).")
 
-    _update_settings(accepted)
+    try:
+        saved = _update_settings(accepted)
+        if saved is False:
+            return False, "Settings import failed: settings could not be saved."
+    except (OSError, RuntimeError, UnicodeError, TypeError, ValueError) as exc:
+        return False, f"Settings import failed: {exc}"
     return True, (f"Imported {len(accepted)} settings (merged). Skipped: "
                   f"{skipped_secret} secret, {skipped_unknown} unknown, "
                   f"{skipped_type} type-mismatch, {skipped_redacted} redacted.")

@@ -31,6 +31,8 @@ def load_resume_state(output_dir: str) -> dict:
     try:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
+        if not isinstance(data, dict):
+            return {"completed": [], "failed": []}
         completed = data.get("completed", [])
         failed = data.get("failed", [])
         if not isinstance(completed, list):
@@ -40,14 +42,14 @@ def load_resume_state(output_dir: str) -> dict:
         completed = [u for u in completed if isinstance(u, str)]
         failed = [u for u in failed if isinstance(u, str)]
         return {"completed": completed, "failed": failed}
-    except (OSError, UnicodeError, TypeError, ValueError):
+    except (OSError, UnicodeError, TypeError, ValueError, RecursionError):
         return {"completed": [], "failed": []}
 
 
 def save_resume_state(output_dir: str, completed: list, failed: list) -> None:
-    os.makedirs(output_dir, exist_ok=True)
     path = os.path.join(output_dir, _RESUME_FILE)
     try:
+        os.makedirs(output_dir, exist_ok=True)
         atomic_write_text(
             path,
             json.dumps(
@@ -61,7 +63,7 @@ def save_resume_state(output_dir: str, completed: list, failed: list) -> None:
                 ensure_ascii=False,
             ),
         )
-    except (OSError, UnicodeError, TypeError, ValueError) as e:
+    except (OSError, UnicodeError, TypeError, ValueError, RecursionError) as e:
         logger.warning(f"Could not save resume state: {e}")
 
 

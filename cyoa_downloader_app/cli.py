@@ -1170,7 +1170,7 @@ def main() -> None:
                 # that stream from the captured inline Flight queue so a
                 # hydration mismatch can recover without the live server.
                 from urllib.parse import parse_qs as _parse_qs
-                archived_page = resolve_archived_page(serve_dir, route)
+                archived_page = resolve_archived_page(serve_dir, self.path)
                 if "_rsc" in _parse_qs(query, keep_blank_values=True) and archived_page:
                     try:
                         raw = pathlib.Path(archived_page).read_text(encoding="utf-8")
@@ -1217,7 +1217,7 @@ def main() -> None:
                 except (OSError, UnicodeError) as e:
                     logger.debug(f"Archived JSON route unavailable: {e}")
 
-                if archived_page and route != "/":
+                if archived_page:
                     try:
                         raw = pathlib.Path(archived_page).read_text(encoding="utf-8")
                         if not any(flag in query for flag in (

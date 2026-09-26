@@ -48,7 +48,7 @@ def _cache_load() -> None:
                     })
             _cache_loaded = True
             logger.debug(f"Image cache: {len(_cache_index)} entries loaded")
-        except (OSError, UnicodeError, TypeError, ValueError) as e:
+        except (OSError, UnicodeError, TypeError, ValueError, RecursionError) as e:
             logger.debug(f"Image cache load failed: {e}")
             # Treat a malformed/unavailable index as an empty loaded cache for
             # this process. Re-parsing the same broken JSON on every image
@@ -79,6 +79,10 @@ def _cache_get(url: str) -> bytes | None:
         except OSError as _ignored_exc:
             logger.debug("Ignored recoverable exception in _cache_get: %s", _ignored_exc)
     with _cache_lock:
+        # Another downloader may have replaced this URL while we read the
+        # previous digest from disk. Invalidate only the entry we examined.
+        if _cache_index.get(url) != h:
+            return None
         _cache_index.pop(url, None)
         _cache_dirty.pop(url, None)
         _cache_removed.add(url)
@@ -235,7 +239,7 @@ def _v465_flush_cache_index() -> None:
                             and len(digest) == 64
                             and all(ch in "0123456789abcdefABCDEF" for ch in digest)
                         })
-                except (OSError, UnicodeError, TypeError, ValueError) as exc:
+                except (OSError, UnicodeError, TypeError, ValueError, RecursionError) as exc:
                     logger.debug(f"Image cache disk index merge failed: {exc}")
             if force_replace:
                 merged = snapshot
@@ -297,7 +301,14 @@ def _cache_put(url: str, data: bytes) -> None:
         folder = _CACHE_DIR / digest[:2]
         folder.mkdir(parents=True, exist_ok=True)
         target = folder / digest
-        if not target.exists():
+        needs_write = True
+        if target.exists():
+            try:
+                needs_write = _hashlib.sha256(target.read_bytes()).hexdigest() != digest
+            except FileNotFoundError:
+                # Eviction may remove the entry after the existence check.
+                pass
+        if needs_write:
             atomic_write_bytes(str(target), data)
         with _cache_lock:
             _cache_index[url] = digest

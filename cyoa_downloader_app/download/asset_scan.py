@@ -12,7 +12,9 @@ import json
 import os
 import re
 import threading as _threading
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from html import unescape
+from html.parser import HTMLParser
 from urllib.parse import urljoin, urlparse, urlunparse
 
 import requests
@@ -60,8 +62,51 @@ _JSON_ASSET_EXTENSIONS = (
 
 def _normalize_embedded_http_url(value: str) -> str:
     """Repair the common ``https:/host`` typo found in hand-authored HTML."""
-    value = str(value or "").strip().rstrip(".,;:)]}")
+    value = str(value or "").strip()
     return re.sub(r"^(https?):/(?!/)", r"\1://", value, flags=re.IGNORECASE)
+
+
+def _srcset_urls(value: str) -> Iterator[str]:
+    """Read candidate URLs without treating a data URL's comma as a separator."""
+    position = 0
+    candidate_pattern = re.compile(r"[\s,]*([^\s]+)")
+    while position < len(value):
+        match = candidate_pattern.match(value, position)
+        if not match:
+            break
+        token = match.group(1)
+        position = match.end()
+        yield token.rstrip(",")
+        if token.endswith(","):
+            continue
+        # Skip density/width descriptors until the next candidate.
+        separator = value.find(",", position)
+        if separator < 0:
+            break
+        position = separator + 1
+
+
+class _ImageAttributeParser(HTMLParser):
+    """Collect each image attribute and decoded text from rich project fields."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.references: list[str] = []
+        self.text: list[str] = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag not in {"img", "source"}:
+            return
+        for name, value in attrs:
+            if not value:
+                continue
+            if name == "src":
+                self.references.append(value)
+            elif name == "srcset":
+                self.references.extend(_srcset_urls(value))
+
+    def handle_data(self, data):
+        self.text.append(data)
 
 
 def _is_image_reference(value: str) -> bool:
@@ -91,8 +136,10 @@ def _extract_image_references(value: str, *, allow_bare_path: bool = False) -> s
 
     def add(raw: str, *, require_image_extension: bool = False) -> None:
         candidate = _normalize_embedded_http_url(raw)
-        if not candidate or candidate.startswith(("data:", "javascript:", "#")):
+        if not candidate or candidate.lower().startswith(("data:", "blob:", "javascript:", "#")):
             return
+        if candidate.startswith("//"):
+            candidate = "https:" + candidate
         if require_image_extension and not _is_image_reference(candidate):
             return
         refs.add(candidate)
@@ -107,25 +154,31 @@ def _extract_image_references(value: str, *, allow_bare_path: bool = False) -> s
         add("https:" + text)
         return refs
 
-    # Image-bearing HTML/CSS attributes can contain extensionless proxy URLs.
+    # Parse attributes independently: both fallback src and every srcset
+    # candidate matter, and HTML character references are decoded by browsers.
+    prose = text
+    if "<" in text:
+        parser = _ImageAttributeParser()
+        parser.feed(text)
+        parser.close()
+        for raw in parser.references:
+            add(raw)
+        prose = " ".join(parser.text)
+
+    # CSS can also contain extensionless proxy URLs.
     for match in re.finditer(
-        r"<(?:img|source)[^>]+(?:src|srcset)\s*=\s*[\"']([^\"']+)[\"']"
-        r"|(?:background(?:-image)?|src)\s*:\s*url\(\s*[\"']?([^\"')\s]+)",
+        r"(?:background(?:-image)?|src)\s*:\s*url\(\s*[\"']?([^\"')\s]+)",
         text,
         re.IGNORECASE,
     ):
-        raw = match.group(1) or match.group(2) or ""
-        if "," in raw and " " in raw:
-            raw = raw.split(",", 1)[0].strip().split()[0]
-        if raw.startswith("//"):
-            raw = "https:" + raw
+        raw = match.group(1) or ""
         if raw:
             add(raw)
 
     # Prose labels commonly precede a real CDN URL. Only accept embedded URLs
     # that look like image files, so unrelated links in intro HTML are ignored.
-    for match in _EMBEDDED_HTTP_URL_RE.finditer(text):
-        add(match.group(0), require_image_extension=True)
+    for match in _EMBEDDED_HTTP_URL_RE.finditer(prose):
+        add(match.group(0).rstrip(".,;:)]}"), require_image_extension=True)
 
     if refs:
         return refs
@@ -151,7 +204,7 @@ def _scan_large_json_for_assets(
     """
     try:
         root = json.loads(text)
-    except (TypeError, ValueError, json.JSONDecodeError):
+    except (TypeError, ValueError, RecursionError):
         # Malformed or JSON-like JavaScript still needs the general scanner.
         return set()
 
@@ -196,7 +249,10 @@ def _scan_large_json_for_assets(
         # Rich-text fields may contain image attributes or absolute asset URLs.
         for image_ref in _extract_image_references(candidate):
             add_candidate(image_ref)
-        for match in _EMBEDDED_HTTP_URL_RE.finditer(candidate):
+        # Keep other absolute HTML assets (CSS/audio/posters) while decoding
+        # attribute entities exactly once. Plain URL fields stay literal.
+        prose = unescape(candidate) if "<" in candidate else candidate
+        for match in _EMBEDDED_HTTP_URL_RE.finditer(prose):
             add_candidate(match.group(0))
         for match in re.finditer(
             r"url\(\s*[\"']?([^\"')\s]+)[\"']?\s*\)",
@@ -313,7 +369,7 @@ def _scan_file_for_assets(
         try:
             json.loads(text)
             return set()
-        except (TypeError, ValueError, json.JSONDecodeError):
+        except (TypeError, ValueError, RecursionError):
             pass
 
     found: set[str] = set()
@@ -660,8 +716,7 @@ def _scan_file_for_assets(
 
     # ── srcset (scan in ALL file types — JS template strings can carry it) ──
     for m in _re.finditer(r'srcset\s*=\s*["\']([^"\']+)["\']', text, _re.IGNORECASE):
-        for entry in m.group(1).split(','):
-            url_part = entry.strip().split()[0] if entry.strip() else ''
+        for url_part in _srcset_urls(unescape(m.group(1))):
             if url_part:
                 r = _resolve(url_part)
                 if r: found.add(r)
@@ -756,17 +811,16 @@ def _scan_file_for_assets(
                     if resolved:
                         found.add(resolved)
 
-                def _walk_manifest(obj):
+                stack = [manifest]
+                while stack:
+                    obj = stack.pop()
                     if isinstance(obj, str):
                         _add_manifest_asset(obj)
                     elif isinstance(obj, dict):
-                        for v in obj.values():
-                            _walk_manifest(v)
+                        stack.extend(obj.values())
                     elif isinstance(obj, list):
-                        for v in obj:
-                            _walk_manifest(v)
-                _walk_manifest(manifest)
-        except (json.JSONDecodeError, ValueError) as _ignored_exc:
+                        stack.extend(obj)
+        except (ValueError, RecursionError) as _ignored_exc:
             logger.debug("Ignored recoverable exception in _scan_file_for_assets (line 19015): %s", _ignored_exc)
 
     # ── Service Worker precache manifest ──────────────────────────────

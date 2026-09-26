@@ -21,7 +21,8 @@ except ImportError:  # pragma: no cover - mirrors legacy dependency error
         )
 
 from ..constants.assets import FONT_EXTENSIONS
-from ..core.atomic_io import atomic_write_bytes
+from ..core.atomic_io import atomic_write_bytes, validate_response_content_length
+from ..core.cancellation import _raise_if_cancelled
 from ..core.progress import DownloadCancelledError
 from ..logging_setup import logger
 from ..network.fetch import fetch_response
@@ -42,6 +43,13 @@ _NETWORK_OPERATION_ERRORS = (
     ValueError,
     requests.RequestException,
 )
+
+
+def _is_font_reference(url: str) -> bool:
+    try:
+        return urlparse(url).path.lower().endswith(tuple(FONT_EXTENSIONS)) and not url.lower().startswith("data:")
+    except (TypeError, ValueError):
+        return False
 
 
 def _find_font_urls(
@@ -104,8 +112,7 @@ def _find_font_urls(
         for fu in re.findall(r'url\(["\']?([^"\')\s]+)["\']?\)', css_text or ''):
             if not fu or fu.startswith('data:'):
                 continue
-            clean = fu.split('?', 1)[0].lower()
-            if any(clean.endswith(ext) for ext in FONT_EXTENSIONS):
+            if _is_font_reference(fu):
                 resolved = fu if fu.startswith(('http://', 'https://')) else urljoin(source_url or base_url, fu)
                 raw_font_urls.append((resolved, 'ICC Plus customCSS url()'))
         for gf in re.findall(r'https://fonts\.googleapis\.com/css[^\s"\'<>]*', css_text or ''):
@@ -156,7 +163,7 @@ def _find_font_urls(
 
     # CSS url() references in project.json
     for fu in re.findall(r'url\(["\']?([^"\')\s]+)["\']?\)', project_str):
-        if any(fu.lower().endswith(ext) for ext in FONT_EXTENSIONS) and not fu.startswith("data:"):
+        if _is_font_reference(fu):
             url = fu if fu.startswith("http") else urljoin(base_url.rstrip("/") + "/", fu)
             raw_font_urls.append((url, "project.json CSS url()"))
 
@@ -169,7 +176,7 @@ def _find_font_urls(
             href = tag.get("href", "")
             if "fonts.googleapis.com" in href:
                 gf_css_urls.add(href)
-            elif any(href.lower().endswith(ext) for ext in FONT_EXTENSIONS):
+            elif _is_font_reference(href):
                 url = href if href.startswith("http") else urljoin(base_url, href)
                 raw_font_urls.append((url, "index.html <link>"))
 
@@ -177,15 +184,21 @@ def _find_font_urls(
         for style_tag in soup_h.find_all("style"):
             css_text = style_tag.string or ""
             for fu in re.findall(r'url\(["\']?([^"\')\s]+)["\']?\)', css_text):
-                if any(fu.lower().endswith(ext) for ext in FONT_EXTENSIONS) and not fu.startswith("data:"):
+                if _is_font_reference(fu):
                     url = fu if fu.startswith("http") else urljoin(base_url, fu)
                     raw_font_urls.append((url, "index.html inline <style>"))
 
     # ── 3. Scan extra CSS files ──────────────────────────────────────
     for css_url in (extra_css_urls or []):
-        css_text = get_source(css_url) or ""
+        try:
+            css_text = get_source(css_url) or ""
+        except DownloadCancelledError:
+            raise
+        except _NETWORK_OPERATION_ERRORS as exc:
+            logger.debug("Font stylesheet scan failed for %s: %s", css_url, exc)
+            continue
         for fu in re.findall(r'url\(["\']?([^"\')\s]+)["\']?\)', css_text):
-            if any(fu.lower().endswith(ext) for ext in FONT_EXTENSIONS) and not fu.startswith("data:"):
+            if _is_font_reference(fu):
                 resolved = fu if fu.startswith("http") else urljoin(css_url, fu)
                 raw_font_urls.append((resolved, f"CSS: {css_url}"))
         for gf in re.findall(r'https://fonts\.googleapis\.com/css[^\s"\'<>]*', css_text):
@@ -195,11 +208,17 @@ def _find_font_urls(
     def _resolve_gf_css(gf_url: str) -> list[tuple[str, str]]:
         found: list[tuple[str, str]] = []
         logger.info(f"  Resolving Google Fonts: {gf_url}")
-        css = get_source(gf_url, extra_headers={"User-Agent": "Mozilla/5.0"})
+        try:
+            css = get_source(gf_url, extra_headers={"User-Agent": "Mozilla/5.0"})
+        except DownloadCancelledError:
+            raise
+        except _NETWORK_OPERATION_ERRORS as exc:
+            logger.debug("Google Fonts stylesheet scan failed for %s: %s", gf_url, exc)
+            return found
         if css:
             for fu in re.findall(r'url\(([^)]+)\)', css):
                 fu = fu.strip("\"'")
-                if any(fu.lower().endswith(ext) for ext in FONT_EXTENSIONS):
+                if _is_font_reference(fu):
                     found.append((fu, f"Google Fonts ({gf_url})"))
         return found
 
@@ -289,6 +308,7 @@ def _download_fonts_into_folder(
         font_url, _source = item
         r = None
         try:
+            _raise_if_cancelled()
             r = fetch_response(
                 font_url, timeout=20,
                 extra_headers={"User-Agent": "Mozilla/5.0"},
@@ -298,7 +318,12 @@ def _download_fonts_into_folder(
                 raise RuntimeError("request failed")
             if r.status_code != 200:
                 raise RuntimeError(f"HTTP {r.status_code}")
-            return font_url, r.content
+            content = r.content
+            if not content:
+                raise OSError("empty font response")
+            validate_response_content_length(r, len(content))
+            _raise_if_cancelled()
+            return font_url, content
         except DownloadCancelledError:
             raise
         except _NETWORK_OPERATION_ERRORS as e:
@@ -308,6 +333,8 @@ def _download_fonts_into_folder(
             if r is not None:
                 try:
                     r.close()
+                except DownloadCancelledError:
+                    raise
                 except _RESPONSE_CLEANUP_ERRORS as close_exc:
                     logger.debug("Font response close failed for %s: %s", font_url, close_exc)
 
@@ -353,23 +380,26 @@ def _download_fonts_into_folder(
                     fn = clean_url_path_component(f"{base_fn}_{counter}{ext_fn}")
                     counter += 1
                     save_path = os.path.join(fonts_dir, fn)
-            atomic_write_bytes(save_path, content)
+            _raise_if_cancelled()
+            try:
+                atomic_write_bytes(save_path, content)
+            except DownloadCancelledError:
+                raise
+            except (OSError, RuntimeError, TypeError, ValueError) as exc:
+                logger.error("Font could not be saved: %s — %s", font_url, exc)
+                continue
             saved_names[fn] = save_path
             local_name = f"fonts/{fn}"
             for alias, _ in font_groups[_font_url_identity(font_url)]:
                 url_to_local[alias] = local_name
             logger.info(f"  Saved font: {fn}  ({fonts[font_url]})")
 
-    # Rewrite project_str
-    for orig, local in url_to_local.items():
-        project_str = project_str.replace(orig, local)
-        # Also rewrite the JSON-escaped occurrence
-        # ("https:\/\/cdn\/f.woff2") that _find_font_urls now discovers via its
-        # unescaped form; plain replace() alone would miss it. Forward slashes
-        # need no escaping in JSON, so the plain local path stays valid.
-        esc = orig.replace("/", "\\/")
-        if esc != orig and esc in project_str:
-            project_str = project_str.replace(esc, local)
+    # Match longest aliases first and replace once, including JSON slash escapes.
+    replacements = dict(url_to_local)
+    replacements.update({url.replace("/", "\\/"): local for url, local in url_to_local.items()})
+    if replacements:
+        pattern = re.compile("|".join(re.escape(url) for url in sorted(replacements, key=len, reverse=True)))
+        project_str = pattern.sub(lambda match: replacements[match.group(0)], project_str)
 
     return project_str
 

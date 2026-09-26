@@ -179,7 +179,7 @@ def canonicalize_url(url: str) -> str:
     # the authority so the canonical URL remains parseable.
     display_host = f"[{host}]" if ":" in host else host
     netloc = display_host
-    if port and not ((scheme == "http" and port == 80) or (scheme == "https" and port == 443)):
+    if port is not None and not ((scheme == "http" and port == 80) or (scheme == "https" and port == 443)):
         netloc = f"{display_host}:{port}"
     path = parsed.path or "/"
     # RFC 3986 dot-segment removal must preserve empty path segments.  Using
@@ -195,7 +195,7 @@ def canonicalize_url(url: str) -> str:
     path = (
         normalized_path.removeprefix(marker)
     ) or "/"
-    return urlunparse((scheme, netloc, path, "", parsed.query, ""))
+    return urlunparse((scheme, netloc, path, parsed.params, parsed.query, ""))
 
 
 __all__ = [

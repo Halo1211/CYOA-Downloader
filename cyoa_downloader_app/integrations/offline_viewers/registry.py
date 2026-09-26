@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import tempfile
 import threading
 import zipfile
 from collections.abc import Mapping
@@ -16,6 +17,7 @@ from collections.abc import Mapping
 from ...core.archive import validate_zip_archive
 from ...core.atomic_io import atomic_write_bytes, atomic_write_text, interprocess_file_lock
 from ...core.paths import _safe_archive_rel_path
+from ...core.progress import DownloadCancelledError
 from ...logging_setup import logger
 
 
@@ -240,12 +242,12 @@ def _load_viewers_manifest() -> dict[str, dict]:
                     normalized["inner_archive"] = inner_archive
                     cleaned[viewer_id] = normalized
                 return cleaned
-    except (json.JSONDecodeError, OSError, TypeError, UnicodeError, ValueError) as _ignored_exc:
+    except (json.JSONDecodeError, OSError, RecursionError, TypeError, UnicodeError, ValueError) as _ignored_exc:
         logger.debug("Ignored recoverable exception in _load_viewers_manifest (line 2415): %s", _ignored_exc)
     return {}
 
 
-def _save_viewers_manifest(manifest: dict[str, dict]) -> None:
+def _save_viewers_manifest(manifest: dict[str, dict]) -> bool:
     """Atomically save offline viewer registry."""
     try:
         os.makedirs(_VIEWERS_DIR, exist_ok=True)
@@ -253,8 +255,10 @@ def _save_viewers_manifest(manifest: dict[str, dict]) -> None:
             _VIEWERS_MANIFEST,
             json.dumps(manifest, indent=2, ensure_ascii=False),
         )
+        return True
     except (OSError, TypeError, ValueError) as e:
         logger.warning(f"Could not save viewers manifest: {e}")
+        return False
 
 
 def register_offline_viewer(
@@ -282,40 +286,39 @@ def register_offline_viewer(
     source_path = os.path.abspath(zip_path)
     source_name = os.path.basename(os.path.normpath(source_path))
     if os.path.isdir(source_path):
-        os.makedirs(_VIEWERS_DIR, exist_ok=True)
-        viewer_id = source_name
-        packed_path = os.path.join(_VIEWERS_DIR, f"{viewer_id}.zip")
-        part_path = packed_path + f".{os.getpid()}.{threading.get_ident()}.part"
         member_count = 0
         total_size = 0
         try:
-            with _zf.ZipFile(part_path, "w", compression=_zf.ZIP_DEFLATED) as archive:
-                for root, dirs, files in os.walk(source_path):
-                    dirs.sort()
-                    files.sort()
-                    for filename in files:
-                        full_path = os.path.join(root, filename)
-                        rel_path = os.path.relpath(full_path, source_path).replace("\\", "/")
-                        _safe_archive_rel_path(rel_path)
-                        file_size = os.path.getsize(full_path)
-                        member_count += 1
-                        total_size += file_size
-                        if member_count > 10000:
-                            raise ValueError("Viewer folder contains too many files")
-                        if file_size > 1024 * 1024 * 1024:
-                            raise ValueError(f"Viewer file is too large: {rel_path}")
-                        if total_size > 4 * 1024 * 1024 * 1024:
-                            raise ValueError("Viewer folder is larger than 4 GiB")
-                        archive.write(full_path, rel_path)
-            os.replace(part_path, packed_path)
-            zip_path = packed_path
-            logger.info("Packed unpacked viewer folder: %s", source_path)
+            # Package away from the registered destination, then use the same
+            # rollback-capable import transaction as a user-supplied archive.
+            with tempfile.TemporaryDirectory(prefix="cyoa_viewer_") as staging:
+                packed_path = os.path.join(staging, source_name + ".zip")
+                with _zf.ZipFile(packed_path, "w", compression=_zf.ZIP_DEFLATED) as archive:
+                    for root, dirs, files in os.walk(source_path):
+                        dirs.sort()
+                        files.sort()
+                        for filename in files:
+                            full_path = os.path.join(root, filename)
+                            rel_path = os.path.relpath(full_path, source_path).replace("\\", "/")
+                            _safe_archive_rel_path(rel_path)
+                            file_size = os.path.getsize(full_path)
+                            member_count += 1
+                            total_size += file_size
+                            if member_count > 10000:
+                                raise ValueError("Viewer folder contains too many files")
+                            if file_size > 1024 * 1024 * 1024:
+                                raise ValueError(f"Viewer file is too large: {rel_path}")
+                            if total_size > 4 * 1024 * 1024 * 1024:
+                                raise ValueError("Viewer folder is larger than 4 GiB")
+                            archive.write(full_path, rel_path)
+                logger.info("Packed unpacked viewer folder: %s", source_path)
+                return register_offline_viewer(
+                    packed_path, name=name, viewer_type=viewer_type, description=description,
+                    project_json_path=project_json_path, entry_point=entry_point,
+                )
+        except DownloadCancelledError:
+            raise
         except (OSError, ValueError, _zf.BadZipFile) as exc:
-            try:
-                if os.path.exists(part_path):
-                    os.remove(part_path)
-            except OSError:
-                pass
             logger.error("Cannot package offline viewer folder %s: %s", source_path, exc)
             return None
 
@@ -437,36 +440,58 @@ def register_offline_viewer(
         elif has_plus2_online_loader:
             viewer_variant = "online"
 
-    os.makedirs(_VIEWERS_DIR, exist_ok=True)
     viewer_id = os.path.splitext(os.path.basename(zip_path))[0]
     dest      = os.path.join(_VIEWERS_DIR, os.path.basename(zip_path))
-    with _VIEWERS_LOCK, interprocess_file_lock(_VIEWERS_MANIFEST):
-        if os.path.abspath(dest) != os.path.abspath(zip_path):
-            part = dest + f".{os.getpid()}.{threading.get_ident()}.part"
+    try:
+        os.makedirs(_VIEWERS_DIR, exist_ok=True)
+        with _VIEWERS_LOCK, interprocess_file_lock(_VIEWERS_MANIFEST):
+            part = backup = None
+            copied = committed = False
             try:
-                shutil.copy2(zip_path, part)
-                os.replace(part, dest)
-            finally:
-                try:
-                    if os.path.exists(part):
-                        os.remove(part)
-                except OSError as exc:
-                    logger.debug(f"Could not remove partial viewer archive {part}: {exc}")
+                if os.path.abspath(dest) != os.path.abspath(zip_path):
+                    fd, part = tempfile.mkstemp(prefix=".viewer-", suffix=".part", dir=_VIEWERS_DIR)
+                    os.close(fd)
+                    shutil.copy2(zip_path, part)
+                    if os.path.exists(dest):
+                        fd, backup = tempfile.mkstemp(prefix=".viewer-", suffix=".backup", dir=_VIEWERS_DIR)
+                        os.close(fd)
+                        shutil.copy2(dest, backup)
+                    os.replace(part, dest)
+                    copied = True
 
-        manifest = _load_viewers_manifest()
-        manifest[viewer_id] = {
-            "name":              name or viewer_id,
-            "zip_filename":      os.path.basename(zip_path),
-            "viewer_type":       detected_type,
-            "description":       description,
-            "entry_point":       entry_point or "index.html",
-            "project_json_path": project_json_path,
-            "inner_archive":     inner_archive,
-            "runtime_family":    runtime_family,
-            "viewer_variant":    viewer_variant,
-            "registered_at":     __import__("datetime").datetime.now().isoformat(),
-        }
-        _save_viewers_manifest(manifest)
+                manifest = _load_viewers_manifest()
+                manifest[viewer_id] = {
+                    "name":              name or viewer_id,
+                    "zip_filename":      os.path.basename(zip_path),
+                    "viewer_type":       detected_type,
+                    "description":       description,
+                    "entry_point":       entry_point or "index.html",
+                    "project_json_path": project_json_path,
+                    "inner_archive":     inner_archive,
+                    "runtime_family":    runtime_family,
+                    "viewer_variant":    viewer_variant,
+                    "registered_at":     __import__("datetime").datetime.now().isoformat(),
+                }
+                if _save_viewers_manifest(manifest) is False:
+                    return None
+                committed = True
+            finally:
+                if copied and not committed:
+                    if backup:
+                        os.replace(backup, dest)
+                    else:
+                        os.remove(dest)
+                for temporary in (part, backup):
+                    try:
+                        if temporary and os.path.exists(temporary):
+                            os.remove(temporary)
+                    except OSError as exc:
+                        logger.debug("Could not remove temporary viewer archive %s: %s", temporary, exc)
+    except DownloadCancelledError:
+        raise
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        logger.error("Could not register offline viewer %s: %s", viewer_id, exc)
+        return None
     logger.info(f"Offline viewer registered: '{viewer_id}' (type: {detected_type})")
     return viewer_id
 
@@ -595,22 +620,29 @@ def _extract_iccplus_subviewers(iccplus_zip_path: str) -> None:
 
 def unregister_offline_viewer(viewer_id: str, delete_zip: bool = False) -> bool:
     """Remove a viewer from the registry, optionally delete the ZIP."""
-    with _VIEWERS_LOCK, interprocess_file_lock(_VIEWERS_MANIFEST):
-        manifest = _load_viewers_manifest()
-        if viewer_id not in manifest:
-            return False
-        entry = manifest.pop(viewer_id)
-        if delete_zip:
-            zip_filename = _safe_viewer_archive_name(entry.get("zip_filename", ""))
-            zip_path = os.path.join(_VIEWERS_DIR, zip_filename) if zip_filename else ""
-            try:
-                if zip_path and os.path.exists(zip_path):
-                    os.remove(zip_path)
-                elif not zip_filename:
-                    logger.warning("Refusing to delete unsafe offline viewer archive path")
-            except OSError as e:
-                logger.warning(f"Could not delete viewer ZIP: {e}")
-        _save_viewers_manifest(manifest)
+    try:
+        with _VIEWERS_LOCK, interprocess_file_lock(_VIEWERS_MANIFEST):
+            manifest = _load_viewers_manifest()
+            if viewer_id not in manifest:
+                return False
+            entry = manifest.pop(viewer_id)
+            if _save_viewers_manifest(manifest) is False:
+                return False
+            if delete_zip:
+                zip_filename = _safe_viewer_archive_name(entry.get("zip_filename", ""))
+                zip_path = os.path.join(_VIEWERS_DIR, zip_filename) if zip_filename else ""
+                try:
+                    if zip_path and os.path.exists(zip_path):
+                        os.remove(zip_path)
+                    elif not zip_filename:
+                        logger.warning("Refusing to delete unsafe offline viewer archive path")
+                except OSError as e:
+                    logger.warning(f"Could not delete viewer ZIP: {e}")
+    except DownloadCancelledError:
+        raise
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        logger.warning("Could not unregister offline viewer %s: %s", viewer_id, exc)
+        return False
     logger.info(f"Offline viewer removed: {viewer_id!r}")
     return True
 

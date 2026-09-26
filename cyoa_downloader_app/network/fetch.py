@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import requests
 
+from ..core.atomic_io import decoded_response_content_length
 from ._bridge import legacy
 
 
@@ -31,11 +32,7 @@ def fetch_response(
     try:
         l._raise_if_cancelled()
         if response is not None:
-            raw_length = response.headers.get("Content-Length")
-            try:
-                length = int(raw_length) if raw_length not in (None, "") else None
-            except (TypeError, ValueError):
-                length = None
+            length = decoded_response_content_length(response)
             if as_bytes:
                 l.validate_response_content_length(response, len(response.content))
             l._emit_progress_event(
@@ -51,7 +48,7 @@ def fetch_response(
         if response is not None:
             try:
                 response.close()
-            except (AttributeError, OSError, requests.RequestException) as exc:
+            except (AttributeError, OSError, RuntimeError, TypeError, ValueError, requests.RequestException) as exc:
                 l.logger.debug("Could not close abandoned response for %s: %s", url, exc)
         raise
     return response

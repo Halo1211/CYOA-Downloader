@@ -1,4 +1,4 @@
-# Discord Attachment Recovery Guide — CYOA Downloader v1.1.1
+# Discord Attachment Recovery Guide — CYOA Downloader v1.1.2
 
 Discord attachment recovery is part of the normal CYOA Downloader pipeline.
 There is no separate recovery application, input JSON selector, or output JSON

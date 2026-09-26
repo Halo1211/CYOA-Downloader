@@ -276,7 +276,7 @@ def _base_run_download(
     # download concept/inputs/outputs unchanged.
     try:
         max_workers = max(1, min(64, int(max_workers)))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         max_workers = DEFAULT_MAX_WORKERS
     ai_provider = _normalize_ai_provider(ai_provider or _get_ai_provider())
     ai_mode = _normalize_ai_mode(ai_mode or _load_settings().get("ai_mode", "auto_fallback"))
@@ -336,6 +336,7 @@ def _base_run_download(
     _RUN_DOWNLOAD_LOCK.acquire()
     original_dir = os.getcwd()
     tmp = None  # pre-bind so finally cleanup is NameError-safe
+    viewer = None
     output_lease = None
     output_lease_active = False
     try:
@@ -427,6 +428,8 @@ def _base_run_download(
                 if engine_mode == "cyoap_vue":
                     raise RuntimeError("cyoap_vue mode selected, but dist/platform.json + dist/nodes/list.json were not found.")
                 logger.info("cyoap_vue probe: no dist/platform.json + dist/nodes/list.json pair found; falling back.")
+            except DownloadCancelledError:
+                raise
             except Exception as e:
                 if engine_mode == "cyoap_vue":
                     raise
@@ -1009,18 +1012,27 @@ def _base_run_download(
         # /tmp/cyoa_* working folder. Path 1 (ICC) already used try/finally; this
         # brings the zip/embed/both path to parity.
         try:
-            if tmp and os.path.isdir(tmp):
-                delete_temp_folder(tmp)
-        except (OSError, RuntimeError) as _ignored_tmp_exc:
-            logger.debug("Ignored temp cleanup exception: %s", _ignored_tmp_exc)
-        try:
-            os.chdir(original_dir)
+            try:
+                if viewer is not None:
+                    viewer.close()
+            except DownloadCancelledError:
+                raise
+            except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as exc:
+                logger.debug("Could not close website downloader: %s", exc)
+            try:
+                if tmp and os.path.isdir(tmp):
+                    delete_temp_folder(tmp)
+            except (OSError, RuntimeError) as _ignored_tmp_exc:
+                logger.debug("Ignored temp cleanup exception: %s", _ignored_tmp_exc)
         finally:
             try:
-                if output_lease_active and output_lease is not None:
-                    output_lease.__exit__(None, None, None)
+                os.chdir(original_dir)
             finally:
-                _RUN_DOWNLOAD_LOCK.release()
+                try:
+                    if output_lease_active and output_lease is not None:
+                        output_lease.__exit__(None, None, None)
+                finally:
+                    _RUN_DOWNLOAD_LOCK.release()
 
     logger.info("Download successful.")
 

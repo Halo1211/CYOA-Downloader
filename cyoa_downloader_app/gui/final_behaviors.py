@@ -2868,7 +2868,9 @@ def _v46_done(self) -> None:
     if failed or asset_failed:
         self._v46_copy_error_btn.configure(state="normal")
     if cancelled:
-        self._v46_enqueue_progress({"type": "job_cancelled", "time": time.monotonic()})
+        # The worker already counted the interrupted job. Finalizing the GUI
+        # changes the queue state without counting that job a second time.
+        self._v46_enqueue_progress({"type": "stage_changed", "state": DownloadState.CANCELLED.value, "time": time.monotonic()})
     elif failed or asset_failed:
         self._v46_enqueue_progress({"type": "stage_changed", "state": DownloadState.COMPLETED_WITH_WARNINGS.value, "time": time.monotonic()})
     else:
@@ -2891,6 +2893,12 @@ def _v46_done(self) -> None:
     if sys.modules.get(__name__) is not None:
         sys.modules[__name__]._gui_speed_cb = None
         sys.modules[__name__]._ytdlp_gui_progress_cb = None
+    _runtime_state._gui_speed_cb = None
+    _runtime_state._ytdlp_gui_progress_cb = None
+    from ..runtime.compat import mirror_to_legacy
+
+    mirror_to_legacy("_gui_speed_cb", None)
+    mirror_to_legacy("_ytdlp_gui_progress_cb", None)
     clear_progress_event_sink()
     if self._v46_close_pending:
         self.root.after(50, self._v46_finish_close)

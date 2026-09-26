@@ -10,6 +10,7 @@ from urllib.parse import urljoin
 
 from ..core.atomic_io import atomic_write_text
 from ..core.paths import _safe_join
+from ..core.progress import DownloadCancelledError
 from ..logging_setup import logger
 from .archive_policy import ArchivePolicy
 from .archive_profiler import profile_archive_target
@@ -138,11 +139,14 @@ def resume_existing_archive(folder: str, start_url: str, policy: ArchivePolicy):
         old_manifest = json.loads(pathlib.Path(manifest_path).read_text(encoding="utf-8"))
         if not isinstance(old_manifest, dict):
             raise TypeError("manifest root must be an object")
-    except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+    except (OSError, RecursionError, TypeError, ValueError, json.JSONDecodeError) as exc:
         logger.warning("Archive manifest is unreadable; rebuilding recovery manifest: %s", exc)
         old_manifest = finalize_existing_archive(folder, start_url, policy)
     existing = {}
-    for item in old_manifest.get("pages", []):
+    old_pages = old_manifest.get("pages", [])
+    if not isinstance(old_pages, list):
+        old_pages = []
+    for item in old_pages:
         if not isinstance(item, dict) or not item.get("url") or not item.get("local"):
             continue
         try:
@@ -155,60 +159,72 @@ def resume_existing_archive(folder: str, start_url: str, policy: ArchivePolicy):
     downloader = WebsiteDownloader(
         start_url, folder, archive_strategy=normalized_policy.strategy,
     )
-    auto_profile = None
-    if normalized_policy.strategy == "auto":
-        auto_profile = profile_archive_target(downloader)
-        normalized_policy = replace(
-            normalized_policy, strategy=auto_profile.effective_strategy,
-        ).normalized()
-        if normalized_policy.strategy == "classic":
-            old_manifest.update({
-                "requested_policy": asdict(policy.normalized()),
-                "policy": asdict(normalized_policy),
-                "auto_profile": auto_profile.to_dict(),
-            })
-            atomic_write_text(manifest_path, json.dumps(old_manifest, indent=2, ensure_ascii=False))
-            logger.info("Archive resume skipped: Auto profile remains Classic/project-first.")
-            return old_manifest
-    crawler = RouteCrawler(downloader, normalized_policy)
-    canonical_existing = {crawler._canonicalize(url): local for url, local in existing.items()}
-    seeds = set()
-    for page_url, local in canonical_existing.items():
-        try:
-            soup = BeautifulSoup(pathlib.Path(local).read_text(encoding="utf-8", errors="ignore"), "html.parser")
-            for tag in soup.find_all("a", href=True):
-                href = str(tag.get("href") or "").strip()
-                if (not href or href.startswith(("#", "javascript:", "mailto:", "tel:", "data:", "//"))
-                        or tag.has_attr("data-cyoa-local-route")):
-                    continue
-                try:
-                    candidate = crawler._canonicalize(urljoin(page_url, href))
-                except (TypeError, ValueError):
-                    continue
-                if crawler._is_allowed(candidate) and candidate not in canonical_existing:
-                    seeds.add(candidate)
-        except (OSError, RuntimeError, TypeError, ValueError) as exc:
-            logger.warning("Could not inspect existing route %s: %s", local, exc)
+    try:
+        auto_profile = None
+        if normalized_policy.strategy == "auto":
+            auto_profile = profile_archive_target(downloader)
+            normalized_policy = replace(
+                normalized_policy, strategy=auto_profile.effective_strategy,
+            ).normalized()
+            if normalized_policy.strategy == "classic":
+                old_manifest.update({
+                    "requested_policy": asdict(policy.normalized()),
+                    "policy": asdict(normalized_policy),
+                    "auto_profile": auto_profile.to_dict(),
+                })
+                atomic_write_text(manifest_path, json.dumps(old_manifest, indent=2, ensure_ascii=False))
+                logger.info("Archive resume skipped: Auto profile remains Classic/project-first.")
+                return old_manifest
+        crawler = RouteCrawler(downloader, normalized_policy)
+        canonical_existing = {}
+        for url, local in existing.items():
+            canonical = crawler._canonicalize(url)
+            if canonical and crawler._is_allowed(canonical):
+                canonical_existing[canonical] = local
+        seeds = set()
+        for page_url, local in canonical_existing.items():
+            try:
+                soup = BeautifulSoup(pathlib.Path(local).read_text(encoding="utf-8", errors="ignore"), "html.parser")
+                for tag in soup.find_all("a", href=True):
+                    href = str(tag.get("href") or "").strip()
+                    if (not href or href.startswith(("#", "javascript:", "mailto:", "tel:", "data:", "//"))
+                            or tag.has_attr("data-cyoa-local-route")):
+                        continue
+                    try:
+                        candidate = crawler._canonicalize(urljoin(page_url, href))
+                    except (TypeError, ValueError):
+                        continue
+                    if crawler._is_allowed(candidate) and candidate not in canonical_existing:
+                        seeds.add(candidate)
+            except (OSError, RuntimeError, TypeError, ValueError) as exc:
+                logger.warning("Could not inspect existing route %s: %s", local, exc)
 
-    result = crawler.crawl(seed_urls=sorted(seeds), existing_pages=canonical_existing)
-    manifest = {
-        "format": 1,
-        "requested_policy": asdict(policy.normalized()),
-        "policy": asdict(normalized_policy),
-        "auto_profile": auto_profile.to_dict() if auto_profile else old_manifest.get("auto_profile"),
-        "start_url": start_url,
-        "pages": [
-            {"url": url, "local": os.path.relpath(local, folder).replace("\\", "/")}
-            for url, local in result.pages.items()
-        ],
-        "route_failures": result.failed,
-        "route_limit_reached": result.limit_reached,
-        "remaining_queued_routes": result.remaining_queued,
-        "runtime": old_manifest.get("runtime"),
-    }
-    atomic_write_text(manifest_path, json.dumps(manifest, indent=2, ensure_ascii=False))
-    logger.info(
-        "Archive resume: %d seed(s), %d total page(s), %d failed",
-        len(seeds), len(result.pages), len(result.failed),
-    )
-    return manifest
+        result = crawler.crawl(seed_urls=sorted(seeds), existing_pages=canonical_existing)
+        manifest = {
+            "format": 1,
+            "requested_policy": asdict(policy.normalized()),
+            "policy": asdict(normalized_policy),
+            "auto_profile": auto_profile.to_dict() if auto_profile else old_manifest.get("auto_profile"),
+            "start_url": start_url,
+            "pages": [
+                {"url": url, "local": os.path.relpath(local, folder).replace("\\", "/")}
+                for url, local in result.pages.items()
+            ],
+            "route_failures": result.failed,
+            "route_limit_reached": result.limit_reached,
+            "remaining_queued_routes": result.remaining_queued,
+            "runtime": old_manifest.get("runtime"),
+        }
+        atomic_write_text(manifest_path, json.dumps(manifest, indent=2, ensure_ascii=False))
+        logger.info(
+            "Archive resume: %d seed(s), %d total page(s), %d failed",
+            len(seeds), len(result.pages), len(result.failed),
+        )
+        return manifest
+    finally:
+        try:
+            downloader.close()
+        except DownloadCancelledError:
+            raise
+        except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as exc:
+            logger.debug("Archive resume downloader close failed: %s", exc)

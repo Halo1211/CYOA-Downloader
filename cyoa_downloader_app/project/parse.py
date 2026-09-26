@@ -42,13 +42,9 @@ def try_decode_bytes(raw: bytes, preferred_encoding: str = "") -> str:
     """
     # ── 1. UTF-8 always first ────────────────────────────────────────────────
     try:
-        return raw.decode("utf-8")
-    except UnicodeDecodeError as _ignored_exc:
-        logger.debug("Ignored recoverable exception in try_decode_bytes (line 17397): %s", _ignored_exc)
-    try:
         return raw.decode("utf-8-sig")
     except UnicodeDecodeError as _ignored_exc:
-        logger.debug("Ignored recoverable exception in try_decode_bytes (line 17401): %s", _ignored_exc)
+        logger.debug("Ignored recoverable exception in try_decode_bytes (line 17397): %s", _ignored_exc)
 
     # ── 2. Explicit preferred (only if it's NOT a latin-1 variant) ──────────
     _LATIN_VARIANTS = {"latin-1", "iso-8859-1", "iso8859-1", "windows-1252",
@@ -184,9 +180,21 @@ def extract_balanced_brace_block(text: str, start_idx: int) -> str:
     in_string = False
     string_char = ""
     escaped = False
+    line_comment = False
+    block_comment = False
 
     for idx in range(start_idx, len(text)):
         ch = text[idx]
+        previous = text[idx - 1] if idx > start_idx else ""
+        following = text[idx + 1] if idx + 1 < len(text) else ""
+        if line_comment:
+            if ch in "\r\n":
+                line_comment = False
+            continue
+        if block_comment:
+            if previous == "*" and ch == "/":
+                block_comment = False
+            continue
         if in_string:
             if escaped:
                 escaped = False
@@ -196,6 +204,12 @@ def extract_balanced_brace_block(text: str, start_idx: int) -> str:
                 in_string = False
             continue
 
+        if ch == "/" and following == "/":
+            line_comment = True
+            continue
+        if ch == "/" and following == "*":
+            block_comment = True
+            continue
         if ch in {'"', "'"}:
             in_string = True
             string_char = ch
@@ -447,11 +461,15 @@ def parse_jsonish_text(text: str) -> dict | None:
     for candidate in candidates:
         try:
             return json.loads(candidate)
+        except RecursionError:
+            return None
         except (json.JSONDecodeError, TypeError, ValueError) as _ignored_exc:
             logger.debug("Ignored recoverable exception in parse_jsonish_text (line 17739): %s", _ignored_exc)
         if json5 is not None:
             try:
                 return json5.loads(candidate)
+            except RecursionError:
+                return None
             except (AttributeError, TypeError, ValueError) as _ignored_exc:
                 logger.debug("Ignored recoverable exception in parse_jsonish_text (line 17744): %s", _ignored_exc)
     return None

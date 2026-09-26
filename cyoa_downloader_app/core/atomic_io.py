@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import os
-import threading
+import re
+import tempfile
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -68,9 +69,12 @@ def atomic_write_bytes(path: str, data: bytes) -> str:
     """Write bytes to a sibling .part file, fsync, then atomically replace."""
     target = os.path.abspath(path)
     os.makedirs(os.path.dirname(target) or os.getcwd(), exist_ok=True)
-    part = target + f".{os.getpid()}.{threading.get_ident()}.part"
+    fd, part = tempfile.mkstemp(
+        prefix="." + os.path.basename(target)[:40] + ".", suffix=".part",
+        dir=os.path.dirname(target),
+    )
     try:
-        with open(part, "wb") as fh:
+        with os.fdopen(fd, "wb") as fh:
             fh.write(data)
             fh.flush()
             try:
@@ -93,8 +97,8 @@ def atomic_write_text(path: str, text: str, encoding: str = "utf-8") -> str:
 
 
 
-def validate_response_content_length(response: Any, actual_length: int) -> int | None:
-    """Validate an uncompressed response body against Content-Length.
+def decoded_response_content_length(response: Any) -> int | None:
+    """Return Content-Length only when it describes the decoded response body.
 
     Requests transparently decompresses gzip/br content, so wire Content-Length
     cannot safely be compared when Content-Encoding is non-identity.
@@ -106,17 +110,42 @@ def validate_response_content_length(response: Any, actual_length: int) -> int |
         return None
     try:
         expected = int(raw)
-        actual = int(actual_length)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
     if expected < 0:
+        return None
+    return expected
+
+
+def validate_response_content_length(response: Any, actual_length: int) -> int | None:
+    """Reject incomplete identity bodies without comparing compressed wire sizes."""
+    expected = decoded_response_content_length(response)
+    if expected is None:
+        return None
+    try:
+        actual = int(actual_length)
+    except (TypeError, ValueError, OverflowError):
         return None
     if actual != expected:
         raise OSError(f"Incomplete response body: expected {expected} bytes, received {actual}")
     return expected
 
 
+def identity_response_total_length(response: Any) -> int | None:
+    """Return a metadata probe's identity representation length, not wire size."""
+    headers = getattr(response, "headers", {}) or {}
+    encoding = str(headers.get("Content-Encoding") or headers.get("content-encoding") or "").strip().lower()
+    if encoding not in {"", "identity"}:
+        return None
+    content_range = str(headers.get("Content-Range") or headers.get("content-range") or "")
+    match = re.fullmatch(r"bytes\s+(?:\d+-\d+|\*)/(\d+)", content_range.strip(), re.IGNORECASE)
+    if match:
+        return int(match.group(1))
+    return decoded_response_content_length(response)
+
+
 __all__ = [
-    'atomic_write_bytes', 'atomic_write_text', 'interprocess_file_lock',
+    'atomic_write_bytes', 'atomic_write_text', 'decoded_response_content_length', 'identity_response_total_length',
+    'interprocess_file_lock',
     'validate_response_content_length',
 ]

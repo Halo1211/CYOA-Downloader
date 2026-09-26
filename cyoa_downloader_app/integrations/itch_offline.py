@@ -93,6 +93,8 @@ def materialize_itch_html5_archive(
     if destination.exists():
         try:
             marker = json.loads(marker_path.read_text(encoding="utf-8"))
+            if not isinstance(marker, dict):
+                marker = {}
         except (OSError, ValueError):
             marker = {}
         if marker.get("sha256") != digest:
@@ -103,7 +105,9 @@ def materialize_itch_html5_archive(
     if destination.exists():
         try:
             marker = json.loads(marker_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError) as exc:
+            if not isinstance(marker, dict):
+                raise TypeError("HTML5 offline manifest must be a JSON object")
+        except (OSError, TypeError, ValueError) as exc:
             raise ValueError("HTML5 offline manifest is unreadable") from exc
         if marker.get("sha256") != digest:
             raise ValueError("HTML5 offline destination belongs to another archive")

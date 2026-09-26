@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import threading
 from datetime import datetime
 from typing import Any
 
-from ..core.atomic_io import atomic_write_text, interprocess_file_lock
+from ..core.atomic_io import atomic_write_text, identity_response_total_length, interprocess_file_lock
 from ..logging_setup import logger
 
 _HISTORY_FILE = os.path.join(
@@ -27,7 +26,7 @@ def _load_history() -> dict[str, dict]:
                     url: entry for url, entry in data.items()
                     if isinstance(url, str) and isinstance(entry, dict)
                 }
-    except (OSError, UnicodeError, TypeError, ValueError) as _ignored_exc:
+    except (OSError, UnicodeError, TypeError, ValueError, RecursionError) as _ignored_exc:
         logger.debug("Ignored recoverable exception in _load_history: %s", _ignored_exc)
     return {}
 
@@ -39,7 +38,7 @@ def _save_history(history: dict[str, dict]) -> None:
             _HISTORY_FILE,
             json.dumps(history, indent=2, ensure_ascii=False),
         )
-    except (OSError, UnicodeError, TypeError, ValueError) as e:
+    except (OSError, UnicodeError, TypeError, ValueError, RecursionError) as e:
         logger.debug(f"History save failed: {e}")
 
 
@@ -81,11 +80,8 @@ def _record_history(url: str, file_name: str, mode: str, success: bool) -> None:
             if response is not None and int(response.status_code or 0) < 400:
                 entry["etag"] = response.headers.get("ETag", "")
                 entry["last_modified"] = response.headers.get("Last-Modified", "")
-                content_range = response.headers.get("Content-Range", "")
-                match = re.search(r"/(\d+)$", content_range)
-                entry["content_length"] = (
-                    match.group(1) if match else response.headers.get("Content-Length", "")
-                )
+                length = identity_response_total_length(response)
+                entry["content_length"] = str(length) if length is not None else ""
         except DownloadCancelledError:
             # The actual download has already completed before history is
             # recorded. Cancellation during this optional one-byte metadata
@@ -106,7 +102,11 @@ def _record_history(url: str, file_name: str, mode: str, success: bool) -> None:
             history = _load_history()
             history[url] = entry
             if len(history) > 1000:
-                oldest = sorted(history, key=lambda item: history[item].get("last_downloaded", ""))
+                def timestamp(item: str) -> str:
+                    value = history[item].get("last_downloaded", "")
+                    return value if isinstance(value, str) else ""
+
+                oldest = sorted(history, key=timestamp)
                 for old_url in oldest[: len(history) - 1000]:
                     history.pop(old_url, None)
             _save_history(history)

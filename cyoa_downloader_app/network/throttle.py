@@ -103,6 +103,8 @@ def _throttle_bandwidth(bytes_downloaded: int, *, record_gui: bool = True) -> No
     if record_gui and state._gui_speed_cb is not None:
         try:
             state._gui_speed_cb(bytes_downloaded)
+        except DownloadCancelledError:
+            raise
         except Exception:
             # User-provided GUI callbacks are a trust boundary: report the full
             # failure while keeping bandwidth enforcement independent of the UI.
@@ -134,7 +136,7 @@ def _throttle_bandwidth(bytes_downloaded: int, *, record_gui: bool = True) -> No
 def _domain_record_success(url: str) -> None:
     """Domain replied OK; halve the backoff."""
     try:
-        domain = urlparse(url).netloc
+        domain = (urlparse(url).netloc or "").lower()
         if not domain:
             return
         with state._domain_backoff_lock:
