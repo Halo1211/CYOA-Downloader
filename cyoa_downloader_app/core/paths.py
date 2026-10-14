@@ -56,8 +56,8 @@ def _is_windows_reserved_basename(name: str) -> bool:
     Extracted so both the output-filename guard (rev8-16)
     and the asset-path guard below share one definition.
     """
-    base = str(name or "").split(".", 1)[0]
-    return bool(re.fullmatch(r"(?i:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])", base))
+    base = str(name or "").split(".", 1)[0].rstrip(" ")
+    return bool(re.fullmatch(r"(?i:CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])", base))
 
 def _safe_rel_path(value: str, fallback: str = "asset") -> str:
     """Return a sanitized relative path safe for writing inside an output folder."""
@@ -103,21 +103,28 @@ def _safe_join(root: str, rel_path: str, fallback: str = "asset") -> str:
         raise ValueError(f"Unsafe linked output path rejected: {rel_path!r}")
     return target
 
-def _safe_archive_rel_path(member: str) -> str:
+def _safe_archive_rel_path(member: str, *, decode_url: bool = True) -> str:
     """Validate archive member path strictly. Reject traversal instead of normalizing it."""
     # This validator's contract is reject-not-normalize
     # (unlike the sanitizing _safe_rel_path). A NUL byte in a zip member name
     # is malformed/hostile; the old top-level `.replace("\x00","")` silently
     # normalized e.g. "foo\x00bar" into the innocuous "foobar" and accepted it,
     # making the per-segment NUL guard below dead code. Reject on NUL instead.
-    raw = unquote(str(member or "")).replace("\\", "/")
+    raw = str(member or "")
+    if decode_url:
+        raw = unquote(raw)
+    raw = raw.replace("\\", "/")
     if not raw or "\x00" in raw or raw.startswith(("/", "//")) or re.match(r"^[A-Za-z]:", raw):
         raise ValueError(f"Unsafe archive path rejected: {member!r}")
     parts: list[str] = []
     for part in raw.split("/"):
-        if part in {"", ".", ".."} or part.strip() != part:
+        if part in {"", ".", ".."} or part.strip() != part or part.endswith("."):
             raise ValueError(f"Unsafe archive path rejected: {member!r}")
-        if re.match(r"^[A-Za-z]:", part) or any(ch in part for ch in "<>:\"|?*\x00"):
+        if (
+            re.match(r"^[A-Za-z]:", part)
+            or any(ch in part for ch in "<>:\"|?*\x00")
+            or re.search(r"[\x00-\x1f\x7f]", part)
+        ):
             raise ValueError(f"Unsafe archive path rejected: {member!r}")
         if _is_windows_reserved_basename(part):
             raise ValueError(f"Unsafe archive path rejected: {member!r}")
@@ -126,10 +133,10 @@ def _safe_archive_rel_path(member: str) -> str:
         raise ValueError(f"Unsafe archive path rejected: {member!r}")
     return "/".join(parts)
 
-def _safe_archive_join(root: str, member: str) -> str:
+def _safe_archive_join(root: str, member: str, *, decode_url: bool = True) -> str:
     """Join archive member to root only after strict archive-member validation."""
     root_abs = os.path.abspath(root or os.getcwd())
-    rel = _safe_archive_rel_path(member)
+    rel = _safe_archive_rel_path(member, decode_url=decode_url)
     target = os.path.abspath(os.path.join(root_abs, *rel.split("/")))
     if target == root_abs or os.path.commonpath([root_abs, target]) != root_abs:
         raise ValueError(f"Unsafe archive path rejected: {member!r}")
@@ -165,7 +172,9 @@ def _copytree_merge_safe(src_dir: str, dst_dir: str, *, label: str = "assets") -
                 logger.warning(f"Skipping linked {label} source: {src_file}")
                 continue
             rel = os.path.join(rel_root, name).replace("\\", "/")
-            dst_file = _safe_join(dst_dir, rel, fallback=name or "asset")
+            # Filesystem names are already literal, not URL references. Decoding
+            # percent escapes or stripping fragments breaks the copied site's links.
+            dst_file = _safe_archive_join(dst_dir, rel, decode_url=False)
             os.makedirs(os.path.dirname(dst_file), exist_ok=True)
             try:
                 shutil.copy2(src_file, dst_file)

@@ -10,6 +10,8 @@ from dataclasses import dataclass
 
 import requests
 
+from ..core.cancellation import _raise_if_cancelled
+from ..core.progress import DownloadCancelledError
 from ..logging_setup import logger
 from .proxy import _get_browser_proxy_config
 from .sessions import create_retry_session
@@ -28,36 +30,44 @@ class BrowserFetchSession:
     """Reusable Playwright transport for sites that rate-limit HTTP clients."""
 
     def __init__(self) -> None:
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._playwright = None
         self._browser = None
         self._context = None
         self._page = None
+        self._proxy_config = None
 
     def _ensure(self, url: str) -> None:
-        if self._page is not None:
-            return
-        from playwright.sync_api import sync_playwright
-
         proxy_config = _get_browser_proxy_config(url)
         if proxy_config is None:
             raise RuntimeError("manual proxy transport is unsupported by browser fallback")
-        self._playwright = sync_playwright().start()
-        launch_kwargs = {"headless": True, "args": ["--no-sandbox"]}
-        if proxy_config:
-            launch_kwargs["proxy"] = proxy_config
-        self._browser = self._playwright.chromium.launch(**launch_kwargs)
-        self._context = self._browser.new_context(
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36"
-            ),
-            ignore_https_errors=True,
-        )
-        self._page = self._context.new_page()
+        if self._page is not None and self._proxy_config == proxy_config:
+            return
+        self.close()
+        from playwright.sync_api import sync_playwright
+
+        try:
+            self._playwright = sync_playwright().start()
+            launch_kwargs = {"headless": True, "args": ["--no-sandbox"]}
+            if proxy_config:
+                launch_kwargs["proxy"] = proxy_config
+            self._browser = self._playwright.chromium.launch(**launch_kwargs)
+            self._context = self._browser.new_context(
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36"
+                ),
+                ignore_https_errors=False,
+            )
+            self._page = self._context.new_page()
+            self._proxy_config = dict(proxy_config)
+        except BaseException:
+            self.close()
+            raise
 
     def fetch(self, url: str, *, timeout_ms: int = 45_000) -> BrowserFetchResult | None:
         with self._lock:
+            _raise_if_cancelled()
             if not vpn_requirement_satisfied():
                 logger.error("VPN guard blocked reusable browser fetch: %s", url)
                 return None
@@ -68,14 +78,19 @@ class BrowserFetchSession:
                 response = self._page.goto(
                     url, wait_until="domcontentloaded", timeout=timeout_ms,
                 )
+                _raise_if_cancelled()
                 if response is None or not response.ok:
                     return None
+                content = response.body()
+                _raise_if_cancelled()
                 return BrowserFetchResult(
-                    content=response.body(),
+                    content=content,
                     headers={str(k): str(v) for k, v in response.headers.items()},
                     status=int(response.status),
                     url=str(response.url),
                 )
+            except DownloadCancelledError:
+                raise
             except ImportError as exc:
                 logger.debug("Reusable browser fetch unavailable (%s): %s", url, exc)
                 return None
@@ -103,6 +118,7 @@ class BrowserFetchSession:
             except (OSError, PlaywrightError, RuntimeError) as exc:
                 logger.debug("Could not stop browser runtime: %s", exc)
             self._playwright = None
+            self._proxy_config = None
 
 def _make_cookie_session(browser: str = "chrome") -> requests.Session | None:
     """
@@ -199,6 +215,7 @@ def _fetch_headless(url: str, reject_error_documents: bool = False) -> bytes | N
     Used when normal HTTP fetch fails or returns <1KB content for images.
     Returns raw bytes or None.
     """
+    _raise_if_cancelled()
     if not vpn_requirement_satisfied():
         logger.error("VPN guard blocked headless browser fetch: %s", url)
         return None
@@ -224,13 +241,15 @@ def _fetch_headless(url: str, reject_error_documents: bool = False) -> bytes | N
             try:
                 ctx = browser.new_context(
                     user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                    ignore_https_errors=True,
+                    ignore_https_errors=False,
                 )
                 page = ctx.new_page()
                 resp = page.goto(url, wait_until="networkidle", timeout=30_000)
+                _raise_if_cancelled()
                 if resp and resp.ok:
                     # For images, get raw bytes from response body
                     content = resp.body()
+                    _raise_if_cancelled()
                     if reject_error_documents and _looks_like_error_document(
                         content, resp.headers.get("content-type", "")
                     ):
@@ -243,6 +262,8 @@ def _fetch_headless(url: str, reject_error_documents: bool = False) -> bytes | N
                     browser.close()
                 except (OSError, PlaywrightError, RuntimeError) as _ignored_close:
                     logger.debug("Ignored Playwright browser-close exception: %s", _ignored_close)
+    except DownloadCancelledError:
+        raise
     except ImportError as _ignored_exc:
         logger.debug("Ignored recoverable exception in _fetch_headless (line 4072): %s", _ignored_exc)
     except (OSError, PlaywrightError, RuntimeError, TypeError, ValueError) as e:
@@ -255,6 +276,7 @@ def _fetch_headless(url: str, reject_error_documents: bool = False) -> bytes | N
     # fallback ALWAYS threw, and (c) fetched from an about:blank origin, which
     # CORS-blocks most CDNs. Now: single driver, navigate to the URL first
     # (same-origin fetch + correct referer/cookies), then execute_async_script.
+    _raise_if_cancelled()
     try:
         from selenium import webdriver
         from selenium.common.exceptions import WebDriverException
@@ -272,6 +294,7 @@ def _fetch_headless(url: str, reject_error_documents: bool = False) -> bytes | N
         try:
             drv.set_page_load_timeout(30)
             drv.get(url)  # establish origin/cookies; may also solve simple JS checks
+            _raise_if_cancelled()
             drv.set_script_timeout(30)
             resp_info = drv.execute_async_script(
                 """
@@ -294,6 +317,7 @@ def _fetch_headless(url: str, reject_error_documents: bool = False) -> bytes | N
                 drv.quit()
             except (OSError, RuntimeError, WebDriverException) as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _fetch_headless (line 4116): %s", _ignored_exc)
+        _raise_if_cancelled()
         if resp_info and resp_info.get("ok") and resp_info.get("data"):
             data = _b64.b64decode(resp_info["data"])
             if reject_error_documents and _looks_like_error_document(
@@ -306,6 +330,8 @@ def _fetch_headless(url: str, reject_error_documents: bool = False) -> bytes | N
                 return None
             logger.info(f"  [Headless/Selenium] {url} → {len(data)} bytes")
             return data
+    except DownloadCancelledError:
+        raise
     except ImportError as _ignored_exc:
         logger.debug("Ignored recoverable exception in _fetch_headless (line 4122): %s", _ignored_exc)
     except (OSError, RuntimeError, TypeError, ValueError, WebDriverException) as e:

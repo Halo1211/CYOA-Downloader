@@ -30,10 +30,11 @@ and in public spaces when an individual is representing the project.
 
 ## Enforcement
 
-Instances of abusive or otherwise unacceptable behavior may be reported privately to the
-repository owner via a GitHub issue marked private, or through the contact method listed in
-[`SECURITY.md`](SECURITY.md). All complaints will be reviewed and investigated and will result
-in a response that is deemed necessary and appropriate to the circumstances.
+Report abusive or otherwise unacceptable behavior to the repository owner
+using a non-public contact method listed on their
+[GitHub profile](https://github.com/Halo1211). GitHub issues are public;
+do not post personal information there. The maintainer will review each
+report and take appropriate action.
 
 ## Attribution
 

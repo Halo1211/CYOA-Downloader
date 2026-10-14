@@ -55,7 +55,10 @@ def create_retry_session(use_cloudscraper: bool = False) -> requests.Session:
         "Pragma": "no-cache",
     })
 
-    proxy_mapping = _get_active_proxies()
+    # Requests discovers environment proxies per target URL, including
+    # NO_PROXY and scheme overrides. Preseeding them in Session.proxies
+    # defeats bypass and applies HTTPS_PROXY to plain HTTP targets.
+    proxy_mapping = _get_active_proxies() if state._proxy_mode == "manual" else {}
     if proxy_mapping:
         session.proxies.update(proxy_mapping)
         logger.debug("Session using configured proxy profile")

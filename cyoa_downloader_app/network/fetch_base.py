@@ -105,6 +105,8 @@ def base_fetch_response(
         return value
 
     def _do_request(*, use_cf_session: bool = False, verify_ssl: bool = True):
+        r = None
+        handed_off = False
         try:
             session = _get_shared_session(use_cf=bool(use_cf_session))
             request_url = url
@@ -137,7 +139,6 @@ def base_fetch_response(
                         raise ValueError("redirect target is not an HTTP(S) URL")
                     _ = next_parsed.port  # validates malformed/non-numeric ports
                 except (TypeError, ValueError):
-                    r.close()
                     l.logger.warning(f"Blocked invalid redirect target: {next_url}")
                     return None
                 # Cross-origin private redirects are blocked. Also block a
@@ -146,29 +147,30 @@ def base_fetch_response(
                 if _ssrf_block_cross_origin(next_url, url) or (
                     not initial_internal and _ssrf_block_cross_origin(next_url, "")
                 ):
-                    r.close()
                     l.logger.warning(f"Blocked redirect to internal host: {next_url}")
                     return None
                 if _origin(next_url) != _origin(request_url):
                     request_headers = _strip_cross_origin_secrets(request_headers)
                 r.close()
+                r = None
                 request_url = next_url
             else:
                 raise requests.TooManyRedirects(f"Too many redirects: {url}")
             if is_cloudflare_challenge(r):
                 # Challenge responses are probes for the next backend; close
                 # them before escalating so retries do not exhaust the pool.
-                r.close()
                 return "CF_CHALLENGE"
             # ``return_error_response`` is used by diagnostics and archive
             # callers that need the actual status (for example 404 versus a
             # transport failure).  Limiting this to a handful of retryable
             # statuses made the option silently discard other HTTP errors.
             if return_error_response and r.status_code >= 400:
+                handed_off = True
                 return r
             r.raise_for_status()
             if as_bytes:
                 _ = r.content
+            handed_off = True
             return r
         except requests.exceptions.SSLError:
             return "SSL_ERROR"
@@ -190,7 +192,7 @@ def base_fetch_response(
             status = getattr(getattr(e, "response", None), "status_code", None)
             if status in {403, 503}:
                 response = getattr(e, "response", None)
-                if response is not None:
+                if response is not None and response is not r:
                     try:
                         response.close()
                     except (AttributeError, OSError, requests.RequestException) as close_exc:
@@ -201,12 +203,21 @@ def base_fetch_response(
             else:
                 l.logger.error(f"Error: {url} — {e}")
             response = getattr(e, "response", None)
-            if response is not None:
+            if response is not None and response is not r:
                 try:
                     response.close()
                 except (AttributeError, OSError, requests.RequestException) as close_exc:
                     l.logger.debug("Could not close failed response: %s", close_exc)
             return None
+
+        finally:
+            # Body/decompression failures often have no exception.response.
+            # Retain ownership until a response actually reaches the caller.
+            if r is not None and not handed_off:
+                try:
+                    r.close()
+                except (AttributeError, OSError, RuntimeError, TypeError, ValueError, requests.RequestException) as exc:
+                    l.logger.debug("Could not close abandoned HTTP response: %s", exc)
 
     def _recover_source_after_flaresolverr(value):
         """Replace FlareSolverr's rendered DOM with the origin response.

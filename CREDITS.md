@@ -1,6 +1,6 @@
 # Credits
 
-CYOA Downloader v1.1.0 is distributed under the MIT License.
+CYOA Downloader is distributed under the [MIT License](LICENSE).
 
 ## Bundled localhost helper credit
 
@@ -9,8 +9,7 @@ The project includes a bundled localhost/offline helper inspired by IntCyoaEnhan
 - Name: IntCyoaEnhancer
 - Author: agreg
 - License: MIT
-- Source: GreasyFork script 438947
-- Source URL: https://greasyfork.org/en/scripts/438947-intcyoaenhancer
+- Source: [IntCyoaEnhancer on GreasyFork](https://greasyfork.org/en/scripts/438947-intcyoaenhancer)
 
 The bundled helper is provided only for localhost/offline preview, debugging, accessibility checks, and quality-of-life testing. This repository does not claim ownership of the original IntCyoaEnhancer project.
 

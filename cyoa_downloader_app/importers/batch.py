@@ -16,7 +16,7 @@ from ..constants.modes import (
     _PURE_MODES,
     _WEBSITE_MODES,
 )
-from ..core.atomic_io import atomic_write_text, interprocess_file_lock
+from ..core.atomic_io import atomic_write_text, interprocess_file_lock, validate_response_content_length
 from ..core.cancellation import _raise_if_cancelled
 from ..core.progress import DownloadCancelledError
 from ..core.url_utils import is_probable_url
@@ -61,6 +61,7 @@ def _read_remote_batch_text(response) -> str:
 
     _raise_if_cancelled()
 
+    validate_response_content_length(response, len(payload))
     ignored_encodings = {"iso-8859-1", "iso8859-1", "latin-1", "latin1", ""}
     encoding = str(getattr(response, "encoding", "") or "")
     preferred = encoding if encoding.lower() not in ignored_encodings else ""
@@ -168,21 +169,25 @@ def import_queue_items_from_file(file_path: str) -> list[dict[str, str]]:
     if ext == ".txt":
         # ``utf-8-sig`` also accepts plain UTF-8 and strips the BOM written by
         # Excel/Notepad, which otherwise invalidates the first URL.
-        with open(file_path, "r", encoding="utf-8-sig", errors="ignore") as f:
-            for raw in f:
-                line = raw.strip()
-                if not line or line.startswith("#"):
-                    continue
-                if "|" in line:
-                    parts = [p.strip() for p in line.split("|")]
-                    url      = parts[0] if len(parts) > 0 else ""
-                    filename = parts[1] if len(parts) > 1 else ""
-                    mode     = parts[2] if len(parts) > 2 else ""
-                else:
-                    url, filename, mode = line, "", ""
-                if url and is_probable_url(url):
-                    mode = _normalize_batch_mode(mode, url)
-                    items.append({"url": url, "filename": filename, "mode": mode})
+        try:
+            with open(file_path, "r", encoding="utf-8-sig", errors="ignore") as f:
+                for raw in f:
+                    line = raw.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if "|" in line:
+                        parts = [p.strip() for p in line.split("|")]
+                        url      = parts[0] if len(parts) > 0 else ""
+                        filename = parts[1] if len(parts) > 1 else ""
+                        mode     = parts[2] if len(parts) > 2 else ""
+                    else:
+                        url, filename, mode = line, "", ""
+                    if url and is_probable_url(url):
+                        mode = _normalize_batch_mode(mode, url)
+                        items.append({"url": url, "filename": filename, "mode": mode})
+        except (OSError, UnicodeError) as exc:
+            logger.error(f"Failed reading TXT batch file {file_path}: {exc}")
+            return []
         return items
 
     try:

@@ -180,8 +180,8 @@ def _flaresolverr_payload_proxy(target_url: str = "") -> dict[str, str] | None:
     if _should_bypass_manual_proxy(target_url):
         return None
     target_scheme = urlparse(target_url).scheme.lower() or "https"
-    mapping = _get_active_proxies()
-    proxy = mapping.get(target_scheme) or l._get_active_proxy()
+    mapping = _get_active_proxies(target_url)
+    proxy = mapping.get(target_scheme) or mapping.get("all")
     if not proxy:
         return None
     return {"url": proxy}
@@ -196,9 +196,12 @@ def _flaresolverr_post(payload: dict[str, Any], timeout: int | None = None) -> d
         session = requests.Session()
         try:
             session.trust_env = (getattr(l, "_proxy_mode", "inherit_env") == "inherit_env")
-            mapping = _get_active_proxies()
-            proxy = mapping.get(urlparse(api_url).scheme.lower()) or l._get_active_proxy()
-            if proxy and l._FLARESOLVERR_PROXY_MODE == "inherit":
+            mapping = _get_active_proxies(api_url)
+            proxy = mapping.get(urlparse(api_url).scheme.lower()) or mapping.get("all")
+            if (
+                proxy and l._FLARESOLVERR_PROXY_MODE == "inherit"
+                and getattr(l, "_proxy_mode", "inherit_env") == "manual"
+            ):
                 parsed = urlparse(api_url)
                 if (parsed.hostname or "").lower() not in {"localhost", "127.0.0.1", "::1"}:
                     session.proxies.update({"http": proxy, "https": proxy})

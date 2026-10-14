@@ -25,12 +25,12 @@ pip install -r requirements-dev.txt
 Run these before opening a PR:
 
 ```bash
-python -m py_compile cyoa_downloader.py
+python -m compileall -q cyoa_downloader.py cyoa_downloader_app
 python cyoa_downloader.py --help
 python cyoa_downloader.py --dependency-check
 python cyoa_downloader.py --self-test
 python -m pytest -q
-ruff check cyoa_downloader.py --select F821
+python -m ruff check .
 ```
 
 If the change touches GUI code, also run the GUI manually when possible:
@@ -49,6 +49,17 @@ Check the basic GUI workflow:
 - open Manual Inject;
 - confirm logs do not freeze;
 - confirm dark-mode divider is visible.
+
+To run the optional automated GUI and browser checks on Windows:
+
+```powershell
+$env:CYOA_GUI_SMOKE = "1"
+$env:CYOA_RUNTIME_SMOKE = "1"
+python -m pytest -q
+```
+
+These checks require a graphical desktop and installed Playwright Chromium.
+The default suite uses offline fixtures and skips unavailable live runtimes.
 
 ## Coding rules
 

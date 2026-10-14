@@ -96,7 +96,8 @@ def _doh_resolve_via(
         try:
             session = requests.Session()
             session.trust_env = (state._proxy_mode == "inherit_env")
-            session.proxies.update(_get_active_proxies())
+            if state._proxy_mode == "manual":
+                session.proxies.update(_get_active_proxies())
             request_kwargs = {}
             if _should_bypass_manual_proxy(doh_url):
                 request_kwargs["proxies"] = {

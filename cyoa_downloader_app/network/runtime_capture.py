@@ -357,7 +357,7 @@ def _capture_runtime_assets_sync(
             try:
                 context = browser.new_context(
                     user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                    ignore_https_errors=True,
+                    ignore_https_errors=False,
                 )
                 page = context.new_page()
                 interaction_state: dict[str, object] = {"active": False, "page_url": ""}
@@ -439,12 +439,16 @@ def _capture_runtime_assets_sync(
                     except _playwright_runtime_errors() as exc:
                         logger.warning("Runtime capture page failed (%s): %s", url, exc)
             finally:
-                browser.close()
+                try:
+                    browser.close()
+                except DownloadCancelledError:
+                    raise
+                except _playwright_runtime_errors() as exc:
+                    logger.debug("Runtime browser close failed: %s", exc)
     except DownloadCancelledError:
         raise
     except _playwright_runtime_errors() as exc:
         logger.warning("Runtime browser capture unavailable: %s", exc)
-        return result
 
     result.discovered = list(observed)
     for url, content_type in observed.items():

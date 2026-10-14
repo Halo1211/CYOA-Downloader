@@ -11,6 +11,7 @@ import time as _time
 
 from ..config.settings import _load_settings
 from ..core.atomic_io import atomic_write_bytes, atomic_write_text, interprocess_file_lock
+from ..core.paths import _is_link_or_junction
 from ..logging_setup import logger
 
 _CACHE_DIR = pathlib.Path.home() / ".cyoa_downloader" / "image_cache"
@@ -124,15 +125,15 @@ def _enforce_cache_limit() -> int:
     removed = 0
     removed_digests = set()
     try:
-        if not _CACHE_DIR.exists():
+        if not _CACHE_DIR.exists() or _is_link_or_junction(_CACHE_DIR):
             return 0
         files = []
         total_bytes = 0
         for folder in _CACHE_DIR.iterdir():
-            if not folder.is_dir():
+            if not folder.is_dir() or _is_link_or_junction(folder):
                 continue
             for path in folder.iterdir():
-                if not path.is_file():
+                if not path.is_file() or _is_link_or_junction(path):
                     continue
                 try:
                     stat = path.stat()
@@ -174,12 +175,17 @@ def _clear_image_cache() -> int:
     """Remove all cached images. Returns number of files deleted."""
     global _cache_index, _cache_replace_generation
     count = 0
+    if _is_link_or_junction(_CACHE_DIR):
+        logger.warning("Cache clear skipped: cache root is a symlink or junction")
+        return 0
     try:
         with interprocess_file_lock(str(_CACHE_IDX)), _cache_lock:
             if _CACHE_DIR.exists():
                 for item in _CACHE_DIR.iterdir():
-                    if item.is_dir():
+                    if item.is_dir() and not _is_link_or_junction(item):
                         for f in item.iterdir():
+                            if _is_link_or_junction(f):
+                                continue
                             try:
                                 f.unlink()
                                 count += 1

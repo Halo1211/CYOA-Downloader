@@ -13,6 +13,7 @@ import json
 import os
 import re
 import zipfile
+import zlib
 from urllib.parse import unquote
 
 from ..constants.assets import IMAGE_FIELDS
@@ -34,12 +35,24 @@ def try_decode_bytes(raw: bytes, preferred_encoding: str = "") -> str:
     """
     Decode bytes to str with correct encoding priority.
 
-    UTF-8 is ALWAYS tried first — it's the correct encoding for 95%+ of web
+    After an explicit Unicode BOM, UTF-8 is tried first for ordinary web
     content. chardet/charset_normalizer are used only when UTF-8 fails.
     latin-1 / ISO-8859-1 / cp1006 variants are treated as last resort ONLY
     because they 'succeed' on any byte sequence (including UTF-8 Korean),
     producing mojibake that then gets double-encoded as %C3%AC%C2%8B... in URLs.
     """
+    # An explicit BOM is authoritative and must work without optional charset
+    # detectors. Check UTF-32 first because its little-endian BOM starts with
+    # the same two bytes as UTF-16.
+    for bom, encoding in ((b"\xff\xfe\x00\x00", "utf-32"), (b"\x00\x00\xfe\xff", "utf-32"),
+                          (b"\xff\xfe", "utf-16"), (b"\xfe\xff", "utf-16")):
+        if raw.startswith(bom):
+            try:
+                return raw.decode(encoding)
+            except UnicodeDecodeError as exc:
+                logger.debug("Malformed %s BOM payload: %s", encoding, exc)
+            break
+
     # ── 1. UTF-8 always first ────────────────────────────────────────────────
     try:
         return raw.decode("utf-8-sig")
@@ -419,7 +432,7 @@ def extract_project_from_archive_bytes(raw: bytes, source_url: str, depth: int =
                     if len(member_raw) > _MAX_MEMBER:
                         logger.warning(f"Archive member exceeded decompression cap, skipped: {member}")
                         continue
-                except (EOFError, KeyError, OSError, RuntimeError, ValueError, zipfile.BadZipFile) as e:
+                except (EOFError, KeyError, OSError, RuntimeError, ValueError, zipfile.BadZipFile, zlib.error) as e:
                     logger.warning(f"Failed to read archive member {member}: {e}")
                     continue
 

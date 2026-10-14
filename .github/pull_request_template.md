@@ -20,12 +20,12 @@ Briefly describe what this pull request changes and why.
 
 Confirm the gate suite passes locally:
 
-- [ ] `python -m py_compile cyoa_downloader.py`
+- [ ] `python -m compileall -q cyoa_downloader.py cyoa_downloader_app`
 - [ ] `python cyoa_downloader.py --help`
 - [ ] `python cyoa_downloader.py --dependency-check`
 - [ ] `python cyoa_downloader.py --self-test` (state the count, e.g. 37/37)
-- [ ] `ruff check cyoa_downloader.py --select F821,F811,F601`
-- [ ] `pytest -q` (if tests are affected)
+- [ ] `python -m ruff check .`
+- [ ] `python -m pytest -q`
 
 ## Notes for the maintainer
 

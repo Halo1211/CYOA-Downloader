@@ -4965,7 +4965,7 @@ class TestLiveGuiLayout:
         try:
             root.update_idletasks()
             root.update()
-            assert root.title() == "CYOA Downloader v1.1.3"
+            assert root.title() == "CYOA Downloader v1.1.4"
 
             input_panel, queue_panel = gui._dispatch_gui_patch("_v462_find_main_panels")
             gui._v46_apply_progress_visibility(True)
@@ -9645,7 +9645,7 @@ from cyoa_downloader_app.importers.batch import (
 
 def test_phase1_extraction__phase1_facade_names_still_match_modules():
     assert _phase1_extraction_cyoa_downloader._APP_VERSION == _phase1_extraction__APP_VERSION
-    assert _phase1_extraction__APP_VERSION == "1.1.3"
+    assert _phase1_extraction__APP_VERSION == "1.1.4"
     assert _phase1_extraction_cyoa_downloader.IMAGE_FIELDS is _phase1_extraction_IMAGE_FIELDS
     assert ".mp3" in _phase1_extraction_AUDIO_EXTENSIONS
     assert _phase1_extraction_cyoa_downloader._derive_mode_flags is _phase1_extraction__derive_mode_flags
@@ -9693,8 +9693,8 @@ def test_phase1_extraction__cli_version_is_available_without_starting_a_download
     )
 
     assert completed.returncode == 0
-    assert "CYOA Downloader 1.1.3" in completed.stdout
-    assert "CYOA-v1.1.3" in completed.stdout
+    assert "CYOA Downloader 1.1.4" in completed.stdout
+    assert "CYOA-v1.1.4" in completed.stdout
 
 
 # ============================================================================

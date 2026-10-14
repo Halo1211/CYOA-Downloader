@@ -6,8 +6,8 @@ CYOA Downloader processes remote URLs, archives, project JSON, HTML, CSS, JavaSc
 
 | Version | Supported |
 | --- | --- |
-| 1.1.0 | Yes |
-| 1.0.9 | Previous release |
+| 1.1.4 | Current release |
+| Earlier versions | Upgrade to the current release |
 
 ## Security boundaries
 
@@ -26,7 +26,9 @@ The application does **not** guarantee that arbitrary remote websites are safe. 
 
 ## Responsible disclosure
 
-Please report security issues privately if possible. Include:
+Report security issues privately if possible, using a contact method listed
+on the [repository owner's profile](https://github.com/Halo1211). GitHub
+issues are public; never post credentials or personal data. Include:
 
 - affected version;
 - operating system;

@@ -16,6 +16,20 @@ runs.
 Classic remains available as the historical baseline. Auto, Smart, and Browser
 are bounded additions rather than unrestricted crawlers.
 
+### How Auto selects an archive path
+
+1. CYOA.CAFE records with `cyoa_pages` become offline galleries; records with
+   `iframe_url` resolve the creator's viewer before profiling.
+2. Valid project JSON selects the Classic project-first workflow and avoids
+   redundant browser scans.
+3. In-scope story links select Smart, or Browser when runtime evidence is strong.
+4. JavaScript applications without project data select Browser; ordinary
+   static pages select Classic.
+
+The manifest records the requested and effective policy, the Auto profile,
+route state, scrolls, interactions, blocked requests, and stopping reasons.
+CYOA.CAFE galleries also include page images and `cyoa_cafe_metadata.json`.
+
 ## GUI setup
 
 1. Choose **Pure Website Folder** for a custom site without normal ICC project
@@ -47,15 +61,15 @@ Open **Settings → Viewers** and configure the two workflows independently:
 Auto selection uses these compatibility rules:
 
 - ICC Plus 2 HTML markers or `project.json` version `2.x` → ICC Plus 2 Local Viewer.
-- Unversioned ICC project schema → ICC Legacy/New Viewer.
+- Advanced unversioned ICC schema → ICC Plus Legacy/New Viewer.
+- Classic unversioned ICC schema → ICC Original Viewer.
 - ICC Remix marker/template → ICC Remix Local Viewer.
 - Lt. Ouroumov bundle marker → exact Lt. Ouroumov viewer when available, otherwise the compatible Legacy fallback.
 - Non-ICC JSON and custom/landing HTML are not forced into an ICC viewer.
 
-Before enabling Auto, register at least the two **Required** families shown in
-Settings: ICC Plus 2 Local and ICC Legacy/New Viewer. Ideally register all four
-families, including Remix and Lt. Ouroumov-compatible viewers, to preserve the
-source runtime as closely as possible. Replacement keeps publisher title,
+Before enabling Auto, register the viewer families needed by your projects:
+ICC Original, ICC Plus Legacy, ICC Plus 2 Local, ICC Remix, and
+Lt. Ouroumov-compatible viewers. Replacement keeps publisher title,
 favicon, inline fonts/styles, loading CSS, and unrelated custom scripts. Files
 that must be overwritten are retained under `__original_site__`.
 

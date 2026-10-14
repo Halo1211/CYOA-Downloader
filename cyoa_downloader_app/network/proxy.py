@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 from urllib.parse import unquote, urlsplit, urlunsplit
 
-from requests.utils import should_bypass_proxies
+from requests.utils import get_environ_proxies, should_bypass_proxies
 
 from ..logging_setup import logger
 from ..runtime import state
@@ -71,7 +71,7 @@ def _redact_proxy_url(value: str | None) -> str:
         return "[configured]"
 
 
-def _get_active_proxies() -> dict[str, str]:
+def _get_active_proxies(url: str = "") -> dict[str, str]:
     """Return the requests-compatible proxy mapping for the active profile."""
     if state._proxy_mode == "disabled":
         return {}
@@ -83,10 +83,12 @@ def _get_active_proxies() -> dict[str, str]:
         if state._proxy_https or common:
             mapping["https"] = str(state._proxy_https or common)
         return mapping
-    # Environment proxies are consumed by requests via trust_env. Returning a
-    # summary here keeps callers such as FlareSolverr compatible.
-    proxy = _get_active_proxy()
-    return {"http": proxy, "https": proxy} if proxy else {}
+    # Explicit consumers such as FlareSolverr need the same scheme-specific
+    # discovery and NO_PROXY matching as Requests' trust_env path.
+    return {
+        key: value for key, value in get_environ_proxies(url).items()
+        if key != "no"
+    }
 
 
 def _should_bypass_manual_proxy(url: str) -> bool:
@@ -107,18 +109,19 @@ def _should_bypass_manual_proxy(url: str) -> bool:
 
 
 def _get_browser_proxy_config(url: str) -> dict[str, str] | None:
-    """Return a Playwright proxy profile matching the manual request route.
+    """Return a Playwright proxy profile matching the active request route.
 
     An empty mapping means direct/system browser routing. ``None`` means the
     selected proxy transport cannot be represented safely by Playwright and a
     browser fallback must not bypass it.
     """
-    if state._proxy_mode != "manual":
+    if state._proxy_mode == "disabled":
         return {}
     if _should_bypass_manual_proxy(url):
         return {}
     target_scheme = urlsplit(str(url or "")).scheme.lower() or "https"
-    proxy_url = _get_active_proxies().get(target_scheme)
+    mapping = _get_active_proxies(url)
+    proxy_url = mapping.get(target_scheme) or mapping.get("all")
     if not proxy_url:
         return {}
     parsed = urlsplit(proxy_url)
@@ -137,8 +140,11 @@ def _get_browser_proxy_config(url: str) -> dict[str, str] | None:
         config["username"] = unquote(parsed.username)
     if parsed.password is not None:
         config["password"] = unquote(parsed.password)
-    if state._proxy_no_proxy:
-        config["bypass"] = state._proxy_no_proxy
+    bypass = state._proxy_no_proxy if state._proxy_mode == "manual" else (
+        os.environ.get("no_proxy") or os.environ.get("NO_PROXY") or ""
+    )
+    if bypass:
+        config["bypass"] = bypass
     return config
 
 

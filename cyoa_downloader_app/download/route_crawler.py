@@ -8,13 +8,14 @@ import pathlib
 import re
 from collections import deque
 from dataclasses import dataclass, field
-from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
+from urllib.parse import parse_qsl, quote, unquote, urlencode, urljoin, urlparse, urlunparse
 
 import requests
 
 from ..core.atomic_io import atomic_write_text
 from ..core.cancellation import _raise_if_cancelled
 from ..core.progress import DownloadCancelledError
+from ..core.url_utils import canonicalize_url
 from ..logging_setup import logger
 from ..project.parse import try_decode_bytes
 from .archive_policy import ArchivePolicy
@@ -39,7 +40,7 @@ _RESPONSE_CLEANUP_ERRORS = (
 
 
 _SKIP_PATH_RE = re.compile(
-    r"/(?:api|auth|login|logout|sign-in|signin|signup|register|account|admin|checkout|payment)(?:/|$)",
+    r"/(?:api|auth|login|logout|sign-in|signin|signup|register|account|admin|checkout|payment)(?:/|;|$)",
     re.IGNORECASE,
 )
 _TRACKING_QUERY_KEYS = {
@@ -69,7 +70,7 @@ class RouteCrawler:
         self.start_url = self._canonicalize(downloader.start_url)
         parsed = urlparse(self.start_url)
         self.origin = (parsed.scheme.lower(), parsed.netloc.lower())
-        self.scope_path = self._scope_for(parsed.path)
+        self.scope_path = unquote(self._scope_for(parsed.path)).replace("\\", "/")
         self._local_route_owners: dict[str, str] = {}
         self._page_link_bases: dict[str, str] = {}
 
@@ -86,29 +87,36 @@ class RouteCrawler:
     @staticmethod
     def _canonicalize(url: str) -> str:
         try:
-            p = urlparse(url)
-            path = re.sub(r"/+", "/", p.path or "/")
+            p = urlparse(canonicalize_url(url))
+            path = p.path or "/"
             pairs = []
             for key, value in parse_qsl(p.query, keep_blank_values=True):
                 lower = key.lower()
                 if lower in _TRACKING_QUERY_KEYS or lower.startswith("utm_"):
                     continue
                 pairs.append((key, value))
-            return urlunparse((p.scheme.lower(), p.netloc.lower(), path, "", urlencode(pairs), ""))
+            return urlunparse((p.scheme.lower(), p.netloc.lower(), path, p.params, urlencode(pairs), ""))
         except (TypeError, ValueError):
             return ""
 
     def _is_allowed(self, url: str) -> bool:
-        p = urlparse(url)
+        try:
+            p = urlparse(url)
+            decoded_path = unquote(p.path or "/").replace("\\", "/")
+            if any(part in {".", ".."} for part in decoded_path.split("/")):
+                return False
+            p = urlparse(self._canonicalize(url))
+        except (TypeError, ValueError):
+            return False
         if (p.scheme.lower(), p.netloc.lower()) != self.origin:
             return False
-        if _SKIP_PATH_RE.search(p.path or "/"):
+        if _SKIP_PATH_RE.search(decoded_path):
             return False
-        start_path = urlparse(self.start_url).path.rstrip("/")
-        path = (p.path or "/").rstrip("/")
+        start_path = unquote(urlparse(self.start_url).path).replace("\\", "/").rstrip("/")
+        path = decoded_path.rstrip("/")
         if path == start_path:
             return True
-        return (p.path or "/").startswith(self.scope_path)
+        return decoded_path.startswith(self.scope_path)
 
     def _route_local_path(self, url: str) -> str:
         if self._canonicalize(url) == self.start_url:
@@ -150,9 +158,10 @@ class RouteCrawler:
     def _fetch_html(self, url: str) -> str | None:
         _raise_if_cancelled()
         response = self.downloader._fetch(url)
-        if response:
+        if response is not None:
             try:
-                return _safe_response_text(response)
+                if response:
+                    return _safe_response_text(response)
             finally:
                 try:
                     response.close()
@@ -286,6 +295,7 @@ class RouteCrawler:
                     localized = os.path.relpath(
                         target_local, os.path.dirname(local),
                     ).replace("\\", "/")
+                    localized = quote(localized, safe="/")
                     if fragment:
                         localized += "#" + fragment
                     tag["href"] = localized

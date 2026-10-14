@@ -29,7 +29,7 @@ from ..core.archive import validate_zip_archive
 from ..core.atomic_io import atomic_write_text, decoded_response_content_length, validate_response_content_length
 from ..core.cancellation import _emit_progress_event, _raise_if_cancelled
 from ..core.output import _cleanup_recent_part_files, prepare_clean_output_folder
-from ..core.paths import _is_link_or_junction, _safe_archive_rel_path
+from ..core.paths import _is_link_or_junction, _is_windows_reserved_basename, _safe_archive_rel_path
 from ..core.url_utils import canonicalize_url
 from ..logging_setup import logger
 from ..network.throttle import _throttle_bandwidth
@@ -201,7 +201,7 @@ def _load_package_manifest(root: str) -> dict[str, Any] | None:
             data = json.load(f)
         if isinstance(data, dict) and isinstance(data.get("files"), dict):
             return data
-    except (json.JSONDecodeError, OSError, TypeError, UnicodeError):
+    except (json.JSONDecodeError, OSError, TypeError, UnicodeError, RecursionError):
         return None
     return None
 
@@ -347,7 +347,8 @@ def verify_output_package(folder: str) -> tuple[bool, str]:
         safe_recorded: dict[str, Any] = {}
         for raw_relpath, entry in recorded.items():
             try:
-                safe_relpath = _safe_archive_rel_path(raw_relpath)
+                # Manifest keys are literal filesystem names, not URL paths.
+                safe_relpath = _safe_archive_rel_path(raw_relpath, decode_url=False)
             except ValueError:
                 issues.append(f"unsafe path in manifest: {raw_relpath}")
                 manifest_errors += 1
@@ -614,8 +615,7 @@ def clean_url_path_component(encoded_str: str) -> str:
     # resolves to one of these would silently fail to save. Prefix with "_" so
     # the on-disk name is legal everywhere while staying recognizable. The base
     # name (portion before the first dot) is what Windows checks.
-    _base = cleaned.split(".", 1)[0]
-    if re.fullmatch(r"(?i:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])", _base):
+    if _is_windows_reserved_basename(cleaned):
         cleaned = "_" + cleaned
     # Filesystem name limits (Linux NAME_MAX 255 bytes,
     # Windows ~260-char paths). Over-long names caused OSError 36 at save time
@@ -775,12 +775,12 @@ def zip_temp_folder(temp_path: str, zip_name: str = "") -> str:
                     # like "images\\a.png" would extract as one literal filename
                     # on macOS/Linux instead of an images/ subfolder. Normalize.
                     arc = os.path.relpath(abs_path, start=temp_path).replace("\\", "/")
-                    _safe_archive_rel_path(arc)
+                    _safe_archive_rel_path(arc, decode_url=False)
                     archive.write(abs_path, arcname=arc)
         # This ZIP was produced from bounded local files, not received from
         # an untrusted server. Repetitive JS/JSON is legitimately compressible;
         # the incoming-archive bomb heuristic must not reject our own output.
-        validate_zip_archive(part, max_ratio=float("inf"))
+        validate_zip_archive(part, max_ratio=float("inf"), decode_url=False)
         _raise_if_cancelled()
         os.replace(part, target)
     except Exception:

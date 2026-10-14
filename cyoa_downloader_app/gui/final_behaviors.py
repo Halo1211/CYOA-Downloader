@@ -2651,81 +2651,82 @@ def _v46_optional_itch_download(url, outdir, threads, cancel_event, *, enabled):
 
 def _v46_worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_analysis, cloudflare_mode, http2_enabled, ytdlp_enabled, bw_limit, cyoa_mgr) -> None:
     global wait_time, _ytdlp_enabled, _bandwidth_limit_kbps
-    self._v46_set_event_sink()
-    module = sys.modules.get(__name__)
-    if module is not None:
-        module._ytdlp_gui_progress_cb = self._on_ytdlp_progress
-        module._gui_speed_cb = self._record_speed_bytes
-    try:
-        from cyoa_downloader_app.runtime import state as _runtime_state
-        from cyoa_downloader_app.runtime.compat import mirror_to_legacy
-        _runtime_state._ytdlp_gui_progress_cb = self._on_ytdlp_progress
-        _runtime_state._gui_speed_cb = self._record_speed_bytes
-        _runtime_state._ytdlp_enabled = ytdlp_enabled
-        _runtime_state._bandwidth_limit_kbps = bw_limit
-        _runtime_state.wait_time = wt
-        mirror_to_legacy("_ytdlp_gui_progress_cb", _runtime_state._ytdlp_gui_progress_cb)
-        mirror_to_legacy("_gui_speed_cb", _runtime_state._gui_speed_cb)
-        mirror_to_legacy("_ytdlp_enabled", _runtime_state._ytdlp_enabled)
-        mirror_to_legacy("_bandwidth_limit_kbps", _runtime_state._bandwidth_limit_kbps)
-        mirror_to_legacy("wait_time", _runtime_state.wait_time)
-    except DownloadCancelledError:
-        raise
-    except _GUI_JOB_BOUNDARY_ERRORS as _state_sync_exc:
-        logger.debug("Ignored runtime-state sync exception in v46 worker: %s", _state_sync_exc)
-    _ytdlp_enabled = ytdlp_enabled
-    _bandwidth_limit_kbps = bw_limit
-    wait_time = wt
-    _set_cloudflare_config(
-        cloudflare_mode,
-        flaresolverr_url=_load_settings().get("flaresolverr_url", _FLARESOLVERR_URL),
-        session_policy=_load_settings().get("flaresolverr_session_policy", _FLARESOLVERR_SESSION_POLICY),
-        timeout=int(_load_settings().get("flaresolverr_timeout", _FLARESOLVERR_TIMEOUT) or _FLARESOLVERR_TIMEOUT),
-        wait_after=int(_load_settings().get("flaresolverr_wait_after", _FLARESOLVERR_WAIT_AFTER) or _FLARESOLVERR_WAIT_AFTER),
-        proxy_mode=_load_settings().get("flaresolverr_proxy_mode", _FLARESOLVERR_PROXY_MODE),
-        persist=True,
-    )
-    _set_http2_enabled(bool(http2_enabled))
-    setup_file_logging(outdir)
-    state = load_resume_state(outdir)
-    # v2 resume identities include URL + output filename + requested mode.
-    # URL-only legacy entries are intentionally ignored once: otherwise a
-    # prior successful "foo.zip" could skip a later request for the same URL
-    # as "bar" or as a different output mode.
-    completed = {value for value in state["completed"] if str(value).startswith("job-v2:")}
-    legacy_completed = len(state["completed"]) - len(completed)
-    if legacy_completed:
-        logger.info("[Resume] Ignoring %s legacy URL-only completion(s); jobs will be verified again", legacy_completed)
-    prev_failed = {f["url"] if isinstance(f, dict) else f for f in state["failed"]}
-    completed_jobs: list[str] = list(completed)
-    failed_items: list[dict[str, str]] = []
     self._last_results = []
-    cancelled = False
-    skipped_count = 0
-    # Resume state historically keyed only by URL. That is fine for a single
-    # queue row, but it incorrectly skipped the second occurrence when a user
-    # intentionally queued the same CYOA twice. Duplicate rows are therefore
-    # treated as explicit jobs for this run; each still gets its unique output
-    # name/folder from the queue snapshot.
-    job_counts = Counter(str(item.get("_resume_key") or "") for item in items if item.get("_resume_key"))
-    duplicate_jobs = {key for key, count in job_counts.items() if count > 1}
-    itch_seen_urls: set[str] = set()
-
-    # Surface prior-session state on the queue dots before the
-    # run starts, matching the legacy GUI worker. `prev_failed` was previously
-    # computed but never used here, so URLs that failed last session showed no
-    # initial status. This does NOT change skip/retry logic: a previously-failed
-    # URL is still retried (it is not in `completed`); only the initial dot color
-    # is restored.
-    for _idx0, _item0 in enumerate(items):
-        _u0 = str(_item0.get("url") or "")
-        _key0 = str(_item0.get("_resume_key") or "")
-        if _key0 in completed and _key0 not in duplicate_jobs:
-            self._set_dot(_idx0, "done")
-        elif _u0 in prev_failed:
-            self._set_dot(_idx0, "error")
-
+    self._v46_worker_failed = False
     try:
+        self._v46_set_event_sink()
+        module = sys.modules.get(__name__)
+        if module is not None:
+            module._ytdlp_gui_progress_cb = self._on_ytdlp_progress
+            module._gui_speed_cb = self._record_speed_bytes
+        try:
+            from cyoa_downloader_app.runtime import state as _runtime_state
+            from cyoa_downloader_app.runtime.compat import mirror_to_legacy
+            _runtime_state._ytdlp_gui_progress_cb = self._on_ytdlp_progress
+            _runtime_state._gui_speed_cb = self._record_speed_bytes
+            _runtime_state._ytdlp_enabled = ytdlp_enabled
+            _runtime_state._bandwidth_limit_kbps = bw_limit
+            _runtime_state.wait_time = wt
+            mirror_to_legacy("_ytdlp_gui_progress_cb", _runtime_state._ytdlp_gui_progress_cb)
+            mirror_to_legacy("_gui_speed_cb", _runtime_state._gui_speed_cb)
+            mirror_to_legacy("_ytdlp_enabled", _runtime_state._ytdlp_enabled)
+            mirror_to_legacy("_bandwidth_limit_kbps", _runtime_state._bandwidth_limit_kbps)
+            mirror_to_legacy("wait_time", _runtime_state.wait_time)
+        except DownloadCancelledError:
+            raise
+        except _GUI_JOB_BOUNDARY_ERRORS as _state_sync_exc:
+            logger.debug("Ignored runtime-state sync exception in v46 worker: %s", _state_sync_exc)
+        _ytdlp_enabled = ytdlp_enabled
+        _bandwidth_limit_kbps = bw_limit
+        wait_time = wt
+        _set_cloudflare_config(
+            cloudflare_mode,
+            flaresolverr_url=_load_settings().get("flaresolverr_url", _FLARESOLVERR_URL),
+            session_policy=_load_settings().get("flaresolverr_session_policy", _FLARESOLVERR_SESSION_POLICY),
+            timeout=int(_load_settings().get("flaresolverr_timeout", _FLARESOLVERR_TIMEOUT) or _FLARESOLVERR_TIMEOUT),
+            wait_after=int(_load_settings().get("flaresolverr_wait_after", _FLARESOLVERR_WAIT_AFTER) or _FLARESOLVERR_WAIT_AFTER),
+            proxy_mode=_load_settings().get("flaresolverr_proxy_mode", _FLARESOLVERR_PROXY_MODE),
+            persist=True,
+        )
+        _set_http2_enabled(bool(http2_enabled))
+        setup_file_logging(outdir)
+        state = load_resume_state(outdir)
+        # v2 resume identities include URL + output filename + requested mode.
+        # URL-only legacy entries are intentionally ignored once: otherwise a
+        # prior successful "foo.zip" could skip a later request for the same URL
+        # as "bar" or as a different output mode.
+        completed = {value for value in state["completed"] if str(value).startswith("job-v2:")}
+        legacy_completed = len(state["completed"]) - len(completed)
+        if legacy_completed:
+            logger.info("[Resume] Ignoring %s legacy URL-only completion(s); jobs will be verified again", legacy_completed)
+        prev_failed = {f["url"] if isinstance(f, dict) else f for f in state["failed"]}
+        completed_jobs: list[str] = list(completed)
+        failed_items: list[dict[str, str]] = []
+        cancelled = False
+        skipped_count = 0
+        # Resume state historically keyed only by URL. That is fine for a single
+        # queue row, but it incorrectly skipped the second occurrence when a user
+        # intentionally queued the same CYOA twice. Duplicate rows are therefore
+        # treated as explicit jobs for this run; each still gets its unique output
+        # name/folder from the queue snapshot.
+        job_counts = Counter(str(item.get("_resume_key") or "") for item in items if item.get("_resume_key"))
+        duplicate_jobs = {key for key, count in job_counts.items() if count > 1}
+        itch_seen_urls: set[str] = set()
+
+        # Surface prior-session state on the queue dots before the
+        # run starts, matching the legacy GUI worker. `prev_failed` was previously
+        # computed but never used here, so URLs that failed last session showed no
+        # initial status. This does NOT change skip/retry logic: a previously-failed
+        # URL is still retried (it is not in `completed`); only the initial dot color
+        # is restored.
+        for _idx0, _item0 in enumerate(items):
+            _u0 = str(_item0.get("url") or "")
+            _key0 = str(_item0.get("_resume_key") or "")
+            if _key0 in completed and _key0 not in duplicate_jobs:
+                self._set_dot(_idx0, "done")
+            elif _u0 in prev_failed:
+                self._set_dot(_idx0, "error")
+
         auto_items = [
             it for it in items
             if str(it.get("_run_requested_mode") or default_mode or "auto") == "auto"
@@ -2844,6 +2845,8 @@ def _v46_worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_a
         self._v46_enqueue_progress({"type": "job_cancelled", "time": time.monotonic()})
         self._set_status("Cancelled")
     except _GUI_JOB_BOUNDARY_ERRORS as exc:
+        self._v46_worker_failed = True
+        self._last_results.append({"url": "", "mode": default_mode, "status": "FAIL", "filename": "", "error": str(exc), "result_type": "run"})
         logger.exception("Unhandled worker failure")
         self._v46_enqueue_progress({"type": "job_failed", "error": str(exc), "time": time.monotonic()})
         self._set_status(f"Failed — {exc}")
@@ -2863,14 +2866,17 @@ def _v46_done(self) -> None:
     except _GUI_CALLBACK_ERRORS as exc: logger.debug(f"Cancel button reset failed: {exc}")
     status = self._status_var.get()
     failed = [r for r in self._last_results if r.get("status") == "FAIL"]
+    worker_failed = bool(getattr(self, "_v46_worker_failed", False))
     asset_failed = bool(_v46_failure_details_snapshot(self))
     cancelled = any(r.get("status") == "CANCELLED" for r in self._last_results) or self._cancel_event.is_set()
-    if failed or asset_failed:
+    if failed or asset_failed or worker_failed:
         self._v46_copy_error_btn.configure(state="normal")
     if cancelled:
         # The worker already counted the interrupted job. Finalizing the GUI
         # changes the queue state without counting that job a second time.
         self._v46_enqueue_progress({"type": "stage_changed", "state": DownloadState.CANCELLED.value, "time": time.monotonic()})
+    elif worker_failed:
+        self._v46_enqueue_progress({"type": "stage_changed", "state": DownloadState.FAILED.value, "time": time.monotonic()})
     elif failed or asset_failed:
         self._v46_enqueue_progress({"type": "stage_changed", "state": DownloadState.COMPLETED_WITH_WARNINGS.value, "time": time.monotonic()})
     else:

@@ -11,7 +11,7 @@ body:
     id: version
     attributes:
       label: CYOA Downloader version
-      placeholder: "1.0.9"
+      placeholder: "1.1.4"
     validations:
       required: true
   - type: dropdown
@@ -29,9 +29,9 @@ body:
     id: python
     attributes:
       label: Python version
-      placeholder: "Python 3.11.9"
+      placeholder: "Python 3.12, or bundled Windows executable"
     validations:
-      required: true
+      required: false
   - type: dropdown
     id: interface
     attributes:

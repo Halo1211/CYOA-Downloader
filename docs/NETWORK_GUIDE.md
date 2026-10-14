@@ -30,6 +30,9 @@ settings file may still need the original credentials at runtime and must be
 protected accordingly.
 
 Requests sessions and browser fallbacks consume the same effective profile.
+Browser fallbacks also select the target scheme's environment proxy in
+`inherit_env` mode and honor `NO_PROXY`; unsupported browser proxy transports
+are rejected instead of silently switching to a direct connection.
 HTTP and HTTPS overrides take precedence over the common proxy for their
 respective schemes. Manual bypass rules are applied explicitly to Requests,
 DoH, browser, FlareSolverr, and gallery-dl traffic; they are not stored as an
@@ -43,9 +46,6 @@ The **Preset** menu contains System, Cloudflare `1.1.1.1`/`1.0.0.1`, Google
 `8.8.8.8`/`8.8.4.4`, Quad9 `9.9.9.9`, encrypted DoH/DoT endpoints, and
 BebasDNS variants. Selecting a preset fills in the transport and endpoint.
 Select **Custom…** to enter another resolver.
-
-Older GUI builds exposed only a free-form field, so `1.1.1.1` could be entered
-manually but did not appear as a selectable option.
 
 | Protocol | Example endpoint | Default port | Notes |
 | --- | --- | ---: | --- |
@@ -91,10 +91,6 @@ Detection is intentionally fail-closed in `require` mode: when interface state
 cannot be confirmed, the request does not continue. This is an application
 guard, not an operating-system kill switch. Other applications and traffic
 outside the downloader pipeline remain out of scope.
-
-The previous informational message “VPN routing follows the operating system”
-only meant that the guard was in `system` mode; it did not mean that a VPN was
-active. That routine status is now logged at debug level.
 
 ## CLI examples
 
@@ -150,12 +146,17 @@ If a download fails:
    and Requests SOCKS support are available.
 6. For source installs, run `python cyoa_downloader.py --version`. For the GUI
    EXE, open **Properties → Details** and confirm that File Version and Product
-   Version are `1.1.3`; the in-app Help/Guide header also shows patch ID
-   `CYOA-v1.1.3`. Older executables may lack the asset-cache and offline
-   preview corrections.
+   Version match the installed release. The in-app Help/Guide header also
+   displays the version and patch ID.
 
 Settings validation itself never downloads a favicon or probes the target
 website.
+
+Driver diagnostics inspect Selenium Manager's local cache in offline mode;
+they do not install drivers or send Selenium telemetry. All Playwright fetch
+and runtime-capture paths verify TLS certificates. A site with an invalid
+certificate fails the browser fallback too. A reusable browser session is
+recreated when its effective proxy profile changes.
 
 ## Implementation references
 

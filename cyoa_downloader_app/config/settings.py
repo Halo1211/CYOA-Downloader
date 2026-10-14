@@ -259,7 +259,7 @@ def _coerce_bool(value: Any, default: bool) -> bool:
     return default
 
 
-def _normalize_loaded_settings(data: dict[str, Any]) -> dict[str, Any]:
+def _normalize_loaded_settings(data: dict[str, Any], *, migrate: bool = True) -> dict[str, Any]:
     """Normalize hand-edited settings without changing the public flat shape."""
     metadata = data.get("_meta") if isinstance(data.get("_meta"), dict) else {}
     try:
@@ -276,7 +276,7 @@ def _normalize_loaded_settings(data: dict[str, Any]) -> dict[str, Any]:
     # Classic downloaded only the entry HTML and therefore silently omitted
     # option routes on modern Next.js story sites. Explicit Classic remains
     # available in Settings after this one-time default migration.
-    if loaded_schema < 2 and str(clean.get("archive_strategy", "classic")).lower() == "classic":
+    if migrate and loaded_schema < 2 and str(clean.get("archive_strategy", "classic")).lower() == "classic":
         clean["archive_strategy"] = "auto"
     # Schema 4 makes DNS transport and proxy inheritance explicit. Preserve
     # the behavior of older files that stored only one endpoint string.
@@ -405,7 +405,9 @@ def _save_settings(settings: dict[str, Any]) -> bool:
         os.makedirs(os.path.dirname(os.path.abspath(_SETTINGS_FILE)) or ".", exist_ok=True)
         atomic_write_text(
             _SETTINGS_FILE,
-            _format_settings_json(_normalize_loaded_settings(settings)),
+            # Runtime settings have already been migrated on load. A fresh
+            # user choice must not be interpreted as an old schema default.
+            _format_settings_json(_normalize_loaded_settings(settings, migrate=False)),
         )
         return True
     except (OSError, UnicodeError, TypeError, ValueError, RecursionError) as e:

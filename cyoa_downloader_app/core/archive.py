@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import os
+import stat
 import struct
 import zipfile
 from typing import Any
@@ -77,8 +78,13 @@ def validate_zip_archive(
     max_total_size: int = 2 * 1024 * 1024 * 1024,
     max_ratio: float = 250.0,
     max_central_directory_size: int = _DEFAULT_MAX_CENTRAL_DIRECTORY,
+    decode_url: bool = True,
 ) -> dict[str, int]:
-    """Validate ZIP traversal, member count, expansion size, and compression ratio."""
+    """Validate ZIP paths, expansion limits, and compression ratio.
+
+    Local ZIP writers use ``decode_url=False`` because disk filenames already
+    contain literal characters; incoming archives retain the stricter default.
+    """
     _preflight_zip_container(
         source,
         max_members=max_members,
@@ -95,6 +101,9 @@ def validate_zip_archive(
         zf = source
     total = 0
     count = 0
+    seen: set[str] = set()
+    file_paths: set[str] = set()
+    directory_paths: set[str] = set()
     try:
         infos = zf.infolist()
         if len(infos) > max_members:
@@ -103,9 +112,22 @@ def validate_zip_archive(
             # Directory entries need the same traversal validation as files.
             # Strip only the archive directory marker before validating.
             member_name = info.filename.rstrip("/\\") if info.is_dir() else info.filename
-            _safe_archive_rel_path(member_name)
+            relative = _safe_archive_rel_path(member_name, decode_url=decode_url)
+            identity = relative.casefold()
+            if identity in seen:
+                raise ValueError(f"Archive contains duplicate paths: {info.filename}")
+            seen.add(identity)
+            parts = identity.split("/")
+            parents = {"/".join(parts[:index]) for index in range(1, len(parts))}
+            if parents & file_paths or (not info.is_dir() and identity in directory_paths):
+                raise ValueError(f"Archive contains conflicting file and directory paths: {info.filename}")
+            directory_paths.update(parents)
+            if stat.S_ISLNK(info.external_attr >> 16):
+                raise ValueError(f"Archive contains a symbolic link: {info.filename}")
             if info.is_dir():
+                directory_paths.add(identity)
                 continue
+            file_paths.add(identity)
             count += 1
             if info.file_size < 0 or info.file_size > max_member_size:
                 raise ValueError(f"Archive member too large: {info.filename}")

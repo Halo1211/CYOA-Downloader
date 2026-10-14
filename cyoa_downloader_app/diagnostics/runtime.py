@@ -96,16 +96,20 @@ def _first_executable(names: tuple[str, ...]) -> str:
 
 
 def _selenium_manager_driver(browser: str = "chrome") -> str:
-    """Resolve a driver through Selenium Manager without requiring PATH setup."""
+    """Inspect cached drivers without downloading helpers or sending telemetry."""
     try:
+        from selenium.common.exceptions import WebDriverException
         from selenium.webdriver.common.selenium_manager import SeleniumManager
-
+    except ImportError:
+        return ""
+    try:
         result = SeleniumManager().binary_paths([
             "--browser", str(browser or "chrome"), "--avoid-browser-download",
+            "--offline", "--avoid-stats", "--timeout", "5",
         ])
         driver = str(result.get("driver_path", "") or "")
         return driver if driver and os.path.isfile(driver) else ""
-    except (OSError, RuntimeError, TypeError, ValueError):
+    except (OSError, RuntimeError, TypeError, ValueError, WebDriverException):
         return ""
 
 
