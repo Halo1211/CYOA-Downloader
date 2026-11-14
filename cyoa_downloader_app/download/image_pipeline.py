@@ -9,14 +9,18 @@ output names, report formats, and download behavior are unchanged.
 from __future__ import annotations
 
 import base64
+import errno
 import hashlib
 import mimetypes
 import os
 import pathlib
 import re
+import tempfile
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from urllib.parse import parse_qsl, unquote, urlencode, urljoin, urlparse, urlunparse
+import time
+from concurrent.futures import ThreadPoolExecutor
+from itertools import islice
+from urllib.parse import parse_qsl, quote, unquote, urlencode, urljoin, urlparse, urlunparse
 
 import requests
 
@@ -25,11 +29,13 @@ from ..constants.assets import _SOUNDCLOUD_URL_RE, _YOUTUBE_ID_RE, _YOUTUBE_URL_
 from ..core.atomic_io import atomic_write_bytes
 from ..core.cancellation import (
     _cancel_aware_sleep,
-    _cancel_requested,
     _emit_progress_event,
     _raise_if_cancelled,
 )
-from ..core.paths import _safe_join, _safe_rel_path
+from ..core.concurrency import iter_bounded_results
+from ..core.embed_io import EmbeddedMedia, project_chunks, value_chunks
+from ..core.media_io import MEDIA_CHUNK_BYTES, FilePayload, ResponseBodySizeError, atomic_copy_file, spool_chunks
+from ..core.paths import _safe_archive_join, _safe_join, _safe_rel_path
 from ..core.progress import DownloadCancelledError
 from ..diagnostics.reports import write_asset_failure_summary
 from ..integrations.ai_calls import _ai_analyze_js_for_assets
@@ -53,8 +59,10 @@ from ..integrations.discord_attachments import (
 from ..integrations.gallery_dl import _fetch_via_gallery_dl, _is_gallery_dl_site
 from ..integrations.plugins import run_asset_scanner_plugins
 from ..logging_setup import logger
-from ..network.browser import _fetch_headless, _make_cookie_session
+from ..network.browser import BrowserFetchSession, _fetch_headless, _make_cookie_session
+from ..network.budget import HTTP_BUDGET
 from ..network.fetch import fetch_response
+from ..network.retry_policy import caller_status_retry_scope, retry_after_seconds
 from ..network.throttle import (
     _domain_record_failure,
     _domain_record_success,
@@ -62,10 +70,12 @@ from ..network.throttle import (
     _throttle_bandwidth,
 )
 from ..network.vpn import vpn_requirement_satisfied
+from ..project.mediawiki import mediawiki_image_url
 from ..runtime import state as runtime_state
-from ..storage.cache import _cache_get, _cache_put
+from ..storage.cache import _cache_get, _cache_get_file, _cache_put, _cache_put_file
 from .asset_scan import (
     _check_image_dedup,
+    _check_image_dedup_digest,
     _deep_scan_project_assets,
     _extract_image_references,
     _infer_generated_entry_images,
@@ -82,9 +92,8 @@ from .audio_reports import (
 )
 from .headers import get_headers_for_url
 
-# Keep the historical module-level patch point used by callers and tests.
-# The compatibility bridge also exposed a snapshot of this flag at import time.
-_SELENIUM_ENABLED = runtime_state._SELENIUM_ENABLED
+# Keep the historical opt-out patch point; the live user switch is read at use.
+_SELENIUM_ENABLED = True
 
 _DEEP_SCAN_IMAGE_EXTENSIONS = {
     ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".bmp", ".svg", ".ico", ".tif", ".tiff",
@@ -167,7 +176,7 @@ def _deep_scan_content_extension(url: str, content: bytes | None = None) -> str:
 def _deep_scan_external_rel_path(url: str, content: bytes | None = None) -> str:
     """Return a flat, stable path for a cross-origin deep-scan asset."""
     parsed = urlparse(str(url))
-    path_name = os.path.basename(unquote(parsed.path.rstrip("/"))) or "asset"
+    path_name = os.path.basename(parsed.path.rstrip("/")) or "asset"
     try:
         from .package import clean_url_path_component
         path_name = clean_url_path_component(path_name)
@@ -201,7 +210,7 @@ def _deep_scan_external_rel_path(url: str, content: bytes | None = None) -> str:
         kind = "assets"
     else:
         kind = "assets"
-    return _safe_rel_path(f"external/{kind}/{filename}")
+    return _safe_rel_path(quote(f"external/{kind}/{filename}", safe="/"))
 
 
 def _asset_is_error_document(
@@ -258,7 +267,43 @@ def process_images(
     output_dir: str = "",
     source_url: str = "",
     embed_audio: bool = False,
+    site_folder: str = "",
+    embed_writer=None,
+) -> tuple[str, str, set[str]]:
+    """Localize media using run-owned files.
+
+    With embed_writer, consume the embedded JSON chunks inside this call and
+    return an empty first string. Without it, preserve the string-returning API.
+    """
+    kwargs = {"embed": embed, "download": download, "temp_folder": temp_folder,
+              "wait_time": wait_time, "max_workers": max_workers, "output_dir": output_dir,
+              "source_url": source_url, "embed_audio": embed_audio, "site_folder": site_folder,
+              "embed_writer": embed_writer}
+    if download and not temp_folder:
+        raise ValueError("temp_folder required when download=True")
+    if download or embed:
+        _raise_if_cancelled()
+        if temp_folder:
+            os.makedirs(temp_folder, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix=".cyoa-media-", dir=temp_folder) as spool:
+            return _process_images(input_str, base_url, **kwargs, _spool=spool)
+    return _process_images(input_str, base_url, **kwargs)
+
+
+def _process_images(
+    input_str: str,
+    base_url: str,
+    embed: bool = False,
+    download: bool = False,
+    temp_folder: str | None = None,
+    wait_time: int = DEFAULT_WAIT_TIME,
+    max_workers: int = DEFAULT_MAX_WORKERS,
+    output_dir: str = "",
+    source_url: str = "",
+    embed_audio: bool = False,
     site_folder: str = "",   # ICC mode: check if images already exist here
+    _spool: str | None = None,
+    embed_writer=None,
 ) -> tuple[str, str, set[str]]:
     """
     Download image AND audio assets referenced in a project.json string.
@@ -306,6 +351,7 @@ def process_images(
     image_paths:   set[str] = set(deep_images)
     audio_paths:   set[str] = set(deep_audio)
     youtube_paths: set[str] = set(deep_youtube)
+    image_field_aliases: dict[str, str] = {}
 
     for m in re.finditer(pattern, input_str, flags=re.IGNORECASE):
         field = m.group(1)
@@ -325,7 +371,12 @@ def process_images(
         elif field.lower() in image_fields_lower:
             # A malformed project can still reach this regex fallback. Do not
             # enqueue an entire HTML/text value as one image URL.
-            image_paths.update(_extract_image_references(path, allow_bare_path=True))
+            references = _extract_image_references(path, allow_bare_path=True)
+            image_paths.update(references)
+            if len(references) == 1 and not any(char in path for char in "<>"):
+                reference = next(iter(references))
+                if reference != path and reference.startswith(("http://", "https://")):
+                    image_field_aliases[path] = reference
         else:
             audio_paths.add(path)
 
@@ -355,6 +406,9 @@ def process_images(
 
     if not image_paths and not audio_paths and not youtube_paths:
         logger.info("No external images or audio found.")
+        if embed and embed_writer is not None:
+            embed_writer(value_chunks(input_str))
+            return "", input_str, set()
         return input_str, input_str, set()
 
     # Log summary
@@ -388,7 +442,7 @@ def process_images(
 
     # ── Fetch all downloadable assets in parallel ──────────────────
     # cache: original_path → (content | None, mime, resolved_url, error_str)
-    fetch_cache: dict[str, tuple[bytes | None, str, str, str]] = {}
+    fetch_cache: dict[str, tuple[bytes | FilePayload | None, str, str, str]] = {}
     download_map: dict[str, str] = {}
 
     def _fetch_identity(asset_path: str) -> str:
@@ -480,6 +534,7 @@ def process_images(
     # failure in one worker cannot make another initial worker skip its first
     # direct HTTP attempt merely because that thread started a moment later.
     transport_initial_probe_assets: set[str] = set()
+    browser_session = None
     if discord_urls and discord_recovery_enabled():
         discord_token = resolve_discord_bot_token()
         if discord_token:
@@ -510,6 +565,35 @@ def process_images(
             discord_refreshed_urls[original_url] = refreshed
             return refreshed
 
+    def payload_prefix(content):
+        return content.prefix if isinstance(content, FilePayload) else content
+
+    def read_response(response):
+        if _spool:
+            try:
+                iterator = getattr(response, "iter_content", None)
+                # Compatibility backends may return an already-buffered body.
+                chunks = iterator(chunk_size=MEDIA_CHUNK_BYTES) if callable(iterator) else (response.content,)
+                return spool_chunks(chunks, _spool,
+                                    response=response, on_chunk=_throttle_bandwidth)
+            except ResponseBodySizeError as exc:
+                raise requests.exceptions.ChunkedEncodingError(str(exc)) from exc
+        return response.content
+
+    def retain_payload(url, content):
+        if _spool:
+            if not isinstance(content, FilePayload):
+                content = spool_chunks((content,), _spool)
+            _cache_put_file(url, content)
+        else:
+            _cache_put(url, content)
+        return content
+
+    def fetch_gallery(url):
+        if _spool and getattr(_fetch_via_gallery_dl, "supports_file_payloads", False):
+            return _fetch_via_gallery_dl(url, spool_dir=_spool)
+        return _fetch_via_gallery_dl(url)
+
     def fetch_one(asset_path: str):
         asset_url = (
             asset_path
@@ -535,10 +619,10 @@ def process_images(
             return asset_path, None, "", asset_url, "blocked: cross-origin internal host"
 
         # ── E: Disk cache check ───────────────────────────────────────
-        cached = _cache_get(asset_url)
+        cached = _cache_get_file(asset_url, _spool) if _spool else _cache_get(asset_url)
         if cached is not None:
             mime = mimetypes.guess_type(asset_url)[0] or "image/jpeg"
-            if _asset_is_error_document(mime, cached):
+            if _asset_is_error_document(mime, payload_prefix(cached)):
                 logger.warning(f"  [CACHE REJECTED] error document: {asset_url}")
                 cached = None
         if cached is not None:
@@ -579,20 +663,21 @@ def process_images(
             if gdl_site and not gdl_pretried:
                 gdl_pretried = True
                 logger.info(f"  [gallery-dl] Trying ({gdl_site}): {asset_url}")
-                gdl_data = _fetch_via_gallery_dl(asset_url)
+                gdl_data = fetch_gallery(asset_url)
                 if gdl_data:
                     mime = mimetypes.guess_type(asset_url)[0] or "image/jpeg"
-                    _cache_put(asset_url, gdl_data)
-                    return asset_path, gdl_data, mime, asset_url, ""
+                    return asset_path, retain_payload(asset_url, gdl_data), mime, asset_url, ""
 
         # ── C: CDN-specific headers ───────────────────────────────────
-        _domain_throttle(asset_url)  # D: also checks domain backoff
+        # fetch_response owns per-domain throttling and backoff. Sleeping here
+        # too charged successful project images twice for the same request.
         headers = get_headers_for_url(asset_url) or {}
 
         last_err = ""
         permanent_http_failure = False
         transport_exhausted = False
         _cookie_session_tried = False
+        authentication_failed = False
         _discord_refresh_tried = False
 
         asset_url_ext = os.path.splitext(urlparse(asset_url).path)[1].lower()
@@ -609,27 +694,29 @@ def process_images(
             r = None
             try:
                 # ── B: Cookie session on 3rd attempt for auth-protected content
-                if attempt == 2 and not _cookie_session_tried:
+                if attempt == 2 and authentication_failed and not _cookie_session_tried:
                     _cookie_session_tried = True
                     for _browser in ("chrome", "edge", "firefox"):
                         cs = _make_cookie_session(_browser)
                         if cs:
                             rc = None
                             try:
+                                _domain_throttle(asset_url)
                                 rc = cs.get(
                                     asset_url, headers=headers, timeout=30,
                                     allow_redirects=False,
+                                    stream=bool(_spool),
                                 )
-                                if rc.status_code == 200 and len(rc.content) > 64:
+                                cookie_content = read_response(rc) if rc.status_code == 200 else None
+                                if cookie_content is not None and len(cookie_content) > 64:
                                     mime = rc.headers.get("Content-Type", "").split(";")[0].strip() \
                                            or mimetypes.guess_type(asset_url)[0] or "image/jpeg"
-                                    if _asset_is_error_document(mime, rc.content):
+                                    if _asset_is_error_document(mime, payload_prefix(cookie_content)):
                                         logger.warning(f"  [Cookie/{_browser}] rejected error document: {asset_url}")
                                         continue
                                     _domain_record_success(asset_url)
-                                    _cache_put(asset_url, rc.content)
                                     logger.info(f"  [Cookie/{_browser}] {asset_url.split('/')[-1]}")
-                                    return asset_path, rc.content, mime, asset_url, ""
+                                    return asset_path, retain_payload(asset_url, cookie_content), mime, asset_url, ""
                             except _NETWORK_OPERATION_ERRORS as _ignored_exc:
                                 logger.debug("Ignored recoverable exception in fetch_one (line 14057): %s", _ignored_exc)
                             finally:
@@ -639,28 +726,33 @@ def process_images(
                                     except _RESPONSE_CLEANUP_ERRORS as close_exc:
                                         logger.debug("Cookie response close failed: %s", close_exc)
 
-                r = fetch_response(asset_url, extra_headers=headers, timeout=30, as_bytes=True, return_error_response=True)
+                # This loop owns HTTP status retries. Connect/pre-header read
+                # failures retain the transport's retry policy and None sentinel.
+                with caller_status_retry_scope():
+                    r = fetch_response(asset_url, extra_headers=headers, timeout=30, as_bytes=not bool(_spool),
+                                       stream=bool(_spool), return_error_response=True)
                 if r is None:
                     raise requests.RequestException("fetch_response returned None")
 
                 # ── D: Handle 429 with exponential backoff ────────────
                 if r.status_code == 429:
+                    last_err = "HTTP 429: rate limited"
+                    r.close()  # Release the shared transport slot before backoff.
                     backoff = _domain_record_failure(asset_url, 429)
-                    retry_after_raw = r.headers.get("Retry-After", "")
-                    try:
-                        retry_after = int(float(retry_after_raw)) if retry_after_raw else int(backoff)
-                    except (OverflowError, TypeError, ValueError):
-                        retry_after = int(backoff)
+                    retry_after = retry_after_seconds(r.headers.get("Retry-After"))
                     sleep_s = max(backoff, retry_after, wait_time)
                     logger.warning(f"429 — backoff {sleep_s:.1f}s: {asset_url}")
                     if attempt + 1 < direct_attempts:
                         _cancel_aware_sleep(sleep_s)
                     continue
                 if r.status_code in (500, 502, 503, 504):
+                    last_err = f"HTTP {r.status_code}: server error"
+                    r.close()
                     backoff = _domain_record_failure(asset_url, r.status_code)
-                    logger.warning(f"{r.status_code} — backoff {backoff:.1f}s: {asset_url}")
+                    sleep_s = max(backoff, retry_after_seconds(r.headers.get("Retry-After")))
+                    logger.warning(f"{r.status_code} — backoff {sleep_s:.1f}s: {asset_url}")
                     if attempt + 1 < direct_attempts:
-                        _cancel_aware_sleep(backoff)
+                        _cancel_aware_sleep(sleep_s)
                     continue
 
                 if (
@@ -669,6 +761,7 @@ def process_images(
                     and is_discord_attachment_url(asset_url)
                 ):
                     _discord_refresh_tried = True
+                    r.close()  # Refresh may itself need a shared HTTP slot.
                     refreshed_url = _refresh_discord_url(asset_url)
                     if refreshed_url and refreshed_url != asset_url:
                         logger.info("  [Discord] Refreshed expired attachment URL")
@@ -689,6 +782,7 @@ def process_images(
                 # then hand the URL to gallery-dl below. Sleeping 10/20/30
                 # seconds for every protected gallery page only stalls batches.
                 if r.status_code in (401, 403):
+                    authentication_failed = True
                     last_err = f"HTTP {r.status_code}: authentication required"
                     logger.warning(f"{last_err}: {asset_url}")
                     if _cookie_session_tried:
@@ -700,16 +794,43 @@ def process_images(
                 if not mime:
                     mime, _ = mimetypes.guess_type(asset_url)
                     mime = mime or "application/octet-stream"
-                if _asset_is_error_document(mime, r.content):
+                content = read_response(r)
+                if _asset_is_error_document(mime, payload_prefix(content)):
+                    response_url = str(getattr(r, "url", None) or asset_url)
+                    original = None
+                    if "html" in mime and re.search(r"(?:^|/)File:", unquote(urlparse(response_url).path), re.IGNORECASE):
+                        if isinstance(content, FilePayload):
+                            from ..project.parse import try_decode_bytes
+                            html = try_decode_bytes(pathlib.Path(content.path).read_bytes())
+                        else:
+                            html = r.text
+                        original = mediawiki_image_url(html, response_url)
+                    if original and not _ssrf_block_cross_origin(original, base_url):
+                        linked = fetch_response(original, extra_headers=get_headers_for_url(original),
+                                                timeout=30, as_bytes=not bool(_spool), stream=bool(_spool),
+                                                return_error_response=True)
+                        try:
+                            if linked is not None and linked.status_code == 200:
+                                linked_mime = linked.headers.get("Content-Type", "").split(";", 1)[0].strip()
+                                linked_content = read_response(linked)
+                                if len(linked_content) > 64 and not _asset_is_error_document(linked_mime, payload_prefix(linked_content)):
+                                    if not _spool:
+                                        _throttle_bandwidth(len(linked_content))
+                                    _domain_record_success(asset_url)
+                                    logger.info("  [Image page] Resolved original file: %s", original)
+                                    return asset_path, retain_payload(asset_url, linked_content), linked_mime or mimetypes.guess_type(original)[0] or "application/octet-stream", original, ""
+                        finally:
+                            if linked is not None:
+                                linked.close()
                     last_err = f"Content-Type mismatch for asset: {mime or 'unknown'}"
                     logger.warning(f"  {last_err}: {asset_url}")
                     break
 
-                _throttle_bandwidth(len(r.content))
+                if not _spool:
+                    _throttle_bandwidth(len(content))
                 _domain_record_success(asset_url)
                 # ── E: Store in disk cache ────────────────────────────
-                _cache_put(asset_url, r.content)
-                return asset_path, r.content, mime, asset_url, ""
+                return asset_path, retain_payload(asset_url, content), mime, asset_url, ""
 
             except requests.exceptions.SSLError:
                 last_err = "TLS certificate verification failed"
@@ -753,15 +874,14 @@ def process_images(
             gdl_site = gdl_site or _is_gallery_dl_site(asset_url)
             if gdl_site and not gdl_pretried:
                 logger.info(f"  [gallery-dl] Trying ({gdl_site}): {asset_url}")
-                gdl_data = _fetch_via_gallery_dl(asset_url)
+                gdl_data = fetch_gallery(asset_url)
                 if gdl_data:
                     mime = mimetypes.guess_type(asset_url)[0] or "image/jpeg"
-                    _cache_put(asset_url, gdl_data)
-                    return asset_path, gdl_data, mime, asset_url, ""
+                    return asset_path, retain_payload(asset_url, gdl_data), mime, asset_url, ""
 
             # Selenium/headless remains independently gated.
             headless_data = None
-            allow_headless = _SELENIUM_ENABLED and not permanent_http_failure
+            allow_headless = _SELENIUM_ENABLED and runtime_state._SELENIUM_ENABLED and not permanent_http_failure
             headless_domain = (urlparse(asset_url).hostname or "").lower()
             headless_event = None
             headless_leader = False
@@ -779,7 +899,13 @@ def process_images(
                     # One browser probe per transport-failed domain. Followers
                     # wait for that result instead of opening serial browser
                     # timeouts for every dead CDN URL.
-                    completed = headless_event.wait(timeout=75)
+                    deadline = time.monotonic() + 75
+                    completed = False
+                    while time.monotonic() < deadline:
+                        _raise_if_cancelled()
+                        if headless_event.wait(timeout=.05):
+                            completed = True
+                            break
                     with transport_headless_lock:
                         allow_headless = (
                             completed
@@ -789,7 +915,8 @@ def process_images(
             if allow_headless:
                 try:
                     logger.info(f"  [Headless] Trying browser fetch: {asset_url}")
-                    headless_data = _fetch_headless(asset_url, reject_error_documents=True)
+                    headless_data = _fetch_headless(asset_url, reject_error_documents=True,
+                                                    browser_session=browser_session, spool_dir=_spool)
                 finally:
                     if headless_leader and headless_event is not None:
                         with transport_headless_lock:
@@ -803,29 +930,17 @@ def process_images(
                 )
             if headless_data:
                 mime = mimetypes.guess_type(asset_url)[0] or "image/jpeg"
-                _cache_put(asset_url, headless_data)
                 logger.info(f"  [Headless] ✓ {asset_url.split('/')[-1]} ({len(headless_data)//1024}KB)")
-                return asset_path, headless_data, mime, asset_url, ""
+                return asset_path, retain_payload(asset_url, headless_data), mime, asset_url, ""
 
         logger.error(f"All retries failed: {asset_url}")
         return asset_path, None, "", asset_url, last_err
 
     dedup_count = 0
     if all_downloadable:
-        # Two hardening fixes for the executor block:
-
-        # (1) Clamp max_workers. process_images is a module-level public function
-        #     callable outside run_download (CLI, tests, future callers) where the
-        #     value is not pre-clamped. ThreadPoolExecutor raises ValueError on
-        #     max_workers <= 0, so an unclamped 0/negative would crash here rather
-        #     than degrade. Floor at 1.
-
-        # (2) Cancel-aware collection. as_completed() previously drained every
-        #     future even after the user cancelled mid-batch — fetch_one's sleeps
-        #     are cancel-aware, but the collector kept pulling results, so a large
-        #     batch felt unresponsive on cancel. Check _cancel_requested() each
-        #     iteration and break, then shut the pool down without waiting and
-        #     cancel not-yet-started futures (cancel_futures, 3.9+).
+        browser_session = BrowserFetchSession()
+        # Keep the configured parallelism while bounding queued futures. Large
+        # projects otherwise allocate one future per asset before work is read.
         safe_workers = max(1, int(max_workers or 1))
         ex = ThreadPoolExecutor(max_workers=safe_workers)
         try:
@@ -833,30 +948,28 @@ def process_images(
             for asset_path in all_downloadable:
                 fetch_groups.setdefault(_fetch_identity(asset_path), []).append(asset_path)
             transport_initial_probe_assets.update(
-                paths[0] for paths in list(fetch_groups.values())[:safe_workers]
+                paths[0] for paths in islice(fetch_groups.values(), safe_workers)
             )
-            futures = {
-                ex.submit(fetch_one, paths[0]): paths
-                for paths in fetch_groups.values()
-            }
-            cancelled = False
-            for done, fut in enumerate(as_completed(futures), 1):
-                if _cancel_requested():
-                    cancelled = True
-                    break
-                path, content, mime, resolved, err = fut.result()
+            results = iter_bounded_results(
+                ex, lambda paths: fetch_one(paths[0]), fetch_groups.values(),
+                max_pending=safe_workers * 2, check_cancelled=_raise_if_cancelled,
+            )
+            for done, (aliases, result) in enumerate(results, 1):
+                path, content, mime, resolved, err = result
                 # Dedup is applied at save time, after the final local path is known.
-                for alias in futures[fut]:
+                for alias in aliases:
                     fetch_cache[alias] = (content, mime, resolved, err)
                 status = "✓" if content is not None else "✗ FAILED"
-                alias_count = len(futures[fut])
+                alias_count = len(aliases)
                 alias_note = f" (+{alias_count - 1} alias)" if alias_count > 1 else ""
                 logger.info(f"  [{done}/{len(fetch_groups)}] {status}{alias_note} {resolved.split('/')[-1]}")
-            if cancelled:
-                ex.shutdown(wait=False, cancel_futures=True)
-                raise DownloadCancelledError("Download cancelled during asset fetch")
         finally:
-            ex.shutdown(wait=False, cancel_futures=True)
+            # The run owns spool files and cancellation state. Join active
+            # producers before either can be cleaned up or reused by a new run.
+            try:
+                ex.shutdown(wait=True, cancel_futures=True)
+            finally:
+                browser_session.close()
     # ── Collect failures ───────────────────────────────────────────
     failed_images: list[dict[str, str]] = [
         {"url": resolved, "path": path, "error": err}
@@ -904,7 +1017,8 @@ def process_images(
             logger.debug(f"Broken asset report could not be written: {e}")
 
     # ── Build replacement maps ─────────────────────────────────────
-    embed_map:  dict[str, str] = {}
+    embed_map: dict[str, str | EmbeddedMedia] = {}
+    saved_payloads: dict[str, str] = {}
     # download_map already initialized above (with yt_local pre-populated)
 
     for path, (content, mime, resolved, err) in fetch_cache.items():
@@ -925,14 +1039,18 @@ def process_images(
         # ── Successful download ────────────────────────────────────
         if embed:
             if is_image:
-                b64 = base64.b64encode(content).decode()
-                embed_map[path] = f"data:{mime};base64,{b64}"
+                if isinstance(content, FilePayload):
+                    embed_map[path] = EmbeddedMedia(content.path, mime)
+                else:
+                    embed_map[path] = f"data:{mime};base64,{base64.b64encode(content).decode()}"
             elif embed_audio and not is_image:
                 # Embed audio as base64 only if file is small enough to inline
                 _audio_size_limit = 10 * 1024 * 1024  # 10 MB
                 if len(content) <= _audio_size_limit:
-                    b64 = base64.b64encode(content).decode()
-                    embed_map[path] = f"data:{mime};base64,{b64}"
+                    if isinstance(content, FilePayload):
+                        embed_map[path] = EmbeddedMedia(content.path, mime)
+                    else:
+                        embed_map[path] = f"data:{mime};base64,{base64.b64encode(content).decode()}"
                     logger.info(f"  Embedded audio: {path.split('/')[-1]} ({len(content)//1024} KB)")
                 else:
                     logger.warning(
@@ -941,7 +1059,7 @@ def process_images(
                     )
 
         if download:
-            ext = _media_content_extension(resolved, mime, content) or ".bin"
+            ext = _media_content_extension(resolved, mime, payload_prefix(content)) or ".bin"
 
             # ── Preserve relative path structure (directory hierarchy) ─────
             # e.g. ./CYOAs/Images/BranchingHeart/0/3.avif
@@ -1033,8 +1151,8 @@ def process_images(
                 counter += 1
 
             duplicate_of = (
-                _check_image_dedup(
-                    content,
+                (_check_image_dedup_digest if isinstance(content, FilePayload) else _check_image_dedup)(
+                    content.sha256 if isinstance(content, FilePayload) else content,
                     dest_path,
                     scope=os.path.abspath(images_folder),
                 )
@@ -1050,7 +1168,23 @@ def process_images(
                 except (OSError, TypeError, ValueError) as _ignored_exc:
                     logger.debug("Ignored recoverable exception in process_images (line 14307): %s", _ignored_exc)
 
-            atomic_write_bytes(dest_path, content)
+            if isinstance(content, FilePayload):
+                saved = saved_payloads.get(content.path)
+                if saved:
+                    atomic_copy_file(saved, dest_path)
+                else:
+                    # Spools live beneath temp_folder on the output volume.
+                    # The first owner can commit by rename; aliases retain its
+                    # destination as their file source if a second copy is needed.
+                    try:
+                        os.replace(content.path, dest_path)
+                    except OSError as exc:
+                        if exc.errno != errno.EXDEV:
+                            raise
+                        atomic_copy_file(content.path, dest_path)
+                    saved_payloads[content.path] = dest_path
+            else:
+                atomic_write_bytes(dest_path, content)
 
             # Relative path from site root: "images/CYOAs/Images/.../3.avif"
             rel_saved = os.path.relpath(dest_path, os.path.dirname(images_folder)).replace('\\', '/')
@@ -1059,73 +1193,24 @@ def process_images(
     if dedup_count:
         logger.info(f"  [DEDUP] {dedup_count} duplicate image(s) reused instead of saved again")
 
-    # ── Single-pass substitution ───────────────────────────────────
-    # The regex `pattern` covers IMAGE_FIELDS + AUDIO_FIELDS field names.
-    # But bgmId (when useAudioURL=true) is found only by the deep scanner —
-    # we add it to the pattern here so it gets rewritten too.
-    # bgmId direct-audio values (when useAudioURL=true) are discovered by the
-    # deep scanner and land in embed_map/download_map like any other audio path.
-    # They are rewritten by the secondary string-replace pass below (not by the
-    # field-name regex), so no separate bgmId pattern is needed here.
+    # Both mode may have committed a spool by rename while building disk paths.
+    # Point embedded descriptors at that final file before consuming any chunks.
+    for path, value in embed_map.items():
+        if isinstance(value, EmbeddedMedia):
+            embed_map[path] = EmbeddedMedia(saved_payloads.get(value.path, value.path), value.mime)
 
-    def make_embed(m: re.Match) -> str:
-        field, path = m.group(1), m.group(2)
-        if data_uri_re.match(path):
-            return m.group(0)
-        # Map keys are canonical (unescaped); normalize the
-        # text-form path so escaped occurrences rewrite too.
-        key = path.replace("\\/", "/") if "\\/" in path else path
-        return f'"{field}":"{embed_map.get(key, path)}"'
-
-    def make_download(m: re.Match) -> str:
-        field, path = m.group(1), m.group(2)
-        if data_uri_re.match(path):
-            return m.group(0)
-        key = path.replace("\\/", "/") if "\\/" in path else path
-        return f'"{field}":"{download_map.get(key, path)}"'
-
-    # Single-pass replacement. The previous implementation
-    # applied sequential str.replace() per map entry. If one entry's replacement
-    # value happened to equal another entry's original key (e.g. a localized
-    # output path colliding with a different asset's original reference — possible
-    # since download_map can hold local-relative keys), the second pass would
-    # re-rewrite the already-substituted text (chained double-rewrite → wrong
-    # path). A single regex pass that consults the map per match cannot chain,
-    # because each region of the string is visited exactly once. Output is
-    # identical to the old code for the normal (non-colliding) case.
-    def _single_pass_asset_sub(text: str, mapping: dict[str, str]) -> str:
-        if not mapping:
-            return text
-        # The scanner repairs https:/… to https://…, but the original JSON may
-        # still contain the one-slash spelling. Rewrite both source spellings
-        # after a successful fetch.
-        expanded_mapping = dict(mapping)
-        for source, replacement in mapping.items():
-            if source.startswith(("http://", "https://")):
-                malformed = source.replace("://", ":/", 1)
-                expanded_mapping.setdefault(malformed, replacement)
-        # Replace the remote token wherever it appears, including inside
-        # escaped JSON strings such as `<img src=\"https://...\">`. Longest
-        # keys first prevent a shorter URL from shadowing a longer one.
-        keys = sorted(expanded_mapping.keys(), key=len, reverse=True)
-        alt = "|".join(re.escape(k) for k in keys)
-        asset_re = re.compile(alt)
-
-        def _repl(m: re.Match) -> str:
-            return expanded_mapping.get(m.group(0), m.group(0))
-
-        return asset_re.sub(_repl, text)
-
-    # Apply deep-scan mappings to the original text first, then run the field
-    # mapper. Doing this in the opposite order would let a source key such as
-    # ``same.png`` match inside its newly-created replacement
-    # ``images/same.png`` and produce ``images/images/same.png``.
-    embed_source = _single_pass_asset_sub(input_str, embed_map) if embed else input_str
-    download_source = _single_pass_asset_sub(input_str, download_map) if download else input_str
-
-    # Primary substitution using field-name regex
-    embed_str = re.sub(pattern, make_embed, embed_source, flags=re.IGNORECASE) if embed else input_str
-    dl_str    = re.sub(pattern, make_download, download_source, flags=re.IGNORECASE) if download else input_str
+    dl_str = ("".join(project_chunks(input_str, download_map, field_group,
+                                     image_fields_lower, image_field_aliases))
+              if download else input_str)
+    embed_str = input_str
+    if embed:
+        chunks = project_chunks(input_str, embed_map, field_group,
+                                image_fields_lower, image_field_aliases)
+        if embed_writer is not None:
+            embed_writer(chunks)
+            embed_str = ""
+        else:
+            embed_str = "".join(chunks)
 
     # Collect successfully downloaded/resolved URLs for skip-list
     _resolved_urls: set[str] = set()
@@ -1151,6 +1236,7 @@ def _deep_scan_and_download_assets(
     ai_budget: AIUsageBudget | None = None,
     skip_urls: set[str] | None = None,
     exclude_relative_paths: set[str] | None = None,
+    source_urls: dict[str, str] | None = None,
 ) -> dict[str, str]:
     """
     Iteratively scan ALL JS, CSS, and HTML files in `folder` for asset
@@ -1158,17 +1244,22 @@ def _deep_scan_and_download_assets(
     files — repeating until no new assets are found (BFS convergence).
 
     Handles both project.json-based CYOAs and pure custom React/Vite viewers.
+    ``source_urls`` maps absolute local paths to remote document bases and is
+    extended with the effective response URLs of newly saved files.
     """
     from concurrent.futures import ThreadPoolExecutor as _TPE
-    from concurrent.futures import as_completed
 
-    TEXT_EXTS   = {'.js', '.css', '.html', '.htm', '.mjs', '.cjs', '.json', '.svg'}
+    TEXT_EXTS   = {'.js', '.css', '.html', '.htm', '.mjs', '.cjs', '.json', '.hjson', '.svg'}
     all_downloaded: dict[str, str] = {}   # url → rel_path
     failed_deep_assets: list[dict[str, str]] = []
     scanned_files: set[str]        = set()   # abs file paths already scanned
     known_urls:    set[str]        = set()   # canonical candidate URLs already seen
     candidate_sources: dict[str, set[str]] = {}
     scanned_texts: dict[str, str] = {}
+    css_sources: set[str] = set()
+    file_sources = source_urls if source_urls is not None else {}
+    response_sources: dict[str, str] = {}
+    response_sources_lock = threading.Lock()
     excluded_paths = {
         str(path).replace('\\', '/').lstrip('./').lower()
         for path in (exclude_relative_paths or set())
@@ -1201,36 +1292,35 @@ def _deep_scan_and_download_assets(
         known_urls |= {_canonical_scan_url(url) for url in skip_urls}
         logger.debug(f"[deep scan] Skipping {len(skip_urls)} URL(s) already downloaded by process_images")
 
-    # ── Pre-build disk file index for O(1) existence checks ───────────
-    # Walking the folder once is far cheaper than calling os.path.exists()
-    # for every candidate URL individually.
+    # Refresh this index during the candidate walk, avoiding a second complete
+    # traversal while still observing files added/removed between rounds.
     _disk_files: set[str] = set()
-
-    def _rebuild_disk_index() -> None:
-        _disk_files.clear()
-        for _root, _, _fnames in os.walk(folder):
-            for _fn in _fnames:
-                _rel = os.path.relpath(os.path.join(_root, _fn), folder)
-                _disk_files.add(_rel.replace('\\', '/'))
-
-    _rebuild_disk_index()
 
     def _collect_candidates_from_folder(scan_folder: str) -> set[str]:
         """Scan all unscanned text files in scan_folder, return new candidate URLs."""
         new_candidates: set[str] = set()
-        for root, _, files in os.walk(scan_folder):
+        _disk_files.clear()
+        for root, directories, files in os.walk(scan_folder):
+            _raise_if_cancelled()
+            directories[:] = [name for name in directories if name != "__original_site__"]
             for fn in files:
+                _raise_if_cancelled()
+                fpath = os.path.join(root, fn)
+                rel = os.path.relpath(fpath, folder).replace('\\', '/')
+                _disk_files.add(rel)
                 ext = os.path.splitext(fn)[1].lower()
                 if ext not in TEXT_EXTS:
                     continue
-                fpath = os.path.join(root, fn)
                 if fpath in scanned_files:
                     continue
                 scanned_files.add(fpath)
-                rel    = os.path.relpath(fpath, folder).replace('\\', '/')
                 if rel.lower() in excluded_paths:
                     continue
-                f_url  = urljoin(base_url.rstrip('/') + '/', rel)
+                f_url = file_sources.get(os.path.abspath(fpath)) or urljoin(
+                    base_url.rstrip('/') + '/', quote(rel, safe="/"),
+                )
+                if ext == '.css':
+                    css_sources.add(f_url)
                 try:
                     with open(fpath, encoding='utf-8', errors='replace') as _fh:
                         text = _fh.read()
@@ -1242,6 +1332,7 @@ def _deep_scan_and_download_assets(
                         candidate_sources.setdefault(candidate, set()).add(f_url)
                 except _ASSET_SCANNER_PLUGIN_ERRORS as e:
                     logger.debug(f"[deep scan] {fn}: {e}")
+        _raise_if_cancelled()
         for inferred_path in _infer_generated_entry_images(scanned_texts):
             candidate = _canonical_scan_url(
                 urljoin(base_url.rstrip('/') + '/', inferred_path)
@@ -1252,6 +1343,24 @@ def _deep_scan_and_download_assets(
             if candidate not in known_urls:
                 new_candidates.add(candidate)
         return new_candidates
+
+    def _record_response_source(url: str, response) -> None:
+        effective = str(getattr(response, "url", "") or url)
+        try:
+            parsed = urlparse(effective)
+            if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+                effective = url
+        except ValueError:
+            effective = url
+        with response_sources_lock:
+            response_sources[url] = effective
+
+    def _remember_download(url: str, rel: str, local: str) -> None:
+        all_downloaded[url] = rel
+        _disk_files.add(rel)
+        with response_sources_lock:
+            source = response_sources.get(url, url)
+        file_sources[os.path.abspath(local)] = source
 
     def _url_to_local(url: str, content: bytes | None = None) -> str:
         """Convert an asset URL to a safe relative path within the folder."""
@@ -1333,7 +1442,7 @@ def _deep_scan_and_download_assets(
     def _css_root_fallback(url: str) -> str | None:
         """Return a page-root alternative for a failed CSS asset."""
         refs = candidate_sources.get(_canonical_scan_url(url), set())
-        if not any(urlparse(ref).path.lower().endswith(".css") for ref in refs):
+        if not any(ref in css_sources or urlparse(ref).path.lower().endswith(".css") for ref in refs):
             return None
         parsed = urlparse(url)
         base = urlparse(base_url)
@@ -1405,6 +1514,10 @@ def _deep_scan_and_download_assets(
         Cloudflare/FlareSolverr, proxy, DNS, and retry policy remain consistent.
         """
         _raise_if_cancelled()
+        # Recovery copies are evidence, even if live markup references them.
+        # Apply this at the shared fetch boundary, including fallback/AI jobs.
+        if "__original_site__" in _url_to_local(url).split("/"):
+            return url, None, 200
         if not vpn_requirement_satisfied():
             logger.error(
                 "[deep scan] VPN guard blocked request; required interface not detected"
@@ -1419,16 +1532,18 @@ def _deep_scan_and_download_assets(
         r2 = None
         r = None
         try:
-            _domain_throttle(url)
             hdrs = get_headers_for_url(url) or {}
             if _http2_client is not None:
                 try:
-                    r2 = _http2_client.get(url, headers=hdrs)
+                    _domain_throttle(url)
+                    with HTTP_BUDGET.acquire(url):
+                        r2 = _http2_client.get(url, headers=hdrs)
                     if r2.status_code == 200:
                         content = r2.content
                         mime = r2.headers.get("Content-Type", "")
                         if _asset_is_error_document(mime, content, binary_asset=False):
                             return url, None, 200
+                        _record_response_source(url, r2)
                         _throttle_bandwidth(len(content))
                         return url, content, 200
                     if r2.status_code not in {301, 302, 303, 307, 308, 403, 429, 503}:
@@ -1442,6 +1557,7 @@ def _deep_scan_and_download_assets(
                     r.headers.get("Content-Type", ""), content, binary_asset=False
                 ):
                     return url, None, 200
+                _record_response_source(url, r)
                 _throttle_bandwidth(len(content))
                 return url, content, 200
             return url, None, int(getattr(r, "status_code", 0) or 0)
@@ -1460,11 +1576,12 @@ def _deep_scan_and_download_assets(
     def _fetch_many(urls: list[str]):
         """Fetch a batch without waiting for cancelled futures to drain."""
         ex = _TPE(max_workers=_dl_workers)
-        futures = [ex.submit(_try_fetch, url) for url in urls]
         try:
-            for future in as_completed(futures):
-                _raise_if_cancelled()
-                yield future.result()
+            for _url, result in iter_bounded_results(
+                ex, _try_fetch, urls, max_pending=_dl_workers * 2,
+                check_cancelled=_raise_if_cancelled,
+            ):
+                yield result
         finally:
             ex.shutdown(wait=False, cancel_futures=True)
 
@@ -1520,12 +1637,11 @@ def _deep_scan_and_download_assets(
                         rel = _deep_scan_rel_for_content(url, content)
                         if rel is None:
                             continue
-                        local = _safe_join(folder, rel)
+                        local = _safe_archive_join(folder, rel, decode_url=False)
                         os.makedirs(os.path.dirname(local), exist_ok=True)
                         try:
                             atomic_write_bytes(local, content)
-                            all_downloaded[url] = rel
-                            _disk_files.add(rel)
+                            _remember_download(url, rel, local)
                             new_this_round += 1
                             logger.info(f"  [deep ✓] {rel}")
                         except _FILE_OPERATION_ERRORS as e:
@@ -1549,12 +1665,11 @@ def _deep_scan_and_download_assets(
                                     or os.path.basename(urlparse(fallback_url).path)
                                     or "asset"
                                 )
-                                fallback_local = _safe_join(folder, fallback_rel)
+                                fallback_local = _safe_archive_join(folder, fallback_rel, decode_url=False)
                                 os.makedirs(os.path.dirname(fallback_local), exist_ok=True)
                                 try:
                                     atomic_write_bytes(fallback_local, fallback_content)
-                                    all_downloaded[fallback_url] = fallback_rel
-                                    _disk_files.add(fallback_rel)
+                                    _remember_download(fallback_url, fallback_rel, fallback_local)
                                     new_this_round += 1
                                     logger.info(f"  [deep ✓ CSS root] {fallback_rel}")
                                     continue
@@ -1575,12 +1690,11 @@ def _deep_scan_and_download_assets(
                                     or os.path.basename(urlparse(route_url).path)
                                     or "asset"
                                 )
-                                route_local = _safe_join(folder, route_rel)
+                                route_local = _safe_archive_join(folder, route_rel, decode_url=False)
                                 os.makedirs(os.path.dirname(route_local), exist_ok=True)
                                 try:
                                     atomic_write_bytes(route_local, route_content)
-                                    all_downloaded[route_url] = route_rel
-                                    _disk_files.add(route_rel)
+                                    _remember_download(route_url, route_rel, route_local)
                                     new_this_round += 1
                                     logger.info(f"  [deep ✓ route] {route_rel}")
                                     continue
@@ -1611,12 +1725,11 @@ def _deep_scan_and_download_assets(
                             rel = _deep_scan_rel_for_content(url, content)
                             if rel is None:
                                 continue
-                            local = _safe_join(folder, rel)
+                            local = _safe_archive_join(folder, rel, decode_url=False)
                             os.makedirs(os.path.dirname(local), exist_ok=True)
                             try:
                                 atomic_write_bytes(local, content)
-                                all_downloaded[url] = rel
-                                _disk_files.add(rel)
+                                _remember_download(url, rel, local)
                                 new_this_round += 1
                                 logger.info(f"  [deep ✓ Vite] {rel}")
                             except _FILE_OPERATION_ERRORS as e:
@@ -1639,9 +1752,6 @@ def _deep_scan_and_download_assets(
 
             if new_this_round == 0:
                 break   # nothing new downloaded → converged
-
-            # Refresh disk index after downloads
-            _rebuild_disk_index()
 
     finally:
         if _http2_client is not None:
@@ -1693,11 +1803,11 @@ def _deep_scan_and_download_assets(
                             rel_ai = _deep_scan_rel_for_content(url_ai, content_ai)
                             if rel_ai is None:
                                 continue
-                            local_ai = _safe_join(folder, rel_ai)
+                            local_ai = _safe_archive_join(folder, rel_ai, decode_url=False)
                             os.makedirs(os.path.dirname(local_ai), exist_ok=True)
                             try:
                                 atomic_write_bytes(local_ai, content_ai)
-                                all_downloaded[url_ai] = rel_ai
+                                _remember_download(url_ai, rel_ai, local_ai)
                                 ai_new_count += 1
                                 logger.info(f"  [AI ✓] {rel_ai}")
                             except _FILE_OPERATION_ERRORS as _ignored_exc:

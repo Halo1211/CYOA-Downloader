@@ -134,6 +134,7 @@ def _safe_console_print(value="", *, file=None) -> None:
 
 def launch_gui() -> None:
     """Load the GUI only when the CLI actually needs it."""
+    _legacy()  # Compose the complete GUI patch stack before constructing it.
     from .gui.app import launch_gui as _launch_gui
 
     _launch_gui()
@@ -144,6 +145,13 @@ def run_download(**kwargs):
     from .download.orchestrator import run_download as _run_download
 
     return _run_download(**kwargs)
+
+
+def _cli_vpn_status() -> dict:
+    """Avoid spawning interface-discovery tools merely to log a disabled guard."""
+    if runtime_state._vpn_policy != "require":
+        return {"policy": runtime_state._vpn_policy, "requested_interface": runtime_state._vpn_interface}
+    return get_vpn_status()
 
 
 def _legacy() -> ModuleType:
@@ -875,7 +883,7 @@ def main() -> None:
         )
     logger.info("Proxy        : mode=%s", proxy_mode_eff)
     logger.info("DNS          : %s | %s", dns_protocol_eff, dns_eff or "system")
-    _vpn_log_status = get_vpn_status()
+    _vpn_log_status = _cli_vpn_status()
     logger.info("VPN guard    : %s%s", _vpn_log_status.get("policy", "system"),
                 (f" | interface={_vpn_log_status.get('requested_interface')}"
                  if _vpn_log_status.get("requested_interface") else ""))

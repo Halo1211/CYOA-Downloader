@@ -5,12 +5,15 @@ from __future__ import annotations
 import atexit
 import hashlib as _hashlib
 import json as _json_cache
+import os
 import pathlib
+import stat as _stat
 import threading
 import time as _time
 
 from ..config.settings import _load_settings
 from ..core.atomic_io import atomic_write_bytes, atomic_write_text, interprocess_file_lock
+from ..core.media_io import MEDIA_CHUNK_BYTES, FilePayload, atomic_copy_file, file_sha256, spool_chunks
 from ..core.paths import _is_link_or_junction
 from ..logging_setup import logger
 
@@ -24,6 +27,10 @@ _cache_replace_generation = 0
 _cache_flushed_replace_generation = 0
 _cache_lock = threading.Lock()
 _cache_loaded = False
+_cache_maintenance_lock = threading.RLock()
+_cache_write_generation = 0
+_cache_enforced_generation = -1
+_cache_enforced_scope: tuple[str, int] | None = None
 
 
 def _cache_load() -> None:
@@ -91,6 +98,41 @@ def _cache_get(url: str) -> bytes | None:
     return None
 
 
+def _cache_get_file(url: str, directory: str) -> FilePayload | None:
+    """Copy and validate a cache hit into run-owned storage, safe from eviction."""
+    _cache_load()
+    with _cache_lock:
+        digest = _cache_index.get(url)
+    if not digest:
+        return None
+    source = _CACHE_DIR / digest[:2] / digest
+    try:
+        with source.open("rb") as handle:
+            payload = spool_chunks(iter(lambda: handle.read(MEDIA_CHUNK_BYTES), b""), directory)
+        if payload.sha256 == digest:
+            try:
+                source.touch()
+            except OSError:
+                pass
+            return payload
+        os.unlink(payload.path)
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        logger.debug("Image cache file read failed: %s", exc)
+        # A full destination volume or transient read error does not prove the
+        # content-addressed source is corrupt. Leave its URL mapping intact.
+        return None
+    with _cache_lock:
+        if _cache_index.get(url) != digest:
+            return None
+        _cache_index.pop(url, None)
+        _cache_dirty.pop(url, None)
+        _cache_removed.add(url)
+    _v465_schedule_cache_save()
+    return None
+
+
 def _cache_stats() -> dict[str, int]:
     _cache_load()
     with _cache_lock:
@@ -121,28 +163,64 @@ def _cache_limit_mb() -> int:
 
 def _enforce_cache_limit() -> int:
     """Evict least-recently-used image files until the cache fits its limit."""
-    limit_bytes = _cache_limit_mb() * 1024 * 1024
+    global _cache_enforced_generation, _cache_enforced_scope
+    with _cache_maintenance_lock:
+        scope = (os.fspath(_CACHE_DIR), _cache_limit_mb())
+        with _cache_lock:
+            generation = _cache_write_generation
+        removed, complete = _scan_cache_limit(scope[1] * 1024 * 1024)
+        if complete:
+            # Only cover writes registered BEFORE enumeration began. A write
+            # arriving during the scan must trigger a later pass, even if its
+            # bucket happened to be visited in this pass.
+            _cache_enforced_generation = generation
+            _cache_enforced_scope = scope
+        return removed
+
+
+def _enforce_cache_after_write(generation: int) -> None:
+    """Share a scan when it already includes this overlapping asset write."""
+    with _cache_maintenance_lock:
+        scope = (os.fspath(_CACHE_DIR), _cache_limit_mb())
+        if _cache_enforced_scope == scope and _cache_enforced_generation >= generation:
+            return
+        _enforce_cache_limit()
+
+
+def _scan_cache_limit(limit_bytes: int) -> tuple[int, bool]:
+    """Return removed count and whether this pass completed without I/O gaps."""
     removed = 0
+    complete = True
     removed_digests = set()
     try:
-        if not _CACHE_DIR.exists() or _is_link_or_junction(_CACHE_DIR):
-            return 0
+        if _is_link_or_junction(_CACHE_DIR):
+            return 0, False
+        if not _CACHE_DIR.exists():
+            return 0, True
         files = []
         total_bytes = 0
-        for folder in _CACHE_DIR.iterdir():
-            if not folder.is_dir() or _is_link_or_junction(folder):
-                continue
-            for path in folder.iterdir():
-                if not path.is_file() or _is_link_or_junction(path):
+        # DirEntry reuses directory-enumeration metadata on Windows. Avoid
+        # reopening every file for is_file/islink/lstat/stat on each cache put.
+        with os.scandir(_CACHE_DIR) as buckets:
+            for folder in buckets:
+                if not folder.is_dir(follow_symlinks=False) or _is_link_or_junction(folder.path):
                     continue
-                try:
-                    stat = path.stat()
-                except OSError:
-                    continue
-                total_bytes += stat.st_size
-                files.append((stat.st_mtime_ns, path, stat.st_size))
+                with os.scandir(folder.path) as entries:
+                    for entry in entries:
+                        try:
+                            info = entry.stat(follow_symlinks=False)
+                        except OSError:
+                            complete = False
+                            continue
+                        if not _stat.S_ISREG(info.st_mode) or (
+                            getattr(info, "st_file_attributes", 0)
+                            & getattr(_stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+                        ):
+                            continue
+                        total_bytes += info.st_size
+                        files.append((info.st_mtime_ns, entry.path, info.st_size))
         if total_bytes <= limit_bytes:
-            return 0
+            return 0, complete
 
         files.sort(key=lambda item: (item[0], str(item[1])))
         with _cache_lock:
@@ -150,13 +228,14 @@ def _enforce_cache_limit() -> int:
                 if total_bytes <= limit_bytes:
                     break
                 try:
-                    path.unlink()
+                    os.unlink(path)
                 except OSError as exc:
+                    complete = False
                     logger.debug("Could not evict image cache file %s: %s", path, exc)
                     continue
                 total_bytes -= size
                 removed += 1
-                removed_digests.add(path.name)
+                removed_digests.add(os.path.basename(path))
             if removed_digests:
                 for url, digest in list(_cache_index.items()):
                     if digest in removed_digests:
@@ -167,19 +246,21 @@ def _enforce_cache_limit() -> int:
             _v465_schedule_cache_save()
             logger.info("Image cache auto-cleaned: %s file(s) removed", removed)
     except (OSError, TypeError, ValueError) as exc:
+        complete = False
         logger.debug("Image cache auto-cleanup failed: %s", exc)
-    return removed
+    return removed, complete
 
 
 def _clear_image_cache() -> int:
     """Remove all cached images. Returns number of files deleted."""
-    global _cache_index, _cache_replace_generation
+    global _cache_index, _cache_replace_generation, _cache_enforced_scope
     count = 0
     if _is_link_or_junction(_CACHE_DIR):
         logger.warning("Cache clear skipped: cache root is a symlink or junction")
         return 0
     try:
-        with interprocess_file_lock(str(_CACHE_IDX)), _cache_lock:
+        with _cache_maintenance_lock, interprocess_file_lock(str(_CACHE_IDX)), _cache_lock:
+            _cache_enforced_scope = None
             if _CACHE_DIR.exists():
                 for item in _CACHE_DIR.iterdir():
                     if item.is_dir() and not _is_link_or_junction(item):
@@ -297,6 +378,41 @@ def _v465_schedule_cache_save() -> None:
     _v465_cache_save_event.set()
 
 
+def _record_cache_put(url: str, digest: str) -> None:
+    global _cache_write_generation
+    with _cache_lock:
+        _cache_index[url] = digest
+        _cache_dirty[url] = digest
+        _cache_removed.discard(url)
+        _cache_write_generation += 1
+        generation = _cache_write_generation
+    _v465_schedule_cache_save()
+    _enforce_cache_after_write(generation)
+
+
+def _cache_put_file(url: str, payload: FilePayload) -> None:
+    """Persist a verified spool file without rereading it into memory."""
+    if payload.size < 64:
+        return
+    try:
+        _cache_load()
+        digest = payload.sha256
+        if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
+            raise ValueError("Invalid cached payload digest")
+        folder = _CACHE_DIR / digest[:2]
+        folder.mkdir(parents=True, exist_ok=True)
+        target = folder / digest
+        try:
+            valid = file_sha256(target) == digest
+        except FileNotFoundError:
+            valid = False
+        if not valid:
+            atomic_copy_file(payload.path, target)
+        _record_cache_put(url, digest)
+    except (OSError, TypeError, ValueError) as exc:
+        logger.debug("Image cache file put failed: %s", exc)
+
+
 def _cache_put(url: str, data: bytes) -> None:
     """Store image bytes and coalesce cache-index persistence into one thread."""
     if not data or len(data) < 64:
@@ -316,12 +432,7 @@ def _cache_put(url: str, data: bytes) -> None:
                 pass
         if needs_write:
             atomic_write_bytes(str(target), data)
-        with _cache_lock:
-            _cache_index[url] = digest
-            _cache_dirty[url] = digest
-            _cache_removed.discard(url)
-        _v465_schedule_cache_save()
-        _enforce_cache_limit()
+        _record_cache_put(url, digest)
     except (OSError, TypeError, ValueError) as exc:
         logger.debug(f"Image cache put failed: {exc}")
 

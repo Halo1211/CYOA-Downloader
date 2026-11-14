@@ -45,6 +45,9 @@ stop early when they no longer discover useful routes, assets, or responses.
 
 ## Offline viewer automation
 
+For repeatable CSV runs with checkpoints and real offline-browser checks, see
+the [live queue guide](LIVE_QUEUE_GUIDE.md).
+
 Viewer injection and website modernization are opt-in. Both switches default
 to **Off**, so upgrading the application does not silently change historical
 download output.
@@ -146,8 +149,40 @@ Important relationships:
   not story routes.
 - Queries that affect content remain part of cache keys and local names. Common
   cache-buster queries may be normalized.
+- Page assets and route links use the final HTTP response URL after redirects.
+  Explicit non-HTML response types do not consume the HTML page budget.
+- Smart/Browser crawling reuses the already saved entry page and scans unchanged
+  audio-player scripts once. Modified scripts are checked again automatically.
+- Same-origin iframe documents and their assets are saved separately from the
+  entry page. Active document cycles reuse their local paths; nested HTML is
+  limited to 16 levels. Cross-origin iframe references and `srcdoc` markup are
+  preserved. Dependencies embedded inside `srcdoc` are not localized.
+- SVG symbols keep their fragment identifiers, including `href` and
+  `xlink:href` references. Local asset URLs encode literal filename characters
+  such as spaces, `#`, and `%`. Quoted CSS filenames can include spaces and
+  parentheses; CSS/JavaScript redirects supply the dependency base URL.
+- CSS processing skips JavaScript path inference while preserving CSS imports,
+  URL rewriting, and media conditions. Integrity checks include SVG references
+  and object documents and ignore iframe `src` values superseded by `srcdoc`.
 - Next.js `/_next/image` requests are mapped back to the original image,
   including `srcset` and `imagesrcset` entries.
+- Responsive image scanning, localization, and integrity checks share the
+  [HTML srcset tokenization rules](https://html.spec.whatwg.org/multipage/images.html#parse-a-srcset-attribute).
+  Inline data URLs and commas inside image URLs remain intact; separators do
+  not require a following space. Descriptors remain available for the browser
+  to select an image. All `srcset`, `imagesrcset`, and `data-srcset` values are
+  checked without interpreting inline image payloads as missing files.
+- Deep-scan output names are decoded once and registered as literal filesystem
+  paths. Registered files retain their names when later downloads collide,
+  and are reused by the normal asset cache.
+- Deep scan retains original/final response URLs when saved assets are moved
+  into local folders. Relative CSS imports and image/font URLs use the
+  stylesheet base, including its origin and scheme. JavaScript document-relative
+  path rules remain separate; CSS paths are not rewritten by Vite heuristics.
+- Each deep-scan round refreshes its disk index during candidate discovery.
+  Existing successful downloads are reused, cancellation is checked between
+  files, and `__original_site__` recovery copies are excluded from scanning
+  and from deep-scan writes, including references from active pages.
 - The downloader does not bypass CAPTCHA, paywalls, age verification, or login.
 - Safe interaction rejects login, send, report, vote, payment, delete, upload,
   and comment controls. Forms and non-GET/HEAD requests are not permitted.
@@ -165,6 +200,14 @@ Use **Serve** in the GUI or another local HTTP server. Important files include:
 - `routes/.../index.html`: saved story routes;
 - `archive_manifest.json`: decisions, mappings, progress, and failures;
 - `backup_report.txt` and failure logs: unresolved dependencies.
+
+Resume uses the manifest to retry failed or deleted pages and to retain queued
+routes when the page cap is reached. It preserves original HTML link bases,
+including `<base href>`, and keeps existing localized navigation intact. Raise
+Maximum pages before resuming an archive that already reached its cap. New
+manifests store these bases and pending URLs; older manifests still resume from
+the available pages and failure records. Missing base metadata in an older
+archive may require a fresh download to recover the original relative links.
 
 If an image, audio file, font, stylesheet, script, or iframe dependency cannot
 be downloaded, its authored reference is preserved. The downloader does not

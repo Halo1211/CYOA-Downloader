@@ -571,7 +571,7 @@ def import_settings(path: str) -> tuple[bool, str]:
             return False, f"Import failed: file not found: {path}"
         with open(path, encoding="utf-8-sig") as f:
             raw = json.load(f)
-    except (json.JSONDecodeError, RecursionError) as e:
+    except (ValueError, RecursionError) as e:
         return False, f"Import failed: invalid JSON ({e})."
     except (OSError, UnicodeError) as e:
         return False, f"Import failed: {e}"

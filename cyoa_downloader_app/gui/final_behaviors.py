@@ -10,6 +10,7 @@ import tempfile
 import threading
 import time
 from collections import Counter, deque
+from dataclasses import replace
 from tkinter import messagebox
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urljoin, urlparse
@@ -19,7 +20,7 @@ from bs4 import BeautifulSoup
 
 from ..app_info import _APP_VERSION, _GITHUB_RELEASE_API, DEFAULT_MAX_WORKERS, DEFAULT_WAIT_TIME
 from ..config.secrets import _keyring_module
-from ..config.settings import _SETTINGS_FILE, _load_settings, _update_setting, _update_settings
+from ..config.settings import _SETTINGS_FILE, _load_settings, _update_settings
 from ..core.cancellation import (
     _raise_if_cancelled,
     clear_progress_event_sink,
@@ -84,13 +85,13 @@ from ..network.cloudflare import (
     flaresolverr_test_connection,
 )
 from ..network.fetch import fetch_response
+from ..network.response_metadata import ResponseMetadataCapture
 from ..network.sessions import _get_shared_session
 from ..network.throttle import _set_http2_enabled
 from ..project.discover import (
     _normalize_auto_detect_output,
-    auto_detect_mode,
-    auto_detect_modes_batch,
     get_project_source,
+    prepare_auto_mode,
 )
 from ..project.parse import (
     extract_project_from_archive_bytes,
@@ -100,15 +101,16 @@ from ..project.parse import (
 )
 from ..runtime import state as _runtime_state
 from ..storage.cache import _cache_stats, _clear_image_cache, _enforce_cache_limit
-from ..storage.history import _load_history, _record_history
+from ..storage.history import _cancel_history_metadata, _load_history, _metadata_context, _record_history
 from ..storage.resume import clear_resume_state, load_resume_state, save_resume_state
+from .auto_prepare import AutoModePreparation
+from .cache_maintenance import cache_maintenance
 from .logging_ui import _v465_configure_log_tags
 from .telemetry_log import _V46TelemetryLogHandler
 from .widgets import (
     _gui_exists,
     _v25_center_window,
     _v25_safe_after,
-    _v25_safe_after_widget,
     _v27_ai_provider_values,
     _v27_open_path,
     _v27_safe_after,
@@ -434,155 +436,10 @@ def _v24_show_results(self: Any) -> None:
     _set_filter("all")
 
 def _v24_batch_update_panel(self: Any) -> None:
-    """Modernized Batch Check with exception containment and non-closing requeue."""
-    from tkinter import messagebox
+    from .history_panel import open_history_panel
 
-    import customtkinter as ctk
+    open_history_panel(self, _load_history, _batch_check_updates)
 
-    is_en = getattr(self, "_language", "id") == "en"
-    p = self._p()
-    history = _load_history()
-    items = {k: v for k, v in (history or {}).items() if isinstance(v, dict) and v.get("success")}
-    if not items:
-        messagebox.showinfo("Batch Check", "No download history yet." if is_en else "Belum ada riwayat download.")
-        return
-
-    win = self._make_singleton_window("batch_check_center")
-    if win is None:
-        return
-    win.title("Batch Check Center" if is_en else "Pusat Cek Batch")
-    win.geometry("900x620")
-    win.minsize(760, 500)
-    win.configure(fg_color=p["bg"])
-    win.transient(self.root)
-    win.grab_set()
-
-    header = ctk.CTkFrame(win, fg_color=p["panel"], height=70, corner_radius=0)
-    header.pack(fill="x"); header.pack_propagate(False)
-    title = ctk.CTkLabel(header, text="📥 Batch Check Center" if is_en else "📥 Pusat Cek Batch", font=ctk.CTkFont("Segoe UI", 16, "bold"), text_color=p["fg"])
-    title.pack(side="left", padx=18)
-    status = ctk.CTkLabel(header, text=("Ready" if is_en else "Siap"), font=ctk.CTkFont("Segoe UI", 11), text_color=p["muted"])
-    status.pack(side="right", padx=18)
-
-    body = ctk.CTkFrame(win, fg_color=p["bg"], corner_radius=0)
-    body.pack(fill="both", expand=True, padx=14, pady=12)
-    summary = ctk.CTkFrame(body, fg_color="transparent")
-    summary.pack(fill="x", pady=(0, 10))
-    _v24_badge(summary, f"TOTAL {len(items)}", "#334155", 108)
-    cur_badge = _v24_badge(summary, "CURRENT 0", "#047857", 116)
-    upd_badge = _v24_badge(summary, "UPDATED 0", "#1d4ed8", 116)
-    err_badge = _v24_badge(summary, "ERROR 0", "#b91c1c", 104)
-
-    pb = ctk.CTkProgressBar(body, height=8, progress_color="#3b82f6")
-    pb.pack(fill="x", pady=(0, 10)); pb.set(0)
-
-    toolbar = ctk.CTkFrame(body, fg_color="transparent")
-    toolbar.pack(fill="x", pady=(0, 8))
-    filter_var = ctk.StringVar(value="all")
-    result_holder = {"rows": []}
-    buttons: dict[str, Any] = {}
-
-    list_frame = ctk.CTkScrollableFrame(body, fg_color=p["bg"], corner_radius=0, scrollbar_button_color=p["surface2"])
-    list_frame.pack(fill="both", expand=True)
-    list_frame.grid_columnconfigure(0, weight=1)
-
-    def _render() -> None:
-        for child in list_frame.winfo_children():
-            child.destroy()
-        rows = list(result_holder.get("rows") or [])
-        flt = filter_var.get()
-        if flt != "all":
-            rows = [r for r in rows if r.get("status") == flt]
-        if not rows:
-            ctk.CTkLabel(list_frame, text="Run the check to see results." if is_en else "Jalankan cek untuk melihat hasil.", text_color=p["muted"], font=ctk.CTkFont("Segoe UI", 12)).grid(row=0, column=0, sticky="w", padx=12, pady=24)
-            return
-        for idx, r in enumerate(rows):
-            st = r.get("status", "")
-            color = {"current": "#047857", "updated": "#2563eb", "error": "#dc2626", "unreachable": "#dc2626"}.get(st, "#64748b")
-            icon = {"current": "✓", "updated": "↻", "error": "!", "unreachable": "!"}.get(st, "?")
-            name = r.get("name") or r.get("url", "")[:70]
-            reason = r.get("reason") or st
-            card = ctk.CTkFrame(list_frame, fg_color=p["surface"], corner_radius=10, border_width=1, border_color=p["border"])
-            card.grid(row=idx, column=0, sticky="ew", padx=2, pady=4)
-            card.grid_columnconfigure(1, weight=1)
-            ctk.CTkLabel(card, text=icon, width=34, height=34, fg_color=color, text_color="#ffffff", corner_radius=17, font=ctk.CTkFont("Segoe UI", 14, "bold")).grid(row=0, column=0, rowspan=2, padx=12, pady=10)
-            ctk.CTkLabel(card, text=name, anchor="w", font=ctk.CTkFont("Segoe UI", 12, "bold"), text_color=p["fg"], wraplength=620).grid(row=0, column=1, sticky="ew", pady=(10, 2))
-            ctk.CTkLabel(card, text=f"{r.get('url','')}\n{reason}", anchor="w", justify="left", font=ctk.CTkFont("Consolas", 9), text_color=p["muted"], wraplength=660).grid(row=1, column=1, sticky="ew", pady=(0, 10))
-            if st in ("updated", "error", "unreachable"):
-                row_url = r.get("url", "")
-
-                def _queue(url=row_url):
-                    if url:
-                        self._add_url_to_queue(url)
-                        status.configure(text=("Queued for download" if is_en else "Masuk antrean download"))
-                ctk.CTkButton(card, text="Queue" if is_en else "Antrekan", width=90, height=30, fg_color=color, hover_color=color, text_color="#ffffff", command=_queue).grid(row=0, column=2, rowspan=2, padx=12, pady=10)
-
-    def _set_filter(value: str) -> None:
-        filter_var.set(value)
-        for key, btn in buttons.items():
-            active = key == value
-            btn.configure(fg_color="#3b82f6" if active else p["surface2"], text_color="#ffffff" if active else p["muted"])
-        _render()
-
-    for key, label in [("all", "All" if is_en else "Semua"), ("updated", "Updated" if is_en else "Update"), ("error", "Errors" if is_en else "Error"), ("current", "Current" if is_en else "Terkini")]:
-        b = ctk.CTkButton(toolbar, text=label, width=90, height=30, fg_color=p["surface2"], hover_color=p["surface"], text_color=p["muted"], command=lambda k=key: _set_filter(k))
-        b.pack(side="left", padx=(0, 8))
-        buttons[key] = b
-
-    def _queue_all_updated() -> None:
-        count = 0
-        for r in result_holder.get("rows") or []:
-            if r.get("status") == "updated" and r.get("url"):
-                self._add_url_to_queue(r["url"])
-                count += 1
-        status.configure(text=(f"Queued {count} updated URLs" if is_en else f"{count} URL update masuk antrean"))
-
-    queue_btn = ctk.CTkButton(toolbar, text="Queue Updated" if is_en else "Antrekan Update", width=126, height=30, fg_color="#2563eb", hover_color="#1d4ed8", text_color="#ffffff", command=_queue_all_updated, state="disabled")
-    queue_btn.pack(side="right", padx=(8, 0))
-
-    def _run() -> None:
-        run_btn.configure(state="disabled")
-        queue_btn.configure(state="disabled")
-        status.configure(text="Checking…" if is_en else "Mengecek…")
-        pb.set(0)
-        result_holder["rows"] = []
-        _render()
-        def _progress(done: int, total: int) -> None:
-            if total and _gui_exists(win):
-                _v25_safe_after_widget(self.root, pb,
-                                       lambda d=done, t=total: pb.set(d / t))
-        def _worker() -> None:
-            try:
-                results = _batch_check_updates(items, progress_cb=_progress)
-                err = ""
-            except DownloadCancelledError:
-                raise
-            except _GUI_JOB_BOUNDARY_ERRORS as exc:
-                results, err = [], str(exc)
-            def _done() -> None:
-                if not _gui_exists(win):
-                    return
-                if err:
-                    status.configure(text=("Batch check failed" if is_en else "Cek batch gagal") + f": {err}")
-                result_holder["rows"] = list(results or [])
-                cur = sum(1 for r in result_holder["rows"] if r.get("status") == "current")
-                upd = sum(1 for r in result_holder["rows"] if r.get("status") == "updated")
-                erc = sum(1 for r in result_holder["rows"] if r.get("status") in ("error", "unreachable"))
-                cur_badge.configure(text=f"CURRENT {cur}")
-                upd_badge.configure(text=f"UPDATED {upd}")
-                err_badge.configure(text=f"ERROR {erc}")
-                pb.set(1)
-                status.configure(text=("Done" if is_en else "Selesai") + f" — current {cur}, updated {upd}, error {erc}")
-                queue_btn.configure(state="normal" if upd else "disabled")
-                run_btn.configure(state="normal")
-                _set_filter("all")
-            self.root.after(0, _done)
-        threading.Thread(target=_worker, daemon=True).start()
-
-    run_btn = ctk.CTkButton(toolbar, text="Run Check" if is_en else "Jalankan Cek", width=112, height=30, fg_color="#3b82f6", hover_color="#2563eb", text_color="#ffffff", command=_run)
-    run_btn.pack(side="right", padx=(8, 0))
-    _set_filter("all")
-    _run()
 
 def _v24_diagnostics_panel(self: Any) -> None:
     """Modern Diagnostics Center with summary sidebar, colored text, filters, and robust worker error handling."""
@@ -1870,6 +1727,7 @@ def _v27_cache_manager_panel(self: Any) -> None:
     path_var = ctk.StringVar(value="")
     cache_limit_var = ctk.StringVar(value="2")
     cache_limit_status = ctk.StringVar(value="")
+    cache_controls = []
 
     badge_entries = ctk.CTkLabel(stats_frame, text="ENTRIES 0", width=130, height=38,
                                  fg_color="#0f766e", text_color="#ecfeff", corner_radius=12,
@@ -1881,20 +1739,43 @@ def _v27_cache_manager_panel(self: Any) -> None:
     badge_size.pack(side="left", padx=(0, 10))
 
     def _refresh() -> None:
-        try:
-            stats = _cache_stats()
-            badge_entries.configure(text=(f"ENTRIES {stats['entries']}" if is_en else f"ENTRI {stats['entries']}"))
-            badge_size.configure(text=f"SIZE {stats['size_mb']} MB" if is_en else f"UKURAN {stats['size_mb']} MB")
-            cache_dir = os.path.join(os.path.dirname(_SETTINGS_FILE), "image_cache")
-            path_var.set(cache_dir)
-            cache_limit_var.set(f"{stats['limit_mb'] / 1024:g}")
-            stats_var.set(f"Cache is writable and used to avoid re-downloading duplicate images.\nLocation: {cache_dir}"
-                           if is_en else f"Cache dapat ditulis dan dipakai agar gambar yang sama tidak diunduh ulang.\nLokasi: {cache_dir}")
-        except _GUI_CALLBACK_ERRORS as exc:
-            stats_var.set(f"Failed to read cache: {exc}" if is_en else f"Gagal membaca cache: {exc}")
+        if view.ready:
+            stats_var.set("Reading cache…" if is_en else "Membaca cache…")
+            view.start("refresh", lambda: {"stats": _cache_stats()})
+
+    def _cache_result(action, result, error) -> None:
+        if error:
+            cache_limit_status.set("")
+            stats_var.set(f"Cache operation failed: {error}" if is_en else f"Operasi cache gagal: {error}")
+            return
+        stats = result["stats"]
+        badge_entries.configure(text=(f"ENTRIES {stats['entries']}" if is_en else f"ENTRI {stats['entries']}"))
+        badge_size.configure(text=f"SIZE {stats['size_mb']} MB" if is_en else f"UKURAN {stats['size_mb']} MB")
+        cache_dir = os.path.join(os.path.dirname(_SETTINGS_FILE), "image_cache")
+        path_var.set(cache_dir)
+        cache_limit_var.set(f"{stats['limit_mb'] / 1024:g}")
+        stats_var.set(f"Cache is writable and used to avoid re-downloading duplicate images.\nLocation: {cache_dir}"
+                       if is_en else f"Cache dapat ditulis dan dipakai agar gambar yang sama tidak diunduh ulang.\nLokasi: {cache_dir}")
+        if action == "save":
+            mb = result["limit_mb"]
+            cache_limit_status.set(f"Saved. Auto-cleanup limit: {mb / 1024:g} GB." if is_en
+                                   else f"Tersimpan. Batas auto-cleanup: {mb / 1024:g} GB.")
+        elif action == "clear":
+            count = result["removed"]
+            cache_limit_status.set(f"Cleared {count} file(s)." if is_en else f"{count} file dibersihkan.")
+        else:
+            cache_limit_status.set("")
+
+    def _cache_busy(busy) -> None:
+        for widget in cache_controls:
+            widget.configure(state="disabled" if busy else "normal")
+        if busy:
+            cache_limit_status.set("Working…" if is_en else "Memproses…")
 
     def _save_cache_limit() -> None:
         import math
+        if not view.ready:
+            return
         try:
             gb = float(cache_limit_var.get().strip())
             if not math.isfinite(gb) or gb <= 0:
@@ -1903,12 +1784,14 @@ def _v27_cache_manager_panel(self: Any) -> None:
         except (TypeError, ValueError, OverflowError):
             cache_limit_status.set("Enter a positive number of GB." if is_en else "Masukkan angka GB yang lebih besar dari 0.")
             return
-        _update_setting("image_cache_max_mb", mb)
-        _enforce_cache_limit()
-        cache_limit_var.set(f"{mb / 1024:g}")
-        cache_limit_status.set(f"Saved. Auto-cleanup limit: {mb / 1024:g} GB." if is_en
-                                else f"Tersimpan. Batas auto-cleanup: {mb / 1024:g} GB.")
-        _refresh()
+
+        def save_limit():
+            if not _update_settings({"image_cache_max_mb": mb}):
+                raise OSError("Could not save cache limit")
+            _enforce_cache_limit()
+            return {"stats": _cache_stats(), "limit_mb": mb}
+
+        view.start("save", save_limit)
 
     card = ctk.CTkFrame(body, fg_color=p["surface"], corner_radius=14, border_width=1, border_color=p["border"])
     card.grid(row=1, column=0, columnspan=2, sticky="nsew", pady=(0, 12))
@@ -1923,10 +1806,12 @@ def _v27_cache_manager_panel(self: Any) -> None:
     limit_row.grid_columnconfigure(1, weight=1)
     ctk.CTkLabel(limit_row, text=("Max cache size (GB)" if is_en else "Ukuran cache maksimal (GB)"),
                  font=ctk.CTkFont("Segoe UI", 10, "bold"), text_color=p["fg"], anchor="w").grid(row=0, column=0, sticky="w", padx=(0, 8))
-    ctk.CTkEntry(limit_row, textvariable=cache_limit_var, width=90, height=30,
-                 fg_color=p["input_bg"], border_color=p["border"], text_color=p["input_fg"], justify="center").grid(row=0, column=1, sticky="e", padx=(0, 8))
-    ctk.CTkButton(limit_row, text=("Save" if is_en else "Simpan"), width=80, height=30,
-                  fg_color="#2563eb", hover_color="#1d4ed8", command=_save_cache_limit).grid(row=0, column=2, sticky="e")
+    cache_entry = ctk.CTkEntry(limit_row, textvariable=cache_limit_var, width=90, height=30,
+                 fg_color=p["input_bg"], border_color=p["border"], text_color=p["input_fg"], justify="center")
+    cache_entry.grid(row=0, column=1, sticky="e", padx=(0, 8))
+    save_button = ctk.CTkButton(limit_row, text=("Save" if is_en else "Simpan"), width=80, height=30,
+                  fg_color="#2563eb", hover_color="#1d4ed8", command=_save_cache_limit)
+    save_button.grid(row=0, column=2, sticky="e")
     ctk.CTkLabel(card, textvariable=cache_limit_status, font=ctk.CTkFont("Segoe UI", 9),
                  text_color=p["muted"], anchor="w").grid(row=4, column=1, sticky="ew", padx=(0, 16), pady=(0, 10))
 
@@ -1941,21 +1826,27 @@ def _v27_cache_manager_panel(self: Any) -> None:
     footer.grid(row=2, column=0, sticky="ew"); footer.grid_columnconfigure(0, weight=1)
 
     def _clear() -> None:
+        if not view.ready:
+            return
         if not messagebox.askyesno(("Clear image cache" if is_en else "Bersihkan cache gambar"),
                                    ("Remove cached image files? Completed downloads are not touched."
                                     if is_en else "Hapus file cache gambar? Download yang sudah selesai tidak disentuh."), parent=win):
             return
-        try:
+        def clear_cache():
             n = _clear_image_cache()
             logger.info(f"Image cache cleared: {n} file(s)")
-            _refresh()
-        except _GUI_CALLBACK_ERRORS as exc:
-            messagebox.showerror("Image Cache" if is_en else "Cache Gambar", str(exc), parent=win)
+            return {"stats": _cache_stats(), "removed": n}
 
-    ctk.CTkButton(footer, text=("Refresh" if is_en else "Muat Ulang"), width=110, fg_color=p["surface2"], hover_color=p["surface"], text_color=p["fg"], command=_refresh).grid(row=0, column=0, sticky="w", padx=(18, 8), pady=12)
+        view.start("clear", clear_cache)
+
+    refresh_button = ctk.CTkButton(footer, text=("Refresh" if is_en else "Muat Ulang"), width=110, fg_color=p["surface2"], hover_color=p["surface"], text_color=p["fg"], command=_refresh)
+    refresh_button.grid(row=0, column=0, sticky="w", padx=(18, 8), pady=12)
     ctk.CTkButton(footer, text=("Open Folder" if is_en else "Buka Folder"), width=120, fg_color="#0f766e", hover_color="#0d9488", text_color="#ecfeff", command=lambda: _v27_open_path(os.path.dirname(path_var.get()) if not os.path.isdir(path_var.get()) else path_var.get())).grid(row=0, column=1, padx=(0, 8), pady=12)
-    ctk.CTkButton(footer, text=("Clear Cache" if is_en else "Bersihkan Cache"), width=120, fg_color=p["danger_bg"], hover_color=p["danger_hv"], text_color=p["danger_fg"], command=_clear).grid(row=0, column=2, padx=(0, 8), pady=12)
+    clear_button = ctk.CTkButton(footer, text=("Clear Cache" if is_en else "Bersihkan Cache"), width=120, fg_color=p["danger_bg"], hover_color=p["danger_hv"], text_color=p["danger_fg"], command=_clear)
+    clear_button.grid(row=0, column=2, padx=(0, 8), pady=12)
     ctk.CTkButton(footer, text=("Close" if is_en else "Tutup"), width=100, fg_color=p["surface2"], hover_color=p["surface"], text_color=p["fg"], command=win.destroy).grid(row=0, column=3, padx=(0, 18), pady=12)
+    cache_controls.extend((cache_entry, save_button, clear_button, refresh_button))
+    view = cache_maintenance(self).attach(win, _cache_result, _cache_busy)
     _refresh()
 
 def _v27_check_updates_panel(self: Any) -> None:
@@ -2526,7 +2417,7 @@ def _v46_set_event_sink(self) -> None:
 
 def _v46_start(self) -> None:
     from tkinter import messagebox
-    if self._is_running:
+    if self._is_running or getattr(self, "_queue_import_busy", False):
         return
     if not self._queue_data:
         messagebox.showwarning(self._tr("queue_empty_title"), self._tr("queue_empty_body"))
@@ -2583,8 +2474,7 @@ def _v46_start(self) -> None:
         requested_name = str(item.get("filename") or "").strip()
         item["_run_file_name"] = requested_name or _build_output_name(str(item.get("url") or ""))
         item["_run_requested_mode"] = str(item.get("mode") or default_mode_snapshot or "auto")
-        # Normalize imported blank modes before auto_detect_modes_batch(),
-        # whose public contract intentionally probes only mode == "auto".
+        # Resolve imported blank modes from this run's immutable default.
         item["mode"] = item["_run_requested_mode"]
         item["_resume_key"] = resume_job_key(
             str(item.get("url") or ""),
@@ -2596,6 +2486,7 @@ def _v46_start(self) -> None:
         for it in run_items
         if it.get("_queue_id")
     }
+    self._active_run_order = tuple(str(item.get("_queue_id") or "") for item in run_items)
     # Compatibility field for older completion paths. The active v46 done
     # handler removes by row identity, not URL, so duplicate URLs are safe.
     self._active_run_urls = {str(it.get("url", "")) for it in run_items if it.get("url")}
@@ -2653,6 +2544,8 @@ def _v46_worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_a
     global wait_time, _ytdlp_enabled, _bandwidth_limit_kbps
     self._last_results = []
     self._v46_worker_failed = False
+    preparation = None
+    cancelled = False
     try:
         self._v46_set_event_sink()
         module = sys.modules.get(__name__)
@@ -2679,13 +2572,14 @@ def _v46_worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_a
         _ytdlp_enabled = ytdlp_enabled
         _bandwidth_limit_kbps = bw_limit
         wait_time = wt
+        network_settings = _load_settings()
         _set_cloudflare_config(
             cloudflare_mode,
-            flaresolverr_url=_load_settings().get("flaresolverr_url", _FLARESOLVERR_URL),
-            session_policy=_load_settings().get("flaresolverr_session_policy", _FLARESOLVERR_SESSION_POLICY),
-            timeout=int(_load_settings().get("flaresolverr_timeout", _FLARESOLVERR_TIMEOUT) or _FLARESOLVERR_TIMEOUT),
-            wait_after=int(_load_settings().get("flaresolverr_wait_after", _FLARESOLVERR_WAIT_AFTER) or _FLARESOLVERR_WAIT_AFTER),
-            proxy_mode=_load_settings().get("flaresolverr_proxy_mode", _FLARESOLVERR_PROXY_MODE),
+            flaresolverr_url=network_settings.get("flaresolverr_url", _FLARESOLVERR_URL),
+            session_policy=network_settings.get("flaresolverr_session_policy", _FLARESOLVERR_SESSION_POLICY),
+            timeout=int(network_settings.get("flaresolverr_timeout", _FLARESOLVERR_TIMEOUT) or _FLARESOLVERR_TIMEOUT),
+            wait_after=int(network_settings.get("flaresolverr_wait_after", _FLARESOLVERR_WAIT_AFTER) or _FLARESOLVERR_WAIT_AFTER),
+            proxy_mode=network_settings.get("flaresolverr_proxy_mode", _FLARESOLVERR_PROXY_MODE),
             persist=True,
         )
         _set_http2_enabled(bool(http2_enabled))
@@ -2727,18 +2621,13 @@ def _v46_worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_a
             elif _u0 in prev_failed:
                 self._set_dot(_idx0, "error")
 
-        auto_items = [
-            it for it in items
-            if str(it.get("_run_requested_mode") or default_mode or "auto") == "auto"
-            and (it.get("_resume_key") not in completed or it.get("_resume_key") in duplicate_jobs)
-        ]
-        if auto_items:
-            self._set_status(f"Auto-detecting mode for {len(auto_items)} URL(s)…")
-            self._v46_enqueue_progress({"type": "stage_changed", "state": DownloadState.RESOLVING.value, "time": time.monotonic()})
-            def progress(done: int, total: int) -> None:
-                _raise_if_cancelled()
-                self._set_status(f"Auto-detecting… {done}/{total}")
-            auto_detect_modes_batch(auto_items, max_workers=min(4, threads), progress_cb=progress)
+        def should_probe(it):
+            return (
+                str(it.get("mode") or default_mode or "auto") == "auto"
+                and (it.get("_resume_key") not in completed or it.get("_resume_key") in duplicate_jobs)
+            )
+
+        preparation = AutoModePreparation(items, _v46_prepare_auto_mode, should_probe)
 
         for idx, item in enumerate(items, 1):
             _raise_if_cancelled()
@@ -2757,10 +2646,13 @@ def _v46_worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_a
             while not self._paused.is_set():
                 if self._cancel_event.wait(0.1):
                     raise DownloadCancelledError("Cancelled while paused")
+            prepared_cyoap = None
             if mode == "auto":
                 self._set_status(f"Job {idx} of {len(items)} — auto-detecting")
-                mode = auto_detect_mode(url)
-                item["mode"] = mode
+                self._v46_enqueue_progress({"type": "stage_changed", "state": DownloadState.RESOLVING.value, "time": time.monotonic()})
+                mode = preparation.resolve(idx - 1)
+                prepared_cyoap = preparation.current_detection.cyoap_payloads if preparation.current_detection else None
+            preparation.prepare(idx)
             self._v46_enqueue_progress({"type": "job_started", "job_index": idx, "total_jobs": len(items), "mode": mode, "source_url": url, "time": time.monotonic()})
             self._set_dot(idx - 1, "running")
             self._set_status(f"Job {idx} of {len(items)} — {mode} — {truncate_display_url(url, 68)}")
@@ -2775,24 +2667,26 @@ def _v46_worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_a
                 _raise_if_cancelled()
                 is_pure = mode in {"pure_website_zip", "pure_website_folder"}
                 is_cyoap = mode in {"cyoap_vue_zip", "cyoap_vue_folder"}
-                run_download(
-                    url=url,
-                    file_name=item.get("_run_file_name", item.get("filename", "")),
-                    zip_output=(mode == "zip"),
-                    both_output=(mode == "both"),
-                    website_output=(mode in {"website", "website_zip", "website_folder", "cyoap_vue_zip", "cyoap_vue_folder"}),
-                    website_zip_output=(mode not in {"website_folder", "cyoap_vue_folder", "pure_website_folder"}),
-                    pure_website=is_pure,
-                    download_fonts=dl_fonts,
-                    show_font_analysis=show_analysis,
-                    output_dir=outdir,
-                    max_workers=threads,
-                    engine_mode="cyoap_vue" if is_cyoap else "standard",
-                    cyoa_mgr_enabled=cyoa_mgr,
-                    ai_api_key=_resolve_ai_api_key(session_key=self._ai_api_key, storage=getattr(self, "_ai_key_storage", "session"), provider=getattr(self, "_ai_provider", "anthropic")) if self._ai_enabled and _normalize_ai_mode(getattr(self, "_ai_mode", "auto_fallback")) != "off" else "",
-                    ai_provider=getattr(self, "_ai_provider", "anthropic"),
-                    ai_mode=getattr(self, "_ai_mode", "auto_fallback"),
-                )
+                with ResponseMetadataCapture(url, _metadata_context) as response_metadata:
+                    run_download(
+                        url=url,
+                        file_name=item.get("_run_file_name", item.get("filename", "")),
+                        zip_output=(mode == "zip"),
+                        both_output=(mode == "both"),
+                        website_output=(mode in {"website", "website_zip", "website_folder", "cyoap_vue_zip", "cyoap_vue_folder"}),
+                        website_zip_output=(mode not in {"website_folder", "cyoap_vue_folder", "pure_website_folder"}),
+                        pure_website=is_pure,
+                        download_fonts=dl_fonts,
+                        show_font_analysis=show_analysis,
+                        output_dir=outdir,
+                        max_workers=threads,
+                        engine_mode="cyoap_vue" if is_cyoap else "standard",
+                        cyoa_mgr_enabled=cyoa_mgr,
+                        ai_api_key=_resolve_ai_api_key(session_key=self._ai_api_key, storage=getattr(self, "_ai_key_storage", "session"), provider=getattr(self, "_ai_provider", "anthropic")) if self._ai_enabled and _normalize_ai_mode(getattr(self, "_ai_mode", "auto_fallback")) != "off" else "",
+                        ai_provider=getattr(self, "_ai_provider", "anthropic"),
+                        ai_mode=getattr(self, "_ai_mode", "auto_fallback"),
+                        prepared_cyoap=prepared_cyoap,
+                    )
                 _raise_if_cancelled()
                 if resume_key not in completed_jobs:
                     completed_jobs.append(resume_key)
@@ -2800,7 +2694,13 @@ def _v46_worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_a
                     self._active_run_success_ids.add(str(item["_queue_id"]))
                 self._last_results.append({"url": url, "mode": mode, "status": "OK", "filename": item.get("filename", ""), "error": "", "queue_id": item.get("_queue_id", ""), "result_type": "job", "itch_result": itch_result})
                 self._set_dot(idx - 1, "done")
-                _record_history(url, item.get("filename", ""), mode, success=True)
+                if getattr(_record_history, "supports_background_metadata", False):
+                    history_options = {"response_metadata": response_metadata} if getattr(
+                        _record_history, "supports_response_metadata", False) else {}
+                    _record_history(url, item.get("filename", ""), mode, success=True,
+                                    background=True, cancel_event=self._cancel_event, **history_options)
+                else:
+                    _record_history(url, item.get("filename", ""), mode, success=True)
                 save_resume_state(outdir, completed_jobs, [f["url"] for f in failed_items])
                 self._v46_enqueue_progress({"type": "job_completed", "failed_assets": 0, "time": time.monotonic()})
             except DownloadCancelledError:
@@ -2851,6 +2751,11 @@ def _v46_worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_a
         self._v46_enqueue_progress({"type": "job_failed", "error": str(exc), "time": time.monotonic()})
         self._set_status(f"Failed — {exc}")
     finally:
+        metadata_owner = getattr(self, "_cancel_event", None)
+        if metadata_owner is not None and (cancelled or metadata_owner.is_set()):
+            _cancel_history_metadata(metadata_owner)
+        if preparation is not None:
+            preparation.close()
         if len(items) > 1 and self._last_results:
             self._run_on_ui_thread(self._show_results)
         self._run_on_ui_thread(self._done)
@@ -2895,6 +2800,7 @@ def _v46_done(self) -> None:
         self._reveal_queue_ids(failed_ids)
     self._active_run_urls = set()
     self._active_run_queue_ids = set()
+    self._active_run_order = ()
     self._active_run_success_ids = set()
     if sys.modules.get(__name__) is not None:
         sys.modules[__name__]._gui_speed_cb = None
@@ -2931,10 +2837,28 @@ def _v46_on_close(self) -> None:
     self._v46_finish_close()
 
 def _v46_finish_close(self) -> None:
+    from .queue_import import cancel_queue_import
+    cancel_queue_import(self)
+    close_timer = getattr(self, "_cache_close_after_id", None)
+    if close_timer is not None:
+        try:
+            self.root.after_cancel(close_timer)
+        except _GUI_CALLBACK_ERRORS as exc:
+            logger.debug("Cache shutdown timer cancellation failed: %s", exc)
+        self._cache_close_after_id = None
+    maintenance = getattr(self, "_cache_maintenance", None)
+    if maintenance is not None:
+        maintenance.close()
+        if maintenance.is_alive():
+            self._cache_close_after_id = self.root.after(100, self._v46_finish_close)
+            return
     thread = getattr(self, "_worker_thread", None)
     if thread is not None and thread.is_alive():
         self.root.after(150, self._v46_finish_close)
         return
+    queue_view = getattr(self, "_queue_view", None)
+    if queue_view is not None:
+        queue_view.close()
     # Cancel every application-owned Tk timer before destroying the
     # interpreter.  Leaving a log poller or debounce callback behind can make
     # a later GUI instance in the same process execute a command registered by
@@ -3002,10 +2926,14 @@ def _v46_poll_progress(self) -> None:
         return
     # Execute worker-originated GUI commands only from this Tk callback.  Keep
     # the per-tick budget finite so a large queue cannot monopolize mainloop.
+    tick_started = time.monotonic()
+    commands_deadline = tick_started + 0.006
+    events_deadline = tick_started + 0.010
+    priority_deadline = tick_started + 0.012
     ui_drained = 0
     ui_commands = getattr(self, "_v46_ui_commands", None)
     if ui_commands is not None:
-        while ui_drained < 100:
+        while ui_drained < 100 and time.monotonic() < commands_deadline:
             try:
                 callback = ui_commands.get_nowait()
             except log_queue_module.Empty:
@@ -3018,15 +2946,17 @@ def _v46_poll_progress(self) -> None:
                 logger.debug(f"Queued GUI command failed: {exc}")
             ui_drained += 1
     drained = 0
+    force_render = False
     # Limit work per Tk tick. A large asset batch can emit thousands of
     # progress events; draining/rendering all of them in one callback freezes
     # the window on low-spec machines and delays the Cancel button.
-    while drained < 100:
+    while drained < 1000 and time.monotonic() < events_deadline:
         try:
             event = self._v46_progress_queue.get_nowait()
         except log_queue_module.Empty:
             break
         # Repair absolute asset count emitted by parsed legacy logs.
+        force_render |= event.get("type") in {"stage_changed", "job_completed", "job_failed", "job_cancelled", "cancelling"}
         absolute = event.pop("absolute_finished", None)
         self._v46_telemetry.apply(event)
         if absolute is not None:
@@ -3044,11 +2974,13 @@ def _v46_poll_progress(self) -> None:
     # asset telemetry remains busy.
     priority_queue = getattr(self, "_v46_priority_progress_queue", None)
     if priority_queue is not None:
-        while drained < 125:
+        priority_drained = 0
+        while priority_drained < 25 and time.monotonic() < priority_deadline:
             try:
                 event = priority_queue.get_nowait()
             except log_queue_module.Empty:
                 break
+            force_render |= event.get("type") in {"stage_changed", "job_completed", "job_failed", "job_cancelled", "cancelling"}
             absolute = event.pop("absolute_finished", None)
             self._v46_telemetry.apply(event)
             if absolute is not None:
@@ -3066,14 +2998,29 @@ def _v46_poll_progress(self) -> None:
                     self._v46_telemetry.job_progress,
                 )
             drained += 1
+            priority_drained += 1
     if ui_drained or drained:
+        self._v46_progress_render_pending = True
+    # Consume event counters promptly, but draw widgets at most once per
+    # 150 ms. Lifecycle changes bypass this limit. Retain a pending frame so
+    # the final update is still rendered when producers fall quiet.
+    now = time.monotonic()
+    last_render = getattr(self, "_v46_last_progress_render", None)
+    if getattr(self, "_v46_progress_render_pending", False) and (
+        force_render or last_render is None or now - last_render >= .150
+    ):
         snapshot = self._v46_telemetry.snapshot()
         try:
             self._v46_render_progress(snapshot)
+            self._v46_last_progress_render = now
+            self._v46_progress_render_pending = False
         except _GUI_CALLBACK_ERRORS as exc:
             logger.debug(f"Progress render failed: {exc}")
     next_delay = (
-        50 if ui_drained >= 100 or drained >= 100
+        50 if (getattr(self, "_is_running", False)
+               or getattr(self, "_queue_import_busy", False)
+               or getattr(self, "_v46_progress_render_pending", False)
+               or ui_drained >= 100 or drained >= 100 or time.monotonic() >= commands_deadline)
         else 150 if ui_drained or drained
         else 500
     )
@@ -3395,14 +3342,22 @@ def _v462_auto_detect_output_variant(kind: str, output_pref: str | None = None) 
         return "pure_website_zip" if pref == "zip" else "pure_website_folder"
     return _V461_AUTO_DETECT_OUTPUT_VARIANT(kind, output_pref)
 
-def _v462_auto_detect_mode(url: str, timeout: int = 6) -> str:
-    detected = _V461_AUTO_DETECT_MODE(url, timeout=timeout)
+def _v462_resolved_auto_mode(url: str, detected: str) -> str:
     source_key = _v462_resolution_key(url)
     if _v462_get_resolution_kind(source_key) == "pure_website" and detected in {"website_zip", "website_folder"}:
         pure_mode = _v462_auto_detect_output_variant("pure_website")
         logger.info(f"[Auto-detect] → authoritative custom HTML target; using {pure_mode}")
         return pure_mode
     return detected
+
+
+def _v462_auto_detect_mode(url: str, timeout: int = 6) -> str:
+    return _v462_resolved_auto_mode(url, _V461_AUTO_DETECT_MODE(url, timeout=timeout))
+
+
+def _v46_prepare_auto_mode(url: str):
+    detection = prepare_auto_mode(url)
+    return replace(detection, mode=_v462_resolved_auto_mode(url, detection.mode))
 
 def _v462_is_cafe_url(url: str) -> bool:
     try:
@@ -3443,6 +3398,7 @@ def _v462_run_download(
     archive_max_pages: int = 0,
     archive_max_depth: int = -1,
     archive_capture_interactions: bool = False,
+    prepared_cyoap: dict[str, str] | None = None,
 ) -> None:
     source_url = url
     preserved_name = file_name
@@ -3478,6 +3434,8 @@ def _v462_run_download(
         "archive_max_depth": archive_max_depth,
         "archive_capture_interactions": archive_capture_interactions,
     }
+    if prepared_cyoap:
+        kwargs["prepared_cyoap"] = prepared_cyoap
     try:
         return _V461_RUN_DOWNLOAD(**kwargs)
     except RuntimeError as exc:
@@ -4211,6 +4169,7 @@ def _v466_run_download(
     archive_max_pages: int = 0,
     archive_max_depth: int = -1,
     archive_capture_interactions: bool = False,
+    prepared_cyoap: dict[str, str] | None = None,
 ) -> None:
     """Resolve CYOA.CAFE metadata URLs before website/deep-scan execution."""
     source_url = canonicalize_url(url)
@@ -4253,6 +4212,8 @@ def _v466_run_download(
         "archive_max_depth": archive_max_depth,
         "archive_capture_interactions": archive_capture_interactions,
     }
+    if prepared_cyoap:
+        kwargs["prepared_cyoap"] = prepared_cyoap
     try:
         return _V466_PREVIOUS_RUN_DOWNLOAD(**kwargs)
     except RuntimeError as exc:

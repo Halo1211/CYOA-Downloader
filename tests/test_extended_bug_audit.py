@@ -171,11 +171,16 @@ def test_reusable_browser_preserves_cancellation_after_body(monkeypatch):
         event.set()
         return b"completed while cancelled"
 
-    response = SimpleNamespace(ok=True, body=body, headers={}, status=200, url="https://example.test/")
+    response = SimpleNamespace(ok=True, body=body, headers={}, status=200, url="https://example.test/",
+                               request=SimpleNamespace(timing={"responseEnd": 1}, failure=None))
     monkeypatch.setattr(session, "_ensure", lambda url: None)
-    session._page = SimpleNamespace(goto=lambda *a, **kw: response)
-    with pytest.raises(DownloadCancelledError):
-        session.fetch("https://example.test/")
+    page = SimpleNamespace(goto=lambda *a, **kw: response, close=lambda: None)
+    session._context = SimpleNamespace(new_page=lambda: page, close=lambda: None)
+    try:
+        with pytest.raises(DownloadCancelledError):
+            session.fetch("https://example.test/")
+    finally:
+        session.close()
 
 
 @pytest.mark.parametrize("stage", ["browser", "runtime"])

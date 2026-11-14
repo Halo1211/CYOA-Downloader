@@ -4,9 +4,11 @@ The public entry point remains `cyoa_downloader.py`; implementation currently
 lives behind `cyoa_downloader_app` while the source is split safely in phases.
 """
 
-# The facade must initialize compatibility exports before loading the CLI.
+# Imported callers retain the complete historical symbol table. Executing the
+# CLI can defer compatibility/GUI composition until a download or GUI needs it.
 # isort: off
-from cyoa_downloader_app.compat import *
+if __name__ != "__main__":
+    from cyoa_downloader_app.compat import *
 from cyoa_downloader_app.cli import main
 # isort: on
 

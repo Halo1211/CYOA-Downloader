@@ -9,7 +9,7 @@ from dataclasses import asdict, replace
 from urllib.parse import urljoin
 
 from ..core.atomic_io import atomic_write_text
-from ..core.paths import _safe_join
+from ..core.paths import _safe_archive_join
 from ..core.progress import DownloadCancelledError
 from ..logging_setup import logger
 from .archive_policy import ArchivePolicy
@@ -58,7 +58,7 @@ def run_archive_extensions(downloader, policy: ArchivePolicy):
         # Playwright transport after an HTTP 429. Close it before starting the
         # dedicated runtime-capture Playwright lifecycle; nested Sync API
         # instances otherwise fail and skip late assets.
-        close_transport = getattr(downloader, "close", None)
+        close_transport = getattr(downloader, "release_browser_transport", None) or getattr(downloader, "close", None)
         if callable(close_transport):
             close_transport()
         from ..network.runtime_capture import capture_runtime_assets
@@ -84,6 +84,8 @@ def run_archive_extensions(downloader, policy: ArchivePolicy):
             for url, local in crawl.pages.items()
         ],
         "route_failures": crawl.failed,
+        "route_link_bases": crawl.link_bases,
+        "pending_routes": crawl.pending,
         "route_limit_reached": crawl.limit_reached,
         "remaining_queued_routes": crawl.remaining_queued,
         "runtime": asdict(runtime) if runtime is not None else None,
@@ -143,6 +145,7 @@ def resume_existing_archive(folder: str, start_url: str, policy: ArchivePolicy):
         logger.warning("Archive manifest is unreadable; rebuilding recovery manifest: %s", exc)
         old_manifest = finalize_existing_archive(folder, start_url, policy)
     existing = {}
+    missing_pages = []
     old_pages = old_manifest.get("pages", [])
     if not isinstance(old_pages, list):
         old_pages = []
@@ -150,11 +153,13 @@ def resume_existing_archive(folder: str, start_url: str, policy: ArchivePolicy):
         if not isinstance(item, dict) or not item.get("url") or not item.get("local"):
             continue
         try:
-            local = _safe_join(folder, str(item["local"]), fallback="index.html")
+            local = _safe_archive_join(folder, str(item["local"]), decode_url=False)
         except ValueError:
             continue
         if os.path.isfile(local):
             existing[str(item["url"])] = local
+        else:
+            missing_pages.append(str(item["url"]))
     normalized_policy = policy.normalized()
     downloader = WebsiteDownloader(
         start_url, folder, archive_strategy=normalized_policy.strategy,
@@ -182,6 +187,30 @@ def resume_existing_archive(folder: str, start_url: str, policy: ArchivePolicy):
             if canonical and crawler._is_allowed(canonical):
                 canonical_existing[canonical] = local
         seeds = set()
+        saved_bases = old_manifest.get("route_link_bases", {})
+        if isinstance(saved_bases, dict):
+            for page_url, base in saved_bases.items():
+                canonical = crawler._canonicalize(page_url)
+                if canonical in canonical_existing and isinstance(base, str):
+                    normalized_base = crawler._canonicalize(base)
+                    if normalized_base:
+                        crawler._page_link_bases[canonical] = normalized_base
+        # Failed routes may no longer have an authored link in a repaired page.
+        # Manifest paths are literal filesystem names; URLs remain remote keys.
+        failed_pages = old_manifest.get("route_failures", [])
+        if not isinstance(failed_pages, list):
+            failed_pages = []
+        pending_urls = missing_pages + [
+            item["url"] for item in failed_pages
+            if isinstance(item, dict) and isinstance(item.get("url"), str)
+        ]
+        saved_pending = old_manifest.get("pending_routes", [])
+        if isinstance(saved_pending, list):
+            pending_urls.extend(url for url in saved_pending if isinstance(url, str))
+        for pending_url in pending_urls:
+            candidate = crawler._canonicalize(pending_url)
+            if candidate and crawler._is_allowed(candidate) and candidate not in canonical_existing:
+                seeds.add(candidate)
         for page_url, local in canonical_existing.items():
             try:
                 soup = BeautifulSoup(pathlib.Path(local).read_text(encoding="utf-8", errors="ignore"), "html.parser")
@@ -191,7 +220,7 @@ def resume_existing_archive(folder: str, start_url: str, policy: ArchivePolicy):
                             or tag.has_attr("data-cyoa-local-route")):
                         continue
                     try:
-                        candidate = crawler._canonicalize(urljoin(page_url, href))
+                        candidate = crawler._canonicalize(urljoin(crawler._page_link_bases.get(page_url, page_url), href))
                     except (TypeError, ValueError):
                         continue
                     if crawler._is_allowed(candidate) and candidate not in canonical_existing:
@@ -211,6 +240,8 @@ def resume_existing_archive(folder: str, start_url: str, policy: ArchivePolicy):
                 for url, local in result.pages.items()
             ],
             "route_failures": result.failed,
+            "route_link_bases": result.link_bases,
+            "pending_routes": result.pending,
             "route_limit_reached": result.limit_reached,
             "remaining_queued_routes": result.remaining_queued,
             "runtime": old_manifest.get("runtime"),

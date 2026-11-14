@@ -86,6 +86,64 @@ def run_internal_self_test() -> tuple[bool, str]:
 
     with _tempfile.TemporaryDirectory(prefix="cyoa_selftest_") as tmp_root:
         try:
+            import requests as _metadata_requests
+
+            from ..network.response_metadata import ResponseMetadataCapture, observe_response_metadata
+
+            metadata_url = "https://fixture.invalid/source?q=1"
+            metadata_session = object()
+            metadata_response = _metadata_requests.Response()
+            metadata_response.status_code, metadata_response.url = 200, metadata_url
+            metadata_response.request = _metadata_requests.Request("GET", metadata_url).prepare()
+            metadata_response.headers.update({"ETag": '"fixture"', "Content-Length": "0"})
+            metadata_response._content, metadata_response._content_consumed = b"", True
+            with ResponseMetadataCapture(metadata_url, lambda url: (metadata_session, "same")) as header_capture:
+                observe_response_metadata(metadata_url, metadata_response, metadata_session, stream=False)
+            reused_headers = header_capture.take(metadata_url)
+            record("history response header reuse", reused_headers == {
+                "etag": '"fixture"', "last_modified": "", "content_length": "0",
+            } and header_capture.take(metadata_url) is None, "identity headers + one-time job handoff")
+        except _SELF_TEST_PROBE_ERRORS as exc:
+            record("history response header reuse", False, str(exc))
+        try:
+            import json as _history_json
+            import threading as _history_threading
+
+            from ..storage import history as _history
+            from ..storage.history_metadata import HistoryMetadataQueue
+
+            history_path = os.path.join(tmp_root, "background-history.json")
+            history_url = "https://fixture.invalid/history"
+            _history._write_history_path(history_path, {history_url: {
+                "success": True, "file_name": "preserved", "_metadata_id": "self-test",
+            }})
+            metadata_queue = HistoryMetadataQueue(max_pending=1)
+            started = _history_threading.Event()
+            release = _history_threading.Event()
+            def metadata_work(cancel):
+                started.set()
+                if release.wait(2):
+                    _history._merge_metadata(history_path, history_url, "self-test",
+                                             {"etag": '"fixture"', "content_length": "0"}, "ready")
+            try:
+                metadata_queue.submit((history_path, "first"), metadata_work)
+                running = started.wait(1)
+                accepted = metadata_queue.submit((history_path, "stale"), lambda cancel: _history._merge_metadata(
+                    history_path, history_url, "older-token", {"etag": '"wrong"'}, "ready"))
+                rejected = not metadata_queue.submit((history_path, "overflow"), lambda cancel: None)
+                release.set()
+                finished = metadata_queue.wait_idle(3)
+                entry = _history_json.loads(pathlib.Path(history_path).read_text(encoding="utf-8"))[history_url]
+                record("history metadata background queue", running and accepted and rejected and finished and
+                       entry["success"] and entry["file_name"] == "preserved" and entry["etag"] == '"fixture"' and
+                       getattr(_history._record_history, "supports_background_metadata", False), "bounded queue + stale merge guard")
+            finally:
+                release.set()
+                metadata_queue.close()
+                metadata_queue.wait_idle(3)
+        except _SELF_TEST_PROBE_ERRORS as exc:
+            record("history metadata background queue", False, str(exc))
+        try:
             safe = _safe_join(tmp_root, "assets/image.png")
             record("safe_join normal path", safe.startswith(os.path.abspath(tmp_root)), safe)
         except _SELF_TEST_PROBE_ERRORS as e:

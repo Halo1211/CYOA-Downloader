@@ -26,6 +26,21 @@ from ..project.parse import try_decode_bytes
 _REMOTE_BATCH_MAX_BYTES = 32 * 1024 * 1024
 _REMOTE_BATCH_CHUNK_BYTES = 1024 * 1024
 
+# Excel engines raise different exceptions for damaged ZIP/XML/OLE containers.
+# Keep those optional readers behind one boundary; cancellation is re-raised.
+_BATCH_READER_ERRORS = (Exception,)
+
+
+def _batch_text_encoding(file_path: str) -> str:
+    """Honor Unicode BOMs from Windows text editors and spreadsheet exports."""
+    with open(file_path, "rb") as source:
+        prefix = source.read(4)
+    if prefix.startswith((b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff")):
+        return "utf-32"
+    if prefix.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return "utf-16"
+    return "utf-8-sig"
+
 
 def fetch_response(*args, **kwargs):
     # Late import keeps batch import lightweight during compatibility bootstrap.
@@ -126,7 +141,7 @@ def _normalize_batch_mode(raw_mode: str, url: str = "") -> str:
 def _import_csv_without_pandas(file_path: str) -> list[dict[str, str]]:
     """Read the portable CSV subset without requiring the optional pandas package."""
     items: list[dict[str, str]] = []
-    with open(file_path, "r", encoding="utf-8-sig", newline="") as handle:
+    with open(file_path, "r", encoding=_batch_text_encoding(file_path), newline="") as handle:
         reader = csv.DictReader(handle)
         fieldnames = list(reader.fieldnames or [])
         columns = {str(column).strip().lower(): column for column in fieldnames}
@@ -170,7 +185,7 @@ def import_queue_items_from_file(file_path: str) -> list[dict[str, str]]:
         # ``utf-8-sig`` also accepts plain UTF-8 and strips the BOM written by
         # Excel/Notepad, which otherwise invalidates the first URL.
         try:
-            with open(file_path, "r", encoding="utf-8-sig", errors="ignore") as f:
+            with open(file_path, "r", encoding=_batch_text_encoding(file_path)) as f:
                 for raw in f:
                     line = raw.strip()
                     if not line or line.startswith("#"):
@@ -213,16 +228,18 @@ def import_queue_items_from_file(file_path: str) -> list[dict[str, str]]:
             # plain-text path already tolerates bad lines. on_bad_lines='skip' is
             # pandas>=1.3; fall back to the legacy kwarg, then to a plain read.
             try:
-                df = pd.read_csv(file_path, on_bad_lines="skip", dtype=str, keep_default_na=False)
+                df = pd.read_csv(file_path, on_bad_lines="skip", dtype=str, keep_default_na=False, encoding=_batch_text_encoding(file_path))
             except TypeError:
                 try:
-                    df = pd.read_csv(file_path, error_bad_lines=False, dtype=str, keep_default_na=False)
+                    df = pd.read_csv(file_path, error_bad_lines=False, dtype=str, keep_default_na=False, encoding=_batch_text_encoding(file_path))
                 except TypeError:
-                    df = pd.read_csv(file_path, dtype=str, keep_default_na=False)
+                    df = pd.read_csv(file_path, dtype=str, keep_default_na=False, encoding=_batch_text_encoding(file_path))
         else:
             logger.warning(f"Unsupported import file: {file_path}")
             return items
-    except (ImportError, OSError, UnicodeError, TypeError, ValueError) as e:
+    except DownloadCancelledError:
+        raise
+    except _BATCH_READER_ERRORS as e:
         logger.error(f"Failed reading batch file {file_path}: {e}")
         return items
 
@@ -418,6 +435,8 @@ def export_queue_items_to_file(items: list[dict[str, str]], file_path: str) -> i
     if ext == ".txt":
         lines = []
         for row in rows:
+            if any(re.search(r"[|\r\n]", value) for value in row.values()):
+                raise ValueError("TXT cannot preserve pipes or line breaks in queue fields; export as CSV instead")
             fields = [row["url"]]
             if row["filename"] or row["mode"]:
                 fields.append(row["filename"])

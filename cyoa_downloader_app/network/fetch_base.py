@@ -11,6 +11,7 @@ from urllib.parse import urljoin, urlparse
 
 import requests
 
+from ..core.cancellation import _raise_if_cancelled
 from ..download.headers import get_headers_for_url
 from ..integrations.ai_core import _host_resolves_internal, _ssrf_block_cross_origin
 from ._bridge import legacy
@@ -20,6 +21,7 @@ from .cloudflare import (
     is_cloudflare_challenge,
 )
 from .proxy import _should_bypass_manual_proxy
+from .response_metadata import observe_response_metadata
 from .sessions import _get_shared_session
 from .throttle import _domain_throttle
 from .vpn import vpn_requirement_satisfied
@@ -114,6 +116,7 @@ def base_fetch_response(
             initial_host = urlparse(url).hostname or ""
             initial_internal = _host_resolves_internal(initial_host)
             for redirect_count in range(11):
+                _raise_if_cancelled()
                 request_kwargs = {}
                 if _should_bypass_manual_proxy(request_url):
                     # Remove Session-level manual proxies for this request.
@@ -129,6 +132,7 @@ def base_fetch_response(
                     allow_redirects=False, verify=verify_ssl, stream=stream,
                     **request_kwargs,
                 )
+                _raise_if_cancelled()
                 location = r.headers.get("Location", "")
                 if r.status_code not in {301, 302, 303, 307, 308} or not location:
                     break
@@ -170,6 +174,8 @@ def base_fetch_response(
             r.raise_for_status()
             if as_bytes:
                 _ = r.content
+            if not use_cf_session:
+                observe_response_metadata(url, r, session, stream=stream)
             handed_off = True
             return r
         except requests.exceptions.SSLError:

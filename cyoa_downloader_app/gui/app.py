@@ -146,7 +146,9 @@ from ..storage.cache import _CACHE_DIR, _cache_stats, _clear_image_cache, _enfor
 from ..storage.history import _check_history, _load_history, _record_history
 from ..storage.resume import clear_resume_state, load_resume_state, save_resume_state
 from .assets import _CYOA_LEGACY_PUBLIC_FILE, _load_logo_images, _load_window_icon_photo
+from .cache_maintenance import cache_maintenance
 from .logging_ui import GUILogHandler, _v465_configure_log_tags
+from .virtual_queue import VirtualQueue
 from .widgets import _v25_safe_after, _v25_safe_after_widget
 
 # Tk and CustomTkinter expose a mixture of Tcl, lifecycle, and value errors
@@ -563,6 +565,11 @@ class CYOADownloaderGUI:
                              text_color=p["muted"])
             except _GUI_WIDGET_ERRORS as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _apply_theme (line 4920): %s", _ignored_exc)
+        queue_view = getattr(self, "_queue_view", None)
+        if queue_view is not None:
+            for virtual_row in queue_view.rows:
+                virtual_row.snapshot = None
+            queue_view.request_render()
 
         # Log widget
         if hasattr(self, "_log_txt"):
@@ -1268,6 +1275,7 @@ class CYOADownloaderGUI:
         cache_limit_var = ctk.StringVar(value="2")
         cache_stats_var = ctk.StringVar(value="")
         cache_status_var = ctk.StringVar(value="")
+        cache_controls = []
         ctk.CTkLabel(card, text="IMG", width=38, height=30,
                      font=ctk.CTkFont("Segoe UI", 8, "bold"), text_color="#ffffff",
                      fg_color="#9f1239", corner_radius=8).grid(
@@ -1287,32 +1295,58 @@ class CYOADownloaderGUI:
         ).grid(row=2, column=1, sticky="ew", pady=(0, 8))
 
         def _refresh_cache() -> None:
-            try:
-                stats = _cache_stats()
-                cache_limit_var.set(f"{stats['limit_mb'] / 1024:g}")
-                cache_stats_var.set(
-                    f"{stats['entries']} files · {stats['size_mb']} MB used"
-                     if is_en else f"{stats['entries']} file · {stats['size_mb']} MB terpakai"
-                )
-            except _GUI_WIDGET_ERRORS as exc:
-                cache_stats_var.set(str(exc))
+            if view.ready:
+                cache_stats_var.set("Reading cache…" if is_en else "Membaca cache…")
+                view.start("refresh", lambda: {"stats": _cache_stats()})
+
+        def _cache_result(action, result, error) -> None:
+            if error:
+                cache_status_var.set(error)
+                return
+            stats = result["stats"]
+            cache_limit_var.set(f"{stats['limit_mb'] / 1024:g}")
+            cache_stats_var.set(
+                f"{stats['entries']} files · {stats['size_mb']} MB used"
+                if is_en else f"{stats['entries']} file · {stats['size_mb']} MB terpakai"
+            )
+            if action == "save":
+                mb = result["limit_mb"]
+                cache_status_var.set(f"Limit saved: {mb / 1024:g} GB" if is_en else f"Batas tersimpan: {mb / 1024:g} GB")
+            elif action == "clear":
+                count = result["removed"]
+                cache_status_var.set(f"Cleared {count} file(s)." if is_en else f"{count} file dibersihkan.")
+            else:
+                cache_status_var.set("")
+
+        def _cache_busy(busy) -> None:
+            for widget in cache_controls:
+                widget.configure(state="disabled" if busy else "normal")
+            if busy:
+                cache_status_var.set("Working…" if is_en else "Memproses…")
 
         def _save_cache_limit() -> None:
+            if not view.ready:
+                return
             try:
                 gb = float(cache_limit_var.get().strip())
                 if not math.isfinite(gb) or gb <= 0:
                     raise ValueError
                 mb = max(1, min(1024 * 1024, round(gb * 1024)))
-                _update_setting("image_cache_max_mb", mb)
-                _enforce_cache_limit()
-                cache_status_var.set(
-                    f"Limit saved: {mb / 1024:g} GB" if is_en else f"Batas tersimpan: {mb / 1024:g} GB"
-                )
-                _refresh_cache()
             except (TypeError, ValueError, OverflowError):
                 cache_status_var.set("Enter a positive GB value." if is_en else "Masukkan nilai GB positif.")
+                return
+
+            def save_limit():
+                if not _update_settings({"image_cache_max_mb": mb}):
+                    raise OSError("Could not save cache limit")
+                _enforce_cache_limit()
+                return {"stats": _cache_stats(), "limit_mb": mb}
+
+            view.start("save", save_limit)
 
         def _clear_cache() -> None:
+            if not view.ready:
+                return
             if not messagebox.askyesno(
                 "Clear image cache" if is_en else "Bersihkan cache gambar",
                 ("Remove cached images? Completed downloads are not touched."
@@ -1320,14 +1354,12 @@ class CYOADownloaderGUI:
                 parent=settings_win,
             ):
                 return
-            try:
+
+            def clear_cache():
                 count = _clear_image_cache()
-                cache_status_var.set(
-                    f"Cleared {count} file(s)." if is_en else f"{count} file dibersihkan."
-                )
-                _refresh_cache()
-            except _GUI_WIDGET_ERRORS as exc:
-                cache_status_var.set(str(exc))
+                return {"stats": _cache_stats(), "removed": count}
+
+            view.start("clear", clear_cache)
 
         controls = ctk.CTkFrame(card, fg_color="transparent")
         controls.grid(row=3, column=1, sticky="ew", padx=(0, 12), pady=(0, 8))
@@ -1337,21 +1369,26 @@ class CYOADownloaderGUI:
         ctk.CTkLabel(controls, text=("Maximum size (GB)" if is_en else "Ukuran maksimal (GB)"),
                      font=ctk.CTkFont("Segoe UI", 10), text_color=p["muted"],
                      anchor="w").grid(row=0, column=0, sticky="w", padx=(0, 10))
-        ctk.CTkEntry(controls, textvariable=cache_limit_var, width=80, height=28,
+        cache_entry = ctk.CTkEntry(controls, textvariable=cache_limit_var, width=80, height=28,
                      fg_color=p["input_bg"], text_color=p["input_fg"],
-                     border_color=p["border"], justify="center").grid(row=0, column=1, padx=4)
-        ctk.CTkButton(controls, text=("Save limit" if is_en else "Simpan batas"), width=90,
+                     border_color=p["border"], justify="center")
+        cache_entry.grid(row=0, column=1, padx=4)
+        save_button = ctk.CTkButton(controls, text=("Save limit" if is_en else "Simpan batas"), width=90,
                       height=28, command=_save_cache_limit, fg_color="#2563eb",
-                      hover_color="#1d4ed8").grid(row=0, column=2, padx=4)
+                      hover_color="#1d4ed8")
+        save_button.grid(row=0, column=2, padx=4)
         ctk.CTkButton(controls, text=("Show folder" if is_en else "Lihat folder"), width=92,
                       height=28, command=self._open_image_cache_folder,
                       fg_color=p["surface2"], hover_color=p["surface"], text_color=p["fg"]).grid(row=0, column=3, padx=4)
-        ctk.CTkButton(controls, text=("Clear cache" if is_en else "Bersihkan"), width=88,
+        clear_button = ctk.CTkButton(controls, text=("Clear cache" if is_en else "Bersihkan"), width=88,
                       height=28, command=_clear_cache, fg_color=p["danger_bg"],
-                      hover_color=p["danger_hv"], text_color=p["danger_fg"]).grid(row=0, column=4, padx=(4, 0))
+                      hover_color=p["danger_hv"], text_color=p["danger_fg"])
+        clear_button.grid(row=0, column=4, padx=(4, 0))
         ctk.CTkLabel(card, textvariable=cache_status_var, font=ctk.CTkFont("Segoe UI", 9),
                      text_color=p["muted"], anchor="w").grid(
                           row=4, column=1, sticky="ew", padx=(0, 12), pady=(0, 10))
+        cache_controls.extend((cache_entry, save_button, clear_button))
+        view = cache_maintenance(self).attach(card, _cache_result, _cache_busy)
         _refresh_cache()
         return row + 1
 
@@ -4349,6 +4386,7 @@ class CYOADownloaderGUI:
         )
         self._qlist.grid(row=2, column=0, sticky="ew", padx=6, pady=(0, 8))
         self._qlist.grid_columnconfigure(0, weight=1)
+        self._queue_view = VirtualQueue(self, _mode_label)
 
         T(ctk.CTkFrame(qf, height=1, fg_color=p.get("separator", p["border"]), corner_radius=0),
           fg_color="separator").grid(row=3, column=0, sticky="ew")
@@ -5507,6 +5545,10 @@ class CYOADownloaderGUI:
         # A manual choice should no longer look like a result from auto-detect.
         item_ref.pop("auto_detected", None)
         item_ref.pop("auto_detected_mode", None)
+        queue_view = getattr(self, "_queue_view", None)
+        if queue_view is not None:
+            queue_view.request_render()
+            return
         try:
             bg, fg = self._badge_colors(mode)
             badge.configure(
@@ -5537,6 +5579,10 @@ class CYOADownloaderGUI:
             menu.grab_release()
 
     def _make_queue_row(self, url: str, mode: str, filename: str) -> None:
+        queue_view = getattr(self, "_queue_view", None)
+        if queue_view is not None:
+            queue_view.changed()
+            return
         import tkinter as tk
 
         import customtkinter as ctk
@@ -5546,6 +5592,17 @@ class CYOADownloaderGUI:
         # a filename edit land on a different CYOA during a batch run.
         item_ref = self._queue_data[idx] if idx < len(self._queue_data) else None
         p   = self._p()
+        # Named Tk fonts can be shared across rows. Creating five fonts per
+        # URL wastes resources and makes large imports more expensive.
+        fonts = getattr(self, "_queue_row_fonts", None)
+        if fonts is None:
+            fonts = self._queue_row_fonts = {
+                "handle": ctk.CTkFont("Segoe UI", 14),
+                "url": ctk.CTkFont("Consolas", 9),
+                "filename": ctk.CTkFont("Segoe UI", 10),
+                "mode": ctk.CTkFont("Segoe UI", 9, "bold"),
+                "remove": ctk.CTkFont("Segoe UI", 13),
+            }
 
         row = ctk.CTkFrame(self._qlist, corner_radius=6,
                            fg_color=p["surface"],
@@ -5555,7 +5612,7 @@ class CYOADownloaderGUI:
 
         # ── Drag handle ─────────────────────────────────────────────
         drag_lbl = ctk.CTkLabel(row, text="⠿", width=18,
-                                font=ctk.CTkFont("Segoe UI", 14),
+                                font=fonts["handle"],
                                 text_color=p["muted2"],
                                 cursor="fleur")
         drag_lbl.grid(row=0, column=0, padx=(6, 2), pady=8, rowspan=2)
@@ -5568,14 +5625,14 @@ class CYOADownloaderGUI:
 
         # URL + editable filename
         url_lbl = ctk.CTkLabel(row, text=url,
-                               font=ctk.CTkFont("Consolas", 9),
+                               font=fonts["url"],
                                text_color=p["muted"], anchor="w")
         url_lbl.grid(row=0, column=2, sticky="ew", padx=4, pady=(6, 1))
 
         fn_var = ctk.StringVar(value=filename)
         fn_entry = ctk.CTkEntry(
             row, textvariable=fn_var, height=22,
-            font=ctk.CTkFont("Segoe UI", 10),
+            font=fonts["filename"],
             fg_color=p["input_bg"], text_color=p["input_fg"],
             border_color=p["border"], border_width=1,
             placeholder_text="auto",
@@ -5592,7 +5649,7 @@ class CYOADownloaderGUI:
         bg, fg = self._badge_colors(mode)
         badge = ctk.CTkButton(row,
                               text=_mode_label(mode, getattr(self, "_language", "en")),
-                              font=ctk.CTkFont("Segoe UI", 9, "bold"),
+                              font=fonts["mode"],
                               fg_color=bg, hover_color=bg,
                               text_color=fg, corner_radius=10,
                               width=112, height=24,
@@ -5602,7 +5659,7 @@ class CYOADownloaderGUI:
 
         # × button
         rm = ctk.CTkButton(row, text="×", width=28, height=28,
-                           font=ctk.CTkFont("Segoe UI", 13),
+                           font=fonts["remove"],
                            fg_color="transparent",
                            hover_color=p["surface2"],
                            text_color=p["muted"],
@@ -5662,6 +5719,10 @@ class CYOADownloaderGUI:
 
     def _swap_rows(self, i: int, j: int) -> None:
         """Swap two queue rows (data + visual)."""
+        queue_view = getattr(self, "_queue_view", None)
+        if queue_view is not None:
+            queue_view.swap(i, j)
+            return
         if i < 0 or j < 0 or i >= len(self._queue_rows) or j >= len(self._queue_rows):
             return
         # Swap data
@@ -5684,6 +5745,10 @@ class CYOADownloaderGUI:
             rm.configure(command=lambda k=k: self._remove_row(k))
 
     def _remove_row(self, idx: int) -> None:
+        queue_view = getattr(self, "_queue_view", None)
+        if queue_view is not None:
+            queue_view.remove_at(idx)
+            return
         if idx < 0 or idx >= len(self._queue_rows):
             return
         self._queue_rows[idx][0].destroy()
@@ -5694,10 +5759,12 @@ class CYOADownloaderGUI:
         self._update_queue_count()
 
     def _update_queue_count(self) -> None:
-        n = len(self._queue_rows)
+        n = len(self._queue_data)
         self._queue_count_var.set(f"QUEUE — {n} ITEM{'S' if n != 1 else ''}")
 
     def _add_to_queue(self) -> None:
+        if getattr(self, "_queue_import_busy", False):
+            return
         url = self._url_var.get().strip()
         if not url:
             return
@@ -5741,10 +5808,16 @@ class CYOADownloaderGUI:
         self._fn_var.set("")
 
     def _remove(self) -> None:
-        if self._queue_rows:
-            self._remove_row(len(self._queue_rows) - 1)
+        if self._queue_data:
+            self._remove_row(len(self._queue_data) - 1)
 
     def _clear_queue(self) -> None:
+        from .queue_import import cancel_queue_import
+        cancel_queue_import(self)
+        queue_view = getattr(self, "_queue_view", None)
+        if queue_view is not None:
+            queue_view.clear()
+            return
         for rw in self._queue_rows:
             try:
                 if rw and rw[0].winfo_exists():
@@ -6024,29 +6097,22 @@ class CYOADownloaderGUI:
         self._open_path_in_os(folder)
 
     def _import_list(self) -> None:
-        from tkinter import filedialog, messagebox
+        from tkinter import filedialog
+
+        from .queue_import import begin_queue_import
+        if getattr(self, "_queue_import_busy", False):
+            return
         path = filedialog.askopenfilename(
             filetypes=[("Supported", "*.txt *.csv *.xlsx *.xls"),
                        ("All files", "*.*")])
         if not path:
             return
-        items = import_queue_items_from_source(path)
-        if not items:
-            messagebox.showwarning("Import Failed", "No valid URLs found.")
-            return
-        default_mode = self._mode_var
-        for item in items:
-            mode = item.get("mode", "").strip() or default_mode
-            item["mode"] = mode
-            self._queue_data.append({"url": item["url"],
-                                     "filename": item.get("filename", ""),
-                                     "mode": mode,
-                                     "_queue_id": uuid.uuid4().hex})
-            self._make_queue_row(item["url"], mode, item.get("filename", ""))
-        logger.info(f"Imported {len(items)} item(s) from {path}")
+        begin_queue_import(self, path, import_queue_items_from_source)
 
     def _export_list(self) -> None:
         """Export the current queue, including each row's filename and mode."""
+        if getattr(self, "_queue_import_busy", False):
+            return
         from tkinter import filedialog, messagebox
 
         from ..importers.batch import export_queue_items_to_file
@@ -6682,6 +6748,17 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
 
     def _set_dot(self, idx: int, state: str) -> None:
         """Update a queue status dot exclusively on Tk's owner thread."""
+        queue_view = getattr(self, "_queue_view", None)
+        if queue_view is not None:
+            order = getattr(self, "_active_run_order", ())
+            if 0 <= idx < len(order):
+                identity = order[idx]
+            elif 0 <= idx < len(self._queue_data):
+                identity = self._queue_data[idx].get("_queue_id")
+            else:
+                return
+            self._run_on_ui_thread(lambda: queue_view.set_state(identity, state))
+            return
         def _update():
             try:
                 if idx < 0 or idx >= len(self._queue_rows):
@@ -7999,7 +8076,11 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
         # Reset dot for failed items
         for i, item in enumerate(self._queue_data):
             if item["url"] in failed_urls:
-                self._set_dot(i, "idle")
+                queue_view = getattr(self, "_queue_view", None)
+                if queue_view is not None:
+                    queue_view.set_state(item["_queue_id"], "idle")
+                else:
+                    self._set_dot(i, "idle")
         # Clear failed from results so they show as fresh
         for r in self._last_results:
             if r["url"] in failed_urls:
@@ -8011,6 +8092,9 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
         """Remove only matching queue rows, preserving newer user-added rows."""
         if not urls:
             return 0
+        queue_view = getattr(self, "_queue_view", None)
+        if queue_view is not None:
+            return queue_view.remove_ids({item["_queue_id"] for item in self._queue_data if item.get("url") in urls})
         removed = 0
         for idx in range(len(self._queue_data) - 1, -1, -1):
             try:
@@ -8025,6 +8109,9 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
         """Remove only the exact queue rows from a completed run snapshot."""
         if not queue_ids:
             return 0
+        queue_view = getattr(self, "_queue_view", None)
+        if queue_view is not None:
+            return queue_view.remove_ids(queue_ids)
         removed = 0
         for idx in range(len(self._queue_data) - 1, -1, -1):
             try:
@@ -8042,6 +8129,10 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             return
 
         def _reveal() -> None:
+            queue_view = getattr(self, "_queue_view", None)
+            if queue_view is not None:
+                queue_view.reveal(wanted)
+                return
             first_row = None
             first_index = None
             for index, item in enumerate(self._queue_data):
@@ -8676,113 +8767,15 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
             _set_status((f"{added} project file(s) found and added." if is_en else f"{added} file project ditemukan dan ditambahkan."), True)
 
         def _open_import_panel() -> None:
-            """Open a child selector without closing/hiding the Manager Center."""
-            projects = _list_cyoa_manager_projects(_get_db() or "")
-            if not projects:
-                messagebox.showinfo(
-                    "CYOA Manager",
-                    "CYOA Manager library not found or empty." if is_en else "Library CYOA Manager tidak ditemukan atau kosong.",
-                    parent=win,
-                )
-                _set_status("No importable projects found." if is_en else "Tidak ada project yang bisa diimpor.", False)
-                return
-            child = ctk.CTkToplevel(win)
-            self._apply_window_icon_to(child)
-            child.title("CYOA Manager Library" if is_en else "Library CYOA Manager")
-            child.geometry("720x520")
-            child.configure(fg_color=p["bg"])
-            child.transient(win)
-            try:
-                child.grab_set()
-            except _GUI_WIDGET_ERRORS as _ignored_exc:
-                logger.debug("Ignored recoverable exception in _open_import_panel (line 9286): %s", _ignored_exc)
-            def _close_child() -> None:
-                try:
-                    child.grab_release()
-                except _GUI_WIDGET_ERRORS as _ignored_exc:
-                    logger.debug("Ignored recoverable exception in _close_child (line 9291): %s", _ignored_exc)
-                child.destroy()
-                try:
-                    win.lift(); win.focus_force()
-                except _GUI_WIDGET_ERRORS as _ignored_exc:
-                    logger.debug("Ignored recoverable exception in _close_child (line 9296): %s", _ignored_exc)
-            child.protocol("WM_DELETE_WINDOW", _close_child)
-            ctk.CTkLabel(child, text=(f"CYOA Manager Library — {len(projects)} project(s)" if is_en else f"Library CYOA Manager — {len(projects)} project"), font=ctk.CTkFont("Segoe UI", 14, "bold"), text_color=p["fg"]).pack(anchor="w", padx=16, pady=(14, 4))
-            ctk.CTkLabel(child, text=("Queue projects with URLs, or Serve one local project." if is_en else "Antrekan project ber-URL, atau buka satu project lokal lewat Serve."), font=ctk.CTkFont("Segoe UI", 10), text_color=p["muted"]).pack(anchor="w", padx=16, pady=(0, 8))
-            search_var = ctk.StringVar()
-            ctk.CTkEntry(child, textvariable=search_var, placeholder_text=("🔍 Search name, URL or file…" if is_en else "🔍 Cari nama, URL atau file…"), height=32, fg_color=p["input_bg"], text_color=p["input_fg"], border_color=p["border"]).pack(fill="x", padx=16, pady=(0, 8))
-            lf = ctk.CTkScrollableFrame(child, fg_color=p["surface"], corner_radius=10, border_width=1, border_color=p["border"])
-            lf.pack(fill="both", expand=True, padx=16, pady=(0, 10))
-            check_vars = []
-            def _rebuild(*_):
-                for wdg in lf.winfo_children():
-                    wdg.destroy()
-                check_vars.clear()
-                ft = (search_var.get() or "").lower().strip()
-                for proj in projects:
-                    name = proj.get("name") or proj.get("id") or "-"
-                    url = proj.get("source_url", "")
-                    local_path = proj.get("file_path", "")
-                    if ft and not any(ft in value.lower() for value in (name, url, local_path)):
-                        continue
-                    var = ctk.BooleanVar(value=False)
-                    row = ctk.CTkFrame(lf, fg_color=p["surface2"], corner_radius=8)
-                    row.pack(fill="x", padx=5, pady=4)
-                    ctk.CTkCheckBox(row, text="", variable=var, width=22, fg_color=p["manager_bg"], hover_color=p["manager_hv"], border_color=p["border"]).pack(side="left", padx=(8, 6), pady=8)
-                    meta = ctk.CTkFrame(row, fg_color="transparent")
-                    meta.pack(side="left", fill="x", expand=True, pady=6)
-                    ctk.CTkLabel(meta, text=name[:80], anchor="w", font=ctk.CTkFont("Segoe UI", 11, "bold"), text_color=p["fg"]).pack(anchor="w")
-                    ctk.CTkLabel(meta, text=(url or local_path or "No URL or local file")[:110], anchor="w", font=ctk.CTkFont("Consolas", 9), text_color=p["muted"]).pack(anchor="w")
-                    check_vars.append((var, proj))
-            _rebuild()
-            search_var.trace_add("write", _rebuild)
-            bf = ctk.CTkFrame(child, fg_color=p["panel"], height=44, corner_radius=0)
-            bf.pack(fill="x", side="bottom")
-            def _select_all() -> None:
-                for v, _p in check_vars:
-                    v.set(True)
-            def _queue_selected() -> None:
-                queued = 0
-                local_only = 0
-                for v, proj in check_vars:
-                    if v.get():
-                        url = proj.get("source_url", "")
-                        if not url:
-                            local_only += 1
-                            continue
-                        self._add_url_to_queue(url, filename=proj.get("name", ""))
-                        queued += 1
-                if queued:
-                    _set_status((f"{queued} queued; {local_only} local-only entries skipped." if is_en else f"{queued} masuk antrean; {local_only} entri lokal dilewati."), True)
-                    _close_child()
-                else:
-                    _set_status("Select a project with a URL, or use Serve Local." if is_en else "Pilih project ber-URL, atau gunakan Serve Lokal.", False)
-            def _serve_selected() -> None:
-                if not _SERVE_ENABLED:
-                    _set_status("Enable Serve in settings first." if is_en else "Aktifkan Serve di pengaturan dahulu.", False)
-                    return
-                selected = [proj for var, proj in check_vars if var.get()]
-                if len(selected) != 1:
-                    _set_status("Select exactly one project for Serve." if is_en else "Pilih tepat satu project untuk Serve.", False)
-                    return
-                project_path = selected[0].get("file_path", "")
-                if not project_path:
-                    _set_status("This Manager entry has no local project file." if is_en else "Entri Manager ini tidak punya file project lokal.", False)
-                    return
-                try:
-                    folder = prepare_cyoa_manager_serve_folder(project_path)
-                except (OSError, TypeError, ValueError) as exc:
-                    _set_status(str(exc), False)
-                    return
-                _close_child()
-                _set_status((f"Serving {selected[0].get('name') or project_path}" if is_en else f"Serve {selected[0].get('name') or project_path}"), True)
-                if self._server_running:
-                    self._stop_server()
-                self.root.after(300, lambda: self._start_server(folder=folder))
-            ctk.CTkButton(bf, text=("Select All" if is_en else "Pilih Semua"), width=100, height=30, fg_color=p["surface2"], hover_color=p["surface"], text_color=p["fg"], command=_select_all).pack(side="left", padx=(16, 6), pady=7)
-            ctk.CTkButton(bf, text=("Queue URLs" if is_en else "Antrekan URL"), width=120, height=30, fg_color=p["manager_bg"], hover_color=p["manager_hv"], text_color=p["manager_fg"], command=_queue_selected).pack(side="left", padx=(0, 6), pady=7)
-            ctk.CTkButton(bf, text=("Serve Local" if is_en else "Serve Lokal"), width=115, height=30, fg_color="#2563eb", hover_color="#1d4ed8", text_color="#ffffff", command=_serve_selected).pack(side="left", padx=(0, 6), pady=7)
-            ctk.CTkButton(bf, text=("Close" if is_en else "Tutup"), width=86, height=30, fg_color=p["surface2"], hover_color=p["surface"], text_color=p["fg"], command=_close_child).pack(side="right", padx=16, pady=7)
+            from .library_panel import open_library_panel
+
+            # Capture Tk state here; resolve paths and read SQLite in the worker.
+            hint = (db_var.get() or s.get("cyoa_mgr_db_path", "") or "").strip()
+            def _load_library():
+                db_path = hint if hint and os.path.exists(hint) else _find_cyoa_manager_db()
+                return _list_cyoa_manager_projects(db_path or "")
+            open_library_panel(self, win, _load_library, prepare_cyoa_manager_serve_folder,
+                               lambda: _SERVE_ENABLED, _set_status)
 
         def _open_batch_export_panel() -> None:
             """Export selected project files directly from the Manager Center."""
@@ -8954,123 +8947,11 @@ Baris tanpa URL valid akan dilewati. Jika mode kosong, program memakai mode yang
 
     # ── CYOA Manager Import (Infaera list download) ────────────────────
     def _import_from_cyoa_manager_panel(self) -> None:
-        from tkinter import messagebox
+        from .library_panel import open_library_panel
 
-        import customtkinter as ctk
-        p = self._p()
-        projects = _list_cyoa_manager_projects()
-        if not projects:
-            messagebox.showinfo(
-                "CYOA Manager Import",
-                "CYOA Manager library not found or empty.\n"
-                "Make sure CYOA Manager is installed and has projects in the library."
-            )
-            return
+        open_library_panel(self, self.root, _list_cyoa_manager_projects,
+                           prepare_cyoa_manager_serve_folder, lambda: _SERVE_ENABLED)
 
-        win = self._make_singleton_window("cyoa_manager_import_legacy")
-        if win is None:
-            return
-        win.title("📚 Import from CYOA Manager")
-        win.geometry("620x480")
-        win.configure(fg_color=p["bg"])
-        win.transient(self.root)
-        win.grab_set()
-
-        ctk.CTkLabel(
-            win, text=f"CYOA Manager Library — {len(projects)} project(s) with URL",
-            font=ctk.CTkFont("Segoe UI", 13, "bold"),
-            text_color=p["fg"]
-        ).pack(padx=14, pady=(14, 6))
-
-        # Search bar
-        search_var = ctk.StringVar()
-        ctk.CTkEntry(
-            win, textvariable=search_var,
-            placeholder_text="🔍 Search by name…",
-            font=ctk.CTkFont("Segoe UI", 11),
-            fg_color=p["surface2"], text_color=p["fg"],
-            border_color=p["border"], height=32
-        ).pack(padx=14, fill="x", pady=(0, 6))
-
-        lf = ctk.CTkScrollableFrame(win, fg_color=p["surface2"], corner_radius=8)
-        lf.pack(padx=14, pady=(0, 8), fill="both", expand=True)
-
-        check_vars: list[tuple] = []  # (BooleanVar, project_dict)
-
-        def _rebuild(filter_text=""):
-            for w in lf.winfo_children():
-                w.destroy()
-            check_vars.clear()
-            ft = filter_text.lower()
-            for proj in projects:
-                name = proj.get("name", proj.get("id", ""))
-                if ft and ft not in name.lower() and ft not in proj.get("source_url", "").lower():
-                    continue
-                var = ctk.BooleanVar(value=False)
-                row = ctk.CTkFrame(lf, fg_color="transparent", corner_radius=0)
-                row.pack(fill="x", padx=2, pady=1)
-                ctk.CTkCheckBox(
-                    row, text="", variable=var, width=24, height=24,
-                    fg_color=p["accentbg"], hover_color=p["accentbg_hv"],
-                    border_color=p["border"], checkmark_color=p["accent"],
-                ).pack(side="left", padx=(4, 6), pady=2)
-                tf = ctk.CTkFrame(row, fg_color="transparent")
-                tf.pack(side="left", fill="x", expand=True)
-                ctk.CTkLabel(
-                    tf, text=name[:60], anchor="w",
-                    font=ctk.CTkFont("Segoe UI", 11),
-                    text_color=p["fg"]
-                ).pack(anchor="w")
-                ctk.CTkLabel(
-                    tf, text=proj.get("source_url", "")[:70], anchor="w",
-                    font=ctk.CTkFont("Segoe UI", 9),
-                    text_color=p["muted"]
-                ).pack(anchor="w")
-                check_vars.append((var, proj))
-
-        _rebuild()
-        search_var.trace_add("write", lambda *_: _rebuild(search_var.get()))
-
-        # Bottom buttons
-        bf = ctk.CTkFrame(win, fg_color="transparent")
-        bf.pack(padx=14, pady=(0, 14), fill="x")
-
-        def _select_all():
-            for v, _ in check_vars:
-                v.set(True)
-
-        def _queue_selected():
-            queued = 0
-            for v, proj in check_vars:
-                if v.get():
-                    self._add_url_to_queue(proj["source_url"],
-                                           filename=proj.get("name", ""))
-                    queued += 1
-            if queued:
-                win.destroy()
-                messagebox.showinfo("Queued", f"{queued} CYOA ditambahkan ke queue.")
-            else:
-                messagebox.showwarning("Import", "Select at least 1 CYOA.")
-
-        ctk.CTkButton(
-            bf, text="Select All", height=30, width=90,
-            font=ctk.CTkFont("Segoe UI", 10),
-            fg_color=p["surface2"], hover_color=p["surface"],
-            text_color=p["fg"], command=_select_all
-        ).pack(side="left", padx=(0, 6))
-        ctk.CTkButton(
-            bf, text="📥 Queue Selected", height=30,
-            font=ctk.CTkFont("Segoe UI", 11, "bold"),
-            fg_color=p["accentbg"], hover_color=p["accentbg_hv"],
-            text_color=p["accent"], command=_queue_selected
-        ).pack(side="left", padx=(0, 6))
-        ctk.CTkButton(
-            bf, text="Close", height=30, width=70,
-            fg_color=p["surface2"], hover_color=p["surface"],
-            text_color=p["muted"], command=win.destroy
-        ).pack(side="right")
-
-    # ── Speed Graph (realtime download speed visualization) ────────────
     def _init_speed_graph(self) -> None:
         """Create a small Canvas speed graph below the progress bar."""
         import tkinter as tk

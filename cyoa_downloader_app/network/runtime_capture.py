@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+from collections import deque
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from functools import lru_cache
 from urllib.parse import urlparse
@@ -22,12 +24,16 @@ from ..constants.assets import (
 from ..core.cancellation import _raise_if_cancelled
 from ..core.progress import DownloadCancelledError
 from ..logging_setup import logger
+from .browser import _browser_session_state
+from .browser_owner import _external_frozen_chromium
+from .captured_responses import CapturedResponseStore
 from .proxy import _get_browser_proxy_config
+from .runtime_waits import wait_for_runtime
 from .vpn import vpn_requirement_satisfied
 
 _RUNTIME_ASSET_EXTENSIONS = (
     IMAGE_EXTENSIONS | AUDIO_EXTENSIONS | VIDEO_EXTENSIONS | FONT_EXTENSIONS |
-    SCRIPT_EXTENSIONS | STYLE_EXTENSIONS | {".json", ".wasm", ".webmanifest"}
+    SCRIPT_EXTENSIONS | STYLE_EXTENSIONS | {".json", ".hjson", ".wasm", ".webmanifest"}
 )
 _RUNTIME_CONTENT_TYPES = {
     "text/css", "application/javascript", "text/javascript", "application/json",
@@ -104,18 +110,24 @@ class RuntimeCaptureResult:
     interactions_productive: int = 0
     blocked_requests: list[dict[str, str]] = field(default_factory=list)
     stop_reason: str = ""
+    captured_responses: int = 0
+    captured_bytes: int = 0
+    reused_responses: int = 0
+    reused_bytes: int = 0
 
 
 _SAFE_INTERACTION_RE = re.compile(
     r"\b(?:load|show|view|read)\s+more\b|\bnext\b|\bcontinue\b|\bexpand\b|"
     r"\breveal\b|\bopen\s+section\b|\bmuat\s+lagi\b|\btampilkan\b|"
-    r"\bselanjutnya\b|\blanjut\b",
+    r"\bselanjutnya\b|\blanjut\b|\b(?:open|expand|show)\s+all\b|"
+    r"\b(?:begin|start|enter|play)\s+(?:(?:your|the|this|a|new)\s+)?(?:game|story|adventure|cyoa)\b|"
+    r"\bshow\s+content\b|^(?:begin|start|enter|confirm|i understand)[.!\s]*$",
     re.IGNORECASE,
 )
 _UNSAFE_INTERACTION_RE = re.compile(
     r"\b(?:log\s*in|login|sign\s*in|sign\s*up|register|submit|send|report|"
     r"like|upvote|downvote|pay|buy|purchase|donate|subscribe|checkout|delete|"
-    r"logout|share|upload|comment|patreon|boosty)\b",
+    r"logout|share|upload|comment|patreon|boosty|reset|restart|clear|remove)\b|\bstart\s+over\b",
     re.IGNORECASE,
 )
 
@@ -136,7 +148,7 @@ def _is_safe_interaction_label(
     return bool(aria_expanded_false or _SAFE_INTERACTION_RE.search(value))
 
 
-def _incremental_scroll(page, settle_time_ms: int, max_steps: int) -> int:
+def _incremental_scroll(page, settle_time_ms: int, max_steps: int, *, after_poll=None) -> int:
     """Sweep through each viewport so IntersectionObserver lazy loads fire."""
     _raise_if_cancelled()
     steps = 0
@@ -159,17 +171,21 @@ def _incremental_scroll(page, settle_time_ms: int, max_steps: int) -> int:
                 break
             page.evaluate("step => window.scrollBy(0, step)", max(240, int(viewport * 0.8)))
             steps += 1
-            page.wait_for_timeout(delay)
+            wait_for_runtime(page, delay, after_poll=after_poll)
         except DownloadCancelledError:
             raise
         except _playwright_runtime_errors():
             break
+    if not steps:
+        return 0
     try:
-        page.wait_for_timeout(max(250, int(settle_time_ms) // 2))
+        wait_for_runtime(page, max(250, int(settle_time_ms) // 2), after_poll=after_poll)
         # A return sweep triggers virtualized components that were removed while
         # moving downward, without requiring unsafe clicks.
         page.evaluate("window.scrollTo(0, 0)")
-        page.wait_for_timeout(max(120, delay))
+        wait_for_runtime(page, max(120, delay), after_poll=after_poll)
+    except DownloadCancelledError:
+        raise
     except _playwright_runtime_errors() as exc:
         logger.debug("Runtime scroll reset failed: %s", exc)
     return steps
@@ -182,12 +198,16 @@ def _candidate_snapshot(page) -> list[dict[str, object]]:
             'button,[role="button"],summary,input[type="button"]'))
             .filter(el => { const r=el.getBoundingClientRect(); return !el.disabled &&
                 r.width>0 && r.height>0 && !el.closest('form') &&
-                !el.hasAttribute('data-cyoa-auto-clicked'); })
-            .slice(0,100).map(el => { const id='c'+(++n); el.setAttribute('data-cyoa-auto-id',id);
+                el.getAttribute('data-cyoa-auto-clicked') !==
+                  (el.innerText||el.value||el.getAttribute('aria-label')||el.getAttribute('title')||'')+
+                  '|'+el.getAttribute('aria-expanded'); })
+            .slice(0,1000).map(el => { const id='c'+(++n); el.setAttribute('data-cyoa-auto-id',id);
                 return {id, text:(el.innerText||el.value||el.getAttribute('aria-label')||
                     el.getAttribute('title')||'').replace(/\s+/g,' ').trim().slice(0,160),
                     expanded:el.getAttribute('aria-expanded')==='false',
-                    type:(el.getAttribute('type')||'button').toLowerCase()}; }); }"""
+                    type:(el.getAttribute('type')||'button').toLowerCase(),
+                    signature:(el.innerText||el.value||el.getAttribute('aria-label')||el.getAttribute('title')||'')+
+                      '|'+el.getAttribute('aria-expanded')}; }); }"""
         ))
     except _playwright_runtime_errors():
         return []
@@ -204,6 +224,57 @@ def _dom_asset_score(page) -> int:
         ))
     except _playwright_runtime_errors():
         return 0
+
+
+def _dom_progress_signature(page) -> str:
+    """Recognize staged gates even when a click has not requested assets yet."""
+    try:
+        return str(page.evaluate(
+            """() => JSON.stringify([location.href, document.body?.innerText.length || 0,
+            Array.from(document.querySelectorAll('button,[role="button"],summary')).filter(el => {
+            const r=el.getBoundingClientRect(); return r.width>0 && r.height>0;
+            }).slice(0,1000).map(el => [el.id,el.innerText,el.getAttribute('aria-expanded')])])"""
+        ))
+    except _playwright_runtime_errors():
+        return ""
+
+
+def _wait_for_interaction_progress(
+    page,
+    observed: dict[str, str],
+    interaction_state: dict[str, object],
+    before: tuple[int, str],
+    budget_ms: int,
+) -> None:
+    """Yield once a changed gate is stable and its requests have finished.
+
+    Unchanged/delayed gates retain the full settling budget. Poll through
+    Playwright so response handlers and cancellation keep running meanwhile.
+    """
+    elapsed = 0
+    stable_ms = 0
+    previous = before
+    budget_ms = max(250, min(1800, int(budget_ms)))
+    while elapsed < budget_ms:
+        _raise_if_cancelled()
+        delay = min(100, budget_ms - elapsed)
+        wait_for_runtime(page, delay, after_poll=interaction_state.get("after_poll"))
+        elapsed += delay
+        current = (len(observed), _dom_progress_signature(page))
+        if current != before and current == previous and not interaction_state.get("pending"):
+            stable_ms += delay
+            if stable_ms >= 300 and any(
+                _is_safe_interaction_label(
+                    str(item.get("text") or ""),
+                    aria_expanded_false=bool(item.get("expanded")),
+                    input_type=str(item.get("type") or "button"),
+                )
+                for item in _candidate_snapshot(page)
+            ):
+                return
+        else:
+            stable_ms = 0
+        previous = current
 
 
 def _run_safe_interactions(
@@ -231,21 +302,27 @@ def _run_safe_interactions(
         ]
         if not candidates:
             break
-        before = (len(observed), _dom_asset_score(page))
+        before = (len(observed), _dom_asset_score(page), _dom_progress_signature(page))
         clicked_this_round = 0
         interaction_state["active"] = True
+        interaction_state["armed"] = True
         try:
-            for item in candidates[: min(5, max_interactions - attempted)]:
+            # Re-snapshot after every activation: a gate may replace all other
+            # controls and invalidate the remainder of the previous snapshot.
+            for item in candidates[:1]:
                 _raise_if_cancelled()
                 locator = page.locator(f'[data-cyoa-auto-id="{item["id"]}"]')
                 if locator.count() != 1:
                     continue
                 try:
-                    locator.evaluate("el => el.setAttribute('data-cyoa-auto-clicked','1')")
+                    locator.evaluate("(el, signature) => el.setAttribute('data-cyoa-auto-clicked',signature)",
+                                     str(item.get("signature") or ""))
                     locator.click(timeout=2500)
                     attempted += 1
                     clicked_this_round += 1
-                    page.wait_for_timeout(max(120, min(500, settle_time_ms // 4)))
+                    _wait_for_interaction_progress(
+                        page, observed, interaction_state, (before[0], before[2]), settle_time_ms,
+                    )
                 except DownloadCancelledError:
                     raise
                 except _playwright_runtime_errors() as exc:
@@ -256,8 +333,8 @@ def _run_safe_interactions(
         if not clicked_this_round:
             stop_reason = "safe_candidates_not_actionable"
             break
-        after = (len(observed), _dom_asset_score(page))
-        if after[0] > before[0] or after[1] > before[1]:
+        after = (len(observed), _dom_asset_score(page), _dom_progress_signature(page))
+        if after[0] > before[0] or after[1] > before[1] or after[2] != before[2]:
             productive += clicked_this_round
             stale_rounds = 0
             stop_reason = "interaction_limit" if attempted >= max_interactions else "no_more_safe_candidates"
@@ -326,6 +403,33 @@ def _capture_runtime_assets_sync(
     max_interactions: int = 20,
     no_progress_rounds: int = 2,
 ) -> RuntimeCaptureResult:
+    options = {"capture_interactions": capture_interactions, "max_scroll_steps": max_scroll_steps,
+               "max_interactions": max_interactions, "no_progress_rounds": no_progress_rounds}
+    _raise_if_cancelled()
+    if not (callable(getattr(downloader, "use_runtime_responses", None)) and
+            callable(getattr(downloader, "needs_runtime_response", None))):
+        return _capture_runtime_assets_session(downloader, page_urls, settle_time_ms, **options)
+    directory = getattr(downloader, "output_folder", None)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+    with CapturedResponseStore(directory) as store:
+        result = _capture_runtime_assets_session(downloader, page_urls, settle_time_ms, response_store=store, **options)
+        result.captured_responses, result.captured_bytes = store.captured_count, store.captured_bytes
+        result.reused_responses, result.reused_bytes = store.reused_count, store.reused_bytes
+        return result
+
+
+def _capture_runtime_assets_session(
+    downloader,
+    page_urls: Iterable[str],
+    settle_time_ms: int = 1800,
+    *,
+    capture_interactions: bool = False,
+    max_scroll_steps: int = 100,
+    max_interactions: int = 20,
+    no_progress_rounds: int = 2,
+    response_store=None,
+) -> RuntimeCaptureResult:
     """Render routes and feed observed asset responses into the normal mirror."""
     _raise_if_cancelled()
     result = RuntimeCaptureResult()
@@ -351,20 +455,37 @@ def _capture_runtime_assets_sync(
     try:
         with sync_playwright() as pw:
             launch_kwargs = {"headless": True, "args": ["--no-sandbox"]}
+            external_browser = _external_frozen_chromium(pw.chromium)
+            if external_browser:
+                launch_kwargs["executable_path"] = external_browser
             if proxy_config:
                 launch_kwargs["proxy"] = proxy_config
             browser = pw.chromium.launch(**launch_kwargs)
+            pending = set()
+            completed_responses = deque()
+            queued_responses = set()
             try:
+                session_agent, session_cookies = _browser_session_state(urls)
                 context = browser.new_context(
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    user_agent=session_agent or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
                     ignore_https_errors=False,
                 )
+                if session_cookies:
+                    context.add_cookies(session_cookies)
                 page = context.new_page()
-                interaction_state: dict[str, object] = {"active": False, "page_url": ""}
+                interaction_state: dict[str, object] = {"active": False, "page_url": "", "pending": pending}
+                def request_started(request):
+                    # The archive already excludes these resources. Their
+                    # long polls must not keep a ready story gate waiting.
+                    if not _is_archive_noise_url(request.url):
+                        pending.add(request)
+                page.on("request", request_started)
+                page.on("requestfinished", lambda request: pending.discard(request))
+                page.on("requestfailed", lambda request: pending.discard(request))
 
                 def route_request(route, request) -> None:
                     try:
-                        if not interaction_state.get("active"):
+                        if not (interaction_state.get("active") or interaction_state.get("armed")):
                             route.continue_()
                             return
                         method = str(request.method or "GET").upper()
@@ -410,15 +531,50 @@ def _capture_runtime_assets_sync(
                         logger.debug("Runtime response observation failed: %s", exc)
 
                 page.on("response", on_response)
+                def retain_finished(request):
+                    if response_store is None:
+                        return
+                    try:
+                        response = request.response()
+                        if (response is not None and _is_runtime_asset_response(
+                                response.url, response.headers.get("content-type", ""), response.status) and
+                                downloader.needs_runtime_response(response.url) and response.url not in queued_responses and
+                                len(completed_responses) < response_store.max_entries):
+                            completed_responses.append(response)
+                            queued_responses.add(response.url)
+                    except DownloadCancelledError:
+                        raise
+                    except _playwright_runtime_errors() as exc:
+                        logger.debug("Runtime response reuse unavailable: %s", exc)
+                def drain_responses():
+                    while completed_responses:
+                        _raise_if_cancelled()
+                        response = completed_responses.popleft()
+                        queued_responses.discard(response.url)
+                        try:
+                            response_store.capture(response)
+                        except DownloadCancelledError:
+                            raise
+                        except _playwright_runtime_errors() as exc:
+                            logger.debug("Runtime response body unavailable: %s", exc)
+                        response_store.raise_if_failed()
+                page.on("requestfinished", retain_finished)
+                interaction_state["after_poll"] = drain_responses
                 for url in urls:
                     _raise_if_cancelled()
+                    drain_responses()
+                    # Navigation ends the previous route's settling phase.
+                    # Late completion callbacks can still retain its bytes.
+                    pending.clear()
                     try:
+                        interaction_state["armed"] = False
                         page.goto(url, wait_until="domcontentloaded", timeout=45_000)
                         interaction_state["page_url"] = page.url
-                        page.wait_for_timeout(settle_time_ms)
+                        wait_for_runtime(page, settle_time_ms, after_poll=drain_responses)
+                        drain_responses()
                         result.pages_rendered += 1
                         result.scroll_steps += _incremental_scroll(
-                            page, settle_time_ms, max_scroll_steps,
+                            page, settle_time_ms, max_scroll_steps, after_poll=drain_responses,
                         )
                         if capture_interactions and max_interactions > 0:
                             attempted, productive, reason = _run_safe_interactions(
@@ -432,12 +588,15 @@ def _capture_runtime_assets_sync(
                             result.stop_reason = reason
                             if productive:
                                 result.scroll_steps += _incremental_scroll(
-                                    page, settle_time_ms, max_scroll_steps,
+                                    page, settle_time_ms, max_scroll_steps, after_poll=drain_responses,
                                 )
+                        if response_store is not None:
+                            drain_responses()
                     except DownloadCancelledError:
                         raise
                     except _playwright_runtime_errors() as exc:
                         logger.warning("Runtime capture page failed (%s): %s", url, exc)
+                drain_responses()
             finally:
                 try:
                     browser.close()
@@ -445,20 +604,30 @@ def _capture_runtime_assets_sync(
                     raise
                 except _playwright_runtime_errors() as exc:
                     logger.debug("Runtime browser close failed: %s", exc)
+                finally:
+                    # Do not retain Request/Page handles during subsequent
+                    # native mirroring, even if a page left long polls open.
+                    pending.clear()
+                    completed_responses.clear()
+                    queued_responses.clear()
+                    page = context = browser = None
     except DownloadCancelledError:
         raise
     except _playwright_runtime_errors() as exc:
         logger.warning("Runtime browser capture unavailable: %s", exc)
 
     result.discovered = list(observed)
-    for url, content_type in observed.items():
-        _raise_if_cancelled()
-        kind = downloader._kind_from(url, content_type=content_type)
-        local = downloader.download_asset(url, preferred_kind=kind)
-        if local:
-            result.downloaded.append(url)
-        else:
-            result.failed.append(url)
+    if response_store is not None:
+        response_store.raise_if_failed()
+    with (downloader.use_runtime_responses(response_store) if response_store is not None else nullcontext()):
+        for url, content_type in observed.items():
+            _raise_if_cancelled()
+            kind = downloader._kind_from(url, content_type=content_type)
+            local = downloader.download_asset(url, preferred_kind=kind)
+            if local:
+                result.downloaded.append(url)
+            else:
+                result.failed.append(url)
     logger.info(
         "Runtime capture: %d observed, %d downloaded, %d failed, %d scroll step(s), "
         "%d/%d productive interaction(s)",

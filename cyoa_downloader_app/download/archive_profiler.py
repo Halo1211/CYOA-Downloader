@@ -127,6 +127,8 @@ def profile_archive_target(downloader) -> ArchiveProfile:
         pass
     script_count = len(re.findall(r"<script\b[^>]*\bsrc\s*=", html, re.IGNORECASE))
     module_count = len(re.findall(r"<script\b[^>]*\btype\s*=\s*[\"']module[\"']", html, re.IGNORECASE))
+    inline_interactivity = False
+    safe_control_count = 0
     lazy_count = len(re.findall(r"\b(?:data-src|data-lazy-src|loading\s*=\s*[\"']lazy)", html, re.IGNORECASE))
     framework_root = bool(re.search(r"\bid\s*=\s*[\"'](?:app|root|__next)[\"']", html, re.IGNORECASE))
     next_assets = html.lower().count("/_next/")
@@ -135,6 +137,18 @@ def profile_archive_target(downloader) -> ArchiveProfile:
     if BeautifulSoup is not None and html:
         try:
             soup = BeautifulSoup(html, "html.parser")
+            from ..network.runtime_capture import _is_safe_interaction_label
+
+            safe_control_count = sum(
+                _is_safe_interaction_label(tag.get_text(" ", strip=True), in_form=tag.find_parent("form") is not None)
+                for tag in soup.select('button,[role="button"],summary')
+            )
+            for script in soup.find_all("script", src=False):
+                source = script.string or script.get_text()
+                if (re.search(r"\b(?:innerHTML|createElement|replaceChildren)\b", source)
+                        and re.search(r"\b(?:addEventListener|onclick)\b", source)):
+                    inline_interactivity = True
+                    break
             start = urlparse(start_url)
             scope = start.path.rstrip("/") + "/"
             seen = set()
@@ -162,6 +176,8 @@ def profile_archive_target(downloader) -> ArchiveProfile:
         1 if bundles["fetch"] else 0,
         1 if bundles["intersection_observer"] else 0,
         1 if bundles["new_image"] else 0,
+        2 if inline_interactivity else 0,
+        2 if safe_control_count and (script_count or module_count) else 0,
     ))
     signals: dict[str, Any] = {
         "script_count": script_count,
@@ -173,6 +189,8 @@ def profile_archive_target(downloader) -> ArchiveProfile:
         "canvas_count": canvas_count,
         "bundle_signals": bundles,
         "runtime_score": runtime_score,
+        "inline_interactivity": inline_interactivity,
+        "safe_control_count": safe_control_count,
     }
     if route_count and runtime_score >= 2:
         profile = ArchiveProfile(

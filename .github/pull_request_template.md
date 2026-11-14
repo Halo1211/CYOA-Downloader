@@ -23,7 +23,7 @@ Confirm the gate suite passes locally:
 - [ ] `python -m compileall -q cyoa_downloader.py cyoa_downloader_app`
 - [ ] `python cyoa_downloader.py --help`
 - [ ] `python cyoa_downloader.py --dependency-check`
-- [ ] `python cyoa_downloader.py --self-test` (state the count, e.g. 37/37)
+- [ ] `python cyoa_downloader.py --self-test` (state the passing/total count)
 - [ ] `python -m ruff check .`
 - [ ] `python -m pytest -q`
 

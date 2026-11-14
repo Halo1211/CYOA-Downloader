@@ -1492,7 +1492,7 @@ def test_comprehensive_bugfixes__react_app_bundle_rewrites_only_known_downloaded
     )
 
     assert "https://cdn.example/image.png" not in rewritten
-    assert "../../files/image.png" in rewritten
+    assert "/files/image.png" in rewritten
     assert "https://cdn.example/missing.png" in rewritten
     assert "static/js/other.12345678.chunk.js" in rewritten
 
@@ -2293,6 +2293,8 @@ def test_comprehensive_bugfixes__gallery_post_uses_gallery_dl_before_http_and_he
         lambda *_a: _comprehensive_bugfixes_pytest.fail("auth failure backed off"),
     )
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_get", lambda _url: None)
+    monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_get_file", lambda *a, **kw: None)
+    monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_put_file", lambda *a, **kw: None)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_put", lambda *_a: None)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_domain_throttle", lambda _url: None)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_domain_record_failure", lambda *_a: 0)
@@ -2341,6 +2343,8 @@ def test_comprehensive_bugfixes__extensionless_image_page_gets_one_http_attempt_
         lambda *_a: _comprehensive_bugfixes_pytest.fail("single attempt slept"),
     )
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_get", lambda _url: None)
+    monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_get_file", lambda *a, **kw: None)
+    monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_put_file", lambda *a, **kw: None)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_put", lambda *_a: None)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_domain_throttle", lambda _url: None)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_domain_record_failure", lambda *_a: 0)
@@ -2384,6 +2388,8 @@ def test_comprehensive_bugfixes__exhausted_transport_retries_do_not_repeat_outer
         lambda *_a: _comprehensive_bugfixes_pytest.fail("outer loop slept"),
     )
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_get", lambda _url: None)
+    monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_get_file", lambda *a, **kw: None)
+    monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_put_file", lambda *a, **kw: None)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_put", lambda *_a: None)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_domain_throttle", lambda _url: None)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_domain_record_failure", lambda *_a: 0)
@@ -2428,6 +2434,8 @@ def test_comprehensive_bugfixes__transport_failed_domain_coalesces_failed_headle
         lambda *_a: _comprehensive_bugfixes_pytest.fail("outer loop slept"),
     )
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_get", lambda _url: None)
+    monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_get_file", lambda *a, **kw: None)
+    monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_put_file", lambda *a, **kw: None)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_put", lambda *_a: None)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_domain_throttle", lambda _url: None)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_domain_record_failure", lambda *_a: 0)
@@ -2468,6 +2476,8 @@ def test_comprehensive_bugfixes__failed_domain_skips_later_transport_calls(monke
         lambda *_a: _comprehensive_bugfixes_pytest.fail("outer loop slept"),
     )
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_get", lambda _url: None)
+    monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_get_file", lambda *a, **kw: None)
+    monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_put_file", lambda *a, **kw: None)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_put", lambda *_a: None)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_domain_throttle", lambda _url: None)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_domain_record_failure", lambda *_a: 0)
@@ -2498,6 +2508,8 @@ def test_comprehensive_bugfixes__process_images_coalesces_relative_aliases(monke
 
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "fetch_response", fake_fetch)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_get", lambda _url: None)
+    monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_get_file", lambda *a, **kw: None)
+    monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_put_file", lambda *a, **kw: None)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_put", lambda *_a: None)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_domain_throttle", lambda _url: None)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_domain_record_success", lambda _url: None)
@@ -2545,6 +2557,8 @@ def test_comprehensive_bugfixes__process_images_flattens_external_image_paths_wi
 
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "fetch_response", lambda url, **_kwargs: responses[url])
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_get", lambda _url: None)
+    monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_get_file", lambda *a, **kw: None)
+    monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_put_file", lambda *a, **kw: None)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_put", lambda *_a: None)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_domain_throttle", lambda _url: None)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_domain_record_success", lambda _url: None)
@@ -2594,6 +2608,8 @@ def test_comprehensive_bugfixes__process_images_bounds_long_external_cdn_names_f
     response = _comprehensive_bugfixes_FakeResponse(200, {"Content-Type": "image/jpeg"}, b"jpeg-bytes" * 8)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "fetch_response", lambda *_a, **_k: response)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_get", lambda _url: None)
+    monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_get_file", lambda *a, **kw: None)
+    monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_put_file", lambda *a, **kw: None)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_put", lambda *_a: None)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_domain_throttle", lambda _url: None)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_domain_record_success", lambda _url: None)
@@ -2654,6 +2670,8 @@ def test_comprehensive_bugfixes__website_mode_keeps_distinct_authored_filenames_
     response = _comprehensive_bugfixes_FakeResponse(200, {"Content-Type": "image/png"}, b"same-image" * 8)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "fetch_response", lambda *_a, **_k: response)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_get", lambda _url: None)
+    monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_get_file", lambda *a, **kw: None)
+    monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_put_file", lambda *a, **kw: None)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_put", lambda *_a: None)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_domain_throttle", lambda _url: None)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_domain_record_success", lambda _url: None)
@@ -2700,6 +2718,8 @@ def test_comprehensive_bugfixes__download_summary_counts_existing_site_assets_in
     response = _comprehensive_bugfixes_FakeResponse(200, {"Content-Type": "image/png"}, b"new-image" * 8)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "fetch_response", lambda *_a, **_k: response)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_get", lambda _url: None)
+    monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_get_file", lambda *a, **kw: None)
+    monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_put_file", lambda *a, **kw: None)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_put", lambda *_a: None)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_domain_throttle", lambda _url: None)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_domain_record_success", lambda _url: None)
@@ -3051,6 +3071,8 @@ def test_comprehensive_bugfixes__process_images_rejects_html_200_as_image(monkey
     response = _comprehensive_bugfixes_FakeResponse(200, {"Content-Type": "text/html"}, b"<html>login page</html>")
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "fetch_response", lambda *_a, **_k: response)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_get", lambda _url: None)
+    monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_get_file", lambda *a, **kw: None)
+    monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_put_file", lambda *a, **kw: None)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_cache_put", lambda *_a: None)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_domain_throttle", lambda _url: None)
     monkeypatch.setattr(_comprehensive_bugfixes_image_pipeline, "_domain_record_failure", lambda *_a: 0)
@@ -3594,6 +3616,8 @@ def test_discord_attachments__main_image_pipeline_recovers_discord_url_from_embe
         lambda self, urls: {old_url: fresh_url},
     )
     monkeypatch.setattr(_discord_attachments_image_pipeline, "_cache_get", lambda _url: None)
+    monkeypatch.setattr(_discord_attachments_image_pipeline, "_cache_get_file", lambda *a, **kw: None)
+    monkeypatch.setattr(_discord_attachments_image_pipeline, "_cache_put_file", lambda *a, **kw: None)
     monkeypatch.setattr(_discord_attachments_image_pipeline, "_cache_put", lambda *_args: None)
     monkeypatch.setattr(_discord_attachments_image_pipeline, "_domain_throttle", lambda _url: None)
     monkeypatch.setattr(_discord_attachments_image_pipeline, "_domain_record_success", lambda _url: None)
@@ -4965,7 +4989,7 @@ class TestLiveGuiLayout:
         try:
             root.update_idletasks()
             root.update()
-            assert root.title() == "CYOA Downloader v1.1.4"
+            assert root.title() == "CYOA Downloader v1.1.5"
 
             input_panel, queue_panel = gui._dispatch_gui_patch("_v462_find_main_panels")
             gui._v46_apply_progress_visibility(True)
@@ -9645,7 +9669,7 @@ from cyoa_downloader_app.importers.batch import (
 
 def test_phase1_extraction__phase1_facade_names_still_match_modules():
     assert _phase1_extraction_cyoa_downloader._APP_VERSION == _phase1_extraction__APP_VERSION
-    assert _phase1_extraction__APP_VERSION == "1.1.4"
+    assert _phase1_extraction__APP_VERSION == "1.1.5"
     assert _phase1_extraction_cyoa_downloader.IMAGE_FIELDS is _phase1_extraction_IMAGE_FIELDS
     assert ".mp3" in _phase1_extraction_AUDIO_EXTENSIONS
     assert _phase1_extraction_cyoa_downloader._derive_mode_flags is _phase1_extraction__derive_mode_flags
@@ -9693,8 +9717,8 @@ def test_phase1_extraction__cli_version_is_available_without_starting_a_download
     )
 
     assert completed.returncode == 0
-    assert "CYOA Downloader 1.1.4" in completed.stdout
-    assert "CYOA-v1.1.4" in completed.stdout
+    assert "CYOA Downloader 1.1.5" in completed.stdout
+    assert "CYOA-v1.1.5" in completed.stdout
 
 
 # ============================================================================

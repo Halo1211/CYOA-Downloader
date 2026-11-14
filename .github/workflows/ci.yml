@@ -43,6 +43,8 @@ jobs:
           EOF
       - name: CLI help
         run: python cyoa_downloader.py --help
+      - name: Repository and documentation checks
+        run: python tools/check_repository.py
       - name: Dependency check
         run: python cyoa_downloader.py --dependency-check
       - name: Self test

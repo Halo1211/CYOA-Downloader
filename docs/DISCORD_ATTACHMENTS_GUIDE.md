@@ -46,7 +46,7 @@ In the GUI, open **Settings / Maintenance**, locate **Discord Bot Token**, save
 the token, and select **Test**. The token is stored directly in:
 
 ```text
-C:\Users\<name>\.cyoa_downloader\settings.json
+%USERPROFILE%\.cyoa_downloader\settings.json
 ```
 
 The relevant JSON field is:

@@ -5,128 +5,63 @@ from __future__ import annotations
 import os
 import pathlib
 import sys
-import threading
+import time
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 import requests
+from urllib3.exceptions import HTTPError as Urllib3HTTPError
 
 from ..core.cancellation import _raise_if_cancelled
+from ..core.media_io import FilePayload
 from ..core.progress import DownloadCancelledError
 from ..logging_setup import logger
+from .browser_owner import BrowserFetchSession
 from .proxy import _get_browser_proxy_config
-from .sessions import create_retry_session
+from .sessions import _get_shared_session, create_retry_session
 from .vpn import vpn_requirement_satisfied
 
 
 @dataclass(frozen=True)
 class BrowserFetchResult:
-    content: bytes
+    content: bytes | FilePayload
     headers: dict[str, str]
     status: int
     url: str
 
 
-class BrowserFetchSession:
-    """Reusable Playwright transport for sites that rate-limit HTTP clients."""
+def _browser_session_state(urls, session=None) -> tuple[str, list[dict]]:
+    """Share only matching HTTP-session cookies with a runtime browser.
 
-    def __init__(self) -> None:
-        self._lock = threading.RLock()
-        self._playwright = None
-        self._browser = None
-        self._context = None
-        self._page = None
-        self._proxy_config = None
+    FlareSolverr solves against a particular user agent. Starting a fresh
+    browser without its matching cookies/agent otherwise triggers the same
+    challenge again, even after the ordinary downloader has solved it.
+    """
+    session = session if session is not None else _get_shared_session(False)
+    hosts = {(urlparse(url).hostname or '').lower() for url in urls}
+    cookies = []
+    for cookie in session.cookies:
+        domain = str(cookie.domain or '').lower().lstrip('.')
+        if not domain or not any(host == domain or host.endswith('.'+domain) for host in hosts):
+            continue
+        if cookie.expires is not None and cookie.expires <= time.time():
+            continue
+        cookies.append({'name': cookie.name,'value': cookie.value,'domain': cookie.domain,
+                            'path': cookie.path or '/','secure': bool(cookie.secure)})
+    agent = str(session.headers.get('User-Agent') or '')
+    return (agent if agent != 'Mozilla/5.0' else ''), cookies
 
-    def _ensure(self, url: str) -> None:
-        proxy_config = _get_browser_proxy_config(url)
-        if proxy_config is None:
-            raise RuntimeError("manual proxy transport is unsupported by browser fallback")
-        if self._page is not None and self._proxy_config == proxy_config:
-            return
-        self.close()
-        from playwright.sync_api import sync_playwright
 
-        try:
-            self._playwright = sync_playwright().start()
-            launch_kwargs = {"headless": True, "args": ["--no-sandbox"]}
-            if proxy_config:
-                launch_kwargs["proxy"] = proxy_config
-            self._browser = self._playwright.chromium.launch(**launch_kwargs)
-            self._context = self._browser.new_context(
-                user_agent=(
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36"
-                ),
-                ignore_https_errors=False,
-            )
-            self._page = self._context.new_page()
-            self._proxy_config = dict(proxy_config)
-        except BaseException:
-            self.close()
-            raise
-
-    def fetch(self, url: str, *, timeout_ms: int = 45_000) -> BrowserFetchResult | None:
-        with self._lock:
-            _raise_if_cancelled()
-            if not vpn_requirement_satisfied():
-                logger.error("VPN guard blocked reusable browser fetch: %s", url)
-                return None
-            try:
-                from playwright.sync_api import Error as PlaywrightError
-
-                self._ensure(url)
-                response = self._page.goto(
-                    url, wait_until="domcontentloaded", timeout=timeout_ms,
-                )
-                _raise_if_cancelled()
-                if response is None or not response.ok:
-                    return None
-                content = response.body()
-                _raise_if_cancelled()
-                return BrowserFetchResult(
-                    content=content,
-                    headers={str(k): str(v) for k, v in response.headers.items()},
-                    status=int(response.status),
-                    url=str(response.url),
-                )
-            except DownloadCancelledError:
-                raise
-            except ImportError as exc:
-                logger.debug("Reusable browser fetch unavailable (%s): %s", url, exc)
-                return None
-            except (OSError, PlaywrightError, RuntimeError, TypeError, ValueError) as exc:
-                logger.debug("Reusable browser fetch failed (%s): %s", url, exc)
-                return None
-
-    def close(self) -> None:
-        with self._lock:
-            try:
-                from playwright.sync_api import Error as PlaywrightError
-            except ImportError:
-                PlaywrightError = RuntimeError
-
-            for obj in (self._page, self._context, self._browser):
-                try:
-                    if obj is not None:
-                        obj.close()
-                except (OSError, PlaywrightError, RuntimeError) as exc:
-                    logger.debug("Could not close browser object %s: %s", type(obj).__name__, exc)
-            self._page = self._context = self._browser = None
-            try:
-                if self._playwright is not None:
-                    self._playwright.stop()
-            except (OSError, PlaywrightError, RuntimeError) as exc:
-                logger.debug("Could not stop browser runtime: %s", exc)
-            self._playwright = None
-            self._proxy_config = None
 
 def _make_cookie_session(browser: str = "chrome") -> requests.Session | None:
     """
     Build a requests.Session with cookies from an installed browser.
     Uses browser-cookie3 if available, falls back to Chrome SQLite directly.
     """
+    cookie_errors = (OSError, RuntimeError, TypeError, ValueError)
     try:
         import browser_cookie3 as _bc
+        cookie_errors += (getattr(_bc, "BrowserCookieError", RuntimeError),)
         loaders = {
             "chrome":   _bc.chrome,  "chromium": _bc.chromium,
             "firefox":  _bc.firefox, "edge":     _bc.edge,
@@ -156,7 +91,7 @@ def _make_cookie_session(browser: str = "chrome") -> requests.Session | None:
         return s
     except ImportError as _ignored_exc:
         logger.debug("Ignored recoverable exception in _make_cookie_session (line 4016): %s", _ignored_exc)
-    except (OSError, RuntimeError, TypeError, ValueError) as e:
+    except cookie_errors as e:
         logger.debug(f"browser_cookie3 failed ({browser}): {e}")
 
     # Manual Chrome SQLite fallback (Windows only)
@@ -209,12 +144,16 @@ def _looks_like_error_document(content: bytes, content_type: str = "") -> bool:
     return prefix.startswith((b"<!doctype html", b"<html", b"<head", b"<body", b"{\"error"))
 
 
-def _fetch_headless(url: str, reject_error_documents: bool = False) -> bytes | None:
+def _fetch_headless(url: str, reject_error_documents: bool = False, *,
+                    browser_session=None, spool_dir=None) -> bytes | FilePayload | None:
     """
     Fetch URL using Playwright (preferred) or Selenium as fallback.
     Used when normal HTTP fetch fails or returns <1KB content for images.
     Returns raw bytes or None.
     """
+    if browser_session is not None:
+        return browser_session.fetch_headless(url, reject_error_documents=reject_error_documents,
+                                              spool_dir=spool_dir)
     _raise_if_cancelled()
     if not vpn_requirement_satisfied():
         logger.error("VPN guard blocked headless browser fetch: %s", url)
@@ -269,13 +208,11 @@ def _fetch_headless(url: str, reject_error_documents: bool = False) -> bytes | N
     except (OSError, PlaywrightError, RuntimeError, TypeError, ValueError) as e:
         logger.debug(f"Playwright fetch failed ({url}): {e}")
 
-    # ── Selenium fallback ─────────────────────────────────────────────
-    # v7.5.5 fix: previous implementation (a) launched Chrome twice — the first
-    # instance only took an unused screenshot, (b) ran `return await ...` inside
-    # execute_script, which is a SyntaxError in a non-async wrapper so the
-    # fallback ALWAYS threw, and (c) fetched from an about:blank origin, which
-    # CORS-blocks most CDNs. Now: single driver, navigate to the URL first
-    # (same-origin fetch + correct referer/cookies), then execute_async_script.
+    return _fetch_selenium(url, proxy_config, reject_error_documents)
+
+
+def _fetch_selenium(url, proxy_config, reject_error_documents):
+    """Compatibility backend; the caller owns serialization and file spooling."""
     _raise_if_cancelled()
     try:
         from selenium import webdriver
@@ -315,7 +252,7 @@ def _fetch_headless(url: str, reject_error_documents: bool = False) -> bytes | N
         finally:
             try:
                 drv.quit()
-            except (OSError, RuntimeError, WebDriverException) as _ignored_exc:
+            except (OSError, RuntimeError, WebDriverException, Urllib3HTTPError) as _ignored_exc:
                 logger.debug("Ignored recoverable exception in _fetch_headless (line 4116): %s", _ignored_exc)
         _raise_if_cancelled()
         if resp_info and resp_info.get("ok") and resp_info.get("data"):
@@ -334,7 +271,7 @@ def _fetch_headless(url: str, reject_error_documents: bool = False) -> bytes | N
         raise
     except ImportError as _ignored_exc:
         logger.debug("Ignored recoverable exception in _fetch_headless (line 4122): %s", _ignored_exc)
-    except (OSError, RuntimeError, TypeError, ValueError, WebDriverException) as e:
+    except (OSError, RuntimeError, TypeError, ValueError, WebDriverException, Urllib3HTTPError) as e:
         logger.debug(f"Selenium fetch failed ({url}): {e}")
 
     return None

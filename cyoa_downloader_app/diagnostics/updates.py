@@ -10,6 +10,7 @@ from ..app_info import _APP_VERSION, _GITHUB_RELEASE_API
 from ..core.atomic_io import identity_response_total_length
 from ..core.progress import DownloadCancelledError
 from ..logging_setup import logger
+from ..network.budget import request_scope
 from ..network.fetch import fetch_response
 
 # Desktop notification providers are optional third-party callbacks. Failures
@@ -87,13 +88,18 @@ def _check_for_app_updates() -> dict[str, str] | None:
 
 def _batch_check_updates(history: dict[str, dict],
                          max_workers: int = 4,
-                         progress_cb=None) -> list[dict]:
+                         progress_cb=None, cancel_event=None) -> list[dict]:
     """Check previously downloaded CYOAs for server-side changes.
 
     Compares stored Content-Length / Last-Modified / ETag against current
     server HEAD response.
     """
     results: list[dict] = []
+    def check_cancelled():
+        if cancel_event is not None and cancel_event.is_set():
+            raise DownloadCancelledError("History check cancelled")
+
+    check_cancelled()
     entries = [
         (url, meta) for url, meta in history.items()
         if isinstance(url, str) and isinstance(meta, dict) and meta.get("success")
@@ -106,6 +112,12 @@ def _batch_check_updates(history: dict[str, dict],
         _idx, (url, meta) = args
         r = None
         try:
+            check_cancelled()
+            metadata_state = meta.get("metadata_state")
+            if metadata_state in {"pending", "unavailable", "cancelled", "skipped"}:
+                reason = ("Baseline metadata is not ready; collection may be pending or interrupted. The download remains successful."
+                          if metadata_state == "pending" else "No saved metadata to compare; the download remains successful.")
+                return {"url": url, "name": meta.get("filename", ""), "status": "error", "reason": reason}
             # The recorder (_record_history probe) stores
             # the IDENTITY length taken from a "Range: bytes=0-0" +
             # "Accept-Encoding: identity" probe (Content-Range total). This
@@ -115,18 +127,19 @@ def _batch_check_updates(history: dict[str, dict],
             # Reproduced with a local HTTP fixture. Fix: probe with the exact
             # same semantics as the recorder (also stops downloading the full
             # body of every history URL just to read headers).
-            r = fetch_response(
-                url,
-                timeout=10,
-                extra_headers={
-                    "User-Agent": "Mozilla/5.0",
-                    "Range": "bytes=0-0",
-                    "Accept-Encoding": "identity",
-                },
-                quiet=True,
-                return_error_response=True,
-                stream=True,
-            )
+            with request_scope(priority=20, cancel_event=cancel_event):
+                r = fetch_response(
+                    url,
+                    timeout=10,
+                    extra_headers={
+                        "User-Agent": "Mozilla/5.0",
+                        "Range": "bytes=0-0",
+                        "Accept-Encoding": "identity",
+                    },
+                    quiet=True,
+                    return_error_response=True,
+                    stream=True,
+                )
             _status = int(getattr(r, "status_code", 0) or 0)
             if r is None or _status == 0 or _status >= 400:
                 return {"url": url, "name": meta.get("filename", ""),
@@ -172,9 +185,11 @@ def _batch_check_updates(history: dict[str, dict],
         safe_workers = max(1, min(32, int(max_workers)))
     except (TypeError, ValueError):
         safe_workers = 4
-    with ThreadPoolExecutor(max_workers=safe_workers) as pool:
+    pool = ThreadPoolExecutor(max_workers=safe_workers)
+    try:
         futs = {pool.submit(_check, (i, e)): i for i, e in enumerate(entries)}
         for done_n, fut in enumerate(as_completed(futs), 1):
+            check_cancelled()
             res = fut.result()
             if res:
                 results.append(res)
@@ -185,6 +200,10 @@ def _batch_check_updates(history: dict[str, dict],
                     raise
                 except _PROGRESS_CALLBACK_ERRORS as exc:
                     logger.debug("Update progress callback failed: %s", exc)
+    finally:
+        # Closing a panel cancels queued probes. Already active transports retain
+        # their existing timeout and response-close ownership in _check.
+        pool.shutdown(wait=True, cancel_futures=True)
     return results
 
 

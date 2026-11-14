@@ -11,6 +11,7 @@ import logging
 import queue as log_queue_module
 import re
 import threading
+import time
 from datetime import datetime
 from tkinter import TclError
 from typing import Any
@@ -158,7 +159,7 @@ def _v465_setup_logging(self: Any) -> None:
     self._v465_log_poll_after_id = None
     _v465_configure_log_tags(self)
 
-def _v465_insert_log_line(self: Any, item: Any) -> None:
+def _v465_log_segments(item: Any) -> tuple[tuple[str, str], ...]:
     if isinstance(item, tuple) and len(item) == 3:
         level_no, level_name, rendered = item
         try:
@@ -184,13 +185,17 @@ def _v465_insert_log_line(self: Any, item: Any) -> None:
     if match:
         shown_level = match.group(2)
         level_tag = f"LEVEL_{shown_level}" if shown_level in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"} else "LEVEL_INFO"
-        self._log_txt.insert("end", match.group(1), "TIMESTAMP")
-        self._log_txt.insert("end", "  ", "SEPARATOR")
-        self._log_txt.insert("end", f"{shown_level:<8}", level_tag)
-        self._log_txt.insert("end", "  ", "SEPARATOR")
-        self._log_txt.insert("end", match.group(3) + "\n", semantic)
-    else:
-        self._log_txt.insert("end", rendered + "\n", semantic)
+        return (
+            (match.group(1), "TIMESTAMP"), ("  ", "SEPARATOR"),
+            (f"{shown_level:<8}", level_tag), ("  ", "SEPARATOR"),
+            (match.group(3) + "\n", semantic),
+        )
+    return ((rendered + "\n", semantic),)
+
+
+def _v465_insert_log_line(self: Any, item: Any) -> None:
+    for text, tag in _v465_log_segments(item):
+        self._log_txt.insert("end", text, tag)
 
 def _v465_poll_log(self: Any) -> None:
     self._v465_log_poll_after_id = None
@@ -199,22 +204,39 @@ def _v465_poll_log(self: Any) -> None:
             return
     except _GUI_LOG_ERRORS:
         return
-    batch: list[Any] = []
-    try:
-        # Keep log rendering incremental so a burst of network messages cannot
-        # monopolize Tk's event loop on slower laptops.
-        for _ in range(150):
-            batch.append(self._log_queue.get_nowait())
-    except log_queue_module.Empty as empty_exc:
-        _ = empty_exc  # expected non-blocking queue control flow
+    def take_batch(limit: int) -> list[Any]:
+        batch = []
+        try:
+            for _ in range(limit):
+                batch.append(self._log_queue.get_nowait())
+        except log_queue_module.Empty:
+            pass
+        return batch
+
+    # Bound wall time as well as record count. Small native inserts let us
+    # yield even when a particular Text widget is slow, without dequeuing
+    # records that have not been displayed yet.
+    deadline = time.monotonic() + .008
+    batch = take_batch(50)
+    drained = 0
     if batch:
         self._log_txt.configure(state="normal")
         try:
-            for item in batch:
-                try:
-                    _v465_insert_log_line(self, item)
-                except _LOG_RENDER_ERRORS as exc:
-                    self._log_txt.insert("end", f"GUI log render error: {exc}\n", "ERROR")
+            while batch:
+                segments = []
+                for item in batch:
+                    try:
+                        for text, tag in _v465_log_segments(item):
+                            segments.extend((text, tag))
+                    except _LOG_RENDER_ERRORS as exc:
+                        segments.extend((f"GUI log render error: {exc}\n", "ERROR"))
+                # tkinter.Text accepts alternating text/tag arguments. One
+                # Tcl crossing preserves per-segment colors and line order.
+                self._log_txt.insert("end", *segments)
+                drained += len(batch)
+                if drained >= 600 or time.monotonic() >= deadline:
+                    break
+                batch = take_batch(min(50, 600 - drained))
             try:
                 line_count = int(self._log_txt.index("end-1c").split(".")[0])
                 if line_count > 5000:
@@ -228,7 +250,7 @@ def _v465_poll_log(self: Any) -> None:
         if self.root.winfo_exists():
             # Back off while idle. Busy downloads still drain quickly, while
             # an idle main window no longer wakes six times per second.
-            next_delay = 75 if len(batch) >= 150 else (150 if batch else 500)
+            next_delay = 25 if not self._log_queue.empty() else (150 if drained else 500)
             self._v465_log_poll_after_id = self.root.after(next_delay, self._poll_log)
     except _GUI_LOG_ERRORS as exc:
         logger.debug(f"GUI log polling could not be rescheduled: {exc}")

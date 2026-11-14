@@ -6,6 +6,7 @@ collected defensively. FFmpeg, Deno, browser payloads, and RAR helpers remain
 system dependencies and are intentionally reported by the diagnostic panel.
 """
 
+import os
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_all
@@ -89,12 +90,14 @@ a = Analysis(
     noarchive=False,
 )
 pyz = PYZ(a.pure)
+portable_folder = os.environ.get("CYOA_BUILD_LAYOUT", "onefile") == "onedir"
+exe_inputs = [pyz, a.scripts]
+if portable_folder:
+    exe_inputs.append([])
+else:
+    exe_inputs.extend([a.binaries, a.datas, []])
 exe = EXE(
-    pyz,
-    a.scripts,
-    a.binaries,
-    a.datas,
-    [],
+    *exe_inputs,
     name="CYOA Downloader",
     debug=False,
     bootloader_ignore_signals=False,
@@ -103,4 +106,10 @@ exe = EXE(
     icon=str(ROOT / "assets" / "cyoa_downloader.ico"),
     version=str(version_info_path),
     console=False,
+    exclude_binaries=portable_folder,
 )
+if portable_folder:
+    bundle = COLLECT(
+        exe, a.binaries, a.datas,
+        strip=False, upx=True, name="CYOA Downloader",
+    )

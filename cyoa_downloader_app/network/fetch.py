@@ -6,6 +6,7 @@ import requests
 
 from ..core.atomic_io import decoded_response_content_length
 from ._bridge import legacy
+from .response_metadata import forget_response_metadata
 
 
 def fetch_response(
@@ -20,6 +21,7 @@ def fetch_response(
     """Fetch URL via the legacy v46 implementation plus cancellation/metadata hooks."""
     l = legacy()
     l._raise_if_cancelled()
+    forget_response_metadata(url)
     response = l._v46_fetch_response_legacy(
         url,
         extra_headers=extra_headers,

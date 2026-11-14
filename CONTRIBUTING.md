@@ -26,6 +26,7 @@ Run these before opening a PR:
 
 ```bash
 python -m compileall -q cyoa_downloader.py cyoa_downloader_app
+python tools/check_repository.py
 python cyoa_downloader.py --help
 python cyoa_downloader.py --dependency-check
 python cyoa_downloader.py --self-test

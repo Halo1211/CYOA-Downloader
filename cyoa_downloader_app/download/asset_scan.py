@@ -52,6 +52,8 @@ _EMBEDDED_HTTP_URL_RE = re.compile(
     re.IGNORECASE,
 )
 
+_PROSE_IMAGE_URL_RE = re.compile(r"https?:/{1,2}[^\s\"<>]+", re.IGNORECASE)
+
 _LARGE_JSON_SCAN_THRESHOLD = 2 * 1024 * 1024
 _JSON_ASSET_EXTENSIONS = (
     IMAGE_EXTENSIONS | AUDIO_EXTENSIONS | VIDEO_EXTENSIONS | FONT_EXTENSIONS |
@@ -66,24 +68,47 @@ def _normalize_embedded_http_url(value: str) -> str:
     return re.sub(r"^(https?):/(?!/)", r"\1://", value, flags=re.IGNORECASE)
 
 
-def _srcset_urls(value: str) -> Iterator[str]:
-    """Read candidate URLs without treating a data URL's comma as a separator."""
+def _srcset_candidates(value: str) -> Iterator[tuple[str, str]]:
+    """Tokenize URLs/descriptors without splitting commas inside URL tokens.
+
+    Uses the HTML srcset splitting/descriptor tokenizer states. Descriptors
+    stay authored: the browser still decides which candidates are valid.
+    https://html.spec.whatwg.org/multipage/images.html#parse-a-srcset-attribute
+    """
     position = 0
-    candidate_pattern = re.compile(r"[\s,]*([^\s]+)")
-    while position < len(value):
-        match = candidate_pattern.match(value, position)
-        if not match:
+    length = len(value)
+    whitespace = " \t\n\r\f"
+    while position < length:
+        while position < length and value[position] in whitespace + ",":
+            position += 1
+        if position >= length:
             break
-        token = match.group(1)
-        position = match.end()
-        yield token.rstrip(",")
+        start = position
+        while position < length and value[position] not in whitespace:
+            position += 1
+        token = value[start:position]
         if token.endswith(","):
+            yield token.rstrip(","), ""
             continue
-        # Skip density/width descriptors until the next candidate.
-        separator = value.find(",", position)
-        if separator < 0:
-            break
-        position = separator + 1
+        start = position
+        in_parens = False
+        while position < length:
+            character = value[position]
+            if character == "," and not in_parens:
+                break
+            if character == "(":
+                in_parens = True
+            elif character == ")":
+                in_parens = False
+            position += 1
+        yield token, value[start:position].strip(whitespace)
+        position += 1
+
+
+def _srcset_urls(value: str) -> Iterator[str]:
+    """Read candidate URLs using the shared responsive-image tokenizer."""
+    for url, _descriptor in _srcset_candidates(value):
+        yield url
 
 
 class _ImageAttributeParser(HTMLParser):
@@ -118,7 +143,7 @@ def _is_image_reference(value: str) -> bool:
     return os.path.splitext(path)[1] in IMAGE_EXTENSIONS
 
 
-def _extract_image_references(value: str, *, allow_bare_path: bool = False) -> set[str]:
+def _extract_image_references(value: str, *, allow_bare_path: bool = False, include_prose_urls: bool = True) -> set[str]:
     """Extract image URLs from either a direct field or rich-text HTML.
 
     ICC project fields named ``image`` are not consistently typed in the wild:
@@ -127,6 +152,8 @@ def _extract_image_references(value: str, *, allow_bare_path: bool = False) -> s
     value as a URL makes ``urljoin`` create a request for the whole HTML blob.
     Only direct URLs, image-looking URLs, and URLs in image-bearing attributes
     are accepted here.
+    Set include_prose_urls=False for attribution fields that only need their
+    explicitly declared inline images/styles archived.
     """
     text = str(value or "").strip()
     if not text or text.startswith("data:"):
@@ -147,10 +174,10 @@ def _extract_image_references(value: str, *, allow_bare_path: bool = False) -> s
     # A direct image endpoint may not have an image extension (for example
     # pixiv's decorate.php), so accept a URL only when the complete field is
     # the URL rather than arbitrary prose containing a link.
-    if re.fullmatch(r"https?:/{1,2}[^\s\"'<>]+", text, flags=re.IGNORECASE):
+    if include_prose_urls and re.fullmatch(r"https?:/{1,2}[^\s\"<>]+", text, flags=re.IGNORECASE):
         add(text)
         return refs
-    if re.fullmatch(r"//[^\s\"'<>]+", text):
+    if include_prose_urls and re.fullmatch(r"//[^\s\"'<>]+", text):
         add("https:" + text)
         return refs
 
@@ -177,8 +204,11 @@ def _extract_image_references(value: str, *, allow_bare_path: bool = False) -> s
 
     # Prose labels commonly precede a real CDN URL. Only accept embedded URLs
     # that look like image files, so unrelated links in intro HTML are ignored.
-    for match in _EMBEDDED_HTTP_URL_RE.finditer(prose):
-        add(match.group(0).rstrip(".,;:)]}"), require_image_extension=True)
+    if include_prose_urls:
+        for match in _PROSE_IMAGE_URL_RE.finditer(prose):
+            # Credits can be glued directly to the scheme ("CC BY-SA 4.0https:/")
+            # and apostrophes are valid inside filenames such as Mam'etu.jpg.
+            add(match.group(0).rstrip(".,;:)]}'`"), require_image_extension=True)
 
     if refs:
         return refs
@@ -209,7 +239,7 @@ def _scan_large_json_for_assets(
         return set()
 
     found: set[str] = set()
-    stack = [root]
+    stack = [(root, "")]
 
     def add_candidate(raw: str) -> None:
         value = _normalize_embedded_http_url(raw)
@@ -229,17 +259,21 @@ def _scan_large_json_for_assets(
             found.add(urljoin(file_url, value))
 
     while stack:
-        value = stack.pop()
+        value, parent_key = stack.pop()
         if isinstance(value, dict):
-            stack.extend(value.values())
+            stack.extend((child, str(key).lower()) for key, child in value.items())
             continue
         if isinstance(value, list):
-            stack.extend(value)
+            stack.extend((child, parent_key) for child in value)
             continue
         if not isinstance(value, str):
             continue
         candidate = value.strip()
         if not candidate or candidate.startswith("data:"):
+            continue
+        if parent_key.endswith("sourcetooltip"):
+            for image_ref in _extract_image_references(candidate, include_prose_urls=False):
+                add_candidate(image_ref)
             continue
 
         # Exact path/URL values are common in manifests and project fields.
@@ -294,7 +328,12 @@ def _check_image_dedup(content: bytes, local_path: str, scope: str = "") -> str 
     if not content:
         return None
     h = _hashlib.sha256(content).hexdigest()
-    key = (scope or "", h)
+    return _check_image_dedup_digest(h, local_path, scope)
+
+
+def _check_image_dedup_digest(digest: str, local_path: str, scope: str = "") -> str | None:
+    """Use a hash already computed while streaming the payload."""
+    key = (scope or "", digest)
     with _hash_lock:
         if key in _image_hash_map:
             return _image_hash_map[key]
@@ -315,6 +354,68 @@ def _safe_response_text(r: requests.Response) -> str:
     declared = (r.encoding or "").lower()
     pref = r.encoding if declared not in _IGNORE else ""
     return try_decode_bytes(r.content, preferred_encoding=pref)
+
+
+def _tiled_overlay_asset_paths(text: str) -> set[str]:
+    """Enumerate the image-overlay viewer's authored page/tile metadata.
+
+    Tabs and virtualized pages never request all tiles in one browser session.
+    Decode the generated JSON assignment without executing publisher JavaScript.
+    Only accept the complete, bounded page schema used by this viewer family.
+    """
+    match = re.search(r"\bwindow\.CYOA\s*=\s*", text)
+    if match is None:
+        return set()
+    try:
+        data, _end = json.JSONDecoder().raw_decode(text, match.end())
+        if not isinstance(data, dict) or not isinstance(data.get("sections"), list) or not isinstance(data.get("options"), (dict, list)):
+            return set()
+        meta = data.get("meta", {})
+        count = meta.get("pages")
+        if isinstance(count, bool) or not isinstance(count, int) or not 1 <= count <= 1000:
+            return set()
+        paths = set()
+        page_metadata = data.get("pages", {})
+        if not isinstance(page_metadata, dict):
+            return set()
+        for number in range(1, count + 1):
+            page = page_metadata.get(str(number), {})
+            if not isinstance(page, dict):
+                return set()
+            size = meta.get("pageSizes", {}).get(str(number), meta.get("pageSize"))
+            height = page.get("h") or (size[1] if isinstance(size, list) and len(size) >= 2 else None)
+            tile_height = page.get("tile") or meta.get("tileHeight") or 1000
+            if any(isinstance(value, bool) or not isinstance(value, int) or value <= 0 for value in (height, tile_height)):
+                return set()
+            tiles = page.get("tiles") or (height + tile_height - 1) // tile_height
+            if isinstance(tiles, bool) or not isinstance(tiles, int) or not 1 <= tiles <= 2000:
+                return set()
+            prefix = f"pages/p{number:02d}/"
+            paths.add(prefix + "preview.webp")
+            animation = page.get("anim")
+            if isinstance(animation, dict) and animation:
+                paths.update(value for key, value in animation.items()
+                             if key in {"src", "still"} and isinstance(value, str) and value.startswith(prefix))
+            else:
+                paths.update(f"{prefix}t{tile}.webp" for tile in range(tiles))
+            if len(paths) > 20_000:
+                return set()
+        # The pathway variant renders these authored keys through its
+        # ui/${key}.png / ui/p-${key}.png icon contract. They are not literal
+        # URLs in cyoa.js and opening page tabs alone never reveals all icons.
+        currencies, pathways = meta.get("currencies"), meta.get("pathways")
+        if isinstance(currencies, list) and isinstance(pathways, list):
+            if len(currencies) + len(pathways) > 1000:
+                return set()
+            for items, prefix in ((currencies, ""), (pathways, "p-")):
+                for item in items:
+                    key = item.get("key") if isinstance(item, dict) else None
+                    if isinstance(key, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,80}", key):
+                        paths.add(f"ui/{prefix}{key}.png")
+            paths.add("ui/p-all.png")
+        return paths
+    except (AttributeError, IndexError, TypeError, ValueError, RecursionError):
+        return set()
 
 
 def _scan_file_for_assets(
@@ -350,7 +451,7 @@ def _scan_file_for_assets(
         r'|mp3|ogg|opus|wav|m4a|aac|flac'
         r'|mp4|webm|mov|ogv|m4v'
         r'|woff2|woff|ttf|otf|eot'
-        r'|json|css|wasm)(?:\?[^\s"\'`<>]*)?'
+        r'|hjson|json|css|wasm)(?:\?[^\s"\'`<>]*)?'
     )
     # JS chunk pattern — matches Vite/Rollup/Webpack hashed chunk names
     JS_CHUNK = r'\.m?js(?:\?[^\s"\'`<>]*)?'
@@ -372,8 +473,28 @@ def _scan_file_for_assets(
         except (TypeError, ValueError, RecursionError):
             pass
 
-    found: set[str] = set()
+    found: set[str] = {
+        urljoin(base_url, path) for path in _tiled_overlay_asset_paths(text)
+    }
     file_base = file_url.rsplit('/', 1)[0] + '/'   # directory of this file
+
+    # Small multilingual viewers select their data script through a literal
+    # ternary inside document.write(). Enumerate both authored alternatives,
+    # without executing the condition or guessing filenames/cache versions.
+    loader_re = _re.compile(
+        r'''document\.write\(\s*(['"])(<script\b.*?)\1\s*\+\s*'''
+        r'''\(([^()\r\n]{1,300})\)\s*\+\s*(['"])([^'"\r\n]+)\4''',
+        _re.IGNORECASE,
+    )
+    for loader in loader_re.finditer(text):
+        prefix = _re.search(r'''\bsrc\s*=\s*['"]([^'">\s]+)$''', loader.group(2), _re.IGNORECASE)
+        branches = _re.search(r'''\?\s*(['"])([^'"\r\n]*)\1\s*:\s*(['"])([^'"\r\n]*)\3\s*$''', loader.group(3))
+        suffix = loader.group(5).split('?', 1)[0]
+        if prefix and branches and suffix.lower().endswith(('.js', '.mjs')):
+            for branch in (branches.group(2), branches.group(4)):
+                candidate = prefix.group(1) + branch + suffix
+                if not any(char in candidate for char in ('{', '}', '<', '>', '\\')):
+                    found.add(urljoin(base_url, candidate))
 
     # Some viewer bootstraps resolve resources from a path derived from the
     # script URL, then concatenate that path with literals, e.g.
@@ -462,6 +583,7 @@ def _scan_file_for_assets(
         # runtime values, not fetchable filenames.
         if file_ext in ('.js', '.mjs', '.cjs') and (
             '`' in raw
+            or '${' in raw
             or 'import.meta' in raw
             or _re.search(r'[A-Za-z_$][\w$]*\s*\(', raw)
         ):
@@ -476,9 +598,13 @@ def _scan_file_for_assets(
         if raw.startswith(('https://', 'http://')):
             return raw
         if raw.startswith('//'):
+            if file_ext == '.css':
+                return (urlparse(file_url).scheme or 'https') + ':' + raw
             return 'https:' + raw
         if raw.startswith(('./', '../')):
             resolved = urljoin(file_base, raw)
+            if file_ext == '.css':
+                return resolved
             # ── Fix: Vite encodes asset paths relative to site root, not JS file ──
             # If JS file is inside /assets/ and path starts with ./assets/,
             # urljoin creates /assets/assets/... (double). Correct it.
@@ -500,7 +626,7 @@ def _scan_file_for_assets(
                 resolved = resolved.replace('/assets/assets/', '/assets/', 1)
             return resolved
         if raw.startswith('/'):
-            parsed_base = urlparse(base_url)
+            parsed_base = urlparse(file_url if file_ext == '.css' else base_url)
             return f"{parsed_base.scheme}://{parsed_base.netloc}{raw}"
         return urljoin(file_base, raw)
 
@@ -709,8 +835,10 @@ def _scan_file_for_assets(
                 and _re.match(r'\s*,\s*import\.meta\.url\b', after, _re.IGNORECASE)
             )
         if '/' not in raw:
-            if is_module_asset:
-                found.add(_resolve(raw))
+            if is_module_asset or file_ext == '.css':
+                resolved = _resolve(raw)
+                if resolved:
+                    found.add(resolved)
             else:
                 found.add(urljoin(base_url.rstrip('/') + '/', raw))
 
@@ -1123,6 +1251,14 @@ def _deep_scan_project_assets(
                 if isinstance(value, str):
                     v = value.strip()
                     if not v or _is_data_uri(v):
+                        continue
+
+                    # Plus 2 source tooltips contain author/license links,
+                    # often ending in an image filename on a wiki or gallery.
+                    # Those are attribution documents, not image requests.
+                    # Retain explicit inline badge images in rich tooltips.
+                    if key_lower.endswith("sourcetooltip"):
+                        image_paths.update(_extract_image_references(v, include_prose_urls=False))
                         continue
 
                     # Custom viewers often store music buttons inside text,

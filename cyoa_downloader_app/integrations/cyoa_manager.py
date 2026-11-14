@@ -87,8 +87,10 @@ def add_to_cyoa_manager(
         logger.error(f"CYOA Manager: project.json not found: {abs_path}")
         return False
     try:
+        from ..core.json_summary import load_json_summary
+
         with open(abs_path, encoding="utf-8") as project_file:
-            project_data = _json_local.load(project_file)
+            project_data = load_json_summary(project_file, preserve_keys=frozenset({"version"}))
         if not isinstance(project_data, dict) or not isinstance(project_data.get("rows"), list):
             logger.error("CYOA Manager: expected ICC project JSON with rows: %s", abs_path)
             return False

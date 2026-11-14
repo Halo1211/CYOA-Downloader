@@ -7,15 +7,91 @@ legacy.py as the live state store.
 
 from __future__ import annotations
 
+import weakref
+
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+from ..core.cancellation import _cancel_aware_sleep, _raise_if_cancelled
 from ..core.progress import DownloadCancelledError
 from ..logging_setup import logger
 from ..runtime import state
 from ..runtime.compat import mirror_to_legacy
+from .budget import HTTP_BUDGET, HTTP_GLOBAL_LIMIT, HTTP_HOST_LIMIT
 from .proxy import _get_active_proxies
+from .retry_policy import MEDIA_STATUS_RETRY_CODES, status_retries_owned_by_caller
+
+
+class _CancellableRetry(Retry):
+    """Keep urllib3 retry/backoff semantics while allowing GUI cancellation."""
+
+    def is_retry(self, method, status_code, has_retry_after=False):
+        if status_code in MEDIA_STATUS_RETRY_CODES and status_retries_owned_by_caller():
+            return False
+        return super().is_retry(method, status_code, has_retry_after)
+
+    def sleep(self, response=None) -> None:
+        _raise_if_cancelled()
+        if self.respect_retry_after_header and response:
+            retry_after = self.get_retry_after(response)
+            if retry_after:
+                _cancel_aware_sleep(retry_after)
+                return
+        backoff = self.get_backoff_time()
+        if backoff > 0:
+            _cancel_aware_sleep(backoff)
+
+
+def _abandon_response(raw, lease):
+    """Last resort for an unclosed response; explicit close remains preferred."""
+    try:
+        if raw is not None:
+            raw.close()
+            release = getattr(raw, "release_conn", None)
+            if release is not None:
+                release()
+    except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as exc:
+        logger.debug("Abandoned HTTP response cleanup failed: %s", exc)
+    finally:
+        lease.release()
+
+
+def _lease_response(response, lease):
+    original_close, original_iter = response.close, response.iter_content
+    finalizer = weakref.finalize(response, _abandon_response, response.raw, lease)
+
+    def close():
+        try:
+            original_close()
+        finally:
+            lease.release()
+            finalizer.detach()
+
+    def iter_content(chunk_size=1, decode_unicode=False):
+        chunks = original_iter(chunk_size=chunk_size, decode_unicode=decode_unicode)
+        def consume():
+            try:
+                yield from chunks
+            finally:
+                # Includes body/decompression errors and generator.close().
+                close()
+        return consume()
+
+    response.close = close
+    response.iter_content = iter_content
+    return response
+
+
+class _BudgetHTTPAdapter(HTTPAdapter):
+    def send(self, request, *args, **kwargs):
+        lease = HTTP_BUDGET.acquire(request.url)
+        try:
+            response = super().send(request, *args, **kwargs)
+            return _lease_response(response, lease)
+        except BaseException:
+            lease.release()
+            raise
 
 
 def create_retry_session(use_cloudscraper: bool = False) -> requests.Session:
@@ -34,7 +110,7 @@ def create_retry_session(use_cloudscraper: bool = False) -> requests.Session:
         session = requests.Session()
 
     session.trust_env = (state._proxy_mode == "inherit_env")
-    retry_strategy = Retry(
+    retry_strategy = _CancellableRetry(
         total=3,
         connect=3,
         read=3,
@@ -43,7 +119,8 @@ def create_retry_session(use_cloudscraper: bool = False) -> requests.Session:
         allowed_methods=["GET", "HEAD"],
         raise_on_status=False,
     )
-    adapter = HTTPAdapter(max_retries=retry_strategy, pool_connections=20, pool_maxsize=20)
+    adapter = _BudgetHTTPAdapter(max_retries=retry_strategy, pool_connections=HTTP_GLOBAL_LIMIT,
+                                 pool_maxsize=HTTP_HOST_LIMIT)
     session.mount("http://", adapter)
     session.mount("https://", adapter)
     session.max_redirects = 10

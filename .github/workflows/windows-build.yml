@@ -28,12 +28,28 @@ jobs:
           python -m pip install -r requirements-optional.txt
           python -m pip install -r requirements-dev.txt
 
-      - name: Test and build executable
+      - name: Test and build standalone executable
         shell: pwsh
         run: .\tools\build_windows.ps1 -SkipInstall
 
-      - name: Upload executable artifact
+      - name: Build portable folder
+        shell: pwsh
+        run: .\tools\build_windows.ps1 -SkipInstall -SkipChecks -Layout onedir
+
+      - name: Smoke test both layouts
+        shell: pwsh
+        run: |
+          python tools/smoke_windows_build.py "dist/CYOA Downloader.exe" --require-self-test "history response header reuse" --report dist/standalone-smoke.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tools/smoke_windows_build.py "dist/portable/CYOA Downloader/CYOA Downloader.exe" --require-self-test "history response header reuse" --report dist/portable-smoke.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload executable artifacts
         uses: actions/upload-artifact@v7
         with:
           name: CYOA-Downloader-Windows-x64
-          path: dist/CYOA-Downloader-Windows-x64.zip
+          path: |
+            dist/CYOA-Downloader-Windows-x64.zip
+            dist/portable/CYOA-Downloader-Windows-x64-portable.zip
+            dist/standalone-smoke.json
+            dist/portable-smoke.json

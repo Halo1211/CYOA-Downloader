@@ -61,8 +61,9 @@ def _is_windows_reserved_basename(name: str) -> bool:
 
 def _safe_rel_path(value: str, fallback: str = "asset") -> str:
     """Return a sanitized relative path safe for writing inside an output folder."""
-    raw = unquote(str(value or "")).replace("\\", "/")
-    raw = raw.split("?", 1)[0].split("#", 1)[0].replace("\x00", "")
+    # Strip URL delimiters before decoding: escaped #/? belong to the name.
+    raw = str(value or "").split("?", 1)[0].split("#", 1)[0]
+    raw = unquote(raw).replace("\\", "/").replace("\x00", "")
     parts: list[str] = []
     for part in raw.split("/"):
         part = part.strip()

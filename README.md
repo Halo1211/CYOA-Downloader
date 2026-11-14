@@ -14,7 +14,7 @@
 
 <p align="center">
   <a href="https://github.com/Halo1211/CYOA-Downloader/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Halo1211/CYOA-Downloader/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/Halo1211/CYOA-Downloader/releases/latest"><img alt="Version" src="https://img.shields.io/badge/version-v1.1.4-20c997.svg"></a>
+  <a href="https://github.com/Halo1211/CYOA-Downloader/releases/latest"><img alt="Version" src="https://img.shields.io/badge/version-v1.1.5-20c997.svg"></a>
   <img alt="Python 3.10 or newer" src="https://img.shields.io/badge/Python-3.10%2B-3aa6d0.svg">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg"></a>
 </p>
@@ -200,7 +200,19 @@ python -m pip install -r requirements-dev.txt
 python -m compileall -q cyoa_downloader_app cyoa_downloader.py
 python -m pytest -q
 python -m ruff check .
+python tools/benchmark_runtime.py
+python tools/benchmark_media_streaming.py
 ```
+
+Performance work covers Auto preparation, file-backed media and embedded
+JSON, paged library/history panels, virtual queue rows, shared HTTP admission,
+browser ownership, runtime response reuse, and background history metadata.
+See [performance measurements](docs/PERFORMANCE.md) for reproducible fixtures,
+request counts, memory results, and limitations. The
+[optimization roadmap](docs/OPTIMIZATION_ROADMAP.md) tracks the remaining work.
+
+Benchmarks use temporary data. Run them separately from builds and heavy tests.
+Browser fixtures require Playwright Chromium; GUI fixtures require a desktop.
 
 The suite covers GUI/CLI dispatch, downloads, packages, network settings,
 storage, previews, and integrations. To run optional live checks, set
@@ -214,7 +226,14 @@ Build a Windows executable and ZIP with:
 .\tools\build_windows.ps1
 ```
 
-The output is `dist\CYOA-Downloader-Windows-x64.zip`. Read
-[CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes and
+The output is `dist\CYOA-Downloader-Windows-x64.zip`.
+
+For faster startup without unpacking the runtime on every launch, build a portable
+folder with `.\tools\build_windows.ps1 -Layout onedir`. The ZIP is written to
+`dist\portable\CYOA-Downloader-Windows-x64-portable.zip`. Extract the entire
+`CYOA Downloader` folder and keep `_internal` beside the executable. Both layouts
+include the same application modules and features.
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes and
 [CHANGELOG.md](CHANGELOG.md) for release history. CYOA Downloader is available
 under the [MIT License](LICENSE).

@@ -37,6 +37,7 @@ from ..constants.assets import (
     VIDEO_EXTENSIONS,
 )
 from ..core.atomic_io import atomic_write_bytes, atomic_write_text
+from ..core.concurrency import iter_bounded_results
 from ..core.output import prepare_clean_output_folder
 from ..core.progress import DownloadCancelledError
 from ..core.url_utils import (
@@ -211,7 +212,12 @@ def _scan_cyoap_assets(obj, image_set: set[str], media_set: set[str]) -> None:
                 raw = value.strip()
                 if not raw or raw.startswith("data:"):
                     continue
-                path = urlparse(raw).path.lower()
+                try:
+                    path = urlparse(raw).path.lower()
+                except ValueError:
+                    # Descriptions and other arbitrary strings are scanned too.
+                    # One malformed URL must not discard the remaining assets.
+                    continue
                 ext = os.path.splitext(path)[1]
                 if key in IMAGE_FIELDS or ext in IMAGE_EXTENSIONS:
                     image_set.add(raw)
@@ -221,7 +227,9 @@ def _scan_cyoap_assets(obj, image_set: set[str], media_set: set[str]) -> None:
                 _scan_cyoap_assets(value, image_set, media_set)
 
 
-def _probe_cyoap_vue_structure(base_url: str, timeout: int = 6) -> bool:
+def _probe_cyoap_vue_structure(
+    base_url: str, timeout: int = 6, *, validated_payloads: dict[str, str] | None = None,
+) -> bool:
     """Validate a CYOAP Vue endpoint pair by content, not HTTP status alone.
 
     SPA fallback pages frequently return HTTP 200 for arbitrary *.json paths.
@@ -232,6 +240,8 @@ def _probe_cyoap_vue_structure(base_url: str, timeout: int = 6) -> bool:
         (urljoin(base, "dist/platform.json"), dict),
         (urljoin(base, "dist/nodes/list.json"), list),
     )
+    reusable: dict[str, str] = {}
+    retained_bytes = 0
     for endpoint, expected_type in probes:
         response = None
         try:
@@ -269,6 +279,11 @@ def _probe_cyoap_vue_structure(base_url: str, timeout: int = 6) -> bool:
                     f"{endpoint}: expected {expected_type.__name__}, got {type(payload).__name__}"
                 )
                 return False
+            # Retain a bounded pair only after BOTH endpoints pass validation.
+            # Larger payloads are fetched normally by the archive pipeline.
+            retained_bytes += len(raw)
+            if validated_payloads is not None and retained_bytes <= 256 * 1024:
+                reusable[endpoint] = _safe_response_text(response)
         except DownloadCancelledError:
             raise
         except _NETWORK_OPERATION_ERRORS as exc:
@@ -280,6 +295,8 @@ def _probe_cyoap_vue_structure(base_url: str, timeout: int = 6) -> bool:
                     response.close()
                 except _RESPONSE_CLEANUP_ERRORS as exc:
                     logger.debug(f"[Auto-detect] Probe response close failed: {endpoint}: {exc}")
+    if validated_payloads is not None and len(reusable) == len(probes):
+        validated_payloads.update(reusable)
     return True
 
 
@@ -289,6 +306,7 @@ def try_download_cyoap_vue_site(
     *,
     website_zip_output: bool = True,
     max_workers: int = DEFAULT_MAX_WORKERS,
+    prepared_payloads: dict[str, str] | None = None,
 ) -> bool:
     try:
         max_workers = max(1, min(64, int(max_workers or DEFAULT_MAX_WORKERS)))
@@ -336,6 +354,9 @@ def try_download_cyoap_vue_site(
                 record_failed(remote_url, kind, "blocked: cross-origin internal host")
             logger.warning("[SSRF blocked] CYOAP Vue asset: %s", remote_url)
             return None
+        if (prepared_payloads and kind == "json" and not binary
+                and remote_url in {platform_url, list_url} and remote_url in prepared_payloads):
+            return prepared_payloads[remote_url]
         headers = get_headers_for_url(remote_url) or {"User-Agent": "Mozilla/5.0"}
         if referrer:
             parsed = urlparse(referrer)
@@ -473,7 +494,10 @@ def try_download_cyoap_vue_site(
     if all_assets:
         logger.info(f"Downloading {len(all_assets)} cyoap_vue asset(s) with {max_workers} thread(s)…")
         with ThreadPoolExecutor(max_workers=max_workers) as ex:
-            list(ex.map(_download_one_cyoap_asset, all_assets))
+            for _asset, _result in iter_bounded_results(
+                ex, _download_one_cyoap_asset, all_assets, max_pending=max_workers * 2,
+            ):
+                pass
 
     if corrected_assets:
         def replace_asset_values(value):

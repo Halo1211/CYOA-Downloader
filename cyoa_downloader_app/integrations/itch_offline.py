@@ -35,7 +35,9 @@ def _html_entry(archive: zipfile.ZipFile) -> str | None:
     for member in archive.infolist():
         if member.is_dir():
             continue
-        relative = _safe_archive_rel_path(member.filename)
+        # ZIP members are literal filenames, even when they contain percent
+        # escapes. Keep the entry and extraction paths identical to the ZIP.
+        relative = _safe_archive_rel_path(member.filename, decode_url=False)
         if relative.lower().endswith("/index.html") or relative.lower() == "index.html":
             entries.append(relative)
     return min(entries, key=lambda entry: (entry.count("/"), len(entry))) if entries else None
@@ -52,14 +54,14 @@ def _extract_validated(archive: Path, destination: Path) -> str | None:
             return None
         seen: set[str] = set()
         for member in source.infolist():
-            relative = _safe_archive_rel_path(member.filename.rstrip("/\\") if member.is_dir() else member.filename)
+            relative = _safe_archive_rel_path(member.filename.rstrip("/\\") if member.is_dir() else member.filename, decode_url=False)
             identity = relative.casefold()
             if identity in seen:
                 raise ValueError("HTML5 archive contains duplicate paths")
             seen.add(identity)
             if (member.external_attr >> 16) & 0o170000 == 0o120000:
                 raise ValueError("HTML5 archive contains a symbolic link")
-            target = Path(_safe_archive_join(str(destination), relative))
+            target = Path(_safe_archive_join(str(destination), relative, decode_url=False))
             if member.is_dir():
                 target.mkdir(parents=True, exist_ok=True)
                 continue
@@ -114,7 +116,7 @@ def materialize_itch_html5_archive(
         entry = marker.get("entry")
         if not isinstance(entry, str):
             raise ValueError("HTML5 offline manifest has no entry point")
-        index = Path(_safe_archive_join(str(destination), entry))
+        index = Path(_safe_archive_join(str(destination), entry, decode_url=False))
         if not index.is_file():
             raise ValueError("HTML5 offline entry point is missing")
         if marker.get("complete"):
@@ -131,7 +133,7 @@ def materialize_itch_html5_archive(
                 json.dumps({"sha256": digest, "entry": entry, "complete": False}),
             )
             os.rename(staging_path, destination)
-        index = Path(_safe_archive_join(str(destination), entry))
+        index = Path(_safe_archive_join(str(destination), entry, decode_url=False))
     original_html = index.read_text(encoding="utf-8-sig")
     localized_html = _localize_preserved_index_assets(
         original_html, source_url, str(index.parent), fetcher=fetcher,

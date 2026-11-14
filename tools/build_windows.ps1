@@ -1,6 +1,8 @@
 param(
     [switch]$SkipInstall,
-    [switch]$SkipChecks
+    [switch]$SkipChecks,
+    [ValidateSet("onefile", "onedir")]
+    [string]$Layout = "onefile"
 )
 
 $ErrorActionPreference = "Stop"
@@ -39,7 +41,7 @@ if (-not $SkipChecks) {
 }
 
 $LegacyBundle = Join-Path $Root "dist\CYOA Downloader"
-if (Test-Path -LiteralPath $LegacyBundle) {
+if ($Layout -eq "onefile" -and (Test-Path -LiteralPath $LegacyBundle)) {
     $LegacyItem = Get-Item -LiteralPath $LegacyBundle -Force
     if (($LegacyItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
         throw "Refusing to remove a reparse-point build output: $LegacyBundle"
@@ -53,16 +55,49 @@ if (Test-Path -LiteralPath $LegacyBundle) {
 }
 
 Write-Host "[3/4] Creating the Windows executable with the black icon..."
-Invoke-Python -m PyInstaller --clean --noconfirm (Join-Path $Root "CYOA-Downloader.spec")
+$PreviousBuildLayout = $env:CYOA_BUILD_LAYOUT
+try {
+    $env:CYOA_BUILD_LAYOUT = $Layout
+    if ($Layout -eq "onedir") {
+        # PyInstaller replaces its generated bundle on repeated builds. Reject
+        # redirected output directories before allowing that recursive cleanup.
+        foreach ($OutputPath in @(
+            (Join-Path $Root "dist"),
+            (Join-Path $Root "dist\portable"),
+            (Join-Path $Root "dist\portable\CYOA Downloader")
+        )) {
+            if (Test-Path -LiteralPath $OutputPath) {
+                $OutputItem = Get-Item -LiteralPath $OutputPath -Force
+                if (($OutputItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                    throw "Refusing a redirected build output: $OutputPath"
+                }
+            }
+        }
+        Invoke-Python -m PyInstaller --noconfirm --distpath (Join-Path $Root "dist\portable") --workpath (Join-Path $Root "build\portable") (Join-Path $Root "CYOA-Downloader.spec")
+    } else {
+        Invoke-Python -m PyInstaller --clean --noconfirm (Join-Path $Root "CYOA-Downloader.spec")
+    }
+} finally {
+    $env:CYOA_BUILD_LAYOUT = $PreviousBuildLayout
+}
 
-$Executable = Join-Path $Root "dist\CYOA Downloader.exe"
+$Executable = if ($Layout -eq "onedir") {
+    Join-Path $Root "dist\portable\CYOA Downloader\CYOA Downloader.exe"
+} else {
+    Join-Path $Root "dist\CYOA Downloader.exe"
+}
 if (-not (Test-Path -LiteralPath $Executable)) {
     throw "PyInstaller output not found: $Executable"
 }
 
-$Archive = Join-Path $Root "dist\CYOA-Downloader-Windows-x64.zip"
+$Archive = if ($Layout -eq "onedir") {
+    Join-Path $Root "dist\portable\CYOA-Downloader-Windows-x64-portable.zip"
+} else {
+    Join-Path $Root "dist\CYOA-Downloader-Windows-x64.zip"
+}
 if (Test-Path -LiteralPath $Archive) {
     Remove-Item -LiteralPath $Archive -Force
 }
-Compress-Archive -Path $Executable -DestinationPath $Archive
+$ArchiveSource = if ($Layout -eq "onedir") { Split-Path -Parent $Executable } else { $Executable }
+Compress-Archive -Path $ArchiveSource -DestinationPath $Archive
 Write-Host "[4/4] Created $Archive"

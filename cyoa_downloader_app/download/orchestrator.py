@@ -256,6 +256,7 @@ def _base_run_download(
     archive_max_pages: int = 0,
     archive_max_depth: int = -1,
     archive_capture_interactions: bool = False,
+    prepared_cyoap: dict[str, str] | None = None,
 ) -> None:
     """
     Main download orchestrator.
@@ -375,6 +376,14 @@ def _base_run_download(
             site_folder = _unique_folder(file_name)
             logger.info(f"Pure website download (no project search) → {site_folder}/")
             prepare_clean_output_folder(site_folder)
+            from .perchance import archive_perchance_source, fetch_perchance_source
+
+            perchance_source = fetch_perchance_source(url)
+            if perchance_source is not None:
+                archive_perchance_source(perchance_source, url, site_folder, max_workers=max_workers)
+                _set_last_preview_folder(os.path.abspath(site_folder) if not website_zip_output else None)
+                _finalize_site_folder(site_folder, file_name, website_zip_output)
+                return
             viewer = WebsiteDownloader(url, site_folder, max_workers=max_workers, ai_api_key=ai_api_key, ai_provider=ai_provider, ai_mode=ai_mode, ai_budget=ai_budget, archive_strategy=archive_policy.strategy)
             viewer.download()
             run_archive_extensions(viewer, archive_policy)
@@ -423,6 +432,7 @@ def _base_run_download(
                     site_folder,
                     website_zip_output=website_zip_output,
                     max_workers=max_workers,
+                    **({"prepared_payloads": prepared_cyoap} if prepared_cyoap else {}),
                 ):
                     return
                 if engine_mode == "cyoap_vue":
@@ -828,18 +838,35 @@ def _base_run_download(
                 working, base_url, tmp, html_source=viewer_html
             )
 
+        embedded_file = {}
+        def _write_embedded(chunks):
+            from .package import save_text_chunks_to_file
+
+            position, changed = 0, False
+            def tracked_chunks():
+                nonlocal position, changed
+                for chunk in chunks:
+                    if not changed and chunk != cleaned[position:position + len(chunk)]:
+                        changed = True
+                    position += len(chunk)
+                    yield chunk
+            path = save_text_chunks_to_file(tracked_chunks(), file_name + ".json")
+            embedded_file.update(path=path, changed=changed or position != len(cleaned))
+
         embed_result, dl_result, _pi_urls = process_images(
             working, base_url,
             embed=embed_images, download=need_download,
             temp_folder=tmp, wait_time=runtime_wait_time, max_workers=max_workers,
             output_dir=output_dir, source_url=url,
             site_folder=site_folder_local,
+            **({"embed_writer": _write_embedded} if embed_images else {}),
         )
 
         if embed_images or both_output:
-            has_edits_embed = (embed_result != cleaned)
+            has_edits_embed = embedded_file.get("changed", embed_result != cleaned)
             # Warn if output file will be very large (base64 inflates ~33%)
-            size_mb = len(embed_result.encode("utf-8")) / (1024 * 1024)
+            size_mb = (os.path.getsize(embedded_file["path"]) if embedded_file else
+                       len(embed_result.encode("utf-8"))) / (1024 * 1024)
             if size_mb > 50:
                 logger.warning(
                     f"Output file besar: {size_mb:.0f} MB ({file_name}.json). "
@@ -849,7 +876,9 @@ def _base_run_download(
             if has_edits_embed:
                 save_string_to_file(cleaned, file_name + "_original.json")
                 logger.info(f"Saved: {file_name}_original.json (raw URLs)")
-            save_string_to_file(embed_result, file_name + ".json")
+            if not embedded_file:
+                # Compatibility for an injected legacy processor returning text.
+                save_string_to_file(embed_result, file_name + ".json")
             logger.info(f"Saved: {file_name}.json ({size_mb:.1f} MB, {'localized' if has_edits_embed else 'no URL changes'})")
 
             # ── Copy audio/ from temp to output_dir ───────────────────────
@@ -880,7 +909,7 @@ def _base_run_download(
                 _cm_output = output_dir or os.getcwd()
                 if embed_images or both_output:
                     add_to_cyoa_manager(
-                        os.path.join(_cm_output, file_name + ".json"),
+                        embedded_file.get("path") or os.path.join(_cm_output, file_name + ".json"),
                         name=file_name, source_url=url, db_path=_cm_db,
                     )
                 else:
@@ -944,7 +973,7 @@ def _base_run_download(
                             if os.path.isdir(_src):
                                 _offline_asset_sources[_asset_dir_name] = _src
                     # Always use dl_result (URLs kept as-is) for offline viewer injection.
-                    # embed_result has images as base64 → injecting it into app.js would
+                    # Embedded JSON has images as base64 → injecting it into app.js would
                     # make the file hundreds of MB. The viewer loads images from the
                     # images/ folder; we do NOT need base64 for the offline viewer.
                     _viewer_out = _apply_offline_viewer(
@@ -968,7 +997,7 @@ def _base_run_download(
 
         # ── Feature 5: Post-download validation ────────────────────────────
         try:
-            _out_path = file_name + ".json"
+            _out_path = embedded_file.get("path") or file_name + ".json"
             if os.path.exists(_out_path):
                 _out_size = os.path.getsize(_out_path)
                 if _out_size < 10:
@@ -980,9 +1009,10 @@ def _base_run_download(
                         logger.error(f"Validation FAIL: {_out_path} — bukan JSON valid (bisa jadi HTML error page)")
                     else:
                         try:
-                            with open(_out_path, encoding="utf-8", errors="ignore") as _vf2:
-                                _out_text = _vf2.read()
-                            _vobj = json.loads(_out_text)
+                            from ..core.json_summary import load_json_summary
+
+                            with open(_out_path, encoding="utf-8") as _vf2:
+                                _vobj = load_json_summary(_vf2)
                             _image_counts = _classify_project_image_references(_vobj)
                             _ref_count = _image_counts["total"]
                             _b64_count = _image_counts["data"]
@@ -1000,8 +1030,10 @@ def _base_run_download(
                                     f"Validation WARN: {_url_count} gambar masih berupa URL (bukan base64) — "
                                     f"may have failed to download. Check failed_images.txt"
                                 )
-                        except json.JSONDecodeError:
+                        except ValueError:
                             logger.error(f"Validation FAIL: {_out_path} — JSON parse error")
+        except DownloadCancelledError:
+            raise
         except (OSError, RuntimeError, TypeError, ValueError) as _ve:
             logger.warning(f"Validation error (non-critical): {_ve}")
 

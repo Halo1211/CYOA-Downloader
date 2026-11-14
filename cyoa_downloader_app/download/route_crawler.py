@@ -59,6 +59,8 @@ class RouteCrawlResult:
     discovered: list[str] = field(default_factory=list)
     limit_reached: bool = False
     remaining_queued: int = 0
+    link_bases: dict[str, str] = field(default_factory=dict)
+    pending: list[str] = field(default_factory=list)
 
 
 class RouteCrawler:
@@ -73,6 +75,7 @@ class RouteCrawler:
         self.scope_path = unquote(self._scope_for(parsed.path)).replace("\\", "/")
         self._local_route_owners: dict[str, str] = {}
         self._page_link_bases: dict[str, str] = {}
+        self._response_urls: dict[str, str] = {}
 
     @staticmethod
     def _scope_for(path: str) -> str:
@@ -161,6 +164,12 @@ class RouteCrawler:
         if response is not None:
             try:
                 if response:
+                    content_type = str(response.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+                    if content_type and content_type not in {"text/html", "application/xhtml+xml"}:
+                        raise ValueError(f"route response is not HTML ({content_type})")
+                    effective_url = getattr(response, "url", None)
+                    if isinstance(effective_url, str) and effective_url:
+                        self._response_urls[url] = effective_url
                     return _safe_response_text(response)
             finally:
                 try:
@@ -214,7 +223,9 @@ class RouteCrawler:
         result = RouteCrawlResult(pages=dict(existing_pages or {}))
         for existing_url, existing_local in result.pages.items():
             self._local_route_owners[os.path.normcase(os.path.abspath(existing_local))] = self._canonicalize(existing_url)
-        seeds = [self._canonicalize(url) for url in (seed_urls or [self.start_url])]
+        seeds = list(dict.fromkeys(
+            self._canonicalize(url) for url in ([self.start_url] if seed_urls is None else seed_urls)
+        ))
         queue: deque[tuple[str, int]] = deque(
             (url, 0) for url in seeds if url not in result.pages and self._is_allowed(url)
         )
@@ -223,8 +234,16 @@ class RouteCrawler:
         while queue and len(result.pages) < self.policy.max_pages:
             _raise_if_cancelled()
             url, depth = queue.popleft()
+            entry_source = getattr(self.downloader, "_entry_source", None) if url == self.start_url else None
+            reuse_entry = bool(entry_source and os.path.isfile(self.downloader.start_html_local))
             try:
-                html = self._fetch_html(url)
+                if reuse_entry:
+                    page_url, html = entry_source
+                    self.downloader._entry_source = None
+                    self._response_urls[url] = page_url
+                else:
+                    html = self._fetch_html(url)
+                    page_url = self._response_urls.get(url, url)
             except DownloadCancelledError:
                 raise
             except (OSError, requests.RequestException, RuntimeError, TypeError, ValueError) as exc:
@@ -235,16 +254,19 @@ class RouteCrawler:
                 continue
             local = self._route_local_path(url)
             try:
-                self.downloader.download_html_page(url, local, html)
+                if not reuse_entry:
+                    self.downloader.download_html_page(page_url, local, html)
             except DownloadCancelledError:
                 raise
             except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as exc:
                 result.failed.append({"url": url, "error": str(exc)})
                 continue
             result.pages[url] = local
+            links = self._links_from(html, page_url)
+            self._page_link_bases[url] = self._page_link_bases.get(self._canonicalize(page_url), page_url)
             if depth >= self.policy.max_depth:
                 continue
-            for link in self._links_from(html, url):
+            for link in links:
                 _raise_if_cancelled()
                 if link not in queued:
                     queued.add(link)
@@ -254,12 +276,17 @@ class RouteCrawler:
         if queue and len(result.pages) >= self.policy.max_pages:
             result.limit_reached = True
             result.remaining_queued = len(queue)
+            result.pending = [url for url, _depth in queue]
             logger.warning(
                 "Archive route limit reached at %d page(s); %d discovered route(s) remain queued. "
                 "Increase archive_max_pages to continue.",
                 self.policy.max_pages, result.remaining_queued,
             )
         self._rewrite_route_links(result.pages)
+        result.link_bases = dict(self._page_link_bases)
+        # A crawl that fetched the entry itself also no longer needs its raw
+        # copy. Avoid retaining a second large HTML string for runtime capture.
+        self.downloader._entry_source = None
         logger.info("Archive route crawl: %d page(s), %d failed", len(result.pages), len(result.failed))
         return result
 
@@ -267,6 +294,9 @@ class RouteCrawler:
         if BeautifulSoup is None:
             return
         route_map = {self._canonicalize(url): local for url, local in pages.items()}
+        for requested, effective in self._response_urls.items():
+            if requested in pages:
+                route_map[self._canonicalize(effective)] = pages[requested]
         guard = """<script data-cyoa-offline-route-guard>document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a[data-cyoa-local-route]');if(a){e.preventDefault();e.stopImmediatePropagation();location.href=a.href;}},true);</script>"""
         for page_url, local in pages.items():
             _raise_if_cancelled()
@@ -281,7 +311,7 @@ class RouteCrawler:
                     raw_href = str(tag.get("href") or "").strip()
                     # A fragment-only link is already valid in the localized
                     # page and must not be replaced with a route filename.
-                    if not raw_href or raw_href.startswith("#"):
+                    if not raw_href or raw_href.startswith("#") or tag.has_attr("data-cyoa-local-route"):
                         continue
                     try:
                         joined = urljoin(link_base, raw_href)

@@ -15,6 +15,7 @@ import tempfile
 import time as _time
 import uuid
 import zipfile
+import zlib
 from datetime import datetime
 from typing import Any
 from urllib.parse import unquote, urlparse
@@ -75,6 +76,11 @@ _VERIFY_JSON_PATH_RE = re.compile(
 
 
 _MANIFEST_NAME = "cyoa_manifest.json"
+
+_PROJECT_ASSET_SUFFIX_RE = re.compile(
+    r"\.(?:png|jpe?g|gif|webp|avif|svg|bmp|ico|tiff?|mp3|ogg|wav|m4a|aac|opus|flac|"
+    r"mp4|webm|woff2?|ttf|otf|eot)(?:[?#].*)?$", re.IGNORECASE,
+)
 
 
 _MANIFEST_HASH_CHUNK = 1 << 20
@@ -304,19 +310,21 @@ def verify_output_package(folder: str) -> tuple[bool, str]:
 
     # ── 2. project.json sanity ───────────────────────────────────
     project_text = ""
+    project_obj = None
     pj_path = os.path.join(root, "project.json")
     if os.path.isfile(pj_path):
         try:
             with open(pj_path, encoding="utf-8") as f:
                 project_text = f.read()
             obj = json.loads(project_text)
+            project_obj = obj
             if isinstance(obj, dict) and looks_like_project_object(obj):
                 lines.append("OK    project.json parses + looks like a project")
             elif isinstance(obj, dict):
                 notes.append("project.json parses but lacks typical project keys")
             else:
                 issues.append("project.json is valid JSON but not an object")
-        except (json.JSONDecodeError, OSError, TypeError, UnicodeError, ValueError) as e:
+        except (json.JSONDecodeError, OSError, TypeError, UnicodeError, ValueError, RecursionError) as e:
             issues.append(f"project.json failed to parse: {e}")
     else:
         notes.append("no project.json at root (expected for pure-website modes)")
@@ -449,9 +457,23 @@ def verify_output_package(folder: str) -> tuple[bool, str]:
     # Keep this check separate from executable JavaScript where arbitrary
     # strings such as download filenames and ``style.cssText`` are not file
     # dependencies.
-    if project_text:
-        for match in _VERIFY_JSON_PATH_RE.finditer(project_text):
-            ref = match.group(1)
+    if project_obj is not None:
+        # Inspect decoded JSON strings rather than serialized text. JSON escapes,
+        # Unicode, spaces, and query strings are all valid in asset references.
+        pending = [project_obj]
+        while pending:
+            value = pending.pop()
+            if isinstance(value, dict):
+                pending.extend(value.values())
+                continue
+            if isinstance(value, list):
+                pending.extend(value)
+                continue
+            if not isinstance(value, str):
+                continue
+            ref = value.strip()
+            if ref.lower().startswith(("http:", "https:", "data:", "//")) or not _PROJECT_ASSET_SUFFIX_RE.search(ref):
+                continue
             checked_refs += 1
             raw_norm = ref.split("?")[0].split("#")[0].replace("\\", "/")
             while raw_norm.startswith("./"):
@@ -676,6 +698,7 @@ def atomic_stream_response_to_file(
     updates bandwidth/speed telemetry per chunk, and removes partial output on
     every failure path.
     """
+    _raise_if_cancelled()
     target = os.path.abspath(path)
     os.makedirs(os.path.dirname(target) or os.getcwd(), exist_ok=True)
     downloaded = 0
@@ -721,7 +744,7 @@ def atomic_stream_response_to_file(
         raise
 
 
-def save_string_to_file(content: str, filename: str, path: str = "") -> None:
+def _available_output_path(filename: str, path: str = "") -> str:
     filename = re.sub(r'[<>:"/\\|?*]', "_", filename)
     base, ext = os.path.splitext(filename)
     new = os.path.join(path, filename) if path else filename
@@ -731,8 +754,54 @@ def save_string_to_file(content: str, filename: str, path: str = "") -> None:
     while os.path.exists(new):
         new = os.path.join(path, f"{base}_{counter}{ext}") if path else f"{base}_{counter}{ext}"
         counter += 1
+    return new
+
+
+def save_string_to_file(content: str, filename: str, path: str = "") -> None:
+    new = _available_output_path(filename, path)
     atomic_write_text(new, content)
     logger.info(f"Saved: {new}")
+
+
+def save_text_chunks_to_file(chunks, filename: str, path: str = "") -> str:
+    from ..core.media_io import atomic_write_text_chunks
+
+    new = _available_output_path(filename, path)
+    atomic_write_text_chunks(new, chunks)
+    logger.info(f"Saved: {new}")
+    return new
+
+
+_ZIP_DENSE_MEDIA_EXTENSIONS = frozenset({
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".jxl",
+    ".mp3", ".aac", ".m4a", ".ogg", ".opus", ".flac", ".mp4", ".webm",
+    ".woff", ".woff2",
+})
+_ZIP_SAMPLE_BYTES = 64 * 1024
+
+
+def _zip_compression_type(path: str) -> int:
+    """Sample large media; retain DEFLATE when it still saves useful space."""
+    if os.path.splitext(path)[1].lower() not in _ZIP_DENSE_MEDIA_EXTENSIONS:
+        return zipfile.ZIP_DEFLATED
+    try:
+        size = os.path.getsize(path)
+        if size < 2 * _ZIP_SAMPLE_BYTES:
+            return zipfile.ZIP_DEFLATED
+        with open(path, "rb") as handle:
+            head = handle.read(_ZIP_SAMPLE_BYTES)
+            handle.seek(-_ZIP_SAMPLE_BYTES, os.SEEK_END)
+            tail = handle.read(_ZIP_SAMPLE_BYTES)
+        # Test the samples independently: duplicated headers/trailers should
+        # not suggest that the entire file can be compressed effectively.
+        sampled = len(head) + len(tail)
+        compressed = len(zlib.compress(head, 1)) + len(zlib.compress(tail, 1))
+        if sampled and compressed >= sampled * 0.98:
+            return zipfile.ZIP_STORED
+    except OSError:
+        # Normal archive.write remains responsible for reporting read errors.
+        pass
+    return zipfile.ZIP_DEFLATED
 
 
 def zip_temp_folder(temp_path: str, zip_name: str = "") -> str:
@@ -776,7 +845,7 @@ def zip_temp_folder(temp_path: str, zip_name: str = "") -> str:
                     # on macOS/Linux instead of an images/ subfolder. Normalize.
                     arc = os.path.relpath(abs_path, start=temp_path).replace("\\", "/")
                     _safe_archive_rel_path(arc, decode_url=False)
-                    archive.write(abs_path, arcname=arc)
+                    archive.write(abs_path, arcname=arc, compress_type=_zip_compression_type(abs_path))
         # This ZIP was produced from bounded local files, not received from
         # an untrusted server. Repetitive JS/JSON is legitimately compressible;
         # the incoming-archive bomb heuristic must not reject our own output.

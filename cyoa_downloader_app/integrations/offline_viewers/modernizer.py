@@ -638,6 +638,21 @@ def _compact_project(
     value = json.loads(project_text)
     if not isinstance(value, dict):
         raise TypeError("project data must be a JSON object")
+    if str(value.get("version") or "").startswith("2."):
+        # Local Plus 2 runtimes read these collections directly. Earlier
+        # exports omit features introduced later (notably backpack), whereas
+        # replacing the runtime's default project removes their initializers.
+        # Supply empty collections only when absent; retain authored values
+        # and leave project.json/project_original.json unchanged.
+        value = dict(value)
+        for key in (
+            "backpack", "customFonts", "groups", "rowDesignGroups", "soundEffects",
+            "variables", "words", "categories", "mdObjects", "objectDesignGroups",
+            "globalRequirements", "googleFonts", "activated", "pointTypes",
+            "barBgColorStack", "barIconColorStack", "barTextColorStack",
+            "bgColorStack", "bgImageStack",
+        ):
+            value.setdefault(key, [])
     if export_title:
         value = {**value, "exportSiteTitle": export_title}
     if export_favicon:

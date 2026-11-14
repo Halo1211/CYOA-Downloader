@@ -601,6 +601,7 @@ def run_download(
     archive_max_pages: int = 0,
     archive_max_depth: int = -1,
     archive_capture_interactions: bool = False,
+    prepared_cyoap: dict[str, str] | None = None,
 ) -> None:
     """Compatibility shim for the Phase 40 moved base downloader."""
     from ..download.orchestrator import _base_run_download
@@ -616,6 +617,7 @@ def run_download(
         archive_max_pages=archive_max_pages,
         archive_max_depth=archive_max_depth,
         archive_capture_interactions=archive_capture_interactions,
+        **({"prepared_cyoap": prepared_cyoap} if prepared_cyoap else {}),
     )
 
 

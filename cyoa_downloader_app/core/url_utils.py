@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pathlib
 import re
-from urllib.parse import quote, unquote, urljoin, urlparse, urlunparse
+from urllib.parse import quote, urljoin, urlparse, urlunparse
 
 from .paths import _safe_join
 
@@ -22,7 +22,9 @@ def is_probable_url(value: str) -> bool:
 
 def _cyoap_local_path(output_folder: str, remote_url: str) -> str:
     parsed = urlparse(remote_url)
-    remote_path = unquote(parsed.path.lstrip("/"))
+    # _safe_join decodes URL paths. Decoding here as well changes literal
+    # percent escapes (art%2520work.png) into a different asset name.
+    remote_path = parsed.path.lstrip("/")
     if not remote_path or remote_path.endswith("/"):
         remote_path = remote_path + "index.html" if remote_path else "index.html"
     return _safe_join(output_folder, remote_path, fallback="index.html")

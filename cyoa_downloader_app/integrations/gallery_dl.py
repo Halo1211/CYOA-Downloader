@@ -17,6 +17,7 @@ from urllib.parse import urlparse
 
 from ..config.settings import _load_settings, _update_setting
 from ..core.cancellation import _raise_if_cancelled
+from ..core.media_io import MEDIA_CHUNK_BYTES, FilePayload, spool_chunks
 from ..core.progress import DownloadCancelledError
 from ..download.asset_scan import _is_probable_raw_cdn_asset
 from ..logging_setup import logger
@@ -167,7 +168,7 @@ def _run_gallery_dl(cmd: list[str]) -> tuple[int, str]:
         return returncode, output.read().decode("utf-8", "replace")
 
 
-def _fetch_via_gallery_dl(url: str) -> bytes | None:
+def _fetch_via_gallery_dl(url: str, *, spool_dir: str | None = None) -> bytes | FilePayload | None:
     """
     Download a single file through gallery-dl only when explicitly enabled.
     Uses gallery/page URLs best. Raw CDN image URLs are skipped in smart mode.
@@ -181,6 +182,7 @@ def _fetch_via_gallery_dl(url: str) -> bytes | None:
         return None
 
     tmpdir = tempfile.mkdtemp(prefix="cyoa_gdl_")
+    retaining_file = False
     try:
         cmd = [
             _gallery_dl_path or "gallery-dl",
@@ -206,6 +208,14 @@ def _fetch_via_gallery_dl(url: str) -> bytes | None:
             return None
 
         best = max(image_files, key=os.path.getsize)
+        if spool_dir is not None:
+            # The extractor already wrote this file. Preserve a bounded handoff
+            # even when its scratch directory and the job live on different disks.
+            retaining_file = True
+            with open(best, "rb") as source:
+                data = spool_chunks(iter(lambda: source.read(MEDIA_CHUNK_BYTES), b""), spool_dir)
+            logger.info("  [gallery-dl ✓] %s (%dKB)", os.path.basename(best), len(data) // 1024)
+            return data
         with open(best, "rb") as f:
             data = f.read()
         if len(data) < 64:
@@ -219,6 +229,9 @@ def _fetch_via_gallery_dl(url: str) -> bytes | None:
         logger.warning(f"[gallery-dl] Timeout: {url}")
         return None
     except (OSError, RuntimeError, TypeError, ValueError, _sp.SubprocessError) as e:
+        if retaining_file:
+            # A job disk/read failure must not be hidden by launching a browser.
+            raise
         logger.debug(f"[gallery-dl] {e}")
         return None
     finally:
@@ -227,6 +240,9 @@ def _fetch_via_gallery_dl(url: str) -> bytes | None:
             _sh.rmtree(tmpdir, ignore_errors=True)
         except OSError as _ignored_exc:
             logger.debug("Ignored recoverable exception in _fetch_via_gallery_dl (line 4296): %s", _ignored_exc)
+
+
+_fetch_via_gallery_dl.supports_file_payloads = True
 
 
 def _gdl_collect_files(directory: str):

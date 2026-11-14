@@ -12,6 +12,7 @@ import os
 import re
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urljoin, urlparse, urlunparse
 
@@ -678,7 +679,10 @@ def get_project_source(url: str, depth: int = 0, ai_api_key: str = "",
     # Detect by: loads "game/assets/*.js" + has <div id="root"> (React).
     _shell_r = None
     try:
-        _shell_r = fetch_response(url, extra_headers={"User-Agent": "Mozilla/5.0"}, timeout=8)
+        # This is a CYOA.CAFE-specific redirect check. Other hosts proceed to
+        # the normal HTML fetch below without a redundant network request.
+        if _is_cafe_url(url):
+            _shell_r = fetch_response(url, extra_headers={"User-Agent": "Mozilla/5.0"}, timeout=8)
         _shell_html = _safe_response_text(_shell_r) if _shell_r is not None else ""
         if ('game/assets/' in _shell_html and
                 ('<div id="root">' in _shell_html or
@@ -966,7 +970,17 @@ def _auto_detect_output_variant(kind: str, output_pref: str | None = None) -> st
     return "website_zip" if pref == "zip" else "website_folder"
 
 
-def auto_detect_mode(url: str, timeout: int = 6) -> str:
+@dataclass(frozen=True)
+class AutoDetection:
+    """Small per-item evidence; payloads belong only to this queue snapshot."""
+
+    mode: str
+    effective_url: str
+    reason: str
+    cyoap_payloads: dict[str, str] = field(default_factory=dict)
+
+
+def _detect_auto(url: str, timeout: int = 6, *, collect_payloads: bool = False) -> AutoDetection:
     """Auto-detect the safest concrete output mode for *url*.
 
     cyoa.cafe catalogue URLs are resolved before any engine probe. CYOAP Vue is
@@ -991,7 +1005,7 @@ def auto_detect_mode(url: str, timeout: int = 6) -> str:
                     "[Auto-detect] → cyoa.cafe static-page record → %s",
                     detected_mode,
                 )
-                return detected_mode
+                return AutoDetection(detected_mode, source_url, "static_catalogue")
         except DownloadCancelledError:
             raise
         except _NETWORK_OPERATION_ERRORS as exc:
@@ -1011,35 +1025,35 @@ def auto_detect_mode(url: str, timeout: int = 6) -> str:
             if is_cafe_metadata:
                 detected_mode = _auto_detect_output_variant("website")
                 logger.info(f"[Auto-detect] → unresolved metadata page; using {detected_mode}")
-                return detected_mode
+                return AutoDetection(detected_mode, source_url, "unresolved_catalogue")
 
     base = _directory_base_url(probe_url)
 
     from .cyoap_vue import _probe_cyoap_vue_structure
 
-    if _probe_cyoap_vue_structure(base, timeout=timeout):
+    payloads: dict[str, str] = {}
+    probe_kwargs = {"validated_payloads": payloads} if collect_payloads else {}
+    if _probe_cyoap_vue_structure(base, timeout=timeout, **probe_kwargs):
         detected_mode = _auto_detect_output_variant("cyoap_vue")
         logger.info(f"[Auto-detect] → cyoap_vue detected → {detected_mode}")
-        return detected_mode
+        return AutoDetection(detected_mode, probe_url, "cyoap_structure", payloads)
 
-    try:
-        candidates = build_default_project_candidates(probe_url)
-        live = _parallel_head_check(candidates, max_workers=12, timeout=timeout)
-        if live:
-            detected_mode = _auto_detect_output_variant("website")
-            logger.info(
-                f"[Auto-detect] → ICC project detected ({len(live)} candidate(s))"
-                f" → {detected_mode}"
-            )
-            return detected_mode
-    except DownloadCancelledError:
-        raise
-    except _NETWORK_OPERATION_ERRORS as exc:
-        logger.warning(f"[Auto-detect] Standard project probe failed: {exc}")
-
+    # ICC and custom viewers both use website output. Exhaustively probing ICC
+    # filenames here cannot change that choice and duplicates archive discovery.
+    # Keep full project discovery in get_project_source(), when it is needed.
     detected_mode = _auto_detect_output_variant("website")
     logger.info(f"[Auto-detect] → defaulting to {detected_mode}")
-    return detected_mode
+    return AutoDetection(detected_mode, probe_url, "website_fallback")
+
+
+def auto_detect_mode(url: str, timeout: int = 6) -> str:
+    """Compatibility API returning the concrete mode without retaining bodies."""
+    return _detect_auto(url, timeout).mode
+
+
+def prepare_auto_mode(url: str, timeout: int = 6) -> AutoDetection:
+    """Classify one job and retain only a small, fully validated CYOAP pair."""
+    return _detect_auto(url, timeout, collect_payloads=True)
 
 
 def auto_detect_modes_batch(
@@ -1093,6 +1107,7 @@ def auto_detect_modes_batch(
 
 
 __all__ = [
+    "AutoDetection",
     "_auto_detect_output_variant",
     "_normalize_auto_detect_output",
     "_parallel_head_check",
@@ -1110,6 +1125,7 @@ __all__ = [
     "get_first_folder_from_url",
     "get_project_source",
     "get_source",
+    "prepare_auto_mode",
     "strip_document_from_url",
     "try_project_candidate",
     "url_file_exists",
