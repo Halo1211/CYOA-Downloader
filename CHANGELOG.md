@@ -5,7 +5,38 @@ instructions are in [README.md](README.md) and the linked guides.
 
 ## Unreleased
 
-No unreleased changes.
+- Prepare download output names, modes and resume identities in the worker from
+  a frozen queue copy. Yield between batches so Tk can service input and Cancel
+  while large queues are prepared; later edits cannot change the active run.
+- Validate existing cached payloads with streaming SHA-256. Skip unchanged
+  index flushes and snapshot only changed aliases for ordinary merges. Reject
+  older same-process flushes after Clear so stale aliases cannot reappear.
+- Page Reports Center cards and share row fonts; prepare snapshots, export CSV,
+  and format failed-item copies in window-owned workers. Keep full exports
+  independent of the visible page/filter, and preserve previous CSV files on
+  cancellation or failed writes.
+- Keep incremental generated-image metadata during deep scans instead of all
+  scanned bundle bodies. Reuse up to 8,192 canonical URLs within one scan and
+  avoid repeating a full constructor search for each generated Entry class.
+  The compatibility inference helper preserves joined-source fragment behavior.
+- Keep sidebar mouse hover local to the touched mode row; avoid reselecting the
+  active mode, refreshing its description, and reading settings on every leave.
+  Reuse unchanged row styles and build the current progress workspace directly
+  instead of constructing and destroying the obsolete three-card workspace.
+- Stop hidden/idle progress animations, draw changing progress only when visible,
+  and use one paced animation timer for visible unknown-length transfers. Restore
+  current telemetry when details or the window become visible again.
+- Measure GUI startup through main-window mapping and a delivered Tk event.
+  Omit pandas development-test data and Selenium helpers for other platforms
+  from Windows packages while retaining native helpers and runtime integrations.
+- Add atomic mirror asset/route checkpoints and verified interrupted-archive
+  continuation through Retry Assets, including recovery before a final manifest
+  exists. Reject changed hashes, profiles/cookies and superseded metadata writers.
+- Validate eligible native binary assets with conditional GET on explicit resume;
+  preserve complete URL queries and keep full-fetch fallbacks for unsafe metadata.
+- Skip unchanged text localization passes and reuse unchanged queue checkpoint
+  metadata during catalog refresh. Keep the readable `Title/index.html` layout.
+- Add paired scan/resume benchmarks and extracted-package source/runtime checks.
 
 ## v1.1.5 — November 15, 2026
 

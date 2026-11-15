@@ -174,6 +174,9 @@ def base_fetch_response(
             r.raise_for_status()
             if as_bytes:
                 _ = r.content
+            # Only this native Requests boundary can certify provenance.
+            # Higher-level fetch_response may return cloudscraper/browser data.
+            r._cyoa_native_checkpoint = bool(not use_cf_session and verify_ssl and redirect_count == 0)
             if not use_cf_session:
                 observe_response_metadata(url, r, session, stream=stream)
             handed_off = True

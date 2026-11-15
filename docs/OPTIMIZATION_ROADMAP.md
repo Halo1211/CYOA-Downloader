@@ -1,10 +1,11 @@
 # Optimization roadmap
 
-Updated November 15, 2026. The implemented stages are included in v1.1.5.
+Updated November 15, 2026. Earlier stages are included in v1.1.5; the
+checkpoint/index, GUI/startup, report/deep-scan and queue/cache batches below are unreleased.
 See [performance measurements](PERFORMANCE.md) for fixture definitions,
 comparative results, reproduction commands, and limitations.
 
-The working estimate is about **84% of the planned optimization scope**. This
+The working estimate is about **94% of the planned optimization scope**. This
 is a qualitative progress estimate, not a weighted milestone calculation or
 an application-speed percentage. Preparing a release does not complete the
 remaining performance work.
@@ -13,38 +14,48 @@ remaining performance work.
 
 | Area | Implemented | Remaining work |
 | --- | --- | --- |
-| Measurement | Local fixtures, byte/hash checks, process-tree RSS, real Tk/browser checks | Repeated cold/warm first-window startup and broader real-world comparisons |
+| Measurement | Local fixtures, byte/hash checks, process-tree RSS, real Tk/browser checks, repeated mapped-window/Tk-event startup measurements | Controlled OS-cold startup and broader real-world/low-spec hardware comparisons |
 | Auto | Remove speculative classification probes; one-item GUI lookahead; small CYOAP pair reuse | Context-aware negative caching and finer discovery priorities |
 | Media and output | File-backed standard media, cache handoff, streaming embedded JSON, incremental validation | Hard byte budget across decoders, legacy APIs, input JSON, and external backends |
-| GUI | Bounded log/progress turns, chunked import, virtual queue, asynchronous cache/library/history panels | Large results pages, download snapshots, and remaining expensive callbacks |
+| GUI | Bounded log/progress turns, chunked import, virtual queue, asynchronous panels, visibility-aware progress, local sidebar hover, direct workspace construction, paged reports, worker-owned report I/O and batched run identity preparation | Raw queue copy/membership scans, native widget/font startup cost, output/cookie preparation, and remaining expensive callbacks |
 | HTTP and retry | Shared 20-global/12-host admission; prioritized history; media-owned 429/5xx status retries | Adaptive admission and one retry budget across connection/body/auth/backend recovery |
 | Browser transport | Dedicated owner thread, browser reuse, bounded page lifetime, file handoff | Broader lifecycle management and Selenium reuse |
 | Runtime capture | Bounded small-response reuse; 50 ms wait slices; ready-gate noise filtering | Capture-tab rotation that preserves application state; hard RPC/body byte limits |
 | History | Background metadata queue and eligible native source-header reuse | Streaming/browser/Auto-thread header provenance and interrupted-metadata resumption |
-| Asset/index/resume | Existing cache and job-level resume retained | Dependency index, asset/route checkpoints, conditional validation, incremental catalog refresh |
-| Distribution | Standalone and portable builds, frozen checks, Tcl/Tk and complete-runtime validation | Measured startup/package reductions with optional-feature coverage preserved |
+| Asset/index/resume | Mirror dependency graph, atomic asset/route metadata, verified explicit resume, eligible conditional validation, unchanged-file scan reuse, incremental generated-image metadata, per-scan URL reuse, incremental queue metadata | Unify deep-scan/runtime/plugin provenance; broader catalog refresh and remote-update coverage |
+| Distribution | Both layouts, frozen/runtime checks, selective test/foreign-helper data removal, measured warm startup and real CSV/XLSX/XLS imports | Controlled cold startup, further measured reductions while preserving optional features |
 | Structure | Targeted service/controller extraction | Reduce global mutable state and legacy namespace synchronization incrementally |
 
-## Next: asset identity, checkpoints, and completeness
+## Checkpoint/index batch and remaining completeness work
 
-1. Build one dependency index per run with original/effective URL, local path,
-   content type, size, hash, scan status, and request context. Reuse existing
-   scan/cache mechanisms instead of introducing a second cache without clear
-   invalidation rules.
-2. Cache scan results by unchanged file/content identity. Preserve contextual
-   JSON/HTML/CSS/JavaScript parsing and authored filename/query semantics.
-   Profile large bundles before choosing a more complex parser.
-3. Save atomic checkpoints per asset and route so interruption does not require
-   repeating already committed work. Distinguish a reusable file from a merely
-   present partial output, and invalidate records after relevant profile changes.
-4. Use conditional ETag/Last-Modified validation only when source identity and
-   representation are known. Missing validators and changed cookies/profiles
-   require an explicit fallback policy.
-5. Keep download completion, integrity checks, and offline functionality as
-   separate outcomes. Preserve required/optional/backend-dependent failure
-   categories rather than treating every successful download as a working site.
-6. Refresh library/catalog entries incrementally where profiling shows a full
-   collection scan is expensive. Keep source collections unchanged during tests.
+The move from about 84% to about 90% reflects four completed parts of the
+planned scope: mirror dependency identity/checkpoints, interrupted-route
+continuation, repeated text-scan elimination, and incremental queue metadata.
+It does not assign six percentage points of speed to these changes.
+
+- The normal mirror's files remain the only payload store. A SQLite metadata
+  index under `_audit` records exact requested/effective URLs, paths, MIME,
+  size/hash, validators, and a versioned request-context digest. Transactions
+  reject metadata from superseded generations. A normal run starts fresh;
+  explicit Retry Assets continuation can reuse verified local snapshots.
+- Completed route checkpoints retain authored outgoing links, redirect/base
+  provenance and transitive asset hashes. They survive cancellation before the
+  final manifest, and Retry Assets discovers those unfinished archives. Missing,
+  edited, partial or context-incompatible files fall back to normal processing.
+- Native, identity, unvaried, unredirected binary responses with valid ETag or
+  Last-Modified can validate via conditional GET. A valid 304 avoids another
+  body transfer. Missing/unsafe validators, changed cookies/profiles, browser
+  state and transformed text use conservative fallbacks. Route snapshot resume
+  does not assert that the remote site is still current.
+- Text passes skip unchanged files only while source context and the completed
+  URL/path mapping also match. Windows uses NTFS ChangeTime, not Python's
+  creation-time `ctime`. Queue catalog refresh reuses unchanged checkpoint JSON;
+  directory/stat work and full catalog output generation remain.
+
+Still needed: unify metadata from generic deep scan, runtime capture, project
+pipelines and plugins; broaden remote update/revalidation; profile large results
+and other catalogs; and retain separate download, integrity and offline-viewer
+outcomes. A successful checkpoint is not proof of every interactive story branch.
 
 Acceptance: fewer duplicate scans/probes, exact output bytes/local references,
 correct resume after interrupted writes, and no stale record overwriting a
@@ -53,6 +64,29 @@ viewers, and 28 viewers with issues is historical; do not present it as a
 current release result without rerunning that corpus.
 
 ## Remaining memory and network work
+
+The queue/cache follow-up moves derived download identities off Tk and yields
+between worker batches. It preserves captured queue values and cancellation,
+with a preparation-throughput tradeoff documented in the measurements. Existing
+cache payload validation streams its hash; unchanged flushes avoid directory I/O
+and ordinary delta flushes avoid copying unrelated in-memory entries. A local
+generation fence rejects stale same-process flushes after Clear. Full persisted
+JSON merge/serialization and forced replacement still scale with index size.
+The scope estimate remains about 94%; broader cold-start and memory work remains.
+
+The move from about 92% to about 94% reflects a broader completed batch:
+bounded report widgets/shared fonts, background report preparation and atomic
+CSV export, incremental generated-image metadata, and bounded per-scan URL
+canonicalization reuse. Report models still grow with result count. Scanner
+plugins still need each complete source, and the compatibility inference helper
+retains a joined text for positive contracts that can span source fragments.
+These changes do not establish a global RAM cap or faster internet downloads.
+
+The move from about 90% to about 92% reflects verified idle/hidden GUI rendering
+reductions plus a measured distribution/startup pass. It does not imply a
+universal improvement in mouse, compositor or download latency. The developer
+machine's heartbeat timings did not consistently improve; avoiding unnecessary
+work is the demonstrated idle benefit. OS-cold testing remains incomplete.
 
 - Establish a shared byte admission policy for large bodies/results across
   browser RPC, extractors, HTTP/2, decoder buffers, and concurrent workers.

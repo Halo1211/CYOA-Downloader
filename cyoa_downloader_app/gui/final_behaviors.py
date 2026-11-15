@@ -103,6 +103,7 @@ from ..runtime import state as _runtime_state
 from ..storage.cache import _cache_stats, _clear_image_cache, _enforce_cache_limit
 from ..storage.history import _cancel_history_metadata, _load_history, _metadata_context, _record_history
 from ..storage.resume import clear_resume_state, load_resume_state, save_resume_state
+from . import progress_rendering as _progress_presentation
 from .auto_prepare import AutoModePreparation
 from .cache_maintenance import cache_maintenance
 from .logging_ui import _v465_configure_log_tags
@@ -302,138 +303,11 @@ def _v24_result_rows(self: Any) -> list[dict[str, Any]]:
     return rows
 
 def _v24_show_results(self: Any) -> None:
-    """Modernized results/report panel with safer row handling."""
-    import csv as csv_mod
-    from tkinter import filedialog, messagebox
+    """Open the snapshot report with bounded presentation and worker-owned I/O."""
+    from .results_panel import open_results_panel
 
-    import customtkinter as ctk
+    open_results_panel(self)
 
-    is_en = getattr(self, "_language", "id") == "en"
-    rows_all = _v24_result_rows(self)
-    if not rows_all:
-        messagebox.showinfo("Reports" if is_en else "Laporan", "No results yet. Run a download first." if is_en else "Belum ada hasil. Jalankan download terlebih dahulu.")
-        return
-
-    p = self._p()
-    groups = _v24_partition_result_rows(rows_all)
-    cyoa_total = len(groups["cyoa_success"]) + len(groups["cyoa_failed"])
-    ok_cnt = len(groups["cyoa_success"])
-    cyoa_fail_cnt = len(groups["cyoa_failed"])
-    asset_fail_cnt = len(groups["asset_failed"])
-
-    win = self._make_singleton_window("reports_center")
-    if win is None:
-        return
-    win.title("Reports Center" if is_en else "Pusat Laporan")
-    try:
-        sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
-        width, height, min_width, min_height = _v24_dialog_geometry(sw, sh)
-        win.geometry(f"{width}x{height}")
-        win.minsize(min_width, min_height)
-    except _GUI_CALLBACK_ERRORS:
-        win.geometry("980x640")
-        win.minsize(820, 520)
-    win.configure(fg_color=p["bg"])
-    win.transient(self.root)
-    win.grab_set()
-
-    hdr = ctk.CTkFrame(win, fg_color=p["panel"], corner_radius=0, height=68)
-    hdr.pack(fill="x"); hdr.pack_propagate(False)
-    ctk.CTkLabel(hdr, text=("📋 Reports Center" if is_en else "📋 Pusat Laporan"), font=ctk.CTkFont("Segoe UI", 16, "bold"), text_color=p["fg"]).pack(side="left", padx=18)
-    stats = ctk.CTkFrame(hdr, fg_color="transparent")
-    stats.pack(side="right", padx=18)
-    _v24_badge(stats, f"CYOA {cyoa_total}", "#334155", 96)
-    _v24_badge(stats, f"OK {ok_cnt}", "#047857", 82)
-    _v24_badge(stats, f"CYOA FAIL {cyoa_fail_cnt}", "#b91c1c", 116)
-    _v24_badge(stats, f"ASSET FAIL {asset_fail_cnt}", "#b45309", 120)
-
-    body = ctk.CTkFrame(win, fg_color=p["bg"], corner_radius=0)
-    body.pack(fill="both", expand=True, padx=14, pady=12)
-    top = ctk.CTkFrame(body, fg_color="transparent")
-    top.pack(fill="x", pady=(0, 10))
-    filter_var = ctk.StringVar(value="all")
-    filter_buttons: dict[str, Any] = {}
-
-    list_frame = ctk.CTkScrollableFrame(body, fg_color=p["bg"], corner_radius=0, scrollbar_button_color=p["surface2"])
-    list_frame.pack(fill="both", expand=True)
-    list_frame.grid_columnconfigure(0, weight=1)
-
-    def _set_filter(value: str) -> None:
-        filter_var.set(value)
-        for key, btn in filter_buttons.items():
-            active = key == value
-            btn.configure(fg_color="#3b82f6" if active else p["surface2"], text_color="#ffffff" if active else p["muted"])
-        _render()
-
-    filters = [
-        ("all", "All" if is_en else "Semua"),
-        ("cyoa_success", "CYOA Success" if is_en else "CYOA Berhasil"),
-        ("cyoa_failed", "CYOA Failed" if is_en else "CYOA Gagal"),
-        ("asset_failed", "Asset Failed" if is_en else "Asset Gagal"),
-    ]
-    for key, label in filters:
-        b = ctk.CTkButton(top, text=label, width=90, height=30, fg_color=p["surface2"], hover_color=p["surface"], text_color=p["muted"], command=lambda k=key: _set_filter(k))
-        b.pack(side="left", padx=(0, 8))
-        filter_buttons[key] = b
-
-    def _export_csv() -> None:
-        path = filedialog.asksaveasfilename(parent=win, defaultextension=".csv", filetypes=[("CSV", "*.csv")], initialfile="download_results.csv")
-        if not path:
-            return
-        fields = ["result_type", "status", "url", "mode", "filename", "error"]
-        try:
-            with open(path, "w", newline="", encoding="utf-8") as f:
-                writer = csv_mod.DictWriter(f, fieldnames=fields, extrasaction="ignore")
-                writer.writeheader()
-                for r in rows_all:
-                    writer.writerow({k: r.get(k, "") for k in fields})
-            logger.info(f"Results exported: {path}")
-        except (OSError, UnicodeError, ValueError, csv_mod.Error) as e:
-            messagebox.showerror("Reports" if is_en else "Laporan", str(e), parent=win)
-
-    def _copy_failed() -> None:
-        sections = []
-        for key, heading in (
-            ("cyoa_failed", "FAILED CYOA"),
-            ("asset_failed", "FAILED ASSETS / IMAGES"),
-        ):
-            entries = groups[key]
-            if entries:
-                lines = [f"{r.get('url','')}\t{r.get('error','')}" for r in entries]
-                sections.append(heading + "\n" + "\n".join(lines))
-        text = "\n\n".join(sections)
-        try:
-            win.clipboard_clear(); win.clipboard_append(text)
-        except _GUI_CALLBACK_ERRORS as _ignored_exc:
-            logger.debug("Ignored recoverable exception in _copy_failed (line 19924): %s", _ignored_exc)
-
-    ctk.CTkButton(top, text="Export CSV" if is_en else "Ekspor CSV", width=104, height=30, fg_color="#0f766e", hover_color="#115e59", text_color="#ffffff", command=_export_csv).pack(side="right", padx=(8, 0))
-    ctk.CTkButton(top, text="Copy Failed" if is_en else "Salin Gagal", width=108, height=30, fg_color=p["surface2"], hover_color=p["surface"], text_color=p["fg"], command=_copy_failed).pack(side="right", padx=(8, 0))
-
-    def _render() -> None:
-        for child in list_frame.winfo_children():
-            child.destroy()
-        flt = filter_var.get()
-        rows = rows_all if flt == "all" else groups.get(flt, [])
-        if not rows:
-            ctk.CTkLabel(list_frame, text="No rows in this filter." if is_en else "Tidak ada data untuk filter ini.", font=ctk.CTkFont("Segoe UI", 12), text_color=p["muted"]).grid(row=0, column=0, padx=12, pady=28, sticky="w")
-            return
-        for idx, r in enumerate(rows):
-            ok = not _v24_result_is_failed(r)
-            is_asset = str(r.get("result_type") or "job").lower() == "asset"
-            accent = "#22c55e" if ok else ("#f59e0b" if is_asset else "#ef4444")
-            kind = "ASSET" if is_asset else "CYOA"
-            title = kind + "  ·  " + (r.get("filename") or "[auto]") + "  ·  " + str(r.get("mode", "")).replace("_", " ")
-            detail = str(r.get("url", ""))
-            err = str(r.get("error", ""))
-            card = ctk.CTkFrame(list_frame, fg_color=p["surface"], corner_radius=10, border_width=1, border_color=p["border"])
-            card.grid(row=idx, column=0, sticky="ew", padx=2, pady=4)
-            card.grid_columnconfigure(1, weight=1)
-            ctk.CTkLabel(card, text="✓" if ok else "!", width=34, height=34, fg_color=accent, text_color="#ffffff", corner_radius=17, font=ctk.CTkFont("Segoe UI", 14, "bold")).grid(row=0, column=0, rowspan=2, padx=12, pady=10)
-            ctk.CTkLabel(card, text=title, anchor="w", font=ctk.CTkFont("Segoe UI", 12, "bold"), text_color=p["fg"]).grid(row=0, column=1, sticky="ew", padx=(0, 12), pady=(10, 2))
-            ctk.CTkLabel(card, text=detail if ok or not err else f"{detail}\n{err[:180]}", anchor="w", justify="left", font=ctk.CTkFont("Consolas", 9), text_color=p["muted" if ok else "fg"], wraplength=780).grid(row=1, column=1, sticky="ew", padx=(0, 12), pady=(0, 10))
-
-    _set_filter("all")
 
 def _v24_batch_update_panel(self: Any) -> None:
     from .history_panel import open_history_panel
@@ -2196,6 +2070,7 @@ def _v46_gui_init(self, root) -> None:
     self._v46_progress_handler = _V46TelemetryLogHandler(self)
     logger.addHandler(self._v46_progress_handler)
     self._v46_progress_after_id = self.root.after(350, self._v46_poll_progress)
+    _progress_presentation.install_visibility(self)
     try:
         self.root.protocol("WM_DELETE_WINDOW", self._v46_on_close)
     except _GUI_CALLBACK_ERRORS as exc:
@@ -2229,101 +2104,10 @@ def _v46_toggle_progress_panel(self) -> None:
     self._v46_apply_progress_visibility(not bool(getattr(self, "_v46_progress_expanded", False)))
 
 def _v46_gui_setup_ui(self) -> None:
+    # Compose the current workspace directly. The older three-card workspace
+    # was immediately destroyed by the v46.3 setup layer on every launch.
     _v46_gui_setup_ui_legacy(self)
-    import tkinter as tk
-
-    import customtkinter as ctk
-    p = self._p()
-    action_bar = self._pb.master.master.master
-    main = action_bar.master
-    try:
-        main.grid_rowconfigure(3, weight=1, minsize=150)
-    except _GUI_CALLBACK_ERRORS as exc:
-        logger.debug(f"Could not reserve minimum log height: {exc}")
-
-    progress_host = ctk.CTkFrame(action_bar, fg_color=p["panel"], corner_radius=0)
-    progress_host.grid(row=3, column=0, sticky="ew", padx=0, pady=0)
-    progress_host.grid_columnconfigure(0, weight=1)
-    self._v46_progress_host = progress_host
-
-    progress_header = ctk.CTkFrame(progress_host, fg_color=p["panel"], corner_radius=0)
-    progress_header.grid(row=0, column=0, sticky="ew", padx=10, pady=(3, 3))
-    progress_header.grid_columnconfigure(0, weight=1)
-    self._v46_progress_summary_var = ctk.StringVar(value=f"{_v469_ps(self, 'progress')}: {_v469_state_label(self, 'IDLE')} | {_v469_ps(self, 'job')} 0 {_v469_ps(self, 'of')} 0 | {_v469_ps(self, 'speed')} 0 B/s")
-    ctk.CTkLabel(
-        progress_header,
-        textvariable=self._v46_progress_summary_var,
-        font=ctk.CTkFont("Segoe UI", 9, "bold"),
-        text_color=p["muted"],
-        anchor="w",
-    ).grid(row=0, column=0, sticky="ew", padx=(2, 8))
-    self._v46_progress_toggle_btn = ctk.CTkButton(
-        progress_header,
-        text="Show Progress",
-        width=104,
-        height=24,
-        fg_color=p["surface2"],
-        hover_color=p["surface"],
-        text_color=p["muted"],
-        command=self._v46_toggle_progress_panel,
-    )
-    self._v46_progress_toggle_btn.grid(row=0, column=1, sticky="e")
-
-    panel = ctk.CTkFrame(progress_host, fg_color=p["panel"], corner_radius=0)
-    panel.grid(row=1, column=0, sticky="ew", padx=0, pady=(0, 0))
-    panel.grid_columnconfigure(0, weight=1, uniform="v46progress")
-    panel.grid_columnconfigure(1, weight=2, uniform="v46progress")
-    panel.grid_columnconfigure(2, weight=2, uniform="v46progress")
-    self._v46_progress_panel = panel
-    self._v46_progress_expanded = _v46_default_progress_expanded(self.root.winfo_screenheight())
-    self._v46_apply_progress_visibility(self._v46_progress_expanded)
-
-    def card(column: int, title: str):
-        frame = ctk.CTkFrame(panel, fg_color=p["surface"], corner_radius=10, border_width=1, border_color=p["border"])
-        frame.grid(row=0, column=column, sticky="nsew", padx=(10 if column == 0 else 4, 10 if column == 2 else 4), pady=8)
-        frame.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(frame, text=title, font=ctk.CTkFont("Segoe UI", 11, "bold"), text_color=p["fg"], anchor="w").grid(row=0, column=0, sticky="ew", padx=10, pady=(8, 3))
-        return frame
-
-    overall = card(0, "Overall Queue")
-    self._v46_overall_var = ctk.StringVar(value=f"{_v469_ps(self, 'job')} 0 {_v469_ps(self, 'of')} 0\n{_v469_ps(self, 'completed')}: 0 | {_v469_ps(self, 'failed')}: 0 | {_v469_ps(self, 'remaining')}: 0")
-    ctk.CTkLabel(overall, textvariable=self._v46_overall_var, font=ctk.CTkFont("Segoe UI", 9), text_color=p["muted"], anchor="w", justify="left").grid(row=1, column=0, sticky="ew", padx=10)
-    self._v46_overall_pb = ctk.CTkProgressBar(overall, height=7, fg_color=p["surface2"], progress_color="#22c55e")
-    self._v46_overall_pb.grid(row=2, column=0, sticky="ew", padx=10, pady=(6, 8)); self._v46_overall_pb.set(0)
-
-    current = card(1, "Current Job")
-    self._v46_job_var = ctk.StringVar(value=f"{_v469_ps(self, 'mode')}: — | {_v469_ps(self, 'stage')}: {_v469_state_label(self, 'IDLE')}\n{_v469_ps(self, 'assets')}: — | {_v469_ps(self, 'success')}: 0 | {_v469_ps(self, 'failed')}: 0 | {_v469_ps(self, 'skipped')}: 0")
-    ctk.CTkLabel(current, textvariable=self._v46_job_var, font=ctk.CTkFont("Segoe UI", 9), text_color=p["muted"], anchor="w", justify="left").grid(row=1, column=0, sticky="ew", padx=10)
-    self._v46_source_var = ctk.StringVar(value=_v469_ps(self, "source") + ": —")
-    self._v46_resolved_var = ctk.StringVar(value=_v469_ps(self, "resolved") + ": —")
-    self._v46_source_label = ctk.CTkLabel(current, textvariable=self._v46_source_var, font=ctk.CTkFont("Segoe UI", 9), text_color="#60a5fa", anchor="w", cursor="hand2")
-    self._v46_source_label.grid(row=2, column=0, sticky="ew", padx=10, pady=(2, 0))
-    self._v46_resolved_label = ctk.CTkLabel(current, textvariable=self._v46_resolved_var, font=ctk.CTkFont("Segoe UI", 9), text_color="#a78bfa", anchor="w", cursor="hand2")
-    self._v46_resolved_label.grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 3))
-    self._v46_job_pb = ctk.CTkProgressBar(current, height=7, fg_color=p["surface2"], progress_color="#3b82f6", mode="indeterminate")
-    self._v46_job_pb.grid(row=4, column=0, sticky="ew", padx=10, pady=(2, 8)); self._v46_job_pb.start()
-
-    file_card = card(2, "Current File & Transfer")
-    self._v46_file_var = ctk.StringVar(value=f"{_v469_ps(self, 'current_file')}: —\n{_v469_ps(self, 'data')}: 0 B | {_v469_ps(self, 'speed')}: 0 B/s | {_v469_ps(self, 'average')}: 0 B/s\n{_v469_ps(self, 'elapsed')}: 00:00:00 | {_v469_ps(self, 'eta')}: {_v469_ps(self, 'unknown')}")
-    ctk.CTkLabel(file_card, textvariable=self._v46_file_var, font=ctk.CTkFont("Segoe UI", 9), text_color=p["muted"], anchor="w", justify="left", wraplength=410).grid(row=1, column=0, sticky="ew", padx=10)
-    self._v46_file_pb = ctk.CTkProgressBar(file_card, height=7, fg_color=p["surface2"], progress_color="#14b8a6", mode="indeterminate")
-    self._v46_file_pb.grid(row=2, column=0, sticky="ew", padx=10, pady=(5, 3)); self._v46_file_pb.start()
-    self._v46_speed_canvas = tk.Canvas(file_card, height=38, bg=p["surface2"], highlightthickness=0, bd=0)
-    self._v46_speed_canvas.grid(row=3, column=0, sticky="ew", padx=10, pady=(2, 8))
-    self._v46_speed_canvas.bind("<Configure>", lambda _e: self._v46_draw_speed_graph())
-
-    controls = ctk.CTkFrame(panel, fg_color="transparent")
-    controls.grid(row=1, column=0, columnspan=3, sticky="ew", padx=10, pady=(0, 8))
-    controls.grid_columnconfigure(2, weight=1)
-    self._v46_cancel_btn = ctk.CTkButton(controls, text=_v469_ps(self, "cancel"), width=90, height=28, fg_color="#7f1d1d", hover_color="#991b1b", state="disabled", command=self._v46_cancel)
-    self._v46_cancel_btn.grid(row=0, column=0, padx=(0, 6))
-    self._v46_copy_error_btn = ctk.CTkButton(controls, text=_v469_ps(self, "copy_error"), width=100, height=28, fg_color=p["surface2"], hover_color=p["surface"], text_color=p["muted"], state="disabled", command=self._v46_copy_error)
-    self._v46_copy_error_btn.grid(row=0, column=1, padx=(0, 6))
-    self._v46_state_var = ctk.StringVar(value=_v469_state_label(self, "IDLE"))
-    ctk.CTkLabel(controls, textvariable=self._v46_state_var, text_color=p["muted"], anchor="e", font=ctk.CTkFont("Segoe UI", 10, "bold")).grid(row=0, column=2, sticky="e")
-
-    self._v46_install_url_menu(self._v46_source_label, lambda: self._v46_source_full, "source")
-    self._v46_install_url_menu(self._v46_resolved_label, lambda: self._v46_resolved_full, "resolved")
+    _v463_rebuild_progress_workspace(self)
 
     # Disable the ambiguous legacy mini graph; v46 panel owns transfer telemetry.
     try:
@@ -2455,10 +2239,12 @@ def _v46_start(self) -> None:
     if not self._prepare_ytdlp_cookies():
         return
 
-    run_items = [dict(item) for item in self._queue_data]
-    # Snapshot the output identity together with the URL. Queue rows remain
-    # editable/reorderable while a run is active; the worker must never derive
-    # a later folder name from mutable UI state.
+    from .run_preparation import RunSnapshot
+
+    run_items = RunSnapshot(self._queue_data)
+    # Freeze the raw identity fields together with the URL; derive names and
+    # resume keys on the worker. Queue rows remain editable/reorderable while
+    # a run is active, so those later edits must not change its folder names.
     # The sidebar stores its selected mode as a plain string.  Older GUI
     # variants used a Tk StringVar, so accept both representations.  Calling
     # .get() unconditionally here aborts the button callback before the worker
@@ -2469,18 +2255,6 @@ def _v46_start(self) -> None:
     default_mode_snapshot = str(
         (mode_getter() if callable(mode_getter) else mode_state) or "auto"
     ).strip() or "auto"
-    from ..storage.resume import resume_job_key
-    for item in run_items:
-        requested_name = str(item.get("filename") or "").strip()
-        item["_run_file_name"] = requested_name or _build_output_name(str(item.get("url") or ""))
-        item["_run_requested_mode"] = str(item.get("mode") or default_mode_snapshot or "auto")
-        # Resolve imported blank modes from this run's immutable default.
-        item["mode"] = item["_run_requested_mode"]
-        item["_resume_key"] = resume_job_key(
-            str(item.get("url") or ""),
-            item["_run_file_name"],
-            item["_run_requested_mode"],
-        )
     self._active_run_queue_ids = {
         str(it.get("_queue_id") or "")
         for it in run_items
@@ -2547,6 +2321,10 @@ def _v46_worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_a
     preparation = None
     cancelled = False
     try:
+        from .run_preparation import RunSnapshot
+
+        if isinstance(items, RunSnapshot):
+            items.prepare(default_mode, _build_output_name, self._cancel_event)
         self._v46_set_event_sink()
         module = sys.modules.get(__name__)
         if module is not None:
@@ -2837,6 +2615,9 @@ def _v46_on_close(self) -> None:
     self._v46_finish_close()
 
 def _v46_finish_close(self) -> None:
+    presentation = getattr(self, "_progress_view", None)
+    if presentation is not None:
+        presentation.halt()
     from .queue_import import cancel_queue_import
     cancel_queue_import(self)
     close_timer = getattr(self, "_cache_close_after_id", None)
@@ -3027,55 +2808,56 @@ def _v46_poll_progress(self) -> None:
     self._v46_progress_after_id = self.root.after(next_delay, self._v46_poll_progress)
 
 def _v46_render_progress(self, s: dict[str, Any]) -> None:
+    presentation = _progress_presentation.view(self)
+    self._v46_source_full = s["source_url"]
+    self._v46_resolved_full = s["resolved_url"]
+    if not presentation.window_visible():
+        presentation.halt()
+        return
     # v46.9: localize displayed text only. state_disp is for the UI; every
     # `s["state"] in {...}` comparison below still uses the raw enum value.
     state_disp = _v469_state_label(self, s["state"])
     _U = lambda k: _v469_ps(self, k)
     total = s["total_jobs"]
     current = min(total, s["current_job"]) if total else 0
-    self._v46_overall_var.set(
+    presentation.set("_v46_overall_var",
         f"{_U('job')} {current} {_U('of')} {total} — {_U('overall')}: {s['queue_ratio']*100:.1f}%\n"
         f"{_U('completed')}: {s['completed_jobs']} | {_U('failed')}: {s['failed_jobs']} | {_U('remaining')}: {s['remaining_jobs']}"
     )
-    self._v46_overall_pb.set(s["queue_ratio"])
+    presentation.bar("_v46_overall_pb", s["queue_ratio"])
     summary_var = getattr(self, "_v46_progress_summary_var", None)
     if summary_var is not None:
-        summary_var.set(
+        presentation.set("_v46_progress_summary_var",
             f"{_U('progress')}: {state_disp} | {_U('job')} {current} {_U('of')} {total} | "
             f"{_U('overall')} {s['queue_ratio']*100:.1f}% | {_U('speed')} {format_speed(s['speed'])}"
         )
+    presentation.set("_v46_state_var", state_disp + (f" | {_U('peak')} {format_speed(s['peak_speed'])}" if s["peak_speed"] > 0 else ""))
+    presentation.configure("_v46_copy_error_btn", state="normal" if s["last_error"] else "disabled")
+    if not presentation.details_visible():
+        presentation.halt()
+        return
     assets_total = s["assets_total"]
     assets_text = f"{s['assets_finished']} / {assets_total}" if assets_total is not None else f"{s['assets_finished']} / {_U('unknown')}"
     mode = str(s["mode"] or "—").replace("_", " ").title()
-    self._v46_job_var.set(
+    presentation.set("_v46_job_var",
         f"{_U('mode')}: {mode} | {_U('stage')}: {state_disp}\n"
         f"{_U('assets')}: {assets_text} | {_U('success')}: {s['assets_success']} | {_U('failed')}: {s['assets_failed']} | {_U('skipped')}: {s['assets_skipped']}"
     )
     self._v46_source_full = s["source_url"]
     self._v46_resolved_full = s["resolved_url"]
-    self._v46_source_var.set(_U("source") + ": " + (truncate_display_url(s["source_url"], 34) if s["source_url"] else "—"))
-    self._v46_resolved_var.set(_U("resolved") + ": " + (truncate_display_url(s["resolved_url"], 34) if s["resolved_url"] else "—"))
+    presentation.set("_v46_source_var", _U("source") + ": " + (truncate_display_url(s["source_url"], 34) if s["source_url"] else "—"))
+    presentation.set("_v46_resolved_var", _U("resolved") + ": " + (truncate_display_url(s["resolved_url"], 34) if s["resolved_url"] else "—"))
     determinate = assets_total is not None and assets_total > 0 and s["state"] in {DownloadState.DOWNLOADING.value, DownloadState.RETRYING.value, DownloadState.REWRITING.value, DownloadState.VERIFYING.value, DownloadState.PACKAGING.value, DownloadState.COMPLETED.value, DownloadState.COMPLETED_WITH_WARNINGS.value}
-    if determinate:
-        self._v46_job_pb.stop(); self._v46_job_pb.configure(mode="determinate"); self._v46_job_pb.set(s["job_progress"])
-    else:
-        self._v46_job_pb.configure(mode="indeterminate")
-        if s["state"] not in {DownloadState.IDLE.value, DownloadState.COMPLETED.value, DownloadState.COMPLETED_WITH_WARNINGS.value, DownloadState.FAILED.value, DownloadState.CANCELLED.value}:
-            self._v46_job_pb.start()
-        else:
-            self._v46_job_pb.stop(); self._v46_job_pb.set(s["job_progress"])
+    job_animate = not determinate and s["state"] not in {DownloadState.IDLE.value, DownloadState.COMPLETED.value, DownloadState.COMPLETED_WITH_WARNINGS.value, DownloadState.FAILED.value, DownloadState.CANCELLED.value}
+    presentation.bar("_v46_job_pb", s["job_progress"], animate=job_animate)
     file_total = s["file_total"]
     if file_total and file_total > 0:
         file_ratio = min(1.0, float(s["file_downloaded"]) / float(file_total))
         file_progress = f"{format_bytes(s['file_downloaded'])} / {format_bytes(file_total)} — {file_ratio*100:.1f}%"
-        self._v46_file_pb.stop(); self._v46_file_pb.configure(mode="determinate"); self._v46_file_pb.set(file_ratio)
+        presentation.bar("_v46_file_pb", file_ratio)
     else:
         file_progress = f"{format_bytes(s['file_downloaded'])} {_U('downloaded')} — {_U('total_unknown')}"
-        self._v46_file_pb.configure(mode="indeterminate")
-        if s["state"] in {DownloadState.DOWNLOADING.value, DownloadState.RETRYING.value}:
-            self._v46_file_pb.start()
-        else:
-            self._v46_file_pb.stop(); self._v46_file_pb.set(0)
+        presentation.bar("_v46_file_pb", 0, animate=s["state"] in {DownloadState.DOWNLOADING.value, DownloadState.RETRYING.value})
     if s["total_known"] is not None:
         total_data = f"{format_bytes(s['total_downloaded'])} / {format_bytes(s['total_known'])}"
     else:
@@ -3087,25 +2869,30 @@ def _v46_render_progress(self, s: dict[str, Any]) -> None:
     else:
         eta_text = format_duration(s["eta"]) if s["eta"] is not None else (_U("calculating") if s["speed"] > 0 else _U("unknown"))
     current_file = truncate_display_url(s["current_file"], 42) if s["current_file"] else "—"
-    self._v46_file_var.set(
+    presentation.set("_v46_file_var",
         f"{_U('current_file')}: {current_file}\n"
         f"{_U('file_progress')}: {file_progress} | {_U('total_data')}: {total_data}\n"
         f"{_U('speed')}: {format_speed(s['speed'])} | {_U('average')}: {format_speed(s['average_speed'])}\n"
         f"{_U('elapsed')}: {format_duration(s['elapsed'])} | {_U('eta')}: {eta_text}"
     )
-    self._v46_state_var.set(state_disp + (f" | {_U('peak')} {format_speed(s['peak_speed'])}" if s["peak_speed"] > 0 else ""))
-    if s["last_error"]:
-        self._v46_copy_error_btn.configure(state="normal")
     self._v46_draw_speed_graph()
 
 def _v46_draw_speed_graph(self) -> None:
+    presentation = _progress_presentation.view(self)
+    if not presentation.details_visible():
+        return
     canvas = getattr(self, "_v46_speed_canvas", None)
     if canvas is None:
         return
     data = list(self._v46_telemetry.speed_history)[-120:]
     width = max(10, int(canvas.winfo_width() or 10))
     height = max(10, int(canvas.winfo_height() or 38))
+    p = self._p()
+    signature = (width, height, tuple(data), p.get("accent", "#60a5fa"), p.get("accentbg", "#1e3a5f"))
+    if presentation.matches("speed_graph", canvas, signature):
+        return
     canvas.delete("v46graph")
+    presentation.values["speed_graph"] = (canvas, signature)
     if not data or max(data) <= 0:
         return
     peak = max(data)
@@ -3485,7 +3272,7 @@ def _v462_find_main_panels(self: CYOADownloaderGUI) -> tuple[Any | None, Any | N
     if input_panel is not None and queue_panel is not None:
         return input_panel, queue_panel
     try:
-        main = self._v46_progress_host.master.master
+        main = self._log_txt.master.master
         for child in main.winfo_children():
             info = child.grid_info()
             row = int(info.get("row", -1))
@@ -3532,7 +3319,7 @@ def _v462_apply_small_screen_layout(self: CYOADownloaderGUI) -> None:
     main = getattr(self, "_v462_main", None)
     if main is None:
         try:
-            main = self._v46_progress_host.master.master
+            main = self._log_txt.master.master
             self._v462_main = main
         except _GUI_CALLBACK_ERRORS:
             main = None
@@ -3668,7 +3455,7 @@ def _v462_refresh_responsive_layout(self: CYOADownloaderGUI) -> None:
 def _v462_gui_setup_ui_final(self: CYOADownloaderGUI) -> None:
     _V461_GUI_SETUP_UI_FINAL(self)
     try:
-        self._v462_main = self._v46_progress_host.master.master
+        self._v462_main = self._log_txt.master.master
     except _GUI_CALLBACK_ERRORS:
         self._v462_main = None
     self._v462_small_screen = False
@@ -3843,6 +3630,8 @@ def _v463_apply_progress_visibility(self: CYOADownloaderGUI, expanded: bool | No
     compact = getattr(self, "_v463_progress_compact", None)
     button = getattr(self, "_v46_progress_toggle_btn", None)
     expanded_now = bool(getattr(self, "_v46_progress_expanded", False))
+    if not expanded_now:
+        _progress_presentation.view(self).halt()
     if details is not None:
         if expanded_now:
             details.grid()
@@ -3874,6 +3663,7 @@ def _v463_apply_progress_visibility(self: CYOADownloaderGUI, expanded: bool | No
         self.root.after_idle(self._v463_arrange_progress_and_log)
     except _GUI_CALLBACK_ERRORS as exc:
         logger.debug("Progress layout idle callback could not be scheduled: %s", exc)
+    _progress_presentation.refresh(self)
 
 def _v469_lang(self: CYOADownloaderGUI) -> str:
     return "en" if getattr(self, "_language", "id") == "en" else "id"
@@ -3898,6 +3688,8 @@ def _v463_rebuild_progress_workspace(self: CYOADownloaderGUI) -> None:
     import customtkinter as ctk
 
     p = self._p()
+    _progress_presentation.view(self).reset()
+    self._progress_view_ready = False
     old_host = getattr(self, "_v46_progress_host", None)
     log_frame = getattr(getattr(self, "_log_txt", None), "master", None)
     if log_frame is None:
@@ -3996,7 +3788,7 @@ def _v463_rebuild_progress_workspace(self: CYOADownloaderGUI) -> None:
         job_block, height=6, fg_color=p["panel"], progress_color="#3b82f6", mode="indeterminate"
     )
     self._v46_job_pb.grid(row=1, column=0, sticky="ew", padx=8, pady=(3, 8))
-    self._v46_job_pb.start()
+    self._v46_job_pb.set(0)
 
     transfer_block = ctk.CTkFrame(details, fg_color=p["surface2"], corner_radius=7)
     transfer_block.grid(row=0, column=1, sticky="nsew", padx=(4, 0))
@@ -4017,7 +3809,7 @@ def _v463_rebuild_progress_workspace(self: CYOADownloaderGUI) -> None:
         transfer_block, height=6, fg_color=p["panel"], progress_color="#14b8a6", mode="indeterminate"
     )
     self._v46_file_pb.grid(row=1, column=0, sticky="ew", padx=8, pady=(3, 8))
-    self._v46_file_pb.start()
+    self._v46_file_pb.set(0)
 
     self._v46_source_var = ctk.StringVar(value=_v469_ps(self, "source") + ": —")
     self._v46_resolved_var = ctk.StringVar(value=_v469_ps(self, "resolved") + ": —")
@@ -4084,11 +3876,11 @@ def _v463_rebuild_progress_workspace(self: CYOADownloaderGUI) -> None:
     self._v46_install_url_menu(self._v46_source_label, lambda: self._v46_source_full, "source")
     self._v46_install_url_menu(self._v46_resolved_label, lambda: self._v46_resolved_full, "resolved")
     self._v46_progress_expanded = False
+    self._progress_view_ready = True
     self._v46_apply_progress_visibility(False)
 
 def _v463_gui_setup_ui_final(self: CYOADownloaderGUI) -> None:
     _V462_GUI_SETUP_UI_FOR_V463(self)
-    _v463_rebuild_progress_workspace(self)
     self._v463_resize_after_id = None
 
     def schedule_layout(event: Any) -> None:

@@ -1278,6 +1278,9 @@ def test_comprehensive_bugfixes__gui_start_passes_default_mode_value_not_tk_vari
     assert captured["args"][1] == "auto"
     assert isinstance(captured["args"][1], str)
     run_items = captured["args"][0]
+    # Derived identities are now prepared on the worker. The snapshot still
+    # owns its values/default and must preserve the original resume identities.
+    run_items.prepare(captured["args"][1], final_behaviors._build_output_name, dummy._cancel_event)
     assert all(item["_run_requested_mode"] == "auto" for item in run_items)
     assert all(item["mode"] == "auto" for item in run_items)
     assert run_items[0]["_resume_key"] != run_items[1]["_resume_key"]
@@ -13595,12 +13598,12 @@ def test_universal_archive__generated_entry_images_follow_observed_id_factory_an
     }
 
 
-def test_universal_archive__cache_key_strips_only_cache_busters(tmp_path):
+def test_universal_archive__cache_key_preserves_authored_query_identity(tmp_path):
     downloader = _universal_archive__bare_downloader(tmp_path)
 
-    assert downloader._normalize_cache_key("https://x.test/app.js?v=one") == "https://x.test/app.js"
-    assert downloader._normalize_cache_key("https://x.test/app.js?v=two") == "https://x.test/app.js"
-    assert downloader._normalize_cache_key("https://x.test/app.js?dpl=deploy-id") == "https://x.test/app.js"
+    assert downloader._normalize_cache_key("https://x.test/app.js?v=one") == "https://x.test/app.js?v=one"
+    assert downloader._normalize_cache_key("https://x.test/app.js?v=two") == "https://x.test/app.js?v=two"
+    assert downloader._normalize_cache_key("https://x.test/app.js?dpl=deploy-id") == "https://x.test/app.js?dpl=deploy-id"
     assert downloader._normalize_cache_key("https://x.test/image?w=320") != downloader._normalize_cache_key(
         "https://x.test/image?w=1280"
     )

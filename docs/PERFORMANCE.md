@@ -516,6 +516,375 @@ Windows distribution. See the [release process](RELEASING.md).
 Temporary disk use grows when RAM buffers move to files. Input JSON/model/key
 memory, full-body legacy APIs, codecs, browser RPC/cache, third-party extractors,
 and independent backends still need memory. The process-wide HTTP budget does
-not cover all browser/extractor requests. No universal byte budget, asset-level
-checkpoint/index, or repeated cold/warm first-window startup result is claimed.
+not cover all browser/extractor requests. No universal byte budget or repeated
+cold/warm first-window startup result is claimed.
 The [roadmap](OPTIMIZATION_ROADMAP.md) tracks these remaining areas.
+
+## Unreleased: mirror checkpoints and incremental scans
+
+The checkpoint-stage integration passed **1,563 tests**, with **12 skipped**, **40/40**
+offline self-test cases, clean Ruff checks and all 15 public Markdown checks.
+These are stage-specific totals; the latest GUI/startup integration is below.
+
+Five paired runs against a trusted copy of the pre-change mirror, alternating
+execution order, isolated temporary files, and no simultaneous build/heavy tests:
+
+| Fixture | Before | After |
+| --- | ---: | ---: |
+| 120 JavaScript bundles, six localization passes, median | 2.422 s | 0.451 s |
+| Text reads over those passes | 720 | 120 |
+| 600 queue checkpoint records, 20 metadata refreshes, median | 0.659 s | 0.612 s |
+| JSON reads over those refreshes | 12,000 | 600 |
+| Explicit resume: 16 × 1 MiB native PNGs, median | 0.240 s | 0.293 s |
+| Resume GETs / repeated body bytes | 16 / 16 MiB | 16 / 0 bytes |
+
+All 120 text-file SHA-256 hashes remain identical. The resume fixture verifies
+every asset's size/SHA-256 and ZIP member bytes/CRC outside timing. Its server
+delays headers by 10 ms and supplies an identity representation with an ETag.
+The new side receives sixteen 304s. Resume timing includes local verification
+and metadata work, and is slower in this final sample. An earlier five-pair
+sample was faster (0.313 → 0.237 s), so no stable resume-time gain is claimed.
+Avoided body transfers and unchanged-file scans are the demonstrated benefits.
+Catalog timing covers metadata selection, not complete HTML/CSV publication.
+
+The mirror's `_downloaded` map and dependency graph identify requested/effective
+URLs and existing files. Atomic SQLite transactions persist metadata in `_audit`
+after file commit, with size/hash, content type, validators and a versioned
+context digest. No additional payload cache is introduced. Normal downloads
+start a new generation. Explicit resume checks hashes once per unchanged file
+identity within that run; metadata writes from old generations are rejected.
+Windows ChangeTime detects edits that restore LastWriteTime and file size.
+
+Route records preserve raw outgoing links, redirect/base provenance and
+transitive dependency hashes, allowing interrupted traversal to continue before
+the final manifest exists. Retry Assets finds these incomplete archives. A
+completed route is a local snapshot, not evidence of remote freshness or full
+interactive correctness. Legacy archives without checkpoints keep the previous
+manifest recovery policy. Deep-scan/runtime/plugin provenance is not yet unified.
+
+Conditional reuse requires an exact URL including query bytes, unchanged
+profile/cookies/settings, a verified file and a native GET 200 identity response
+without redirect, Vary, Set-Cookie, Content-Range or no-store. Only untransformed
+assets qualify. ETag takes precedence over Last-Modified. Missing/invalid
+validators, transformed text and browser state use normal fetching. Invalid 304
+metadata, a changed file/context during validation or an unexpected 304 without
+a representation also trigger a full fetch; a second unusable 304 fails safely.
+
+Text scan reuse depends on file identity, remote source and the completed
+URL/path mapping. Files modified during analysis are not admitted. Metadata and
+modernization backup directories are excluded. Queue metadata snapshots belong
+to the supervisor; changed/deleted files invalidate entries. Both paths still
+perform filesystem checks and do not provide a universal memory bound.
+
+```powershell
+python tools/benchmark_archive_index.py --control-source path/to/trusted-old-website.py --runs 5 --output index.json
+python tools/benchmark_checkpoint_resume.py --control-source path/to/trusted-old-website.py --runs 5 --output resume.json
+python -m pytest -q tests/test_archive_checkpoints.py tests/test_website_archive_optimization.py tests/test_live_library_layout.py
+```
+
+## Unreleased: idle GUI rendering and Windows startup
+
+Two indeterminate detail bars previously started during construction and kept
+animating while the app was idle or the detail panel was hidden. A 10-second
+profile recorded 636 progress redraws and 58,028 Tk bridge calls in an idle GUI.
+This is unnecessary work even though no file is being downloaded.
+
+The bars now start quiet. Telemetry is still collected while details are hidden,
+but only visible presentation changes cross the Tk bridge. Opening details or
+restoring the main window renders the latest snapshot. Visible unknown-length
+bars share one 80 ms timer using public CTk stepping APIs. Collapse, unmap,
+rebuild and shutdown stop that timer; generations reject late callbacks. Stable
+text, bar values/configuration and graph signatures avoid redundant redraws.
+
+Five paired fresh processes, alternating order, real mapped transparent Tk
+windows at 1100 × 720, isolated profiles, no downloads. Each row is a median
+over a two-second scenario, after 250 ms of layout settling:
+
+| Scenario | Tk bridge calls before → after | Progress redraws before → after |
+| --- | ---: | ---: |
+| Idle, details collapsed | 11,695 → 290 | 128 → 0 |
+| Idle, details expanded | 11,691 → 296 | 128 → 0 |
+| Active, details collapsed | 15,061 → 346 | 167 → 0 |
+| Active, details expanded | 15,241 → 4,101 | 169 → 42 |
+| Active, window unmapped | 15,065 → 348 | 167 → 0 |
+| Completed | 291 → 290 | 0 → 0 |
+
+These counts establish less wasted rendering, not a universal speed percentage.
+The 10 ms-heartbeat p95 did not consistently improve on this machine (idle
+12.0 → 16.6 ms); Windows timer scheduling remains visible. Process CPU accounting
+has about 15.6 ms granularity here, so zero-valued short samples do not mean zero
+CPU usage. This is not a physical mouse/compositor latency or low-end-laptop
+measurement.
+
+Windows bundles now omit only identified pandas development-test data and the
+two foreign-platform Selenium Manager executables. Public testing helpers,
+spreadsheet engines, native Selenium Manager, Playwright/Node, gallery-dl,
+yt-dlp/EJS, Tcl/Tk and other runtime resources remain. Selection is applied both
+before analysis and after hooks populate final data/binary tables.
+The pruning audit accounts for all 1,124 omitted files (26,531,733 uncompressed
+bytes). Every retained runtime member matches the control by SHA-256, except
+ZIP-container metadata differences whose member bytes and CRC match exactly.
+
+| Package measurement | Instrumented control | Updated candidate |
+| --- | ---: | ---: |
+| Standalone EXE bytes | 132,160,781 | 122,907,125 |
+| Embedded runtime data/binary members | 6,641 | 5,517 |
+| Portable ZIP extracted files | 6,642 | 5,518 |
+
+Startup controls use the preceding application plus the same opt-in phase
+probe. The candidate also includes the GUI changes above. Six alternating
+launches per side/layout use a fresh process/profile each time: the first
+observed launch is recorded separately and five subsequent launches provide
+the medians below. Benchmarks run without concurrent builds/heavy tests.
+
+| Repeated-launch median | Control | Candidate |
+| --- | ---: | ---: |
+| Standalone: process launch → script entry | 5.120 s | 4.521 s |
+| Standalone: process launch → main-window Map | 6.741 s | 6.189 s |
+| Standalone: process launch → delivered Tk event | 6.745 s | 6.193 s |
+| Portable: process launch → main-window Map | 1.534 s | 1.531 s |
+| Portable: process launch → delivered Tk event | 1.538 s | 1.534 s |
+
+First observed event-ready launches were 7.545 → 7.450 s for standalone and
+4.420 → 3.225 s for portable. OS caches and antivirus state are uncontrolled:
+these are not proven OS-cold timings. Script-entry time includes bootloader,
+extraction, interpreter and runtime-hook work. The readiness probe observes a
+Tk event delivered after main-window mapping and UI construction; it does not
+measure the first physical click or compositor paint. Peak process-tree RSS
+was about 97 MiB standalone / 88 MiB portable and did not materially decrease.
+Portable avoids the standalone layout's per-launch extraction cost.
+
+The integration passes **1,602 tests**, **12 default skips**, **40/40** offline
+self-tests, clean lint/Markdown checks and **3 opt-in real-Tk GUI checks**.
+Additional tests cover hidden/unmapped views, latest-state restoration, shared
+animation ownership, unchanged widgets, replacement widgets and stale timers
+after Cancel/New Run. Package verification compares all 139 frozen application
+modules and the main script with source and validates Tcl/Tk/SQLite/runtime
+bytes. CSV, XLSX and generated BIFF8/CFB XLS fixtures exercise real frozen
+readers with Unicode names and exact embedded-image bytes; the retained native
+Selenium helper is exercised offline.
+
+```powershell
+python tools/benchmark_idle_gui.py --control-root path/to/trusted-checkout --runs 5 --seconds 2 --output idle.json
+python tools/benchmark_startup.py --before path/to/instrumented-control.exe --after path/to/candidate.exe --runs 6 --output startup.json
+python tools/smoke_batch_formats.py --executable "path/to/CYOA Downloader.exe" --runtime-root path/to/portable/_internal --report batch.json
+```
+
+## Unreleased follow-up: sidebar mouse work and direct workspace construction
+
+The preceding idle-animation fix did not remove another cost encountered while
+moving the mouse over an otherwise idle GUI. Each child widget's Leave binding
+reselected the current mode, repainted all mode rows and refreshed the mode
+description, which reread settings. Crossing a row's icon, title and description
+repeated that work without a selection change.
+
+Hover now paints only the affected row. Widget identity and palette/options
+participate in unchanged-style reuse. Explicit clicks and settings/language/theme
+refreshes still update the selection and description. Startup paints the default
+selection and directly constructs the current progress workspace; it no longer
+builds the obsolete three-card workspace only to destroy it immediately. Panel
+discovery uses the log's stable main container instead of the former host depth.
+
+Five alternating paired fresh processes against commit `9a2e3df`, isolated
+profiles, real transparent mapped Tk at 1100 × 720, no downloads or concurrent
+builds/heavy tests. A two-second scenario dispatches actual Enter/Leave events
+across the row, icon, text frame, title and description, scheduling the next
+crossing 20 ms after each callback completes. These are synthetic Tk crossings,
+not physical mouse/compositor timings. Medians of each run's measurements:
+
+| Measurement | Control | Follow-up |
+| --- | ---: | ---: |
+| Hover Enter/Leave callback p95 | 31.02 ms | 5.23 ms |
+| Tk bridge calls per crossing | 4,738 | 722 |
+| Settings reads during hover | 33 | 0 |
+| Crossings completed in the scenario | 33 | 65 |
+| 10 ms heartbeat p95 during hover | 42.26 ms | 10.95 ms |
+| Quiet idle heartbeat p95 | 16.07 ms | 16.37 ms |
+| GUI constructor | 733.37 ms | 716.55 ms |
+| Progress bars created / immediately discarded | 7 / 3 | 4 / 0 |
+
+The timer is completion-paced, so faster callbacks execute more crossings in
+the same time. Normalize work per crossing rather than comparing raw totals as
+if the event counts were equal. The extended harness also runs a mouse timer
+outside the hover scenario; its Tk counts are not directly comparable with the
+earlier harness's idle counts. Quiet-idle timing did not improve further.
+The small constructor difference does not establish a substantial startup win.
+Native Tk widget/font creation remains significant: one diagnostic run spent
+about 222 ms creating the first emoji label. A diagnostic 500 ms constructor
+target was not met; it is not a portable CI threshold or a claimed result.
+
+The live presentation regression fails on discarded startup bars and on real
+mouse Leave events that refresh descriptions/read settings/repaint unrelated
+rows. It also verifies selected/unselected hover colors, actual click behavior
+and the exact input/queue panel ancestry. Run this in a fresh process with
+`CYOA_GUI_SMOKE=1`; the Windows workflow includes it explicitly:
+
+This follow-up passes **1,602 source tests**, with **15 default skips**,
+**40/40 self-tests**, and **6 opt-in real-GUI checks** run in separate processes
+(the three new presentation checks and the three existing layout/performance
+checks). Lint, compilation and repository/documentation checks also pass.
+
+```powershell
+python -m pytest tests/test_gui_presentation_work.py -q
+python tools/benchmark_idle_gui.py --control-root path/to/trusted-checkout --runs 5 --seconds 2 --output gui-followup.json
+```
+
+## Unreleased batch: reports and generated-image scan work
+
+Reports Center formerly constructed every result card synchronously and created
+three fonts per row. It now freezes membership of the published append-only job
+records, prepares the report/groups in a window-owned worker, and builds at most
+12 cards one at a time with three shared row fonts. Filters retain all matching
+records; page controls expose the rest. CSV always exports the complete snapshot,
+independently of the visible page/filter. Serialization, disk writes and failure
+text formatting run off Tk. CSV uses a temporary file and atomic replacement;
+cancellation or write failure before commit preserves an existing export.
+Closing a window cancels its task and suppresses late UI delivery.
+
+The BFS deep scanner now retains generated-image class/group/name metadata
+rather than every previously scanned source body. It processes each new script
+unit once and reuses unchanged inferred paths. A local LRU holds at most 8,192
+canonical URLs for that scan only, preserving the existing query normalization
+and keeping separate runs independent. Mandatory-character checks reject clear
+negative inputs before expensive regex passes. Constructor extraction no longer
+runs a full-document search separately for every Entry class.
+
+The compatibility inference API keeps joined-source semantics when a positive
+contract may span source fragments, including split class bodies and constructor
+calls. Proven negatives avoid joining text. Overlapping literal matches,
+Unicode case-insensitive class matching, repeated class definitions and group
+replacement remain covered by tests.
+
+Five alternating paired fresh processes against commit `7e4ad75`. Profiles and
+files are isolated, no downloads occur, and benchmarks run separately from
+tests/builds. The report fixture uses real mapped transparent Tk with 500 mixed
+job results and no global modal input grab. Readiness below means that the
+selected page has been built and its preparation task has completed.
+
+| Report fixture, median | Control | Candidate |
+| --- | ---: | ---: |
+| Open callback | 1,469.52 ms | 94.21 ms |
+| Initial cards built | 500 | 12 |
+| Fonts added during open callback | 1,512 | 19 |
+| Widget/page build readiness | 1,491.72 ms | 506.16 ms |
+| Failed-filter callback | 2,328.54 ms | 41.89 ms |
+| Failed-filter build readiness | 2,330.08 ms | 308.82 ms |
+| 10 ms heartbeat p95 during open | 1,408.87 ms | 27.67 ms |
+| 10 ms heartbeat p95 during filter | 1,533.10 ms | 14.38 ms |
+
+All 500 results remain in the report model; the new readiness measurement is for
+the first page, while the control builds all cards. These figures measure Tk
+scheduling/widget construction, not physical input/compositor latency or EXE
+startup. Timings vary with Windows scheduling and layout; counts are the more
+direct evidence of bounded widget work. Models still grow with result count,
+and final clipboard delivery remains a Tk operation.
+
+| Backend fixture, median | Control | Candidate |
+| --- | ---: | ---: |
+| Scan metadata pass, 24 files / 26,880,000 bytes | 90.99 ms | 20.14 ms |
+| Same pass: peak Python allocation | 51.52 MiB | 3.33 MiB |
+| Same pass: canonical URL parses | 750 | 30 |
+| Compatibility inference, 80 classes / 80 exact generated paths | 1,542.50 ms | 40.15 ms |
+| Same positive-contract inference: peak Python allocation | 3.97 MiB | 3.87 MiB |
+
+The metadata-pass fixture supplies 30 already-known URLs through the scanner
+plugin interface to isolate canonicalization and generated-image metadata work.
+It excludes plugin discovery, HTTP, cache writes and retries. SHA-256 checks
+confirm all 24 input files remain unchanged. The positive-inference fixture has
+one padded source plus 80 Entry class/constructor sources; every expected path
+matches. Its compatibility join remains, so no material allocation reduction
+is claimed for that case.
+
+Allocation peaks come from tracemalloc enabled on both sides and exclude fixture
+creation/imports; they are not total process/browser RAM. Plugins still receive
+whole source strings, metadata grows with recognized declarations/literals, and
+one huge source can still be large. The per-scan URL cache is bounded by entries,
+not bytes. This batch does not establish a global RAM limit or internet-speed
+improvement. Existing output layout, naming and asset bytes remain unchanged.
+
+Validation includes source/real-GUI tests, cancellation during preparation and
+CSV export, preserving old exports on failure, full filtered-report exports,
+cross-file metadata in later BFS rounds, URL-cache lifetime and Unicode/fragment
+compatibility. The offline self-test now includes
+`incremental generated image inference` for checking the frozen binaries.
+
+The integration passes **1,616 source tests**, with **20 default skips**,
+**41/41 offline self-tests**, and **11 opt-in real-GUI checks** in separate
+processes (five reports, three presentation, three existing layout/performance).
+Lint, compilation and repository/documentation checks also pass.
+
+```powershell
+python tools/benchmark_bulk_optimization.py --control-root path/to/trusted-checkout --runs 5 --records 500 --output bulk.json
+python -m pytest tests/test_generated_image_index.py tests/test_deep_scan_dependency_optimization.py tests/test_report_io.py -q
+```
+
+## Unreleased batch: queue preparation and cache allocation
+
+Start freezes raw queue rows and the selected default mode on Tk. The download
+worker derives names, modes and resume keys from that copy, checking cancellation
+between rows. Every 256 rows it sleeps for 1 ms to give Tk time to service native
+calls; moving the CPU loop to a thread without this handoff reduced the Start
+callback but left the worst measured heartbeat delay unchanged. Later queue
+edits, reordering, newly added rows and mode selection cannot change this run's
+identities. Unicode names and distinct output names for duplicate URLs retain
+the existing resume-key format.
+
+Five alternating paired fresh processes against commit `cec2138`, with isolated
+profiles, 50,000 synthetic queue rows and real mapped transparent Tk. Benchmarks
+run separately from tests/builds, stop before transport setup, and download
+nothing. All runs produce the same complete identity digest.
+
+| Queue fixture, median | Control | Candidate |
+| --- | ---: | ---: |
+| Start callback | 297.89 ms | 20.76 ms |
+| Worst 10 ms heartbeat delay | 304.77 ms | 37.40 ms |
+| 10 ms heartbeat p95 delay | 12.23 ms | 11.99 ms |
+| All identities ready after Start | 297.83 ms | 547.29 ms |
+| Identity hashes on Tk / worker | 50,000 / 0 | 0 / 50,000 |
+
+The handoff trades total preparation time for responsiveness. Windows timer
+resolution, particularly on other Python versions, can increase that overhead.
+Raw dictionary copies and membership scans still scale with queue size on Tk;
+output-directory write probes and cookie preparation also remain there. These
+measurements describe Tk scheduling, not physical input latency or EXE startup.
+They do not establish a 37 ms bound for all callbacks or actual downloads.
+
+Existing cache files are now verified using a streaming SHA-256 rather than
+reading a second whole payload. Clean index flushes return before filesystem
+work; ordinary merges copy only dirty aliases/removals. Forced replacement
+retains the full authoritative snapshot. A generation check after acquiring
+the file lock prevents an older same-process flush from restoring stale aliases
+after Clear; a deterministic interleaving test covers that race.
+
+| Cache fixture, median | Control | Candidate |
+| --- | ---: | ---: |
+| Verify existing 32 MiB payload: peak Python allocation | 32.009 MiB | 0.135 MiB |
+| Same validation: elapsed | 37.23 ms | 32.62 ms |
+| Clean flush, 150,000 RAM entries: peak Python allocation | 3.667 MiB | 0.00034 MiB |
+| Same clean flush: elapsed | 1.75 ms | 0.014 ms |
+| Same clean flush: creates cache directory | Yes | No |
+| One dirty alias, 150,000 RAM entries: peak Python allocation | 3.682 MiB | 0.016 MiB |
+| Same delta flush: elapsed | 4.99 ms | 3.52 ms |
+
+Tracemalloc excludes fixture creation and the existing input bytes/index; these
+are additional Python allocations, not total process RAM. The payload validation
+fixture excludes quota enforcement and index persistence. The delta fixture has
+a tiny persisted index with an unrelated external alias, which remains present
+after the merge. Reading/merging/serializing a large persisted JSON index still
+scales with its size. The Clear fence is local to one process, not a shared
+cross-process clear epoch. File hashes and output identity checks remain exact.
+
+The offline self-test includes `queue snapshot identity`; real-GUI validation
+checks editing and Cancel while worker preparation is blocked. Regression tests
+also cover clean/delta allocation, complete forced replacement, cancellation,
+captured default modes and preparation idempotence.
+
+The integration passes **1,625 source tests**, with **21 default skips**,
+**42/42 offline self-tests**, and **12 opt-in real-GUI checks** in separate
+processes (one queue preparation, five reports, three presentation and three
+existing layout/performance). Lint, compilation and repository checks pass.
+
+```powershell
+python tools/benchmark_queue_cache.py --control-root path/to/trusted-checkout --runs 5 --items 50000 --output queue-cache.json
+python -m pytest tests/test_run_snapshot.py tests/test_cache_write_optimization.py -q
+```

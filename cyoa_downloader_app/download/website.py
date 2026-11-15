@@ -15,6 +15,7 @@ import os
 import pathlib
 import re
 import shutil
+import sqlite3
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -59,6 +60,7 @@ from ..project.discover import (
     url_file_exists,
 )
 from ..project.parse import is_zip_bytes
+from ..storage.archive_checkpoint import ArchiveCheckpoint
 from ._bridge import legacy
 from .asset_scan import _infer_dynamic_asset_paths, _safe_response_text, _srcset_candidates, _srcset_urls
 from .headers import get_headers_for_url
@@ -335,7 +337,114 @@ class WebsiteDownloader:
         self._entry_source: tuple[str, str] | None = None
         self._audio_script_checks: dict[str, tuple[int, int, int]] = {}
         self._html_state = threading.local()
+        self._checkpoint = None
+        self._checkpoint_disabled = False
+        self._resume_assets = False
+        self._asset_index = {}
+        self._dependency_parents = {}
+        self._text_scan_checks = {}
         self._used_local_paths.add(self._local_path_identity(self.start_html_local))
+
+    def _checkpoint_context(self):
+        from ..storage.history import _metadata_context
+        shared, context = _metadata_context(self.start_url)
+        values = ("mirror-checkpoint-v1", self.start_url, context, sorted((c.name, c.value, c.domain, c.path, c.secure, c.expires) for c in shared.cookies),
+                  sorted(self.session.headers.items()), sorted((c.name, c.value, c.domain, c.path) for c in self.session.cookies),
+                  _load_settings(), self.archive_strategy, self.ai_mode, self.ai_provider)
+        return hashlib.sha256(json.dumps(values, sort_keys=True, default=repr).encode("utf-8")).hexdigest()
+
+    def _archive_checkpoint(self):
+        if getattr(self, "_checkpoint_disabled", True) or self._browser_transport_preferred:
+            return None
+        try:
+            context = self._checkpoint_context()
+            with self._lock:
+                if self._checkpoint is None:
+                    source = self.start_url if self.archive_strategy in {"auto", "smart", "browser"} else ""
+                    self._checkpoint = ArchiveCheckpoint(self.output_folder, context, resume=self._resume_assets, source_url=source)
+                return self._checkpoint if self._checkpoint.context == context else None
+        except DownloadCancelledError:
+            raise
+        except (AttributeError, KeyError, OSError, RuntimeError, sqlite3.Error, TypeError, ValueError) as exc:
+            self._checkpoint_disabled = True
+            logger.warning("Archive checkpoint unavailable; normal downloads remain enabled: %s", exc)
+            return None
+
+    def enable_checkpoint_resume(self):
+        """Opt in to metadata reuse only for explicit archive continuation."""
+        self._resume_assets = True
+        return self._archive_checkpoint()
+
+    def _save_asset_checkpoint(self, url, local, source_url, kind, response):
+        checkpoint = self._archive_checkpoint()
+        if checkpoint is None:
+            return
+        headers = response.headers
+        def validator(name):
+            value = headers.get(name, "")
+            return value if isinstance(value, str) and len(value) <= 4096 and not any(c in value for c in "\r\n") else ""
+        reusable = (kind not in {"js", "css", "html"}
+                    and getattr(response, "_cyoa_native_checkpoint", False)
+                    and response.status_code == 200 and source_url == url
+                    and not any(headers.get(key) for key in ("Content-Range", "Vary", "Set-Cookie"))
+                    and str(headers.get("Content-Encoding", "identity")).lower() in {"", "identity"}
+                    and "no-store" not in headers.get("Cache-Control", "").lower())
+        try:
+            checkpoint.put("asset", url, local, effective_url=source_url, kind=kind,
+                           content_type=headers.get("Content-Type", ""), reusable=bool(reusable),
+                           etag=validator("ETag"), last_modified=validator("Last-Modified"))
+            self._asset_index[url] = local
+        except (OSError, sqlite3.Error, ValueError) as exc:
+            logger.warning("Could not checkpoint asset: %s", exc)
+
+    def checkpoint_route(self, url, local, links, link_base, effective_url):
+        checkpoint = self._archive_checkpoint()
+        if checkpoint is None:
+            return
+        try:
+            dependencies = {}
+            pending = list(self._dependency_parents.get(effective_url, ()))
+            visited = set()
+            while pending:
+                asset_url = pending.pop()
+                if asset_url in visited:
+                    continue
+                visited.add(asset_url)
+                record = checkpoint.get("asset", asset_url)
+                if record is None:
+                    return
+                dependencies[asset_url] = record["sha256"]
+                pending.extend(self._dependency_parents.get(record["effective_url"], ()))
+            checkpoint.put("route", url, local, links=links, link_base=link_base,
+                           effective_url=effective_url, dependencies=dependencies)
+        except (OSError, sqlite3.Error, ValueError) as exc:
+            logger.warning("Could not checkpoint route: %s", exc)
+
+    def restored_route(self, url):
+        if not self._resume_assets:
+            return None
+        checkpoint = self._archive_checkpoint()
+        if checkpoint is None or not checkpoint.compatible:
+            return None
+        try:
+            record = checkpoint.get("route", url)
+            if record is None:
+                return None
+            if (not isinstance(record.get("links"), list) or not all(isinstance(link, str) for link in record["links"])
+                    or not isinstance(record.get("dependencies"), dict)
+                    or not isinstance(record.get("effective_url"), str) or not isinstance(record.get("link_base"), str)):
+                return None
+            for asset_url, digest in record.get("dependencies", {}).items():
+                asset = checkpoint.get("asset", asset_url)
+                if asset is None or asset["sha256"] != digest:
+                    return None
+                self._asset_index[asset_url] = asset["path"]
+                self._used_local_paths.add(self._local_path_identity(asset["path"]))
+            self._dependency_parents.setdefault(record["effective_url"], set()).update(record.get("dependencies", {}))
+            return record
+        except (OSError, sqlite3.Error, ValueError, TypeError) as exc:
+            logger.warning("Could not restore route checkpoint: %s", exc)
+            return None
 
     def close(self) -> None:
         """Release an optional reusable browser transport."""
@@ -959,12 +1068,19 @@ class WebsiteDownloader:
 
     def localize_existing_text_assets(self) -> None:
         """Second-pass scan for downloaded text and JSON assets."""
+        checks = getattr(self, "_text_scan_checks", None)
+        if checks is None:
+            checks = self._text_scan_checks = {}
+        with self._lock:
+            mapping = tuple(sorted((url, os.fspath(local)) for url, local in self._downloaded.items()
+                                   if _is_downloaded_local_file(local)))
+        mapping_digest = hashlib.sha256(repr(mapping).encode("utf-8")).digest()
         for root, directories, files in os.walk(self.output_folder):
             # Modernization backups are evidence/recovery material, not part
             # of the active site. Never rewrite or validate their stale online
             # runtime references as if the browser loaded them.
             directories[:] = [
-                name for name in directories if name != "__original_site__"
+                name for name in directories if name not in {"__original_site__", "_audit"}
             ]
             for name in files:
                 if name in {
@@ -978,6 +1094,11 @@ class WebsiteDownloader:
                 local_path = os.path.join(root, name)
                 source_url = self._source_for_local.get(os.path.abspath(local_path), self.start_url)
                 try:
+                    _raise_if_cancelled()
+                    before = ArchiveCheckpoint.identity(local_path)
+                    scan_key = (before, source_url, mapping_digest)
+                    if checks.get(local_path) == scan_key:
+                        continue
                     text = pathlib.Path(local_path).read_text(encoding="utf-8", errors="ignore")
                     if ext == ".css":
                         updated = self._process_css(text, source_url, local_path)
@@ -987,9 +1108,12 @@ class WebsiteDownloader:
                         updated = self._rewrite_known_downloaded_urls(text, source_url, local_path)
                     else:
                         updated = self._rewrite_direct_urls(text, source_url, local_path)
+                    if ArchiveCheckpoint.identity(local_path) != before:
+                        continue
                     if updated != text:
                         atomic_write_text(local_path, updated)
                         logger.info(f"  Re-analysed: {os.path.relpath(local_path, self.output_folder)}")
+                    checks[local_path] = (ArchiveCheckpoint.identity(local_path), source_url, mapping_digest)
                 except DownloadCancelledError:
                     raise
                 except _TEXT_ANALYSIS_ERRORS as e:
@@ -1004,6 +1128,7 @@ class WebsiteDownloader:
 
     def _fetch(self, url: str) -> requests.Response | None:
         headers = self._headers_for(url)
+        headers.update(getattr(getattr(self, "_html_state", None), "conditional_headers", {}))
         try:
             _raise_if_cancelled()
             if not vpn_requirement_satisfied():
@@ -1123,23 +1248,10 @@ class WebsiteDownloader:
         return joined
 
     def _normalize_cache_key(self, url: str) -> str:
-        """
-        Normalize URL for _downloaded cache lookup.
-        Strip only known cache-buster parameters. Meaningful query parameters
-        (notably Next/Image's ``url``, API selectors, widths and formats) must
-        remain part of the identity or unrelated resources collide.
-        """
+        """Preserve authored query bytes, including version selectors and order."""
         try:
             p = urlparse(url)
-            cache_busters = {
-                "v", "ver", "version", "cb", "cache", "cachebust",
-                "cache_bust", "cachebuster", "t", "ts", "timestamp", "_", "dpl",
-            }
-            query = [
-                (key, value) for key, value in parse_qsl(p.query, keep_blank_values=True)
-                if key.lower() not in cache_busters
-            ]
-            return urlunparse((p.scheme.lower(), p.netloc.lower(), p.path, "", urlencode(query), ""))
+            return urlunparse((p.scheme.lower(), p.netloc.lower(), p.path, p.params, p.query, ""))
         except (TypeError, ValueError):
             return url
 
@@ -1388,6 +1500,14 @@ class WebsiteDownloader:
             event.set()
 
     def _download_asset(self, url: str, preferred_kind: str = "", referrer_url: str | None = None) -> str | None:
+        full = self._normalize_remote_url(url, referrer_url)
+        parents = getattr(self, "_dependency_parents", None)
+        if parents is not None and full:
+            with self._lock:
+                parents.setdefault(referrer_url or self.start_url, set()).add(urldefrag(full)[0])
+        return self._download_asset_impl(url, preferred_kind, referrer_url)
+
+    def _download_asset_impl(self, url: str, preferred_kind: str = "", referrer_url: str | None = None) -> str | None:
         _raise_if_cancelled()
         full = self._normalize_remote_url(url, referrer_url)
         if not full:
@@ -1484,9 +1604,52 @@ class WebsiteDownloader:
                     cached = self._downloaded.get(requested_cache_key)
                 return None if cached is _ASSET_IN_PROGRESS else cached
 
+        checkpoint = self._archive_checkpoint()
+        saved = None
+        if getattr(self, "_resume_assets", False) and checkpoint is not None and checkpoint.compatible:
+            try:
+                saved = checkpoint.get("asset", requested_full)
+            except (OSError, sqlite3.Error, ValueError):
+                saved = None
+        conditional = {}
+        if saved and saved.get("reusable"):
+            if saved.get("etag"):
+                conditional["If-None-Match"] = saved["etag"]
+            elif saved.get("last_modified"):
+                conditional["If-Modified-Since"] = saved["last_modified"]
         initial_fetch_completed = False
         try:
-            r = self._fetch(full)
+            if not hasattr(self, "_html_state"):
+                self._html_state = threading.local()
+            self._html_state.conditional_headers = conditional
+            try:
+                r = self._fetch(full)
+            finally:
+                self._html_state.conditional_headers = {}
+            if r is not None and getattr(r, "status_code", 0) == 304:
+                valid_304 = (getattr(r, "_cyoa_native_checkpoint", False)
+                             and r.url == full
+                             and not any(r.headers.get(key) for key in ("Vary", "Set-Cookie", "Content-Range"))
+                             and r.headers.get("Content-Encoding", "identity").strip().lower() in {"", "identity"}
+                             and "no-store" not in r.headers.get("Cache-Control", "").lower()
+                             and (not r.headers.get("ETag") or r.headers.get("ETag") == saved.get("etag"))) if saved else False
+                r.close()
+                current = checkpoint.get("asset", requested_full) if checkpoint is not None else None
+                if conditional and valid_304 and current and self._archive_checkpoint() is checkpoint:
+                    local = current["path"]
+                    with self._lock:
+                        self._source_for_local[os.path.abspath(local)] = current["effective_url"]
+                        self._asset_index[requested_full] = local
+                    self._used_local_paths.add(self._local_path_identity(local))
+                    self._complete_asset_reservation(requested_full, requested_cache_key, local)
+                    self._success_items.append({"url": full, "local": current["local"], "kind": current["kind"]})
+                    initial_fetch_completed = True
+                    return local
+                # A 304 without a verified representation is never a body.
+                r = self._fetch(full)
+                if r is not None and getattr(r, "status_code", 0) == 304:
+                    r.close()
+                    r = None
             _raise_if_cancelled()
             initial_fetch_completed = True
         finally:
@@ -1767,6 +1930,8 @@ class WebsiteDownloader:
         self._complete_asset_reservation(
             requested_full, requested_cache_key, local,
         )
+
+        self._save_asset_checkpoint(requested_full, local, source_url, effective_kind, r)
 
         self._success_items.append({
             "url": full,

@@ -44,16 +44,63 @@ modules with the source revision, and record file sizes and SHA-256 hashes.
 Run the packaged executable checks against the extracted copy:
 
 ```powershell
+python tools/verify_windows_package.py "path/to/package.zip" "path/to/extracted" --report package.json
 python tools/smoke_windows_build.py "path/to/CYOA Downloader.exe" --require-self-test "history response header reuse" --report smoke.json
 python tools/smoke_browser_reuse.py --executable "path/to/CYOA Downloader.exe" --report browser.json
 python tools/smoke_runtime_waits.py --executable "path/to/CYOA Downloader.exe" --report runtime.json
 ```
+
+The package verifier compares every extracted ZIP file by size/SHA-256,
+validates CRC, compares frozen application bytecode with the current source
+(ignoring build paths), and checks Tcl/Tk and SQLite runtime components. Run it
+with the same Python version used for the build and PyInstaller installed.
+For a standalone package, `--compare-runtime path/to/portable/_internal` also
+compares every embedded data/binary member with the extracted portable runtime.
+Nested ZIP containers can differ in metadata; their member names, bytes and CRC
+must still match exactly.
+For checkpoint changes, require the `archive checkpoint resume` self-test case.
+Keep unreleased candidate packages outside the versioned release directory;
+do not replace an existing release while validating a development batch.
 
 The general smoke covers diagnostics and all nine output modes, ZIP integrity,
 embedded images, transient HTTP 503 recovery, routes, iframe/XHTML/SVG/PDF,
 and redirected CSS dependencies. Browser/runtime fixtures need the matching
 installed Playwright Chromium. Keep profiles and output isolated from user data.
 These CLI/output checks do not replace native GUI interaction checks.
+
+For sidebar or startup-construction changes, run the live presentation regression
+in a fresh Python process with `CYOA_GUI_SMOKE=1`:
+`python -m pytest tests/test_gui_presentation_work.py -q`. It drives real Tk
+Enter/Leave/click bindings, checks that hover performs no settings reads or
+unrelated-row repaints, and verifies that startup creates no discarded progress
+bars and discovers the actual input/queue panels. The Windows workflow runs
+this separately from the default source suite.
+
+For report changes, also run `python -m pytest tests/test_results_panel.py -q`
+in a separate fresh process with `CYOA_GUI_SMOKE=1`. It covers bounded widgets,
+all-record filters/CSV, off-Tk preparation and serialization, snapshot membership
+and closing during preparation/export. Deep-scan changes should require the
+`incremental generated image inference` frozen self-test case, which checks
+cross-file metadata and group replacement.
+
+For run preparation changes, run
+`python -m pytest tests/test_run_snapshot.py -q` and, in a separate process with
+`CYOA_GUI_SMOKE=1`, `python -m pytest tests/test_run_snapshot_gui.py -q`.
+Require the `queue snapshot identity` frozen self-test case in both layouts.
+These checks cover captured names/modes, duplicate URLs, edits/reordering,
+idempotent preparation, and real Tk input/Cancel during preparation. Run cache
+allocation and stale-flush/Clear checks with
+`python -m pytest tests/test_cache_write_optimization.py -q`.
+
+For GUI/startup or package-data changes, also run `tools/smoke_batch_formats.py`
+against both extracted executables with the portable `_internal` folder as
+`--runtime-root`. This tests CSV/XLSX/XLS readers with Unicode output and exact
+image bytes plus native Selenium Manager. `tools/benchmark_startup.py --after
+"path/to/CYOA Downloader.exe" --runs 1 --output startup.json` is a mapped-window
+and delivered-Tk-event smoke, not a repeated performance comparison. Its child
+uses a fresh profile and explicitly opts into automatic exit. Use six paired
+launches and separate heavy work for performance measurements. Keep OS-cache
+limitations explicit; see [performance measurements](PERFORMANCE.md).
 
 ## Publish
 

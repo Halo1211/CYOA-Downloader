@@ -1138,53 +1138,114 @@ def _infer_dynamic_asset_paths(text: str) -> dict[str, set[str]]:
     return inferred
 
 
-def _infer_generated_entry_images(sources: Mapping[str, str]) -> set[str]:
-    """Infer image names only from a site's explicit Entry ID contract."""
-    import re as _re
+class _GeneratedEntryImageIndex:
+    """Retain cross-file Entry metadata without retaining source bodies.
 
-    combined = "\n".join(str(value or "") for value in sources.values())
-    id_factory = _re.compile(
+    Each source is a script/document unit. Contracts, class declarations and
+    literal constructor calls can occur in different sources and in any order.
+    """
+    _id_factory = re.compile(
         r"['\"]li_['\"]\s*\+\s*group\s*\+\s*['\"]_['\"]\s*\+\s*"
         r"name\.toLowerCase\(\)\.replaceAll\(\s*['\"] ['\"]\s*,\s*['\"]['\"]\s*\)",
-        _re.IGNORECASE,
+        re.IGNORECASE,
     )
-    image_template = _re.compile(
-        r"img/\$\{[A-Za-z_$][\w$]*\.id\}\.webp", _re.IGNORECASE
-    )
-    if not id_factory.search(combined) or not image_template.search(combined):
-        return set()
-
-    class_groups: dict[str, str] = {}
-    class_pattern = _re.compile(
-        r"class\s+(?P<class>[A-Za-z_$][\w$]*)\s+extends\s+"
+    _image_template = re.compile(r"img/\$\{[A-Za-z_$][\w$]*\.id\}\.webp", re.IGNORECASE)
+    _id_prefix = re.compile(r"""['"]li_['"]""", re.IGNORECASE)
+    _class = re.compile(
+        r"class\s+(?P<name>[A-Za-z_$][\w$]*)\s+extends\s+"
         r"(?:[A-Za-z_$][\w$]*\.)?Entry\s*\{(?P<body>.*?)\n\s*\}",
-        _re.IGNORECASE | _re.DOTALL,
+        re.IGNORECASE | re.DOTALL,
     )
-    group_pattern = _re.compile(
-        r"super\(\s*name\s*,\s*['\"](?P<group>[A-Za-z0-9_-]+)['\"]",
-        _re.IGNORECASE,
+    _group = re.compile(r"super\(\s*name\s*,\s*['\"](?P<group>[A-Za-z0-9_-]+)['\"]", re.IGNORECASE)
+    _constructor = re.compile(
+        r"(?=new\s+(?P<class>[A-Za-z_$][\w$]*)\s*\(\s*"
+        r"(?:\"(?P<double>(?:\\.|[^\"\\])*)\"|'(?P<single>(?:\\.|[^'\\])*)'))",
+        re.IGNORECASE,
     )
-    for match in class_pattern.finditer(combined):
-        group_match = group_pattern.search(match.group("body"))
-        if group_match:
-            class_groups[match.group("class")] = group_match.group("group")
 
-    inferred: set[str] = set()
-    for class_name, group in class_groups.items():
-        constructor = _re.compile(
-            rf"new\s+{_re.escape(class_name)}\s*\(\s*"
-            r"(?:\"(?P<double>(?:\\.|[^\"\\])*)\"|"
-            r"'(?P<single>(?:\\.|[^'\\])*)')",
-            _re.IGNORECASE,
+    def __init__(self):
+        self.factory = self.template = False
+        self.groups = {}
+        self.names = {}
+        self._paths = None
+
+    @staticmethod
+    def _class_key(value):
+        # Match the old per-class re.IGNORECASE behavior without multi-character
+        # casefold expansions (Straße and Strasse are distinct identifiers).
+        return "".join(
+            "i" if char in "İı" else folded if len(folded := char.casefold()) == 1 else char.lower()
+            for char in value
         )
-        for match in constructor.finditer(combined):
-            raw_name = match.group("double")
-            if raw_name is None:
-                raw_name = match.group("single") or ""
-            normalized = raw_name.lower().replace(" ", "").replace("/", "")
-            if normalized:
-                inferred.add(f"img/li_{group}_{normalized}.webp")
-    return inferred
+
+    def add_source(self, text, *, known_only=False):
+        text = str(text or "")
+        changed = False
+        if not self.factory and "_" in text and self._id_factory.search(text):
+            self.factory = changed = True
+        if not self.template and "$" in text and self._image_template.search(text):
+            self.template = changed = True
+        # These characters are mandatory in the existing regex contracts.
+        # Reject plain text with cheap native searches before case-insensitive
+        # regex scans. Never truncate a source or skip a valid literal.
+        if "(" in text and ("'" in text or '"' in text):
+            folded = "" if known_only else text.casefold()
+            if known_only or "class" in folded:
+                for match in self._class.finditer(text):
+                    group = self._group.search(text, match.start("body"), match.end("body"))
+                    if group:
+                        key, value = match.group("name"), group.group("group")
+                        if self.groups.get(key) != value:
+                            self.groups[key] = value
+                            changed = True
+            if known_only or "new" in folded:
+                known = {self._class_key(key) for key in self.groups} if known_only else None
+                for match in self._constructor.finditer(text):
+                    class_key = self._class_key(match.group("class"))
+                    if known is not None and class_key not in known:
+                        continue
+                    raw = match.group("double")
+                    if raw is None:
+                        raw = match.group("single") or ""
+                    name = raw.lower().replace(" ", "").replace("/", "")
+                    if name:
+                        names = self.names.setdefault(class_key, set())
+                        if name not in names:
+                            names.add(name)
+                            changed = True
+        if changed:
+            self._paths = None
+
+    def paths(self):
+        if self._paths is None:
+            self._paths = frozenset(
+                f"img/li_{group}_{name}.webp"
+                for cls, group in self.groups.items()
+                for name in self.names.get(self._class_key(cls), ())
+            ) if self.factory and self.template else frozenset()
+        return self._paths
+
+
+def _infer_generated_entry_images(sources: Mapping[str, str]) -> set[str]:
+    """Keep joined-source compatibility, avoiding copies on proven negatives.
+
+    The fixed quoted ID prefix and the image template cannot cross the inserted
+    newlines. A positive contract may have whitespace/class bodies split across
+    sources, so retain the historical joined-text semantics in that case.
+    Production BFS uses the incremental index for individual script units.
+    """
+    values = tuple(str(value or "") for value in sources.values())
+    if not any("_" in text and _GeneratedEntryImageIndex._id_prefix.search(text) for text in values):
+        return set()
+    if not any("$" in text and _GeneratedEntryImageIndex._image_template.search(text) for text in values):
+        return set()
+    combined = "\n".join(values)
+    if not _GeneratedEntryImageIndex._id_factory.search(combined):
+        return set()
+    index = _GeneratedEntryImageIndex()
+    index.factory = index.template = True
+    index.add_source(combined, known_only=True)
+    return set(index.paths())
 
 
 __all__ = [

@@ -86,6 +86,55 @@ def run_internal_self_test() -> tuple[bool, str]:
 
     with _tempfile.TemporaryDirectory(prefix="cyoa_selftest_") as tmp_root:
         try:
+            from ..storage.archive_checkpoint import ArchiveCheckpoint
+
+            checkpoint_folder = os.path.join(tmp_root, "checkpoint")
+            os.makedirs(checkpoint_folder)
+            checkpoint_file = pathlib.Path(checkpoint_folder) / "asset.png"
+            checkpoint_file.write_bytes(b"complete")
+            checkpoint = ArchiveCheckpoint(checkpoint_folder, "profile-one")
+            checkpoint.put("asset", "https://fixture.invalid/a?v=1", str(checkpoint_file))
+            resumed = ArchiveCheckpoint(checkpoint_folder, "profile-one", resume=True)
+            valid = resumed.get("asset", "https://fixture.invalid/a?v=1") is not None
+            fenced = not checkpoint.put("asset", "https://fixture.invalid/a?v=1", str(checkpoint_file))
+            checkpoint_file.write_bytes(b"corrupt!")
+            record("archive checkpoint resume", valid and fenced
+                   and resumed.get("asset", "https://fixture.invalid/a?v=1") is None,
+                   "atomic metadata + hash validation + stale generation fence")
+        except _SELF_TEST_PROBE_ERRORS as exc:
+            record("archive checkpoint resume", False, str(exc))
+        try:
+            from ..download.asset_scan import _GeneratedEntryImageIndex
+
+            generated = _GeneratedEntryImageIndex()
+            generated.add_source("'li_' + group + '_' + name.toLowerCase().replaceAll(' ', ''); 'img/" + "$" + "{item.id}.webp';")
+            generated.add_source("class Story extends Entry {\nsuper(name, 'one');\n}\nnew Story('A/B Name');")
+            initial_paths = generated.paths()
+            generated.add_source("class Story extends Entry {\nsuper(name, 'two');\n}")
+            record("incremental generated image inference",
+                   initial_paths == {"img/li_one_abname.webp"} and generated.paths() == {"img/li_two_abname.webp"},
+                   "cross-file contracts + literal names + group updates")
+        except _SELF_TEST_PROBE_ERRORS as exc:
+            record("incremental generated image inference", False, str(exc))
+        try:
+            import threading as _snapshot_threading
+
+            from ..gui.run_preparation import RunSnapshot
+            from ..storage.resume import resume_job_key
+
+            original_jobs = [{"url": "https://fixture.invalid/game", "filename": "First", "mode": ""},
+                             {"url": "https://fixture.invalid/game", "filename": "Second", "mode": "zip"}]
+            run_snapshot = RunSnapshot(original_jobs)
+            original_jobs[0]["filename"] = "Edited"
+            run_snapshot.prepare("auto", lambda _url: "Story", _snapshot_threading.Event())
+            record("queue snapshot identity",
+                   run_snapshot[0]["_run_file_name"] == "First"
+                   and run_snapshot[0]["_resume_key"] == resume_job_key("https://fixture.invalid/game", "First", "auto")
+                   and run_snapshot[0]["_resume_key"] != run_snapshot[1]["_resume_key"],
+                   "frozen names + default mode + duplicate URL output identity")
+        except _SELF_TEST_PROBE_ERRORS as exc:
+            record("queue snapshot identity", False, str(exc))
+        try:
             import requests as _metadata_requests
 
             from ..network.response_metadata import ResponseMetadataCapture, observe_response_metadata

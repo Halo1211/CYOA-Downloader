@@ -32,6 +32,18 @@ jobs:
         shell: pwsh
         run: .\tools\build_windows.ps1 -SkipInstall
 
+      - name: Test live GUI presentation
+        shell: pwsh
+        env:
+          CYOA_GUI_SMOKE: "1"
+        run: |
+          python -m pytest tests/test_gui_presentation_work.py -q
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pytest tests/test_results_panel.py -q
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pytest tests/test_run_snapshot_gui.py -q
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Build portable folder
         shell: pwsh
         run: .\tools\build_windows.ps1 -SkipInstall -SkipChecks -Layout onedir
@@ -39,9 +51,21 @@ jobs:
       - name: Smoke test both layouts
         shell: pwsh
         run: |
-          python tools/smoke_windows_build.py "dist/CYOA Downloader.exe" --require-self-test "history response header reuse" --report dist/standalone-smoke.json
+          Expand-Archive -LiteralPath "dist/CYOA-Downloader-Windows-x64.zip" -DestinationPath "dist/verified/standalone"
+          Expand-Archive -LiteralPath "dist/portable/CYOA-Downloader-Windows-x64-portable.zip" -DestinationPath "dist/verified/portable"
+          python tools/verify_windows_package.py "dist/CYOA-Downloader-Windows-x64.zip" "dist/verified/standalone" --compare-runtime "dist/verified/portable/CYOA Downloader/_internal" --report dist/standalone-package.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python tools/smoke_windows_build.py "dist/portable/CYOA Downloader/CYOA Downloader.exe" --require-self-test "history response header reuse" --report dist/portable-smoke.json
+          python tools/verify_windows_package.py "dist/portable/CYOA-Downloader-Windows-x64-portable.zip" "dist/verified/portable" --report dist/portable-package.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tools/smoke_windows_build.py "dist/verified/standalone/CYOA Downloader.exe" --require-self-test "queue snapshot identity" --report dist/standalone-smoke.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tools/smoke_windows_build.py "dist/verified/portable/CYOA Downloader/CYOA Downloader.exe" --require-self-test "queue snapshot identity" --report dist/portable-smoke.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tools/smoke_batch_formats.py --executable "dist/verified/standalone/CYOA Downloader.exe" --runtime-root "dist/verified/portable/CYOA Downloader/_internal" --report dist/standalone-batch.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tools/smoke_batch_formats.py --executable "dist/verified/portable/CYOA Downloader/CYOA Downloader.exe" --runtime-root "dist/verified/portable/CYOA Downloader/_internal" --report dist/portable-batch.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tools/benchmark_startup.py --after "dist/verified/portable/CYOA Downloader/CYOA Downloader.exe" --runs 1 --output dist/gui-startup-smoke.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload executable artifacts
@@ -53,3 +77,8 @@ jobs:
             dist/portable/CYOA-Downloader-Windows-x64-portable.zip
             dist/standalone-smoke.json
             dist/portable-smoke.json
+            dist/standalone-package.json
+            dist/portable-package.json
+            dist/standalone-batch.json
+            dist/portable-batch.json
+            dist/gui-startup-smoke.json
