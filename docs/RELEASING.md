@@ -83,6 +83,15 @@ and closing during preparation/export. Deep-scan changes should require the
 `incremental generated image inference` frozen self-test case, which checks
 cross-file metadata and group replacement.
 
+For run preparation changes, run
+`python -m pytest tests/test_run_snapshot.py -q` and, in a separate process with
+`CYOA_GUI_SMOKE=1`, `python -m pytest tests/test_run_snapshot_gui.py -q`.
+Require the `queue snapshot identity` frozen self-test case in both layouts.
+These checks cover captured names/modes, duplicate URLs, edits/reordering,
+idempotent preparation, and real Tk input/Cancel during preparation. Run cache
+allocation and stale-flush/Clear checks with
+`python -m pytest tests/test_cache_write_optimization.py -q`.
+
 For GUI/startup or package-data changes, also run `tools/smoke_batch_formats.py`
 against both extracted executables with the portable `_internal` folder as
 `--runtime-root`. This tests CSV/XLSX/XLS readers with Unicode output and exact

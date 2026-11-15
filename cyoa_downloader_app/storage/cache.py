@@ -301,17 +301,23 @@ _v465_cache_writer_thread: threading.Thread | None = None
 def _v465_flush_cache_index() -> None:
     global _cache_flushed_replace_generation
     try:
-        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
         with _cache_lock:
-            snapshot = dict(_cache_index)
             dirty = dict(_cache_dirty)
             removed = set(_cache_removed)
             replace_generation = _cache_replace_generation
             force_replace = replace_generation > _cache_flushed_replace_generation
-        if not dirty and not removed and not force_replace:
-            return
+            if not dirty and not removed and not force_replace:
+                return
+            snapshot = dict(_cache_index) if force_replace else None
 
+        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
         with interprocess_file_lock(str(_CACHE_IDX)):
+            with _cache_lock:
+                # A same-process Clear may have committed while this older
+                # flush waited for the file lock. Its captured delta belongs
+                # to a superseded generation and must never restore old URLs.
+                if replace_generation != _cache_replace_generation:
+                    return
             merged: dict[str, str] = {}
             if not force_replace and _CACHE_IDX.exists():
                 try:
@@ -426,7 +432,7 @@ def _cache_put(url: str, data: bytes) -> None:
         needs_write = True
         if target.exists():
             try:
-                needs_write = _hashlib.sha256(target.read_bytes()).hexdigest() != digest
+                needs_write = file_sha256(target) != digest
             except FileNotFoundError:
                 # Eviction may remove the entry after the existence check.
                 pass

@@ -5,6 +5,12 @@ instructions are in [README.md](README.md) and the linked guides.
 
 ## Unreleased
 
+- Prepare download output names, modes and resume identities in the worker from
+  a frozen queue copy. Yield between batches so Tk can service input and Cancel
+  while large queues are prepared; later edits cannot change the active run.
+- Validate existing cached payloads with streaming SHA-256. Skip unchanged
+  index flushes and snapshot only changed aliases for ordinary merges. Reject
+  older same-process flushes after Clear so stale aliases cannot reappear.
 - Page Reports Center cards and share row fonts; prepare snapshots, export CSV,
   and format failed-item copies in window-owned workers. Keep full exports
   independent of the visible page/filter, and preserve previous CSV files on

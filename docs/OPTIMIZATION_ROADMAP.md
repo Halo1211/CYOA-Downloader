@@ -1,7 +1,7 @@
 # Optimization roadmap
 
 Updated November 15, 2026. Earlier stages are included in v1.1.5; the
-checkpoint/index, GUI/startup and report/deep-scan batches below are unreleased.
+checkpoint/index, GUI/startup, report/deep-scan and queue/cache batches below are unreleased.
 See [performance measurements](PERFORMANCE.md) for fixture definitions,
 comparative results, reproduction commands, and limitations.
 
@@ -17,7 +17,7 @@ remaining performance work.
 | Measurement | Local fixtures, byte/hash checks, process-tree RSS, real Tk/browser checks, repeated mapped-window/Tk-event startup measurements | Controlled OS-cold startup and broader real-world/low-spec hardware comparisons |
 | Auto | Remove speculative classification probes; one-item GUI lookahead; small CYOAP pair reuse | Context-aware negative caching and finer discovery priorities |
 | Media and output | File-backed standard media, cache handoff, streaming embedded JSON, incremental validation | Hard byte budget across decoders, legacy APIs, input JSON, and external backends |
-| GUI | Bounded log/progress turns, chunked import, virtual queue, asynchronous panels, visibility-aware progress, local sidebar hover, direct workspace construction, paged report snapshots and worker-owned report I/O | Larger download snapshots, native widget/font startup cost, and remaining expensive callbacks |
+| GUI | Bounded log/progress turns, chunked import, virtual queue, asynchronous panels, visibility-aware progress, local sidebar hover, direct workspace construction, paged reports, worker-owned report I/O and batched run identity preparation | Raw queue copy/membership scans, native widget/font startup cost, output/cookie preparation, and remaining expensive callbacks |
 | HTTP and retry | Shared 20-global/12-host admission; prioritized history; media-owned 429/5xx status retries | Adaptive admission and one retry budget across connection/body/auth/backend recovery |
 | Browser transport | Dedicated owner thread, browser reuse, bounded page lifetime, file handoff | Broader lifecycle management and Selenium reuse |
 | Runtime capture | Bounded small-response reuse; 50 ms wait slices; ready-gate noise filtering | Capture-tab rotation that preserves application state; hard RPC/body byte limits |
@@ -64,6 +64,15 @@ viewers, and 28 viewers with issues is historical; do not present it as a
 current release result without rerunning that corpus.
 
 ## Remaining memory and network work
+
+The queue/cache follow-up moves derived download identities off Tk and yields
+between worker batches. It preserves captured queue values and cancellation,
+with a preparation-throughput tradeoff documented in the measurements. Existing
+cache payload validation streams its hash; unchanged flushes avoid directory I/O
+and ordinary delta flushes avoid copying unrelated in-memory entries. A local
+generation fence rejects stale same-process flushes after Clear. Full persisted
+JSON merge/serialization and forced replacement still scale with index size.
+The scope estimate remains about 94%; broader cold-start and memory work remains.
 
 The move from about 92% to about 94% reflects a broader completed batch:
 bounded report widgets/shared fonts, background report preparation and atomic

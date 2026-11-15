@@ -2239,10 +2239,12 @@ def _v46_start(self) -> None:
     if not self._prepare_ytdlp_cookies():
         return
 
-    run_items = [dict(item) for item in self._queue_data]
-    # Snapshot the output identity together with the URL. Queue rows remain
-    # editable/reorderable while a run is active; the worker must never derive
-    # a later folder name from mutable UI state.
+    from .run_preparation import RunSnapshot
+
+    run_items = RunSnapshot(self._queue_data)
+    # Freeze the raw identity fields together with the URL; derive names and
+    # resume keys on the worker. Queue rows remain editable/reorderable while
+    # a run is active, so those later edits must not change its folder names.
     # The sidebar stores its selected mode as a plain string.  Older GUI
     # variants used a Tk StringVar, so accept both representations.  Calling
     # .get() unconditionally here aborts the button callback before the worker
@@ -2253,18 +2255,6 @@ def _v46_start(self) -> None:
     default_mode_snapshot = str(
         (mode_getter() if callable(mode_getter) else mode_state) or "auto"
     ).strip() or "auto"
-    from ..storage.resume import resume_job_key
-    for item in run_items:
-        requested_name = str(item.get("filename") or "").strip()
-        item["_run_file_name"] = requested_name or _build_output_name(str(item.get("url") or ""))
-        item["_run_requested_mode"] = str(item.get("mode") or default_mode_snapshot or "auto")
-        # Resolve imported blank modes from this run's immutable default.
-        item["mode"] = item["_run_requested_mode"]
-        item["_resume_key"] = resume_job_key(
-            str(item.get("url") or ""),
-            item["_run_file_name"],
-            item["_run_requested_mode"],
-        )
     self._active_run_queue_ids = {
         str(it.get("_queue_id") or "")
         for it in run_items
@@ -2331,6 +2321,10 @@ def _v46_worker(self, items, default_mode, wt, threads, outdir, dl_fonts, show_a
     preparation = None
     cancelled = False
     try:
+        from .run_preparation import RunSnapshot
+
+        if isinstance(items, RunSnapshot):
+            items.prepare(default_mode, _build_output_name, self._cancel_event)
         self._v46_set_event_sink()
         module = sys.modules.get(__name__)
         if module is not None:

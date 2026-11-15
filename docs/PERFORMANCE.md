@@ -817,3 +817,74 @@ Lint, compilation and repository/documentation checks also pass.
 python tools/benchmark_bulk_optimization.py --control-root path/to/trusted-checkout --runs 5 --records 500 --output bulk.json
 python -m pytest tests/test_generated_image_index.py tests/test_deep_scan_dependency_optimization.py tests/test_report_io.py -q
 ```
+
+## Unreleased batch: queue preparation and cache allocation
+
+Start freezes raw queue rows and the selected default mode on Tk. The download
+worker derives names, modes and resume keys from that copy, checking cancellation
+between rows. Every 256 rows it sleeps for 1 ms to give Tk time to service native
+calls; moving the CPU loop to a thread without this handoff reduced the Start
+callback but left the worst measured heartbeat delay unchanged. Later queue
+edits, reordering, newly added rows and mode selection cannot change this run's
+identities. Unicode names and distinct output names for duplicate URLs retain
+the existing resume-key format.
+
+Five alternating paired fresh processes against commit `cec2138`, with isolated
+profiles, 50,000 synthetic queue rows and real mapped transparent Tk. Benchmarks
+run separately from tests/builds, stop before transport setup, and download
+nothing. All runs produce the same complete identity digest.
+
+| Queue fixture, median | Control | Candidate |
+| --- | ---: | ---: |
+| Start callback | 297.89 ms | 20.76 ms |
+| Worst 10 ms heartbeat delay | 304.77 ms | 37.40 ms |
+| 10 ms heartbeat p95 delay | 12.23 ms | 11.99 ms |
+| All identities ready after Start | 297.83 ms | 547.29 ms |
+| Identity hashes on Tk / worker | 50,000 / 0 | 0 / 50,000 |
+
+The handoff trades total preparation time for responsiveness. Windows timer
+resolution, particularly on other Python versions, can increase that overhead.
+Raw dictionary copies and membership scans still scale with queue size on Tk;
+output-directory write probes and cookie preparation also remain there. These
+measurements describe Tk scheduling, not physical input latency or EXE startup.
+They do not establish a 37 ms bound for all callbacks or actual downloads.
+
+Existing cache files are now verified using a streaming SHA-256 rather than
+reading a second whole payload. Clean index flushes return before filesystem
+work; ordinary merges copy only dirty aliases/removals. Forced replacement
+retains the full authoritative snapshot. A generation check after acquiring
+the file lock prevents an older same-process flush from restoring stale aliases
+after Clear; a deterministic interleaving test covers that race.
+
+| Cache fixture, median | Control | Candidate |
+| --- | ---: | ---: |
+| Verify existing 32 MiB payload: peak Python allocation | 32.009 MiB | 0.135 MiB |
+| Same validation: elapsed | 37.23 ms | 32.62 ms |
+| Clean flush, 150,000 RAM entries: peak Python allocation | 3.667 MiB | 0.00034 MiB |
+| Same clean flush: elapsed | 1.75 ms | 0.014 ms |
+| Same clean flush: creates cache directory | Yes | No |
+| One dirty alias, 150,000 RAM entries: peak Python allocation | 3.682 MiB | 0.016 MiB |
+| Same delta flush: elapsed | 4.99 ms | 3.52 ms |
+
+Tracemalloc excludes fixture creation and the existing input bytes/index; these
+are additional Python allocations, not total process RAM. The payload validation
+fixture excludes quota enforcement and index persistence. The delta fixture has
+a tiny persisted index with an unrelated external alias, which remains present
+after the merge. Reading/merging/serializing a large persisted JSON index still
+scales with its size. The Clear fence is local to one process, not a shared
+cross-process clear epoch. File hashes and output identity checks remain exact.
+
+The offline self-test includes `queue snapshot identity`; real-GUI validation
+checks editing and Cancel while worker preparation is blocked. Regression tests
+also cover clean/delta allocation, complete forced replacement, cancellation,
+captured default modes and preparation idempotence.
+
+The integration passes **1,625 source tests**, with **21 default skips**,
+**42/42 offline self-tests**, and **12 opt-in real-GUI checks** in separate
+processes (one queue preparation, five reports, three presentation and three
+existing layout/performance). Lint, compilation and repository checks pass.
+
+```powershell
+python tools/benchmark_queue_cache.py --control-root path/to/trusted-checkout --runs 5 --items 50000 --output queue-cache.json
+python -m pytest tests/test_run_snapshot.py tests/test_cache_write_optimization.py -q
+```

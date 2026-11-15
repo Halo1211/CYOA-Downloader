@@ -1,9 +1,12 @@
 """Exercise maintenance through concurrent cache writers, with isolated data."""
 
 import hashlib
+import json
 import threading
 import time
+import tracemalloc
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 
 import pytest
 
@@ -167,3 +170,86 @@ def test_waiting_writers_recheck_changed_limit_or_failed_scan(isolated_cache, mo
         second.result(timeout=5)
     assert len(calls) == 2
     assert sum(file.stat().st_size for file in cache._CACHE_DIR.glob("*/*")) <= 1024 * 1024
+
+
+def measured(work):
+    tracemalloc.start()
+    try:
+        work()
+        return tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+
+
+def test_existing_cache_validation_does_not_read_a_second_full_payload(isolated_cache):
+    cache = isolated_cache
+    data = b"payload-" * (2 * 1024 * 1024)
+    digest = hashlib.sha256(data).hexdigest()
+    target = cache._CACHE_DIR / digest[:2] / digest
+    target.parent.mkdir(parents=True)
+    target.write_bytes(data)
+    peak = measured(lambda: cache._cache_put("alias", data))
+    assert peak < 1024 * 1024, f"cache validation allocated a body-sized copy: {peak}"
+    assert cache._cache_index["alias"] == digest
+    assert hashlib.sha256(target.read_bytes()).hexdigest() == digest
+
+
+def test_clean_flush_does_not_clone_the_index_or_create_a_directory(isolated_cache):
+    cache = isolated_cache
+    cache._cache_index.update({f"url:{i}": "a" * 64 for i in range(150000)})
+    peak = measured(cache._v465_flush_cache_index)
+    assert peak < 512 * 1024, f"clean flush cloned unused index state: {peak}"
+    assert not cache._CACHE_DIR.exists()
+
+
+def test_delta_flush_does_not_copy_unrelated_in_memory_entries(isolated_cache):
+    cache = isolated_cache
+    cache._CACHE_DIR.mkdir(parents=True)
+    cache._CACHE_IDX.write_text(json.dumps({"external": "b" * 64}), encoding="utf-8")
+    cache._cache_index.update({f"url:{i}": "a" * 64 for i in range(150000)})
+    cache._cache_index["new"] = "c" * 64
+    cache._cache_dirty["new"] = "c" * 64
+    peak = measured(cache._v465_flush_cache_index)
+    assert peak < 512 * 1024, f"delta flush cloned an unused full index: {peak}"
+    assert json.loads(cache._CACHE_IDX.read_text("utf-8")) == {"external": "b" * 64, "new": "c" * 64}
+
+
+def test_forced_replace_still_persists_the_entire_authoritative_snapshot(isolated_cache):
+    cache = isolated_cache
+    cache._CACHE_DIR.mkdir(parents=True)
+    cache._CACHE_IDX.write_text(json.dumps({"obsolete": "b" * 64}), encoding="utf-8")
+    cache._cache_index.update({"first": "a" * 64, "second": "c" * 64})
+    cache._cache_replace_generation = 1
+    cache._v465_flush_cache_index()
+    assert json.loads(cache._CACHE_IDX.read_text("utf-8")) == cache._cache_index
+    assert cache._cache_flushed_replace_generation == 1
+
+
+def test_stale_flush_cannot_restore_index_after_same_process_clear(isolated_cache, monkeypatch):
+    cache = isolated_cache
+    cache._CACHE_DIR.mkdir(parents=True)
+    cache._cache_index["old"] = cache._cache_dirty["old"] = "a" * 64
+    cache._CACHE_IDX.write_text(json.dumps({"old": "a" * 64}), encoding="utf-8")
+    captured, release = threading.Event(), threading.Event()
+    native_lock = cache.interprocess_file_lock
+
+    @contextmanager
+    def delayed(path):
+        if threading.current_thread().name == "stale-cache-flush":
+            captured.set()
+            assert release.wait(3)
+        with native_lock(path):
+            yield
+
+    monkeypatch.setattr(cache, "interprocess_file_lock", delayed)
+    old = threading.Thread(target=cache._v465_flush_cache_index, name="stale-cache-flush")
+    old.start()
+    try:
+        assert captured.wait(3)
+        cache._clear_image_cache()
+        assert json.loads(cache._CACHE_IDX.read_text("utf-8")) == {}
+    finally:
+        release.set()
+        old.join(3)
+    assert not old.is_alive()
+    assert json.loads(cache._CACHE_IDX.read_text("utf-8")) == {}

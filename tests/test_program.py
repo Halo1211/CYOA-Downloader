@@ -1278,6 +1278,9 @@ def test_comprehensive_bugfixes__gui_start_passes_default_mode_value_not_tk_vari
     assert captured["args"][1] == "auto"
     assert isinstance(captured["args"][1], str)
     run_items = captured["args"][0]
+    # Derived identities are now prepared on the worker. The snapshot still
+    # owns its values/default and must preserve the original resume identities.
+    run_items.prepare(captured["args"][1], final_behaviors._build_output_name, dummy._cancel_event)
     assert all(item["_run_requested_mode"] == "auto" for item in run_items)
     assert all(item["mode"] == "auto" for item in run_items)
     assert run_items[0]["_resume_key"] != run_items[1]["_resume_key"]

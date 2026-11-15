@@ -117,6 +117,24 @@ def run_internal_self_test() -> tuple[bool, str]:
         except _SELF_TEST_PROBE_ERRORS as exc:
             record("incremental generated image inference", False, str(exc))
         try:
+            import threading as _snapshot_threading
+
+            from ..gui.run_preparation import RunSnapshot
+            from ..storage.resume import resume_job_key
+
+            original_jobs = [{"url": "https://fixture.invalid/game", "filename": "First", "mode": ""},
+                             {"url": "https://fixture.invalid/game", "filename": "Second", "mode": "zip"}]
+            run_snapshot = RunSnapshot(original_jobs)
+            original_jobs[0]["filename"] = "Edited"
+            run_snapshot.prepare("auto", lambda _url: "Story", _snapshot_threading.Event())
+            record("queue snapshot identity",
+                   run_snapshot[0]["_run_file_name"] == "First"
+                   and run_snapshot[0]["_resume_key"] == resume_job_key("https://fixture.invalid/game", "First", "auto")
+                   and run_snapshot[0]["_resume_key"] != run_snapshot[1]["_resume_key"],
+                   "frozen names + default mode + duplicate URL output identity")
+        except _SELF_TEST_PROBE_ERRORS as exc:
+            record("queue snapshot identity", False, str(exc))
+        try:
             import requests as _metadata_requests
 
             from ..network.response_metadata import ResponseMetadataCapture, observe_response_metadata
