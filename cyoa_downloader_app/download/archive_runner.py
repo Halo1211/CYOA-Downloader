@@ -135,10 +135,12 @@ def resume_existing_archive(folder: str, start_url: str, policy: ArchivePolicy):
 
     folder = os.path.abspath(folder)
     manifest_path = os.path.join(folder, "archive_manifest.json")
-    if not os.path.isfile(manifest_path):
+    has_checkpoints = os.path.isfile(os.path.join(folder, "_audit", "archive-checkpoints.sqlite3"))
+    if not os.path.isfile(manifest_path) and not has_checkpoints:
         return finalize_existing_archive(folder, start_url, policy)
     try:
-        old_manifest = json.loads(pathlib.Path(manifest_path).read_text(encoding="utf-8"))
+        old_manifest = (json.loads(pathlib.Path(manifest_path).read_text(encoding="utf-8"))
+                        if os.path.isfile(manifest_path) else {})
         if not isinstance(old_manifest, dict):
             raise TypeError("manifest root must be an object")
     except (OSError, RecursionError, TypeError, ValueError, json.JSONDecodeError) as exc:
@@ -165,6 +167,13 @@ def resume_existing_archive(folder: str, start_url: str, policy: ArchivePolicy):
         start_url, folder, archive_strategy=normalized_policy.strategy,
     )
     try:
+        enable_resume = getattr(downloader, "enable_checkpoint_resume", None)
+        checkpoint = enable_resume() if callable(enable_resume) else None
+        # New checkpoints are authoritative: a file's presence alone is not
+        # evidence of a committed route. Legacy manifests retain their policy.
+        if has_checkpoints and (checkpoint is None or checkpoint.urls("route") or checkpoint.urls("asset") or not checkpoint.compatible):
+            existing = {}
+            missing_pages.append(start_url)
         auto_profile = None
         if normalized_policy.strategy == "auto":
             auto_profile = profile_archive_target(downloader)

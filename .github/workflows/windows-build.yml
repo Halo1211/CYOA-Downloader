@@ -39,9 +39,15 @@ jobs:
       - name: Smoke test both layouts
         shell: pwsh
         run: |
-          python tools/smoke_windows_build.py "dist/CYOA Downloader.exe" --require-self-test "history response header reuse" --report dist/standalone-smoke.json
+          Expand-Archive -LiteralPath "dist/CYOA-Downloader-Windows-x64.zip" -DestinationPath "dist/verified/standalone"
+          Expand-Archive -LiteralPath "dist/portable/CYOA-Downloader-Windows-x64-portable.zip" -DestinationPath "dist/verified/portable"
+          python tools/verify_windows_package.py "dist/CYOA-Downloader-Windows-x64.zip" "dist/verified/standalone" --compare-runtime "dist/verified/portable/CYOA Downloader/_internal" --report dist/standalone-package.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python tools/smoke_windows_build.py "dist/portable/CYOA Downloader/CYOA Downloader.exe" --require-self-test "history response header reuse" --report dist/portable-smoke.json
+          python tools/verify_windows_package.py "dist/portable/CYOA-Downloader-Windows-x64-portable.zip" "dist/verified/portable" --report dist/portable-package.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tools/smoke_windows_build.py "dist/verified/standalone/CYOA Downloader.exe" --require-self-test "archive checkpoint resume" --report dist/standalone-smoke.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tools/smoke_windows_build.py "dist/verified/portable/CYOA Downloader/CYOA Downloader.exe" --require-self-test "archive checkpoint resume" --report dist/portable-smoke.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload executable artifacts
@@ -53,3 +59,5 @@ jobs:
             dist/portable/CYOA-Downloader-Windows-x64-portable.zip
             dist/standalone-smoke.json
             dist/portable-smoke.json
+            dist/standalone-package.json
+            dist/portable-package.json

@@ -92,3 +92,18 @@ large downloads do not hold the interface through a full callback batch.
 Chromium and the same four-gate fixture, including a delayed final asset.
 `python tools/benchmark_runtime.py` measures scanning and scheduling overhead.
 Reported timings depend on machine load; these are not network-speed promises.
+
+Unreleased optimization work adds incremental queue checkpoint reads during
+catalog refresh. Entries whose file identity changes are reread; deleted
+checkpoints return to pending. Catalog generation still checks every entry and
+writes the complete catalog. Folder titles, authored tags and numeric duplicate
+suffixes keep the same layout.
+
+For website archives, **Retry Assets** can continue atomic route checkpoints
+even when interruption prevented `archive_manifest.json` from being written.
+Internal `_audit/archive-checkpoints.sqlite3` stores metadata and hashes of the
+existing files, not a second payload cache. Keep it with an unfinished archive.
+Resume verifies local hashes and request context. Completed routes are local
+snapshots; this action is not a remote freshness check. Ineligible/missing
+validators and changed profiles/cookies use normal fetching. Legacy manifests
+retain their older presence-based recovery behavior.

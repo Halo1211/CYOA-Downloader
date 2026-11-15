@@ -13595,12 +13595,12 @@ def test_universal_archive__generated_entry_images_follow_observed_id_factory_an
     }
 
 
-def test_universal_archive__cache_key_strips_only_cache_busters(tmp_path):
+def test_universal_archive__cache_key_preserves_authored_query_identity(tmp_path):
     downloader = _universal_archive__bare_downloader(tmp_path)
 
-    assert downloader._normalize_cache_key("https://x.test/app.js?v=one") == "https://x.test/app.js"
-    assert downloader._normalize_cache_key("https://x.test/app.js?v=two") == "https://x.test/app.js"
-    assert downloader._normalize_cache_key("https://x.test/app.js?dpl=deploy-id") == "https://x.test/app.js"
+    assert downloader._normalize_cache_key("https://x.test/app.js?v=one") == "https://x.test/app.js?v=one"
+    assert downloader._normalize_cache_key("https://x.test/app.js?v=two") == "https://x.test/app.js?v=two"
+    assert downloader._normalize_cache_key("https://x.test/app.js?dpl=deploy-id") == "https://x.test/app.js?dpl=deploy-id"
     assert downloader._normalize_cache_key("https://x.test/image?w=320") != downloader._normalize_cache_key(
         "https://x.test/image?w=1280"
     )

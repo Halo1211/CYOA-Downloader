@@ -230,14 +230,21 @@ class RouteCrawler:
             (url, 0) for url in seeds if url not in result.pages and self._is_allowed(url)
         )
         queued: set[str] = set(result.pages) | set(seeds)
+        route_records = {}
 
         while queue and len(result.pages) < self.policy.max_pages:
             _raise_if_cancelled()
             url, depth = queue.popleft()
             entry_source = getattr(self.downloader, "_entry_source", None) if url == self.start_url else None
             reuse_entry = bool(entry_source and os.path.isfile(self.downloader.start_html_local))
+            restore = getattr(self.downloader, "restored_route", None)
+            saved = restore(url) if callable(restore) else None
             try:
-                if reuse_entry:
+                if saved:
+                    page_url = saved["effective_url"]
+                    html = None
+                    self._response_urls[url] = page_url
+                elif reuse_entry:
                     page_url, html = entry_source
                     self.downloader._entry_source = None
                     self._response_urls[url] = page_url
@@ -249,12 +256,13 @@ class RouteCrawler:
             except (OSError, requests.RequestException, RuntimeError, TypeError, ValueError) as exc:
                 result.failed.append({"url": url, "error": str(exc)})
                 continue
-            if not html:
+            if not html and not saved:
                 result.failed.append({"url": url, "error": "could not fetch route HTML"})
                 continue
-            local = self._route_local_path(url)
+            local = saved["path"] if saved else self._route_local_path(url)
+            self._local_route_owners[os.path.normcase(os.path.abspath(local))] = self._canonicalize(url)
             try:
-                if not reuse_entry:
+                if not reuse_entry and not saved:
                     self.downloader.download_html_page(page_url, local, html)
             except DownloadCancelledError:
                 raise
@@ -262,8 +270,12 @@ class RouteCrawler:
                 result.failed.append({"url": url, "error": str(exc)})
                 continue
             result.pages[url] = local
-            links = self._links_from(html, page_url)
-            self._page_link_bases[url] = self._page_link_bases.get(self._canonicalize(page_url), page_url)
+            links = saved["links"] if saved else self._links_from(html, page_url)
+            self._page_link_bases[url] = saved["link_base"] if saved else self._page_link_bases.get(self._canonicalize(page_url), page_url)
+            route_records[url] = (local, links, self._page_link_bases[url], page_url)
+            checkpoint = getattr(self.downloader, "checkpoint_route", None)
+            if callable(checkpoint) and not saved:
+                checkpoint(url, *route_records[url])
             if depth >= self.policy.max_depth:
                 continue
             for link in links:
@@ -283,6 +295,10 @@ class RouteCrawler:
                 self.policy.max_pages, result.remaining_queued,
             )
         self._rewrite_route_links(result.pages)
+        checkpoint = getattr(self.downloader, "checkpoint_route", None)
+        if callable(checkpoint):
+            for url, record in route_records.items():
+                checkpoint(url, *record)
         result.link_bases = dict(self._page_link_bases)
         # A crawl that fetched the entry itself also no longer needs its raw
         # copy. Avoid retaining a second large HTML string for runtime capture.

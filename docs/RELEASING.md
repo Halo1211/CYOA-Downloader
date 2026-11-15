@@ -44,10 +44,23 @@ modules with the source revision, and record file sizes and SHA-256 hashes.
 Run the packaged executable checks against the extracted copy:
 
 ```powershell
+python tools/verify_windows_package.py "path/to/package.zip" "path/to/extracted" --report package.json
 python tools/smoke_windows_build.py "path/to/CYOA Downloader.exe" --require-self-test "history response header reuse" --report smoke.json
 python tools/smoke_browser_reuse.py --executable "path/to/CYOA Downloader.exe" --report browser.json
 python tools/smoke_runtime_waits.py --executable "path/to/CYOA Downloader.exe" --report runtime.json
 ```
+
+The package verifier compares every extracted ZIP file by size/SHA-256,
+validates CRC, compares frozen application bytecode with the current source
+(ignoring build paths), and checks Tcl/Tk and SQLite runtime components. Run it
+with the same Python version used for the build and PyInstaller installed.
+For a standalone package, `--compare-runtime path/to/portable/_internal` also
+compares every embedded data/binary member with the extracted portable runtime.
+Nested ZIP containers can differ in metadata; their member names, bytes and CRC
+must still match exactly.
+For checkpoint changes, require the `archive checkpoint resume` self-test case.
+Keep unreleased candidate packages outside the versioned release directory;
+do not replace an existing release while validating a development batch.
 
 The general smoke covers diagnostics and all nine output modes, ZIP integrity,
 embedded images, transient HTTP 503 recovery, routes, iframe/XHTML/SVG/PDF,

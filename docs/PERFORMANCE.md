@@ -516,6 +516,68 @@ Windows distribution. See the [release process](RELEASING.md).
 Temporary disk use grows when RAM buffers move to files. Input JSON/model/key
 memory, full-body legacy APIs, codecs, browser RPC/cache, third-party extractors,
 and independent backends still need memory. The process-wide HTTP budget does
-not cover all browser/extractor requests. No universal byte budget, asset-level
-checkpoint/index, or repeated cold/warm first-window startup result is claimed.
+not cover all browser/extractor requests. No universal byte budget or repeated
+cold/warm first-window startup result is claimed.
 The [roadmap](OPTIMIZATION_ROADMAP.md) tracks these remaining areas.
+
+## Unreleased: mirror checkpoints and incremental scans
+
+The source integration passes **1,563 tests**, with **12 skipped**, **40/40**
+offline self-test cases, clean Ruff checks and all 15 public Markdown checks.
+These are the current batch totals; the v1.1.5 figures above are historical.
+
+Five paired runs against a trusted copy of the pre-change mirror, alternating
+execution order, isolated temporary files, and no simultaneous build/heavy tests:
+
+| Fixture | Before | After |
+| --- | ---: | ---: |
+| 120 JavaScript bundles, six localization passes, median | 2.422 s | 0.451 s |
+| Text reads over those passes | 720 | 120 |
+| 600 queue checkpoint records, 20 metadata refreshes, median | 0.659 s | 0.612 s |
+| JSON reads over those refreshes | 12,000 | 600 |
+| Explicit resume: 16 × 1 MiB native PNGs, median | 0.240 s | 0.293 s |
+| Resume GETs / repeated body bytes | 16 / 16 MiB | 16 / 0 bytes |
+
+All 120 text-file SHA-256 hashes remain identical. The resume fixture verifies
+every asset's size/SHA-256 and ZIP member bytes/CRC outside timing. Its server
+delays headers by 10 ms and supplies an identity representation with an ETag.
+The new side receives sixteen 304s. Resume timing includes local verification
+and metadata work, and is slower in this final sample. An earlier five-pair
+sample was faster (0.313 → 0.237 s), so no stable resume-time gain is claimed.
+Avoided body transfers and unchanged-file scans are the demonstrated benefits.
+Catalog timing covers metadata selection, not complete HTML/CSV publication.
+
+The mirror's `_downloaded` map and dependency graph identify requested/effective
+URLs and existing files. Atomic SQLite transactions persist metadata in `_audit`
+after file commit, with size/hash, content type, validators and a versioned
+context digest. No additional payload cache is introduced. Normal downloads
+start a new generation. Explicit resume checks hashes once per unchanged file
+identity within that run; metadata writes from old generations are rejected.
+Windows ChangeTime detects edits that restore LastWriteTime and file size.
+
+Route records preserve raw outgoing links, redirect/base provenance and
+transitive dependency hashes, allowing interrupted traversal to continue before
+the final manifest exists. Retry Assets finds these incomplete archives. A
+completed route is a local snapshot, not evidence of remote freshness or full
+interactive correctness. Legacy archives without checkpoints keep the previous
+manifest recovery policy. Deep-scan/runtime/plugin provenance is not yet unified.
+
+Conditional reuse requires an exact URL including query bytes, unchanged
+profile/cookies/settings, a verified file and a native GET 200 identity response
+without redirect, Vary, Set-Cookie, Content-Range or no-store. Only untransformed
+assets qualify. ETag takes precedence over Last-Modified. Missing/invalid
+validators, transformed text and browser state use normal fetching. Invalid 304
+metadata, a changed file/context during validation or an unexpected 304 without
+a representation also trigger a full fetch; a second unusable 304 fails safely.
+
+Text scan reuse depends on file identity, remote source and the completed
+URL/path mapping. Files modified during analysis are not admitted. Metadata and
+modernization backup directories are excluded. Queue metadata snapshots belong
+to the supervisor; changed/deleted files invalidate entries. Both paths still
+perform filesystem checks and do not provide a universal memory bound.
+
+```powershell
+python tools/benchmark_archive_index.py --control-source path/to/trusted-old-website.py --runs 5 --output index.json
+python tools/benchmark_checkpoint_resume.py --control-source path/to/trusted-old-website.py --runs 5 --output resume.json
+python -m pytest -q tests/test_archive_checkpoints.py tests/test_website_archive_optimization.py tests/test_live_library_layout.py
+```

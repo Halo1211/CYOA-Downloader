@@ -25,8 +25,9 @@ from urllib.parse import quote, urlparse
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-from cyoa_downloader_app.core.atomic_io import interprocess_file_lock
+from cyoa_downloader_app.core.atomic_io import atomic_write_text, interprocess_file_lock
 from cyoa_downloader_app.core.paths import _is_link_or_junction, _is_windows_reserved_basename
+from cyoa_downloader_app.storage.archive_checkpoint import file_identity
 
 
 def human_folder_name(title: str) -> str:
@@ -290,11 +291,36 @@ def run_job(job: dict, root: Path, audit: Path, timeout: int) -> dict:
     return finish_job(result, root, audit)
 
 
-def catalogue(root: Path, jobs: list[dict], audit: Path) -> None:
+class CatalogueSnapshot:
+    """A supervisor-owned metadata view; changed/deleted files invalidate entries."""
+
+    def __init__(self):
+        self.records = {}
+
+    def read(self, path: Path, fallback: dict) -> dict:
+        try:
+            identity = file_identity(str(path))
+        except FileNotFoundError:
+            self.records.pop(path, None)
+            return fallback
+        previous = self.records.get(path)
+        if previous and previous[0] == identity:
+            return previous[1]
+        result = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(result, dict):
+            raise TypeError("Queue checkpoint must be an object")
+        # Do not admit a read that raced an atomic checkpoint replacement.
+        if identity == file_identity(str(path)):
+            self.records[path] = (identity, result)
+        return result
+
+
+def catalogue(root: Path, jobs: list[dict], audit: Path, snapshot: CatalogueSnapshot | None = None) -> None:
+    snapshot = snapshot or CatalogueSnapshot()
     results = []
     for job in jobs:
         path = audit / f"{job['id']}.json"
-        result = json.loads(path.read_text(encoding="utf-8")) if path.exists() else dict(job, status="pending")
+        result = snapshot.read(path, dict(job, status="pending"))
         results.append(result)
     write_json(audit / "queue_status.json", results)
     with (audit / "retry_queue.csv").open("w", encoding="utf-8-sig", newline="") as stream:
@@ -317,7 +343,7 @@ def catalogue(root: Path, jobs: list[dict], audit: Path) -> None:
         "downloaded. Serve this folder over localhost for interactive viewers.</p>"
         "<table><tr><th>Title</th><th>Download status</th></tr>" + "".join(rows) + "</table>"
     )
-    (root / "index.html").write_text(page, encoding="utf-8")
+    atomic_write_text(str(root / "index.html"), page)
 
 
 def main() -> None:
@@ -341,12 +367,13 @@ def main() -> None:
 
     with output_directory_lease(str(audit)):
         jobs = bind_job_folders(queue_jobs(args.queue), root, audit)
-        catalogue(root, jobs, audit)
+        snapshot = CatalogueSnapshot()
+        catalogue(root, jobs, audit, snapshot)
         with ThreadPoolExecutor(max_workers=max(1, min(8, args.jobs))) as pool:
             pending = [pool.submit(run_job, job, root, audit, args.timeout) for job in jobs]
             for future in as_completed(pending):
                 future.result()
-                catalogue(root, jobs, audit)
+                catalogue(root, jobs, audit, snapshot)
     print("Queue complete. Inspect _audit/queue_status.json and retry_queue.csv.", flush=True)
 
 

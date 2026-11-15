@@ -1,10 +1,11 @@
 # Optimization roadmap
 
-Updated November 15, 2026. The implemented stages are included in v1.1.5.
+Updated November 15, 2026. Earlier stages are included in v1.1.5; the
+checkpoint/index batch below is unreleased.
 See [performance measurements](PERFORMANCE.md) for fixture definitions,
 comparative results, reproduction commands, and limitations.
 
-The working estimate is about **84% of the planned optimization scope**. This
+The working estimate is about **90% of the planned optimization scope**. This
 is a qualitative progress estimate, not a weighted milestone calculation or
 an application-speed percentage. Preparing a release does not complete the
 remaining performance work.
@@ -21,30 +22,40 @@ remaining performance work.
 | Browser transport | Dedicated owner thread, browser reuse, bounded page lifetime, file handoff | Broader lifecycle management and Selenium reuse |
 | Runtime capture | Bounded small-response reuse; 50 ms wait slices; ready-gate noise filtering | Capture-tab rotation that preserves application state; hard RPC/body byte limits |
 | History | Background metadata queue and eligible native source-header reuse | Streaming/browser/Auto-thread header provenance and interrupted-metadata resumption |
-| Asset/index/resume | Existing cache and job-level resume retained | Dependency index, asset/route checkpoints, conditional validation, incremental catalog refresh |
+| Asset/index/resume | Mirror dependency graph, atomic asset/route metadata, verified explicit resume, eligible conditional validation, unchanged-file scan reuse, incremental queue metadata | Unify deep-scan/runtime/plugin provenance; broader catalog/result refresh and remote-update coverage |
 | Distribution | Standalone and portable builds, frozen checks, Tcl/Tk and complete-runtime validation | Measured startup/package reductions with optional-feature coverage preserved |
 | Structure | Targeted service/controller extraction | Reduce global mutable state and legacy namespace synchronization incrementally |
 
-## Next: asset identity, checkpoints, and completeness
+## Checkpoint/index batch and remaining completeness work
 
-1. Build one dependency index per run with original/effective URL, local path,
-   content type, size, hash, scan status, and request context. Reuse existing
-   scan/cache mechanisms instead of introducing a second cache without clear
-   invalidation rules.
-2. Cache scan results by unchanged file/content identity. Preserve contextual
-   JSON/HTML/CSS/JavaScript parsing and authored filename/query semantics.
-   Profile large bundles before choosing a more complex parser.
-3. Save atomic checkpoints per asset and route so interruption does not require
-   repeating already committed work. Distinguish a reusable file from a merely
-   present partial output, and invalidate records after relevant profile changes.
-4. Use conditional ETag/Last-Modified validation only when source identity and
-   representation are known. Missing validators and changed cookies/profiles
-   require an explicit fallback policy.
-5. Keep download completion, integrity checks, and offline functionality as
-   separate outcomes. Preserve required/optional/backend-dependent failure
-   categories rather than treating every successful download as a working site.
-6. Refresh library/catalog entries incrementally where profiling shows a full
-   collection scan is expensive. Keep source collections unchanged during tests.
+The move from about 84% to about 90% reflects four completed parts of the
+planned scope: mirror dependency identity/checkpoints, interrupted-route
+continuation, repeated text-scan elimination, and incremental queue metadata.
+It does not assign six percentage points of speed to these changes.
+
+- The normal mirror's files remain the only payload store. A SQLite metadata
+  index under `_audit` records exact requested/effective URLs, paths, MIME,
+  size/hash, validators, and a versioned request-context digest. Transactions
+  reject metadata from superseded generations. A normal run starts fresh;
+  explicit Retry Assets continuation can reuse verified local snapshots.
+- Completed route checkpoints retain authored outgoing links, redirect/base
+  provenance and transitive asset hashes. They survive cancellation before the
+  final manifest, and Retry Assets discovers those unfinished archives. Missing,
+  edited, partial or context-incompatible files fall back to normal processing.
+- Native, identity, unvaried, unredirected binary responses with valid ETag or
+  Last-Modified can validate via conditional GET. A valid 304 avoids another
+  body transfer. Missing/unsafe validators, changed cookies/profiles, browser
+  state and transformed text use conservative fallbacks. Route snapshot resume
+  does not assert that the remote site is still current.
+- Text passes skip unchanged files only while source context and the completed
+  URL/path mapping also match. Windows uses NTFS ChangeTime, not Python's
+  creation-time `ctime`. Queue catalog refresh reuses unchanged checkpoint JSON;
+  directory/stat work and full catalog output generation remain.
+
+Still needed: unify metadata from generic deep scan, runtime capture, project
+pipelines and plugins; broaden remote update/revalidation; profile large results
+and other catalogs; and retain separate download, integrity and offline-viewer
+outcomes. A successful checkpoint is not proof of every interactive story branch.
 
 Acceptance: fewer duplicate scans/probes, exact output bytes/local references,
 correct resume after interrupted writes, and no stale record overwriting a

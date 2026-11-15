@@ -12,6 +12,7 @@ from ..core.atomic_io import atomic_write_text
 from ..core.progress import DownloadCancelledError
 from ..diagnostics.reports import write_failed_assets_log
 from ..logging_setup import logger
+from ..storage.archive_checkpoint import ArchiveCheckpoint
 from .archive_policy import ArchivePolicy
 from .archive_runner import resume_existing_archive
 from .website import WebsiteDownloader
@@ -126,7 +127,19 @@ def has_website_recovery_work(root: str) -> bool:
             manifest.get("route_failures") or manifest.get("route_limit_reached")
         ):
             return True
-    return False
+    return next(_interrupted_archives(base), None) is not None
+
+
+def _interrupted_archives(base):
+    for path in base.rglob("archive-checkpoints.sqlite3"):
+        if path.parent.name != "_audit":
+            continue
+        folder = path.parent.parent
+        if (folder / "archive_manifest.json").exists():
+            continue
+        source = ArchiveCheckpoint.source(str(path))
+        if source:
+            yield folder, source
 
 
 def retry_website_assets(root: str, policy: ArchivePolicy | None = None) -> WebsiteRecoverySummary:
@@ -176,6 +189,9 @@ def retry_website_assets(root: str, policy: ArchivePolicy | None = None) -> Webs
         remaining: list[dict[str, str]] = []
         recovered_urls: set[str] = set()
         try:
+            enable_resume = getattr(downloader, "enable_checkpoint_resume", None)
+            if callable(enable_resume):
+                enable_resume()
             for url in urls:
                 try:
                     local = downloader.download_asset(url)
@@ -233,6 +249,7 @@ def retry_website_assets(root: str, policy: ArchivePolicy | None = None) -> Webs
             except OSError:
                 pass
 
+    interrupted = list(_interrupted_archives(base))
     for manifest_path in base.rglob("archive_manifest.json"):
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -250,6 +267,16 @@ def retry_website_assets(root: str, policy: ArchivePolicy | None = None) -> Webs
             raise
         except _RECOVERY_JOB_ERRORS as exc:
             logger.warning("Retry Assets could not resume %s: %s", manifest_path, exc)
+
+    for folder, source in interrupted:
+        try:
+            updated = resume_existing_archive(str(folder), source, policy)
+            summary.archives_resumed += 1
+            summary.new_routes += len(updated.get("pages") or [])
+        except DownloadCancelledError:
+            raise
+        except _RECOVERY_JOB_ERRORS as exc:
+            logger.warning("Retry Assets could not resume interrupted archive %s: %s", folder, exc)
 
     return summary
 

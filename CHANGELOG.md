@@ -5,7 +5,14 @@ instructions are in [README.md](README.md) and the linked guides.
 
 ## Unreleased
 
-No unreleased changes.
+- Add atomic mirror asset/route checkpoints and verified interrupted-archive
+  continuation through Retry Assets, including recovery before a final manifest
+  exists. Reject changed hashes, profiles/cookies and superseded metadata writers.
+- Validate eligible native binary assets with conditional GET on explicit resume;
+  preserve complete URL queries and keep full-fetch fallbacks for unsafe metadata.
+- Skip unchanged text localization passes and reuse unchanged queue checkpoint
+  metadata during catalog refresh. Keep the readable `Title/index.html` layout.
+- Add paired scan/resume benchmarks and extracted-package source/runtime checks.
 
 ## v1.1.5 — November 15, 2026
 
