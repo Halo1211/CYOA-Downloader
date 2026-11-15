@@ -17,18 +17,64 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
 from cyoa_downloader_app.core.atomic_io import interprocess_file_lock
+from cyoa_downloader_app.core.paths import _is_link_or_junction, _is_windows_reserved_basename
+
+
+def human_folder_name(title: str) -> str:
+    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", re.sub(r"\s+", " ", title)).strip(" .")
+    name = name.encode("utf-8")[:95].decode("utf-8", "ignore").rstrip(" .") or "Untitled"
+    if _is_windows_reserved_basename(name) or name.casefold() in {"_audit", "_program", "_releases"}:
+        name = "CYOA " + name
+    return name
+
+
+def unique_folder_name(base: str, used: set[str]) -> str:
+    candidate, number = base, 2
+    while candidate.casefold() in used:
+        suffix = f" ({number})"
+        prefix = base.encode("utf-8")[:95 - len(suffix)].decode("utf-8", "ignore").rstrip(" .")
+        candidate = prefix + suffix
+        number += 1
+    used.add(candidate.casefold())
+    return candidate
+
+
+def bind_job_folders(jobs: list[dict], root: Path, audit: Path) -> list[dict]:
+    """Preserve checkpoint ownership and never overwrite unrelated folders."""
+    used = {path.name.casefold() for path in root.iterdir()}
+    claimed = set()
+    for job in jobs:
+        checkpoint = audit / f"{job['id']}.json"
+        old = json.loads(checkpoint.read_text(encoding="utf-8")) if checkpoint.is_file() else {}
+        folder = str(old.get("folder") or "")
+        entry = (root / str(old.get("entry") or "")).resolve()
+        resumable = ((old.get("status") == "downloaded" and entry.is_relative_to(root / folder) and entry.is_file())
+                     or (old.get("status") == "running" and existing_worker(old, audit) is not None))
+        owned = (resumable and old.get("url") == job["url"] and folder.casefold() not in {".", "..", "_audit", "_program", "_releases"}
+                 and folder and "/" not in folder and "\\" not in folder and (root / folder).is_dir())
+        if owned:
+            if folder.casefold() in claimed or _is_link_or_junction(str(root / folder)):
+                raise ValueError("Unsafe or duplicate checkpoint folder")
+            job["folder"] = folder
+            used.add(folder.casefold())
+        else:
+            job["folder"] = unique_folder_name(human_folder_name(job["title"]), used)
+        claimed.add(job["folder"].casefold())
+    return jobs
 
 
 def queue_jobs(source: Path) -> list[dict]:
     jobs = {}
+    used = set()
     with source.open(encoding="utf-8-sig", newline="") as stream:
         for row_number, row in enumerate(csv.DictReader(stream), 2):
             url = row.get("url", "").strip()
@@ -37,13 +83,12 @@ def queue_jobs(source: Path) -> list[dict]:
             if url in jobs:
                 jobs[url]["rows"].append(row_number)
                 continue
-            title = re.sub(r"\s+", " ", row.get("filename", "")).strip() or url
-            slug = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", title).strip(" .")[:95]
+            title = re.sub(r"\s+", " ", row.get("filename", "")).strip() or urlparse(url).hostname or "Untitled"
             identity = hashlib.sha256(url.encode()).hexdigest()[:10]
             jobs[url] = {
                 "url": url,
                 "title": title,
-                "folder": f"{slug} [{identity}]",
+                "folder": unique_folder_name(human_folder_name(title), used),
                 "mode": row.get("mode", "auto"),
                 "rows": [row_number],
                 "id": identity,
@@ -97,9 +142,9 @@ def existing_worker(job: dict, audit: Path):
 
 def finish_job(result: dict, root: Path, audit: Path) -> dict:
     result["seconds"] = round(time.time() - result["started"], 1)
-    entries = sorted(
-        (root / result["folder"]).glob("*/index.html"), key=lambda path: path.stat().st_mtime, reverse=True
-    )
+    folder = root / result["folder"]
+    entries = [folder / "index.html"] if (folder / "index.html").is_file() else sorted(
+        folder.glob("*/index.html"), key=lambda path: path.stat().st_mtime, reverse=True)
     if entries:
         result["entry"] = entries[0].relative_to(root).as_posix()
     elif result["status"] == "downloaded":
@@ -139,7 +184,7 @@ def worker(spec: Path) -> None:
     sys.argv = [
         "cyoa_downloader.py",
         job["url"],
-        "archive",
+        "content" if job.get("staging") else "archive",
         flag,
         "--archive-strategy",
         "auto",
@@ -155,9 +200,31 @@ def worker(spec: Path) -> None:
         "15",
         "--fonts",
         "--output",
-        job["output"],
+        job.get("staging", job["output"]),
     ]
     main()
+    if job.get("staging"):
+        publish_job_output(job, spec.parent.parent)
+
+
+def publish_job_output(job: dict, root: Path) -> None:
+    """Move a complete staged viewer into its title folder without overwriting."""
+    from cyoa_downloader_app.core.output import output_directory_lease
+
+    root = root.resolve()
+    destination = Path(job["output"]).absolute()
+    staging = Path(job["staging"]).absolute()
+    source = staging / "content"
+    if (destination.parent != root or destination.name != job["folder"]
+            or not staging.resolve().is_relative_to(root / "_audit" / "work")
+            or _is_link_or_junction(str(source)) or _is_link_or_junction(str(destination))):
+        raise ValueError("Unsafe staged output path")
+    if not (source / "index.html").is_file():
+        raise RuntimeError("Download did not produce an entry page; staging was retained")
+    with output_directory_lease(str(destination)):
+        if destination.exists():
+            raise FileExistsError(f"Output folder already exists: {destination.name}")
+        source.rename(destination)
 
 
 def run_job(job: dict, root: Path, audit: Path, timeout: int) -> dict:
@@ -183,8 +250,9 @@ def run_job(job: dict, root: Path, audit: Path, timeout: int) -> dict:
                 old.update(status="downloaded", exit_code=0, recovered_from_log=True)
                 return finish_job(old, root, audit)
     output = root / job["folder"]
-    output.mkdir(exist_ok=True)
-    job = dict(job, output=str(output))
+    staging = audit / "work" / job["id"] / uuid.uuid4().hex
+    staging.mkdir(parents=True)
+    job = dict(job, output=str(output), staging=str(staging), layout_version=2)
     spec = audit / f"{job['id']}.job.json"
     write_json(spec, job)
     started = time.time()
@@ -272,7 +340,7 @@ def main() -> None:
     from cyoa_downloader_app.core.output import output_directory_lease
 
     with output_directory_lease(str(audit)):
-        jobs = queue_jobs(args.queue)
+        jobs = bind_job_folders(queue_jobs(args.queue), root, audit)
         catalogue(root, jobs, audit)
         with ThreadPoolExecutor(max_workers=max(1, min(8, args.jobs))) as pool:
             pending = [pool.submit(run_job, job, root, audit, args.timeout) for job in jobs]

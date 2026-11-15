@@ -9,6 +9,10 @@ No unreleased changes.
 
 ## v1.1.5 — November 15, 2026
 
+- Store real-queue viewers directly as `Title/index.html`, keeping internal IDs,
+  staging, and process logs in `_audit`. Preserve authored title tags, use numeric
+  suffixes for duplicate names, and provide a recoverable organizer for older
+  `Title [ID]/archive` outputs without downloading assets again.
 - Consolidate performance reports into an English guide and a current roadmap.
   Keep generated downloads, audit output, caches, and Windows build artifacts
   outside the source distribution. Publish both standalone and portable builds.

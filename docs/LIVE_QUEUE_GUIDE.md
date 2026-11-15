@@ -6,6 +6,12 @@ Run the CSV queue with separate download processes and a checkpoint per URL:
 python tools/run_live_queue.py --queue "E:\cyoa_queue.csv" --output "E:\Download" --jobs 2 --timeout 5400
 ```
 
+Completed viewers use `Title/index.html`, without generated hash suffixes or
+an extra `archive` directory. Authored tags such as `[CYOA]` remain part of the
+title. Different URLs with the same title use `Title (2)`, `Title (3)`, and so on.
+Internal URL IDs stay in `_audit`; staging and process logs stay under
+`_audit/work`. Existing unrelated title folders are never overwritten.
+
 Repeated URLs share one download. Each unique URL owns a named folder and an
 isolated output lease. Re-run the same command to skip completed downloads and
 retry failed/interrupted jobs. Previous partial folders are retained. The image
@@ -23,6 +29,21 @@ checkpoints record download status, process IDs, output entries, and duration.
 `_audit/retry_queue.csv` contains unfinished URLs. The input CSV is never edited.
 Download completion means the CLI produced an entry page; it does not guarantee
 every remote dependency or backend feature works offline.
+
+To reorganize older `Title [ID]/archive/index.html` results without downloading
+again, preview the complete move plan and then apply it:
+
+```powershell
+python tools/organize_live_library.py --output "E:\Download" --report layout-plan.json
+python tools/organize_live_library.py --output "E:\Download" --apply --report layout-result.json
+```
+
+The organizer requires completed checkpoint entries and no running queue jobs.
+It moves each viewer directory intact within the same volume, verifies relative
+filenames/file identities/sizes/timestamps, updates checkpoints and catalogue
+links, and retains old metadata/logs under `_audit/layout-backups`. It does not
+edit game assets or strip authored title tags. Collisions receive readable
+numeric suffixes, and a failed move/metadata commit rolls back prior moves.
 
 Check completed viewers with all outside network access blocked:
 
