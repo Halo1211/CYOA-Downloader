@@ -5,6 +5,9 @@ instructions are in [README.md](README.md) and the linked guides.
 
 ## Unreleased
 
+- Keep website archive checkpoint databases in the application profile instead
+  of creating `_audit` inside downloaded stories. Preserve interrupted-archive
+  recovery and migrate owned legacy databases without removing unrelated files.
 - Prepare download output names, modes and resume identities in the worker from
   a frozen queue copy. Yield between batches so Tk can service input and Cancel
   while large queues are prepared; later edits cannot change the active run.

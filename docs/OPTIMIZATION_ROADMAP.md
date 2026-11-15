@@ -34,7 +34,7 @@ continuation, repeated text-scan elimination, and incremental queue metadata.
 It does not assign six percentage points of speed to these changes.
 
 - The normal mirror's files remain the only payload store. A SQLite metadata
-  index under `_audit` records exact requested/effective URLs, paths, MIME,
+  index in the application profile records exact requested/effective URLs, paths, MIME,
   size/hash, validators, and a versioned request-context digest. Transactions
   reject metadata from superseded generations. A normal run starts fresh;
   explicit Retry Assets continuation can reuse verified local snapshots.

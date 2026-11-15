@@ -226,6 +226,9 @@ def publish_job_output(job: dict, root: Path) -> None:
         if destination.exists():
             raise FileExistsError(f"Output folder already exists: {destination.name}")
         source.rename(destination)
+        from cyoa_downloader_app.storage.archive_checkpoint import ArchiveCheckpoint
+
+        ArchiveCheckpoint.relocate(str(source), str(destination))
 
 
 def run_job(job: dict, root: Path, audit: Path, timeout: int) -> dict:

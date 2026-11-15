@@ -19,8 +19,54 @@ from contextlib import contextmanager
 from functools import lru_cache
 from pathlib import Path
 
+from ..core.atomic_io import interprocess_file_lock
 from ..core.cancellation import _raise_if_cancelled
 from ..core.paths import _safe_archive_join
+
+
+def _checkpoint_root() -> Path:
+    return Path.home() / ".cyoa_downloader" / "archive-checkpoints"
+
+
+def _legacy_path(folder: str) -> Path:
+    return Path(_safe_archive_join(folder, "_audit/archive-checkpoints.sqlite3", decode_url=False))
+
+
+def _migrate_checkpoint(folder: str, destination: str) -> None:
+    """Import a legacy DB atomically; remove only its owned file and empty parent."""
+    legacy = _legacy_path(folder)
+    if not legacy.is_file() or Path(destination).exists():
+        return
+    with interprocess_file_lock(destination, timeout=.1):
+        if Path(destination).exists():
+            return
+        temporary = Path(destination + "." + uuid.uuid4().hex + ".tmp")
+        source = sqlite3.connect(legacy.resolve().as_uri() + "?mode=ro", uri=True, timeout=.05)
+        try:
+            # Reject unrelated/corrupt databases instead of deleting their files.
+            source.execute("SELECT generation, context FROM owner WHERE id=1").fetchone()
+            source.execute("SELECT kind, url, data FROM records LIMIT 1").fetchone()
+            deadline = time.monotonic() + .25
+
+            def progress(status, _remaining, _total):
+                _raise_if_cancelled()
+                if status in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED) and time.monotonic() > deadline:
+                    raise sqlite3.OperationalError("Legacy checkpoint is busy")
+
+            target = sqlite3.connect(temporary)
+            try:
+                source.backup(target, pages=128, progress=progress, sleep=.01)
+            finally:
+                target.close()
+            os.replace(temporary, destination)
+        finally:
+            source.close()
+            temporary.unlink(missing_ok=True)
+        try:
+            legacy.unlink()
+            legacy.parent.rmdir()
+        except OSError:
+            pass  # Busy legacy files and unrelated directory contents are retained.
 
 
 @lru_cache(maxsize=1)
@@ -54,10 +100,63 @@ def file_identity(path: str) -> tuple:
 
 
 class ArchiveCheckpoint:
+    @staticmethod
+    def path_for(folder: str) -> str:
+        canonical = os.path.normcase(os.path.realpath(os.path.abspath(folder)))
+        identity = hashlib.sha256(canonical.encode("utf-8", "surrogatepass")).hexdigest()
+        return str(_checkpoint_root() / (identity + ".sqlite3"))
+
+    @classmethod
+    def exists(cls, folder: str) -> bool:
+        return Path(cls.path_for(folder)).is_file() or _legacy_path(folder).is_file()
+
+    @classmethod
+    def relocate(cls, source: str, destination: str) -> bool:
+        """Follow an application-owned completed staging move, after files move."""
+        old, new = cls.path_for(source), cls.path_for(destination)
+        if old == new or not Path(old).is_file():
+            return False
+        try:
+            with interprocess_file_lock(old, timeout=.1), interprocess_file_lock(new, timeout=.1):
+                os.replace(old, new)
+                db = sqlite3.connect(new, timeout=.05)
+                try:
+                    with db:
+                        db.execute("UPDATE archive SET folder=? WHERE id=1",
+                                   (os.path.realpath(os.path.abspath(destination)),))
+                finally:
+                    db.close()
+            return True
+        except (OSError, sqlite3.Error):
+            return False  # Metadata must not turn a completed file move into a failed job.
+
+    @classmethod
+    def interrupted(cls, root: Path):
+        """Find private recovery records within this output tree, without writes."""
+        root = root.resolve()
+        for path in _checkpoint_root().glob("*.sqlite3"):
+            try:
+                db = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=.05)
+                try:
+                    row = db.execute("SELECT folder, source FROM archive WHERE id=1").fetchone()
+                finally:
+                    db.close()
+                if not row or not all(isinstance(value, str) and value for value in row):
+                    continue
+                folder, source = Path(row[0]).resolve(), row[1]
+                if (folder.is_relative_to(root) and folder.is_dir()
+                        and Path(cls.path_for(str(folder))) == path
+                        and source.startswith(("http://", "https://"))
+                        and not (folder / "archive_manifest.json").exists()):
+                    yield folder, source
+            except (OSError, sqlite3.Error, ValueError):
+                continue
+
     def __init__(self, folder: str, context: str, *, resume: bool = False, source_url: str = ""):
-        self.folder = os.path.abspath(folder)
-        self.path = _safe_archive_join(self.folder, "_audit/archive-checkpoints.sqlite3", decode_url=False)
+        self.folder = os.path.realpath(os.path.abspath(folder))
+        self.path = self.path_for(self.folder)
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        _migrate_checkpoint(self.folder, self.path)
         self.generation = uuid.uuid4().hex
         self.context = context
         self._lock = threading.RLock()
@@ -65,13 +164,18 @@ class ArchiveCheckpoint:
         with self._connect() as db:
             db.execute("CREATE TABLE IF NOT EXISTS owner (id INTEGER PRIMARY KEY, generation TEXT, context TEXT)")
             db.execute("CREATE TABLE IF NOT EXISTS records (kind TEXT, url TEXT, data TEXT, PRIMARY KEY(kind,url))")
-            db.execute("CREATE TABLE IF NOT EXISTS archive (id INTEGER PRIMARY KEY, source TEXT)")
+            db.execute("CREATE TABLE IF NOT EXISTS archive (id INTEGER PRIMARY KEY, source TEXT, folder TEXT)")
+            if "folder" not in {row[1] for row in db.execute("PRAGMA table_info(archive)")}:
+                db.execute("ALTER TABLE archive ADD COLUMN folder TEXT")
             previous = db.execute("SELECT context FROM owner WHERE id=1").fetchone()
             self.compatible = bool(resume and previous and previous[0] == context)
             if not self.compatible:
                 db.execute("DELETE FROM records")
             db.execute("INSERT OR REPLACE INTO owner VALUES (1,?,?)", (self.generation, context))
-            db.execute("INSERT OR REPLACE INTO archive VALUES (1,?)", (source_url,))
+            if not source_url and self.compatible:
+                row = db.execute("SELECT source FROM archive WHERE id=1").fetchone()
+                source_url = row[0] if row else ""
+            db.execute("INSERT OR REPLACE INTO archive VALUES (1,?,?)", (source_url, self.folder))
 
     @staticmethod
     def source(path: str) -> str:
