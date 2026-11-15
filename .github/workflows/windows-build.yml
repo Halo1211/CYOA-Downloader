@@ -32,6 +32,12 @@ jobs:
         shell: pwsh
         run: .\tools\build_windows.ps1 -SkipInstall
 
+      - name: Test live GUI presentation
+        shell: pwsh
+        env:
+          CYOA_GUI_SMOKE: "1"
+        run: python -m pytest tests/test_gui_presentation_work.py -q
+
       - name: Build portable folder
         shell: pwsh
         run: .\tools\build_windows.ps1 -SkipInstall -SkipChecks -Layout onedir

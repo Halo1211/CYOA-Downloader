@@ -68,6 +68,14 @@ and redirected CSS dependencies. Browser/runtime fixtures need the matching
 installed Playwright Chromium. Keep profiles and output isolated from user data.
 These CLI/output checks do not replace native GUI interaction checks.
 
+For sidebar or startup-construction changes, run the live presentation regression
+in a fresh Python process with `CYOA_GUI_SMOKE=1`:
+`python -m pytest tests/test_gui_presentation_work.py -q`. It drives real Tk
+Enter/Leave/click bindings, checks that hover performs no settings reads or
+unrelated-row repaints, and verifies that startup creates no discarded progress
+bars and discovers the actual input/queue panels. The Windows workflow runs
+this separately from the default source suite.
+
 For GUI/startup or package-data changes, also run `tools/smoke_batch_formats.py`
 against both extracted executables with the portable `_internal` folder as
 `--runtime-root`. This tests CSV/XLSX/XLS readers with Unicode output and exact

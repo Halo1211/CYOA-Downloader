@@ -17,7 +17,7 @@ remaining performance work.
 | Measurement | Local fixtures, byte/hash checks, process-tree RSS, real Tk/browser checks, repeated mapped-window/Tk-event startup measurements | Controlled OS-cold startup and broader real-world/low-spec hardware comparisons |
 | Auto | Remove speculative classification probes; one-item GUI lookahead; small CYOAP pair reuse | Context-aware negative caching and finer discovery priorities |
 | Media and output | File-backed standard media, cache handoff, streaming embedded JSON, incremental validation | Hard byte budget across decoders, legacy APIs, input JSON, and external backends |
-| GUI | Bounded log/progress turns, chunked import, virtual queue, asynchronous panels, visibility-aware progress with unchanged-value reuse and paced animation | Large results pages, download snapshots, and remaining expensive callbacks |
+| GUI | Bounded log/progress turns, chunked import, virtual queue, asynchronous panels, visibility-aware progress, local sidebar hover with unchanged-style reuse, direct current-workspace construction | Large results pages, download snapshots, native widget/font startup cost, and remaining expensive callbacks |
 | HTTP and retry | Shared 20-global/12-host admission; prioritized history; media-owned 429/5xx status retries | Adaptive admission and one retry budget across connection/body/auth/backend recovery |
 | Browser transport | Dedicated owner thread, browser reuse, bounded page lifetime, file handoff | Broader lifecycle management and Selenium reuse |
 | Runtime capture | Bounded small-response reuse; 50 ms wait slices; ready-gate noise filtering | Capture-tab rotation that preserves application state; hard RPC/body byte limits |

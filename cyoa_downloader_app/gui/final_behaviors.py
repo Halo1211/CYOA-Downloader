@@ -2231,101 +2231,10 @@ def _v46_toggle_progress_panel(self) -> None:
     self._v46_apply_progress_visibility(not bool(getattr(self, "_v46_progress_expanded", False)))
 
 def _v46_gui_setup_ui(self) -> None:
+    # Compose the current workspace directly. The older three-card workspace
+    # was immediately destroyed by the v46.3 setup layer on every launch.
     _v46_gui_setup_ui_legacy(self)
-    import tkinter as tk
-
-    import customtkinter as ctk
-    p = self._p()
-    action_bar = self._pb.master.master.master
-    main = action_bar.master
-    try:
-        main.grid_rowconfigure(3, weight=1, minsize=150)
-    except _GUI_CALLBACK_ERRORS as exc:
-        logger.debug(f"Could not reserve minimum log height: {exc}")
-
-    progress_host = ctk.CTkFrame(action_bar, fg_color=p["panel"], corner_radius=0)
-    progress_host.grid(row=3, column=0, sticky="ew", padx=0, pady=0)
-    progress_host.grid_columnconfigure(0, weight=1)
-    self._v46_progress_host = progress_host
-
-    progress_header = ctk.CTkFrame(progress_host, fg_color=p["panel"], corner_radius=0)
-    progress_header.grid(row=0, column=0, sticky="ew", padx=10, pady=(3, 3))
-    progress_header.grid_columnconfigure(0, weight=1)
-    self._v46_progress_summary_var = ctk.StringVar(value=f"{_v469_ps(self, 'progress')}: {_v469_state_label(self, 'IDLE')} | {_v469_ps(self, 'job')} 0 {_v469_ps(self, 'of')} 0 | {_v469_ps(self, 'speed')} 0 B/s")
-    ctk.CTkLabel(
-        progress_header,
-        textvariable=self._v46_progress_summary_var,
-        font=ctk.CTkFont("Segoe UI", 9, "bold"),
-        text_color=p["muted"],
-        anchor="w",
-    ).grid(row=0, column=0, sticky="ew", padx=(2, 8))
-    self._v46_progress_toggle_btn = ctk.CTkButton(
-        progress_header,
-        text="Show Progress",
-        width=104,
-        height=24,
-        fg_color=p["surface2"],
-        hover_color=p["surface"],
-        text_color=p["muted"],
-        command=self._v46_toggle_progress_panel,
-    )
-    self._v46_progress_toggle_btn.grid(row=0, column=1, sticky="e")
-
-    panel = ctk.CTkFrame(progress_host, fg_color=p["panel"], corner_radius=0)
-    panel.grid(row=1, column=0, sticky="ew", padx=0, pady=(0, 0))
-    panel.grid_columnconfigure(0, weight=1, uniform="v46progress")
-    panel.grid_columnconfigure(1, weight=2, uniform="v46progress")
-    panel.grid_columnconfigure(2, weight=2, uniform="v46progress")
-    self._v46_progress_panel = panel
-    self._v46_progress_expanded = _v46_default_progress_expanded(self.root.winfo_screenheight())
-    self._v46_apply_progress_visibility(self._v46_progress_expanded)
-
-    def card(column: int, title: str):
-        frame = ctk.CTkFrame(panel, fg_color=p["surface"], corner_radius=10, border_width=1, border_color=p["border"])
-        frame.grid(row=0, column=column, sticky="nsew", padx=(10 if column == 0 else 4, 10 if column == 2 else 4), pady=8)
-        frame.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(frame, text=title, font=ctk.CTkFont("Segoe UI", 11, "bold"), text_color=p["fg"], anchor="w").grid(row=0, column=0, sticky="ew", padx=10, pady=(8, 3))
-        return frame
-
-    overall = card(0, "Overall Queue")
-    self._v46_overall_var = ctk.StringVar(value=f"{_v469_ps(self, 'job')} 0 {_v469_ps(self, 'of')} 0\n{_v469_ps(self, 'completed')}: 0 | {_v469_ps(self, 'failed')}: 0 | {_v469_ps(self, 'remaining')}: 0")
-    ctk.CTkLabel(overall, textvariable=self._v46_overall_var, font=ctk.CTkFont("Segoe UI", 9), text_color=p["muted"], anchor="w", justify="left").grid(row=1, column=0, sticky="ew", padx=10)
-    self._v46_overall_pb = ctk.CTkProgressBar(overall, height=7, fg_color=p["surface2"], progress_color="#22c55e")
-    self._v46_overall_pb.grid(row=2, column=0, sticky="ew", padx=10, pady=(6, 8)); self._v46_overall_pb.set(0)
-
-    current = card(1, "Current Job")
-    self._v46_job_var = ctk.StringVar(value=f"{_v469_ps(self, 'mode')}: — | {_v469_ps(self, 'stage')}: {_v469_state_label(self, 'IDLE')}\n{_v469_ps(self, 'assets')}: — | {_v469_ps(self, 'success')}: 0 | {_v469_ps(self, 'failed')}: 0 | {_v469_ps(self, 'skipped')}: 0")
-    ctk.CTkLabel(current, textvariable=self._v46_job_var, font=ctk.CTkFont("Segoe UI", 9), text_color=p["muted"], anchor="w", justify="left").grid(row=1, column=0, sticky="ew", padx=10)
-    self._v46_source_var = ctk.StringVar(value=_v469_ps(self, "source") + ": —")
-    self._v46_resolved_var = ctk.StringVar(value=_v469_ps(self, "resolved") + ": —")
-    self._v46_source_label = ctk.CTkLabel(current, textvariable=self._v46_source_var, font=ctk.CTkFont("Segoe UI", 9), text_color="#60a5fa", anchor="w", cursor="hand2")
-    self._v46_source_label.grid(row=2, column=0, sticky="ew", padx=10, pady=(2, 0))
-    self._v46_resolved_label = ctk.CTkLabel(current, textvariable=self._v46_resolved_var, font=ctk.CTkFont("Segoe UI", 9), text_color="#a78bfa", anchor="w", cursor="hand2")
-    self._v46_resolved_label.grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 3))
-    self._v46_job_pb = ctk.CTkProgressBar(current, height=7, fg_color=p["surface2"], progress_color="#3b82f6", mode="indeterminate")
-    self._v46_job_pb.grid(row=4, column=0, sticky="ew", padx=10, pady=(2, 8)); self._v46_job_pb.set(0)
-
-    file_card = card(2, "Current File & Transfer")
-    self._v46_file_var = ctk.StringVar(value=f"{_v469_ps(self, 'current_file')}: —\n{_v469_ps(self, 'data')}: 0 B | {_v469_ps(self, 'speed')}: 0 B/s | {_v469_ps(self, 'average')}: 0 B/s\n{_v469_ps(self, 'elapsed')}: 00:00:00 | {_v469_ps(self, 'eta')}: {_v469_ps(self, 'unknown')}")
-    ctk.CTkLabel(file_card, textvariable=self._v46_file_var, font=ctk.CTkFont("Segoe UI", 9), text_color=p["muted"], anchor="w", justify="left", wraplength=410).grid(row=1, column=0, sticky="ew", padx=10)
-    self._v46_file_pb = ctk.CTkProgressBar(file_card, height=7, fg_color=p["surface2"], progress_color="#14b8a6", mode="indeterminate")
-    self._v46_file_pb.grid(row=2, column=0, sticky="ew", padx=10, pady=(5, 3)); self._v46_file_pb.set(0)
-    self._v46_speed_canvas = tk.Canvas(file_card, height=38, bg=p["surface2"], highlightthickness=0, bd=0)
-    self._v46_speed_canvas.grid(row=3, column=0, sticky="ew", padx=10, pady=(2, 8))
-    self._v46_speed_canvas.bind("<Configure>", lambda _e: self._v46_draw_speed_graph())
-
-    controls = ctk.CTkFrame(panel, fg_color="transparent")
-    controls.grid(row=1, column=0, columnspan=3, sticky="ew", padx=10, pady=(0, 8))
-    controls.grid_columnconfigure(2, weight=1)
-    self._v46_cancel_btn = ctk.CTkButton(controls, text=_v469_ps(self, "cancel"), width=90, height=28, fg_color="#7f1d1d", hover_color="#991b1b", state="disabled", command=self._v46_cancel)
-    self._v46_cancel_btn.grid(row=0, column=0, padx=(0, 6))
-    self._v46_copy_error_btn = ctk.CTkButton(controls, text=_v469_ps(self, "copy_error"), width=100, height=28, fg_color=p["surface2"], hover_color=p["surface"], text_color=p["muted"], state="disabled", command=self._v46_copy_error)
-    self._v46_copy_error_btn.grid(row=0, column=1, padx=(0, 6))
-    self._v46_state_var = ctk.StringVar(value=_v469_state_label(self, "IDLE"))
-    ctk.CTkLabel(controls, textvariable=self._v46_state_var, text_color=p["muted"], anchor="e", font=ctk.CTkFont("Segoe UI", 10, "bold")).grid(row=0, column=2, sticky="e")
-
-    self._v46_install_url_menu(self._v46_source_label, lambda: self._v46_source_full, "source")
-    self._v46_install_url_menu(self._v46_resolved_label, lambda: self._v46_resolved_full, "resolved")
+    _v463_rebuild_progress_workspace(self)
 
     # Disable the ambiguous legacy mini graph; v46 panel owns transfer telemetry.
     try:
@@ -3496,7 +3405,7 @@ def _v462_find_main_panels(self: CYOADownloaderGUI) -> tuple[Any | None, Any | N
     if input_panel is not None and queue_panel is not None:
         return input_panel, queue_panel
     try:
-        main = self._v46_progress_host.master.master
+        main = self._log_txt.master.master
         for child in main.winfo_children():
             info = child.grid_info()
             row = int(info.get("row", -1))
@@ -3543,7 +3452,7 @@ def _v462_apply_small_screen_layout(self: CYOADownloaderGUI) -> None:
     main = getattr(self, "_v462_main", None)
     if main is None:
         try:
-            main = self._v46_progress_host.master.master
+            main = self._log_txt.master.master
             self._v462_main = main
         except _GUI_CALLBACK_ERRORS:
             main = None
@@ -3679,7 +3588,7 @@ def _v462_refresh_responsive_layout(self: CYOADownloaderGUI) -> None:
 def _v462_gui_setup_ui_final(self: CYOADownloaderGUI) -> None:
     _V461_GUI_SETUP_UI_FINAL(self)
     try:
-        self._v462_main = self._v46_progress_host.master.master
+        self._v462_main = self._log_txt.master.master
     except _GUI_CALLBACK_ERRORS:
         self._v462_main = None
     self._v462_small_screen = False
@@ -4105,7 +4014,6 @@ def _v463_rebuild_progress_workspace(self: CYOADownloaderGUI) -> None:
 
 def _v463_gui_setup_ui_final(self: CYOADownloaderGUI) -> None:
     _V462_GUI_SETUP_UI_FOR_V463(self)
-    _v463_rebuild_progress_workspace(self)
     self._v463_resize_after_id = None
 
     def schedule_layout(event: Any) -> None:

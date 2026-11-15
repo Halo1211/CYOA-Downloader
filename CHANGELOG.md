@@ -5,6 +5,10 @@ instructions are in [README.md](README.md) and the linked guides.
 
 ## Unreleased
 
+- Keep sidebar mouse hover local to the touched mode row; avoid reselecting the
+  active mode, refreshing its description, and reading settings on every leave.
+  Reuse unchanged row styles and build the current progress workspace directly
+  instead of constructing and destroying the obsolete three-card workspace.
 - Stop hidden/idle progress animations, draw changing progress only when visible,
   and use one paced animation timer for visible unknown-length transfers. Restore
   current telemetry when details or the window become visible again.

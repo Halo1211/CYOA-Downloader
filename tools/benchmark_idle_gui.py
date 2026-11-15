@@ -19,6 +19,7 @@ def worker(args):
     sys.path.insert(0, str(args.source_root))
     import customtkinter as ctk
 
+    from cyoa_downloader_app.gui import app
     from cyoa_downloader_app.runtime.surface import CYOADownloaderGUI
 
     counts = {"tk_calls": 0, "progress_draws": 0}
@@ -35,16 +36,48 @@ def worker(args):
         counts["progress_draws"] += 1
         return native_draw(self, *values, **options)
     ctk.CTkProgressBar._draw = draw
+    bars = []
+    native_bar_init = ctk.CTkProgressBar.__init__
+    def bar_init(widget, *values, **options):
+        native_bar_init(widget, *values, **options)
+        bars.append(widget)
+    ctk.CTkProgressBar.__init__ = bar_init
     root = ctk.CTk()
     root.attributes("-alpha", 0)
     root.tk = TkBridge(root.tk)
+    constructed = time.perf_counter()
     gui = CYOADownloaderGUI(root)
+    construction = {
+        "constructor_ms": (time.perf_counter() - constructed) * 1000,
+        "progress_bars_created": len(bars),
+        "progress_bars_discarded": sum(not bar.winfo_exists() for bar in bars),
+        "tk_calls": counts["tk_calls"],
+    }
     root.geometry("1100x720")
     root.lower()
     root.update_idletasks()
-    results, delays = {}, []
+    results, delays = {"construction": construction}, []
     active, baseline = [None], [{}]
-    scenarios = ("idle_collapsed", "idle_expanded", "active_collapsed", "active_expanded", "unmapped_active", "completed")
+    scenarios = ("idle_collapsed", "idle_expanded", "active_collapsed", "active_expanded", "unmapped_active", "completed", "sidebar_hover")
+    settings_reads, hover_calls, hover_times, hover_tk_calls = [0], [0], [], [0]
+    native_settings = app._load_settings
+    def settings():
+        settings_reads[0] += 1
+        return native_settings()
+    app._load_settings = settings
+    row, _bar, icon, name, description = gui._mode_btns["embed"]
+    hover_widgets = (row, icon, name.master, name, description)
+    def hover():
+        if active[0] == "sidebar_hover":
+            widget = hover_widgets[hover_calls[0] % len(hover_widgets)]
+            started = time.perf_counter()
+            calls_before = counts["tk_calls"]
+            widget._canvas.event_generate("<Enter>")
+            widget._canvas.event_generate("<Leave>")
+            hover_times.append((time.perf_counter() - started) * 1000)
+            hover_tk_calls[0] += counts["tk_calls"] - calls_before
+            hover_calls[0] += 1
+        root.after(20, hover)
     def heartbeat(expected):
         if active[0]:
             delays.append(max(0, (time.perf_counter() - expected) * 1000))
@@ -72,9 +105,11 @@ def worker(args):
             gui._v46_telemetry.apply({"type": "job_completed"})
             root.deiconify()
             gui._v46_render_progress(gui._v46_telemetry.snapshot())
+        elif name == "sidebar_hover":
+            assert gui._sidebar.winfo_viewable(), "sidebar must be mapped for mouse events"
         def settled():
             delays.clear()
-            baseline[0] = dict(counts, cpu=time.process_time(), wall=time.perf_counter())
+            baseline[0] = dict(counts, cpu=time.process_time(), wall=time.perf_counter(), settings=settings_reads[0])
             active[0] = name
             root.after(int(args.seconds * 1000), lambda: finish(index))
         root.after(250, settled)
@@ -88,6 +123,14 @@ def worker(args):
             "heartbeat_p95_ms": ordered[min(len(ordered)-1, int(len(ordered)*.95))],
             "heartbeat_max_ms": max(delays),
         }
+        if scenarios[index] == "sidebar_hover":
+            results["sidebar_hover"].update({
+                "settings_reads": settings_reads[0] - baseline[0]["settings"],
+                "crossings": hover_calls[0],
+                "tk_calls_per_crossing": hover_tk_calls[0] / hover_calls[0],
+                "crossing_callback_p95_ms": sorted(hover_times)[min(len(hover_times)-1, int(len(hover_times)*.95))],
+            })
+            assert gui._mode_var == "auto", "hover changed the selected download mode"
         active[0] = None
         if index + 1 < len(scenarios):
             begin(index + 1)
@@ -95,10 +138,12 @@ def worker(args):
             root.quit()
     root.after(10, heartbeat, time.perf_counter() + .01)
     root.after(150, render)
+    root.after(20, hover)
     root.after(1000, lambda: begin(0))
     try:
         root.mainloop()
     finally:
+        app._load_settings = native_settings
         gui._is_running = False
         gui._v46_finish_close()
     args.output.write_text(json.dumps(results, indent=2), "utf-8")

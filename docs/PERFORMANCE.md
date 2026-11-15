@@ -669,3 +669,62 @@ python tools/benchmark_idle_gui.py --control-root path/to/trusted-checkout --run
 python tools/benchmark_startup.py --before path/to/instrumented-control.exe --after path/to/candidate.exe --runs 6 --output startup.json
 python tools/smoke_batch_formats.py --executable "path/to/CYOA Downloader.exe" --runtime-root path/to/portable/_internal --report batch.json
 ```
+
+## Unreleased follow-up: sidebar mouse work and direct workspace construction
+
+The preceding idle-animation fix did not remove another cost encountered while
+moving the mouse over an otherwise idle GUI. Each child widget's Leave binding
+reselected the current mode, repainted all mode rows and refreshed the mode
+description, which reread settings. Crossing a row's icon, title and description
+repeated that work without a selection change.
+
+Hover now paints only the affected row. Widget identity and palette/options
+participate in unchanged-style reuse. Explicit clicks and settings/language/theme
+refreshes still update the selection and description. Startup paints the default
+selection and directly constructs the current progress workspace; it no longer
+builds the obsolete three-card workspace only to destroy it immediately. Panel
+discovery uses the log's stable main container instead of the former host depth.
+
+Five alternating paired fresh processes against commit `9a2e3df`, isolated
+profiles, real transparent mapped Tk at 1100 × 720, no downloads or concurrent
+builds/heavy tests. A two-second scenario dispatches actual Enter/Leave events
+across the row, icon, text frame, title and description, scheduling the next
+crossing 20 ms after each callback completes. These are synthetic Tk crossings,
+not physical mouse/compositor timings. Medians of each run's measurements:
+
+| Measurement | Control | Follow-up |
+| --- | ---: | ---: |
+| Hover Enter/Leave callback p95 | 31.02 ms | 5.23 ms |
+| Tk bridge calls per crossing | 4,738 | 722 |
+| Settings reads during hover | 33 | 0 |
+| Crossings completed in the scenario | 33 | 65 |
+| 10 ms heartbeat p95 during hover | 42.26 ms | 10.95 ms |
+| Quiet idle heartbeat p95 | 16.07 ms | 16.37 ms |
+| GUI constructor | 733.37 ms | 716.55 ms |
+| Progress bars created / immediately discarded | 7 / 3 | 4 / 0 |
+
+The timer is completion-paced, so faster callbacks execute more crossings in
+the same time. Normalize work per crossing rather than comparing raw totals as
+if the event counts were equal. The extended harness also runs a mouse timer
+outside the hover scenario; its Tk counts are not directly comparable with the
+earlier harness's idle counts. Quiet-idle timing did not improve further.
+The small constructor difference does not establish a substantial startup win.
+Native Tk widget/font creation remains significant: one diagnostic run spent
+about 222 ms creating the first emoji label. A diagnostic 500 ms constructor
+target was not met; it is not a portable CI threshold or a claimed result.
+
+The live presentation regression fails on discarded startup bars and on real
+mouse Leave events that refresh descriptions/read settings/repaint unrelated
+rows. It also verifies selected/unselected hover colors, actual click behavior
+and the exact input/queue panel ancestry. Run this in a fresh process with
+`CYOA_GUI_SMOKE=1`; the Windows workflow includes it explicitly:
+
+This follow-up passes **1,602 source tests**, with **15 default skips**,
+**40/40 self-tests**, and **6 opt-in real-GUI checks** run in separate processes
+(the three new presentation checks and the three existing layout/performance
+checks). Lint, compilation and repository/documentation checks also pass.
+
+```powershell
+python -m pytest tests/test_gui_presentation_work.py -q
+python tools/benchmark_idle_gui.py --control-root path/to/trusted-checkout --runs 5 --seconds 2 --output gui-followup.json
+```

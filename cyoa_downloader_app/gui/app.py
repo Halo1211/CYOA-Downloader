@@ -145,6 +145,7 @@ from ..runtime import state as _runtime_state
 from ..storage.cache import _CACHE_DIR, _cache_stats, _clear_image_cache, _enforce_cache_limit
 from ..storage.history import _check_history, _load_history, _record_history
 from ..storage.resume import clear_resume_state, load_resume_state, save_resume_state
+from . import mode_selection as _mode_selection
 from .assets import _CYOA_LEGACY_PUBLIC_FILE, _load_logo_images, _load_window_icon_photo
 from .cache_maintenance import cache_maintenance
 from .logging_ui import GUILogHandler, _v465_configure_log_tags
@@ -3822,11 +3823,8 @@ class CYOADownloaderGUI:
             self._mode_btns[val] = (row, bar, icon_box, name_lbl, desc_lbl)
 
             def _on_click(e=None, v=val): self._select_mode(v, log_change=True)
-            def _on_enter(e, v=val, r=row, ib=icon_box, t=txt, nl=name_lbl, dl=desc_lbl):
-                if self._mode_var != v:
-                    hover = self._p()["surface"]
-                    for w in (r, ib, t, nl, dl): w.configure(fg_color=hover)
-            def _on_leave(e): self._select_mode(self._mode_var)
+            def _on_enter(e, v=val): _mode_selection.view(self).paint(v, hovered=True)
+            def _on_leave(e, v=val): _mode_selection.view(self).paint(v)
 
             for w in (row, icon_box, txt, name_lbl, desc_lbl):
                 w.bind("<Button-1>", _on_click)
@@ -3857,6 +3855,7 @@ class CYOADownloaderGUI:
 
         # Select default
         self._select_mode("auto", update_ui=False)
+        _mode_selection.view(self).paint("auto")
         self._update_mode_info("auto")
 
         # ── MAIN ────────────────────────────────────────────────────
@@ -4732,22 +4731,7 @@ class CYOADownloaderGUI:
             logger.info(f"[Mode] Output mode changed: {old_val or '-'} → {val} ({label})")
         if not update_ui or not hasattr(self, "_mode_btns"):
             return
-        p = self._p()
-        for v, (row, bar, icon_box, name_lbl, desc_lbl) in self._mode_btns.items():
-            is_sel = (v == val)
-            bg     = p["sel_row"] if is_sel else "transparent"
-            try:
-                row.configure(fg_color=bg)
-                bar.configure(fg_color=p["sel_bar"] if is_sel else "transparent")
-                icon_box.configure(
-                    fg_color=p["sel_icon"] if is_sel else "transparent",
-                    text_color=p["sel_nm"]  if is_sel else p["muted"],
-                )
-                name_lbl.master.configure(fg_color=bg)
-                name_lbl.configure(fg_color=bg, text_color=p["sel_nm"]   if is_sel else p["fg"])
-                desc_lbl.configure(fg_color=bg, text_color=p["sel_desc"] if is_sel else p["muted"])
-            except _GUI_WIDGET_ERRORS as _ignored_exc:
-                logger.debug("Ignored recoverable exception in _select_mode (line 6146): %s", _ignored_exc)
+        _mode_selection.view(self).select()
         self._update_mode_info(val)
 
     # ════════════════════════════════════════════════════════════════
