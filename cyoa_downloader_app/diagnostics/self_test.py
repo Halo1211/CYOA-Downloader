@@ -104,6 +104,19 @@ def run_internal_self_test() -> tuple[bool, str]:
         except _SELF_TEST_PROBE_ERRORS as exc:
             record("archive checkpoint resume", False, str(exc))
         try:
+            from ..download.asset_scan import _GeneratedEntryImageIndex
+
+            generated = _GeneratedEntryImageIndex()
+            generated.add_source("'li_' + group + '_' + name.toLowerCase().replaceAll(' ', ''); 'img/" + "$" + "{item.id}.webp';")
+            generated.add_source("class Story extends Entry {\nsuper(name, 'one');\n}\nnew Story('A/B Name');")
+            initial_paths = generated.paths()
+            generated.add_source("class Story extends Entry {\nsuper(name, 'two');\n}")
+            record("incremental generated image inference",
+                   initial_paths == {"img/li_one_abname.webp"} and generated.paths() == {"img/li_two_abname.webp"},
+                   "cross-file contracts + literal names + group updates")
+        except _SELF_TEST_PROBE_ERRORS as exc:
+            record("incremental generated image inference", False, str(exc))
+        try:
             import requests as _metadata_requests
 
             from ..network.response_metadata import ResponseMetadataCapture, observe_response_metadata

@@ -728,3 +728,92 @@ checks). Lint, compilation and repository/documentation checks also pass.
 python -m pytest tests/test_gui_presentation_work.py -q
 python tools/benchmark_idle_gui.py --control-root path/to/trusted-checkout --runs 5 --seconds 2 --output gui-followup.json
 ```
+
+## Unreleased batch: reports and generated-image scan work
+
+Reports Center formerly constructed every result card synchronously and created
+three fonts per row. It now freezes membership of the published append-only job
+records, prepares the report/groups in a window-owned worker, and builds at most
+12 cards one at a time with three shared row fonts. Filters retain all matching
+records; page controls expose the rest. CSV always exports the complete snapshot,
+independently of the visible page/filter. Serialization, disk writes and failure
+text formatting run off Tk. CSV uses a temporary file and atomic replacement;
+cancellation or write failure before commit preserves an existing export.
+Closing a window cancels its task and suppresses late UI delivery.
+
+The BFS deep scanner now retains generated-image class/group/name metadata
+rather than every previously scanned source body. It processes each new script
+unit once and reuses unchanged inferred paths. A local LRU holds at most 8,192
+canonical URLs for that scan only, preserving the existing query normalization
+and keeping separate runs independent. Mandatory-character checks reject clear
+negative inputs before expensive regex passes. Constructor extraction no longer
+runs a full-document search separately for every Entry class.
+
+The compatibility inference API keeps joined-source semantics when a positive
+contract may span source fragments, including split class bodies and constructor
+calls. Proven negatives avoid joining text. Overlapping literal matches,
+Unicode case-insensitive class matching, repeated class definitions and group
+replacement remain covered by tests.
+
+Five alternating paired fresh processes against commit `7e4ad75`. Profiles and
+files are isolated, no downloads occur, and benchmarks run separately from
+tests/builds. The report fixture uses real mapped transparent Tk with 500 mixed
+job results and no global modal input grab. Readiness below means that the
+selected page has been built and its preparation task has completed.
+
+| Report fixture, median | Control | Candidate |
+| --- | ---: | ---: |
+| Open callback | 1,469.52 ms | 94.21 ms |
+| Initial cards built | 500 | 12 |
+| Fonts added during open callback | 1,512 | 19 |
+| Widget/page build readiness | 1,491.72 ms | 506.16 ms |
+| Failed-filter callback | 2,328.54 ms | 41.89 ms |
+| Failed-filter build readiness | 2,330.08 ms | 308.82 ms |
+| 10 ms heartbeat p95 during open | 1,408.87 ms | 27.67 ms |
+| 10 ms heartbeat p95 during filter | 1,533.10 ms | 14.38 ms |
+
+All 500 results remain in the report model; the new readiness measurement is for
+the first page, while the control builds all cards. These figures measure Tk
+scheduling/widget construction, not physical input/compositor latency or EXE
+startup. Timings vary with Windows scheduling and layout; counts are the more
+direct evidence of bounded widget work. Models still grow with result count,
+and final clipboard delivery remains a Tk operation.
+
+| Backend fixture, median | Control | Candidate |
+| --- | ---: | ---: |
+| Scan metadata pass, 24 files / 26,880,000 bytes | 90.99 ms | 20.14 ms |
+| Same pass: peak Python allocation | 51.52 MiB | 3.33 MiB |
+| Same pass: canonical URL parses | 750 | 30 |
+| Compatibility inference, 80 classes / 80 exact generated paths | 1,542.50 ms | 40.15 ms |
+| Same positive-contract inference: peak Python allocation | 3.97 MiB | 3.87 MiB |
+
+The metadata-pass fixture supplies 30 already-known URLs through the scanner
+plugin interface to isolate canonicalization and generated-image metadata work.
+It excludes plugin discovery, HTTP, cache writes and retries. SHA-256 checks
+confirm all 24 input files remain unchanged. The positive-inference fixture has
+one padded source plus 80 Entry class/constructor sources; every expected path
+matches. Its compatibility join remains, so no material allocation reduction
+is claimed for that case.
+
+Allocation peaks come from tracemalloc enabled on both sides and exclude fixture
+creation/imports; they are not total process/browser RAM. Plugins still receive
+whole source strings, metadata grows with recognized declarations/literals, and
+one huge source can still be large. The per-scan URL cache is bounded by entries,
+not bytes. This batch does not establish a global RAM limit or internet-speed
+improvement. Existing output layout, naming and asset bytes remain unchanged.
+
+Validation includes source/real-GUI tests, cancellation during preparation and
+CSV export, preserving old exports on failure, full filtered-report exports,
+cross-file metadata in later BFS rounds, URL-cache lifetime and Unicode/fragment
+compatibility. The offline self-test now includes
+`incremental generated image inference` for checking the frozen binaries.
+
+The integration passes **1,616 source tests**, with **20 default skips**,
+**41/41 offline self-tests**, and **11 opt-in real-GUI checks** in separate
+processes (five reports, three presentation, three existing layout/performance).
+Lint, compilation and repository/documentation checks also pass.
+
+```powershell
+python tools/benchmark_bulk_optimization.py --control-root path/to/trusted-checkout --runs 5 --records 500 --output bulk.json
+python -m pytest tests/test_generated_image_index.py tests/test_deep_scan_dependency_optimization.py tests/test_report_io.py -q
+```

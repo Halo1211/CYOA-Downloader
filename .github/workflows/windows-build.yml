@@ -36,7 +36,11 @@ jobs:
         shell: pwsh
         env:
           CYOA_GUI_SMOKE: "1"
-        run: python -m pytest tests/test_gui_presentation_work.py -q
+        run: |
+          python -m pytest tests/test_gui_presentation_work.py -q
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pytest tests/test_results_panel.py -q
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build portable folder
         shell: pwsh
@@ -51,9 +55,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tools/verify_windows_package.py "dist/portable/CYOA-Downloader-Windows-x64-portable.zip" "dist/verified/portable" --report dist/portable-package.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python tools/smoke_windows_build.py "dist/verified/standalone/CYOA Downloader.exe" --require-self-test "archive checkpoint resume" --report dist/standalone-smoke.json
+          python tools/smoke_windows_build.py "dist/verified/standalone/CYOA Downloader.exe" --require-self-test "incremental generated image inference" --report dist/standalone-smoke.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python tools/smoke_windows_build.py "dist/verified/portable/CYOA Downloader/CYOA Downloader.exe" --require-self-test "archive checkpoint resume" --report dist/portable-smoke.json
+          python tools/smoke_windows_build.py "dist/verified/portable/CYOA Downloader/CYOA Downloader.exe" --require-self-test "incremental generated image inference" --report dist/portable-smoke.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tools/smoke_batch_formats.py --executable "dist/verified/standalone/CYOA Downloader.exe" --runtime-root "dist/verified/portable/CYOA Downloader/_internal" --report dist/standalone-batch.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

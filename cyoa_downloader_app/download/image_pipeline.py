@@ -19,6 +19,7 @@ import tempfile
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
 from itertools import islice
 from urllib.parse import parse_qsl, quote, unquote, urlencode, urljoin, urlparse, urlunparse
 
@@ -78,7 +79,7 @@ from .asset_scan import (
     _check_image_dedup_digest,
     _deep_scan_project_assets,
     _extract_image_references,
-    _infer_generated_entry_images,
+    _GeneratedEntryImageIndex,
     _is_probable_raw_cdn_asset,
     _safe_response_text,
     _scan_file_for_assets,
@@ -1255,7 +1256,7 @@ def _deep_scan_and_download_assets(
     scanned_files: set[str]        = set()   # abs file paths already scanned
     known_urls:    set[str]        = set()   # canonical candidate URLs already seen
     candidate_sources: dict[str, set[str]] = {}
-    scanned_texts: dict[str, str] = {}
+    generated_images = _GeneratedEntryImageIndex()
     css_sources: set[str] = set()
     file_sources = source_urls if source_urls is not None else {}
     response_sources: dict[str, str] = {}
@@ -1265,6 +1266,7 @@ def _deep_scan_and_download_assets(
         for path in (exclude_relative_paths or set())
     }
 
+    @lru_cache(maxsize=8192)
     def _canonical_scan_url(url: str) -> str:
         """Canonicalize scan candidates without collapsing real variants."""
         try:
@@ -1324,7 +1326,7 @@ def _deep_scan_and_download_assets(
                 try:
                     with open(fpath, encoding='utf-8', errors='replace') as _fh:
                         text = _fh.read()
-                    scanned_texts[rel] = text
+                    generated_images.add_source(text)
                     urls = run_asset_scanner_plugins(text, f_url, base_url, ext)
                     canonical_urls = {_canonical_scan_url(url) for url in urls}
                     new_candidates |= (canonical_urls - known_urls)
@@ -1333,7 +1335,7 @@ def _deep_scan_and_download_assets(
                 except _ASSET_SCANNER_PLUGIN_ERRORS as e:
                     logger.debug(f"[deep scan] {fn}: {e}")
         _raise_if_cancelled()
-        for inferred_path in _infer_generated_entry_images(scanned_texts):
+        for inferred_path in generated_images.paths():
             candidate = _canonical_scan_url(
                 urljoin(base_url.rstrip('/') + '/', inferred_path)
             )

@@ -165,6 +165,49 @@ def test_one_directory_walk_per_scan_round(scan, tmp_path, monkeypatch):
     assert len(walks) == 2
 
 
+def test_repeated_known_urls_are_canonicalized_once_per_scan(scan, tmp_path, monkeypatch):
+    urls = {START + f"image{index}.png" for index in range(30)}
+    text = "const images = " + __import__("json").dumps(sorted(urls)) + ";"
+    for index in range(20):
+        (tmp_path / f"bundle{index}.js").write_text(text, "utf-8")
+    parsed = []
+    native = image_pipeline.urlparse
+
+    def parse(url, *args, **kwargs):
+        if url in urls:
+            parsed.append(url)
+        return native(url, *args, **kwargs)
+
+    monkeypatch.setattr(image_pipeline, "urlparse", parse)
+    assert scan.run(skip_urls=urls) == {}
+    assert scan.calls == []
+    assert len(parsed) == len(urls)
+    assert scan.run(skip_urls=urls) == {}
+    assert len(parsed) == 2 * len(urls), "canonical cache escaped its scan/request context"
+
+
+def test_generated_image_metadata_survives_later_bfs_sources(scan, tmp_path, monkeypatch):
+    native = image_pipeline.run_asset_scanner_plugins
+
+    def plugin(text, *args):
+        found = native(text, *args)
+        return found | ({START + "constructors.js"} if "constructors.js" in text else set())
+
+    monkeypatch.setattr(image_pipeline, "run_asset_scanner_plugins", plugin)
+    (tmp_path / "seed.js").write_text(
+        """'li_' + group + '_' + name.toLowerCase().replaceAll(' ', '');
+        const template = 'img/${entry.id}.webp';
+        const script = "https://example.test/game/constructors.js";""",
+        "utf-8",
+    )
+    scan.bodies[START + "constructors.js"] = (
+        "class Thing extends Entry {\nsuper(name, 'item');\n}\nnew Thing('A/B Name');",
+        "application/javascript", None,
+    )
+    scan.bodies[START + "img/li_item_abname.webp"] = ("PNG", "image/png", None)
+    assert set(scan.run()) == {START + "constructors.js", START + "img/li_item_abname.webp"}
+
+
 def test_existing_relocated_asset_accepts_its_recorded_source_url(scan, tmp_path):
     css = tmp_path / "external/assets/theme_hash.css"
     css.parent.mkdir(parents=True)

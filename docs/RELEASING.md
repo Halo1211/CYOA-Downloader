@@ -76,6 +76,13 @@ unrelated-row repaints, and verifies that startup creates no discarded progress
 bars and discovers the actual input/queue panels. The Windows workflow runs
 this separately from the default source suite.
 
+For report changes, also run `python -m pytest tests/test_results_panel.py -q`
+in a separate fresh process with `CYOA_GUI_SMOKE=1`. It covers bounded widgets,
+all-record filters/CSV, off-Tk preparation and serialization, snapshot membership
+and closing during preparation/export. Deep-scan changes should require the
+`incremental generated image inference` frozen self-test case, which checks
+cross-file metadata and group replacement.
+
 For GUI/startup or package-data changes, also run `tools/smoke_batch_formats.py`
 against both extracted executables with the portable `_internal` folder as
 `--runtime-root`. This tests CSV/XLSX/XLS readers with Unicode output and exact
