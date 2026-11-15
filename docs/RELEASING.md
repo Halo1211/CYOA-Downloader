@@ -68,6 +68,16 @@ and redirected CSS dependencies. Browser/runtime fixtures need the matching
 installed Playwright Chromium. Keep profiles and output isolated from user data.
 These CLI/output checks do not replace native GUI interaction checks.
 
+For GUI/startup or package-data changes, also run `tools/smoke_batch_formats.py`
+against both extracted executables with the portable `_internal` folder as
+`--runtime-root`. This tests CSV/XLSX/XLS readers with Unicode output and exact
+image bytes plus native Selenium Manager. `tools/benchmark_startup.py --after
+"path/to/CYOA Downloader.exe" --runs 1 --output startup.json` is a mapped-window
+and delivered-Tk-event smoke, not a repeated performance comparison. Its child
+uses a fresh profile and explicitly opts into automatic exit. Use six paired
+launches and separate heavy work for performance measurements. Keep OS-cache
+limitations explicit; see [performance measurements](PERFORMANCE.md).
+
 ## Publish
 
 Commit the reviewed source, push without force, and tag the exact tested commit

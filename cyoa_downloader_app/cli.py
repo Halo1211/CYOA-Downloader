@@ -134,7 +134,10 @@ def _safe_console_print(value="", *, file=None) -> None:
 
 def launch_gui() -> None:
     """Load the GUI only when the CLI actually needs it."""
+    from .diagnostics.startup import mark
+    mark("gui_dispatch")
     _legacy()  # Compose the complete GUI patch stack before constructing it.
+    mark("gui_composed")
     from .gui.app import launch_gui as _launch_gui
 
     _launch_gui()

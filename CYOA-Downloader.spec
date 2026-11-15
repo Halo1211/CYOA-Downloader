@@ -7,9 +7,12 @@ system dependencies and are intentionally reported by the diagnostic panel.
 """
 
 import os
+import sys
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_all
+
+from tools.bundle_policy import keep_bundle_member
 
 
 ROOT = Path(SPEC).parent
@@ -63,8 +66,10 @@ for package in (
         package_datas, package_binaries, package_hiddenimports = collect_all(package)
     except (ImportError, ModuleNotFoundError):
         continue
-    datas += package_datas
-    binaries += package_binaries
+    datas += [(source, target) for source, target in package_datas
+              if keep_bundle_member(str(Path(target) / Path(source).name), sys.platform)]
+    binaries += [(source, target) for source, target in package_binaries
+                 if keep_bundle_member(str(Path(target) / Path(source).name), sys.platform)]
     # Some packages (notably pandas) expose their entire internal test suite
     # through collect_submodules. Those tests are not runtime dependencies and
     # would make the one-file executable unnecessarily huge.
@@ -89,6 +94,10 @@ a = Analysis(
     excludes=["torch", "torchvision", "tensorflow", "transformers", "timm", "scipy"],
     noarchive=False,
 )
+# Hooks can collect the same development resources again. Apply the same
+# conservative policy to the final TOCs, preserving all native runtime assets.
+a.datas[:] = [entry for entry in a.datas if keep_bundle_member(entry[0], sys.platform)]
+a.binaries[:] = [entry for entry in a.binaries if keep_bundle_member(entry[0], sys.platform)]
 pyz = PYZ(a.pure)
 portable_folder = os.environ.get("CYOA_BUILD_LAYOUT", "onefile") == "onedir"
 exe_inputs = [pyz, a.scripts]

@@ -522,9 +522,9 @@ The [roadmap](OPTIMIZATION_ROADMAP.md) tracks these remaining areas.
 
 ## Unreleased: mirror checkpoints and incremental scans
 
-The source integration passes **1,563 tests**, with **12 skipped**, **40/40**
+The checkpoint-stage integration passed **1,563 tests**, with **12 skipped**, **40/40**
 offline self-test cases, clean Ruff checks and all 15 public Markdown checks.
-These are the current batch totals; the v1.1.5 figures above are historical.
+These are stage-specific totals; the latest GUI/startup integration is below.
 
 Five paired runs against a trusted copy of the pre-change mirror, alternating
 execution order, isolated temporary files, and no simultaneous build/heavy tests:
@@ -580,4 +580,92 @@ perform filesystem checks and do not provide a universal memory bound.
 python tools/benchmark_archive_index.py --control-source path/to/trusted-old-website.py --runs 5 --output index.json
 python tools/benchmark_checkpoint_resume.py --control-source path/to/trusted-old-website.py --runs 5 --output resume.json
 python -m pytest -q tests/test_archive_checkpoints.py tests/test_website_archive_optimization.py tests/test_live_library_layout.py
+```
+
+## Unreleased: idle GUI rendering and Windows startup
+
+Two indeterminate detail bars previously started during construction and kept
+animating while the app was idle or the detail panel was hidden. A 10-second
+profile recorded 636 progress redraws and 58,028 Tk bridge calls in an idle GUI.
+This is unnecessary work even though no file is being downloaded.
+
+The bars now start quiet. Telemetry is still collected while details are hidden,
+but only visible presentation changes cross the Tk bridge. Opening details or
+restoring the main window renders the latest snapshot. Visible unknown-length
+bars share one 80 ms timer using public CTk stepping APIs. Collapse, unmap,
+rebuild and shutdown stop that timer; generations reject late callbacks. Stable
+text, bar values/configuration and graph signatures avoid redundant redraws.
+
+Five paired fresh processes, alternating order, real mapped transparent Tk
+windows at 1100 × 720, isolated profiles, no downloads. Each row is a median
+over a two-second scenario, after 250 ms of layout settling:
+
+| Scenario | Tk bridge calls before → after | Progress redraws before → after |
+| --- | ---: | ---: |
+| Idle, details collapsed | 11,695 → 290 | 128 → 0 |
+| Idle, details expanded | 11,691 → 296 | 128 → 0 |
+| Active, details collapsed | 15,061 → 346 | 167 → 0 |
+| Active, details expanded | 15,241 → 4,101 | 169 → 42 |
+| Active, window unmapped | 15,065 → 348 | 167 → 0 |
+| Completed | 291 → 290 | 0 → 0 |
+
+These counts establish less wasted rendering, not a universal speed percentage.
+The 10 ms-heartbeat p95 did not consistently improve on this machine (idle
+12.0 → 16.6 ms); Windows timer scheduling remains visible. Process CPU accounting
+has about 15.6 ms granularity here, so zero-valued short samples do not mean zero
+CPU usage. This is not a physical mouse/compositor latency or low-end-laptop
+measurement.
+
+Windows bundles now omit only identified pandas development-test data and the
+two foreign-platform Selenium Manager executables. Public testing helpers,
+spreadsheet engines, native Selenium Manager, Playwright/Node, gallery-dl,
+yt-dlp/EJS, Tcl/Tk and other runtime resources remain. Selection is applied both
+before analysis and after hooks populate final data/binary tables.
+The pruning audit accounts for all 1,124 omitted files (26,531,733 uncompressed
+bytes). Every retained runtime member matches the control by SHA-256, except
+ZIP-container metadata differences whose member bytes and CRC match exactly.
+
+| Package measurement | Instrumented control | Updated candidate |
+| --- | ---: | ---: |
+| Standalone EXE bytes | 132,160,781 | 122,907,125 |
+| Embedded runtime data/binary members | 6,641 | 5,517 |
+| Portable ZIP extracted files | 6,642 | 5,518 |
+
+Startup controls use the preceding application plus the same opt-in phase
+probe. The candidate also includes the GUI changes above. Six alternating
+launches per side/layout use a fresh process/profile each time: the first
+observed launch is recorded separately and five subsequent launches provide
+the medians below. Benchmarks run without concurrent builds/heavy tests.
+
+| Repeated-launch median | Control | Candidate |
+| --- | ---: | ---: |
+| Standalone: process launch → script entry | 5.120 s | 4.521 s |
+| Standalone: process launch → main-window Map | 6.741 s | 6.189 s |
+| Standalone: process launch → delivered Tk event | 6.745 s | 6.193 s |
+| Portable: process launch → main-window Map | 1.534 s | 1.531 s |
+| Portable: process launch → delivered Tk event | 1.538 s | 1.534 s |
+
+First observed event-ready launches were 7.545 → 7.450 s for standalone and
+4.420 → 3.225 s for portable. OS caches and antivirus state are uncontrolled:
+these are not proven OS-cold timings. Script-entry time includes bootloader,
+extraction, interpreter and runtime-hook work. The readiness probe observes a
+Tk event delivered after main-window mapping and UI construction; it does not
+measure the first physical click or compositor paint. Peak process-tree RSS
+was about 97 MiB standalone / 88 MiB portable and did not materially decrease.
+Portable avoids the standalone layout's per-launch extraction cost.
+
+The integration passes **1,602 tests**, **12 default skips**, **40/40** offline
+self-tests, clean lint/Markdown checks and **3 opt-in real-Tk GUI checks**.
+Additional tests cover hidden/unmapped views, latest-state restoration, shared
+animation ownership, unchanged widgets, replacement widgets and stale timers
+after Cancel/New Run. Package verification compares all 139 frozen application
+modules and the main script with source and validates Tcl/Tk/SQLite/runtime
+bytes. CSV, XLSX and generated BIFF8/CFB XLS fixtures exercise real frozen
+readers with Unicode names and exact embedded-image bytes; the retained native
+Selenium helper is exercised offline.
+
+```powershell
+python tools/benchmark_idle_gui.py --control-root path/to/trusted-checkout --runs 5 --seconds 2 --output idle.json
+python tools/benchmark_startup.py --before path/to/instrumented-control.exe --after path/to/candidate.exe --runs 6 --output startup.json
+python tools/smoke_batch_formats.py --executable "path/to/CYOA Downloader.exe" --runtime-root path/to/portable/_internal --report batch.json
 ```

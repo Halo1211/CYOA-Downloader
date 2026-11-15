@@ -103,6 +103,7 @@ from ..runtime import state as _runtime_state
 from ..storage.cache import _cache_stats, _clear_image_cache, _enforce_cache_limit
 from ..storage.history import _cancel_history_metadata, _load_history, _metadata_context, _record_history
 from ..storage.resume import clear_resume_state, load_resume_state, save_resume_state
+from . import progress_rendering as _progress_presentation
 from .auto_prepare import AutoModePreparation
 from .cache_maintenance import cache_maintenance
 from .logging_ui import _v465_configure_log_tags
@@ -2196,6 +2197,7 @@ def _v46_gui_init(self, root) -> None:
     self._v46_progress_handler = _V46TelemetryLogHandler(self)
     logger.addHandler(self._v46_progress_handler)
     self._v46_progress_after_id = self.root.after(350, self._v46_poll_progress)
+    _progress_presentation.install_visibility(self)
     try:
         self.root.protocol("WM_DELETE_WINDOW", self._v46_on_close)
     except _GUI_CALLBACK_ERRORS as exc:
@@ -2301,13 +2303,13 @@ def _v46_gui_setup_ui(self) -> None:
     self._v46_resolved_label = ctk.CTkLabel(current, textvariable=self._v46_resolved_var, font=ctk.CTkFont("Segoe UI", 9), text_color="#a78bfa", anchor="w", cursor="hand2")
     self._v46_resolved_label.grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 3))
     self._v46_job_pb = ctk.CTkProgressBar(current, height=7, fg_color=p["surface2"], progress_color="#3b82f6", mode="indeterminate")
-    self._v46_job_pb.grid(row=4, column=0, sticky="ew", padx=10, pady=(2, 8)); self._v46_job_pb.start()
+    self._v46_job_pb.grid(row=4, column=0, sticky="ew", padx=10, pady=(2, 8)); self._v46_job_pb.set(0)
 
     file_card = card(2, "Current File & Transfer")
     self._v46_file_var = ctk.StringVar(value=f"{_v469_ps(self, 'current_file')}: —\n{_v469_ps(self, 'data')}: 0 B | {_v469_ps(self, 'speed')}: 0 B/s | {_v469_ps(self, 'average')}: 0 B/s\n{_v469_ps(self, 'elapsed')}: 00:00:00 | {_v469_ps(self, 'eta')}: {_v469_ps(self, 'unknown')}")
     ctk.CTkLabel(file_card, textvariable=self._v46_file_var, font=ctk.CTkFont("Segoe UI", 9), text_color=p["muted"], anchor="w", justify="left", wraplength=410).grid(row=1, column=0, sticky="ew", padx=10)
     self._v46_file_pb = ctk.CTkProgressBar(file_card, height=7, fg_color=p["surface2"], progress_color="#14b8a6", mode="indeterminate")
-    self._v46_file_pb.grid(row=2, column=0, sticky="ew", padx=10, pady=(5, 3)); self._v46_file_pb.start()
+    self._v46_file_pb.grid(row=2, column=0, sticky="ew", padx=10, pady=(5, 3)); self._v46_file_pb.set(0)
     self._v46_speed_canvas = tk.Canvas(file_card, height=38, bg=p["surface2"], highlightthickness=0, bd=0)
     self._v46_speed_canvas.grid(row=3, column=0, sticky="ew", padx=10, pady=(2, 8))
     self._v46_speed_canvas.bind("<Configure>", lambda _e: self._v46_draw_speed_graph())
@@ -2837,6 +2839,9 @@ def _v46_on_close(self) -> None:
     self._v46_finish_close()
 
 def _v46_finish_close(self) -> None:
+    presentation = getattr(self, "_progress_view", None)
+    if presentation is not None:
+        presentation.halt()
     from .queue_import import cancel_queue_import
     cancel_queue_import(self)
     close_timer = getattr(self, "_cache_close_after_id", None)
@@ -3027,55 +3032,56 @@ def _v46_poll_progress(self) -> None:
     self._v46_progress_after_id = self.root.after(next_delay, self._v46_poll_progress)
 
 def _v46_render_progress(self, s: dict[str, Any]) -> None:
+    presentation = _progress_presentation.view(self)
+    self._v46_source_full = s["source_url"]
+    self._v46_resolved_full = s["resolved_url"]
+    if not presentation.window_visible():
+        presentation.halt()
+        return
     # v46.9: localize displayed text only. state_disp is for the UI; every
     # `s["state"] in {...}` comparison below still uses the raw enum value.
     state_disp = _v469_state_label(self, s["state"])
     _U = lambda k: _v469_ps(self, k)
     total = s["total_jobs"]
     current = min(total, s["current_job"]) if total else 0
-    self._v46_overall_var.set(
+    presentation.set("_v46_overall_var",
         f"{_U('job')} {current} {_U('of')} {total} — {_U('overall')}: {s['queue_ratio']*100:.1f}%\n"
         f"{_U('completed')}: {s['completed_jobs']} | {_U('failed')}: {s['failed_jobs']} | {_U('remaining')}: {s['remaining_jobs']}"
     )
-    self._v46_overall_pb.set(s["queue_ratio"])
+    presentation.bar("_v46_overall_pb", s["queue_ratio"])
     summary_var = getattr(self, "_v46_progress_summary_var", None)
     if summary_var is not None:
-        summary_var.set(
+        presentation.set("_v46_progress_summary_var",
             f"{_U('progress')}: {state_disp} | {_U('job')} {current} {_U('of')} {total} | "
             f"{_U('overall')} {s['queue_ratio']*100:.1f}% | {_U('speed')} {format_speed(s['speed'])}"
         )
+    presentation.set("_v46_state_var", state_disp + (f" | {_U('peak')} {format_speed(s['peak_speed'])}" if s["peak_speed"] > 0 else ""))
+    presentation.configure("_v46_copy_error_btn", state="normal" if s["last_error"] else "disabled")
+    if not presentation.details_visible():
+        presentation.halt()
+        return
     assets_total = s["assets_total"]
     assets_text = f"{s['assets_finished']} / {assets_total}" if assets_total is not None else f"{s['assets_finished']} / {_U('unknown')}"
     mode = str(s["mode"] or "—").replace("_", " ").title()
-    self._v46_job_var.set(
+    presentation.set("_v46_job_var",
         f"{_U('mode')}: {mode} | {_U('stage')}: {state_disp}\n"
         f"{_U('assets')}: {assets_text} | {_U('success')}: {s['assets_success']} | {_U('failed')}: {s['assets_failed']} | {_U('skipped')}: {s['assets_skipped']}"
     )
     self._v46_source_full = s["source_url"]
     self._v46_resolved_full = s["resolved_url"]
-    self._v46_source_var.set(_U("source") + ": " + (truncate_display_url(s["source_url"], 34) if s["source_url"] else "—"))
-    self._v46_resolved_var.set(_U("resolved") + ": " + (truncate_display_url(s["resolved_url"], 34) if s["resolved_url"] else "—"))
+    presentation.set("_v46_source_var", _U("source") + ": " + (truncate_display_url(s["source_url"], 34) if s["source_url"] else "—"))
+    presentation.set("_v46_resolved_var", _U("resolved") + ": " + (truncate_display_url(s["resolved_url"], 34) if s["resolved_url"] else "—"))
     determinate = assets_total is not None and assets_total > 0 and s["state"] in {DownloadState.DOWNLOADING.value, DownloadState.RETRYING.value, DownloadState.REWRITING.value, DownloadState.VERIFYING.value, DownloadState.PACKAGING.value, DownloadState.COMPLETED.value, DownloadState.COMPLETED_WITH_WARNINGS.value}
-    if determinate:
-        self._v46_job_pb.stop(); self._v46_job_pb.configure(mode="determinate"); self._v46_job_pb.set(s["job_progress"])
-    else:
-        self._v46_job_pb.configure(mode="indeterminate")
-        if s["state"] not in {DownloadState.IDLE.value, DownloadState.COMPLETED.value, DownloadState.COMPLETED_WITH_WARNINGS.value, DownloadState.FAILED.value, DownloadState.CANCELLED.value}:
-            self._v46_job_pb.start()
-        else:
-            self._v46_job_pb.stop(); self._v46_job_pb.set(s["job_progress"])
+    job_animate = not determinate and s["state"] not in {DownloadState.IDLE.value, DownloadState.COMPLETED.value, DownloadState.COMPLETED_WITH_WARNINGS.value, DownloadState.FAILED.value, DownloadState.CANCELLED.value}
+    presentation.bar("_v46_job_pb", s["job_progress"], animate=job_animate)
     file_total = s["file_total"]
     if file_total and file_total > 0:
         file_ratio = min(1.0, float(s["file_downloaded"]) / float(file_total))
         file_progress = f"{format_bytes(s['file_downloaded'])} / {format_bytes(file_total)} — {file_ratio*100:.1f}%"
-        self._v46_file_pb.stop(); self._v46_file_pb.configure(mode="determinate"); self._v46_file_pb.set(file_ratio)
+        presentation.bar("_v46_file_pb", file_ratio)
     else:
         file_progress = f"{format_bytes(s['file_downloaded'])} {_U('downloaded')} — {_U('total_unknown')}"
-        self._v46_file_pb.configure(mode="indeterminate")
-        if s["state"] in {DownloadState.DOWNLOADING.value, DownloadState.RETRYING.value}:
-            self._v46_file_pb.start()
-        else:
-            self._v46_file_pb.stop(); self._v46_file_pb.set(0)
+        presentation.bar("_v46_file_pb", 0, animate=s["state"] in {DownloadState.DOWNLOADING.value, DownloadState.RETRYING.value})
     if s["total_known"] is not None:
         total_data = f"{format_bytes(s['total_downloaded'])} / {format_bytes(s['total_known'])}"
     else:
@@ -3087,25 +3093,30 @@ def _v46_render_progress(self, s: dict[str, Any]) -> None:
     else:
         eta_text = format_duration(s["eta"]) if s["eta"] is not None else (_U("calculating") if s["speed"] > 0 else _U("unknown"))
     current_file = truncate_display_url(s["current_file"], 42) if s["current_file"] else "—"
-    self._v46_file_var.set(
+    presentation.set("_v46_file_var",
         f"{_U('current_file')}: {current_file}\n"
         f"{_U('file_progress')}: {file_progress} | {_U('total_data')}: {total_data}\n"
         f"{_U('speed')}: {format_speed(s['speed'])} | {_U('average')}: {format_speed(s['average_speed'])}\n"
         f"{_U('elapsed')}: {format_duration(s['elapsed'])} | {_U('eta')}: {eta_text}"
     )
-    self._v46_state_var.set(state_disp + (f" | {_U('peak')} {format_speed(s['peak_speed'])}" if s["peak_speed"] > 0 else ""))
-    if s["last_error"]:
-        self._v46_copy_error_btn.configure(state="normal")
     self._v46_draw_speed_graph()
 
 def _v46_draw_speed_graph(self) -> None:
+    presentation = _progress_presentation.view(self)
+    if not presentation.details_visible():
+        return
     canvas = getattr(self, "_v46_speed_canvas", None)
     if canvas is None:
         return
     data = list(self._v46_telemetry.speed_history)[-120:]
     width = max(10, int(canvas.winfo_width() or 10))
     height = max(10, int(canvas.winfo_height() or 38))
+    p = self._p()
+    signature = (width, height, tuple(data), p.get("accent", "#60a5fa"), p.get("accentbg", "#1e3a5f"))
+    if presentation.matches("speed_graph", canvas, signature):
+        return
     canvas.delete("v46graph")
+    presentation.values["speed_graph"] = (canvas, signature)
     if not data or max(data) <= 0:
         return
     peak = max(data)
@@ -3843,6 +3854,8 @@ def _v463_apply_progress_visibility(self: CYOADownloaderGUI, expanded: bool | No
     compact = getattr(self, "_v463_progress_compact", None)
     button = getattr(self, "_v46_progress_toggle_btn", None)
     expanded_now = bool(getattr(self, "_v46_progress_expanded", False))
+    if not expanded_now:
+        _progress_presentation.view(self).halt()
     if details is not None:
         if expanded_now:
             details.grid()
@@ -3874,6 +3887,7 @@ def _v463_apply_progress_visibility(self: CYOADownloaderGUI, expanded: bool | No
         self.root.after_idle(self._v463_arrange_progress_and_log)
     except _GUI_CALLBACK_ERRORS as exc:
         logger.debug("Progress layout idle callback could not be scheduled: %s", exc)
+    _progress_presentation.refresh(self)
 
 def _v469_lang(self: CYOADownloaderGUI) -> str:
     return "en" if getattr(self, "_language", "id") == "en" else "id"
@@ -3898,6 +3912,8 @@ def _v463_rebuild_progress_workspace(self: CYOADownloaderGUI) -> None:
     import customtkinter as ctk
 
     p = self._p()
+    _progress_presentation.view(self).reset()
+    self._progress_view_ready = False
     old_host = getattr(self, "_v46_progress_host", None)
     log_frame = getattr(getattr(self, "_log_txt", None), "master", None)
     if log_frame is None:
@@ -3996,7 +4012,7 @@ def _v463_rebuild_progress_workspace(self: CYOADownloaderGUI) -> None:
         job_block, height=6, fg_color=p["panel"], progress_color="#3b82f6", mode="indeterminate"
     )
     self._v46_job_pb.grid(row=1, column=0, sticky="ew", padx=8, pady=(3, 8))
-    self._v46_job_pb.start()
+    self._v46_job_pb.set(0)
 
     transfer_block = ctk.CTkFrame(details, fg_color=p["surface2"], corner_radius=7)
     transfer_block.grid(row=0, column=1, sticky="nsew", padx=(4, 0))
@@ -4017,7 +4033,7 @@ def _v463_rebuild_progress_workspace(self: CYOADownloaderGUI) -> None:
         transfer_block, height=6, fg_color=p["panel"], progress_color="#14b8a6", mode="indeterminate"
     )
     self._v46_file_pb.grid(row=1, column=0, sticky="ew", padx=8, pady=(3, 8))
-    self._v46_file_pb.start()
+    self._v46_file_pb.set(0)
 
     self._v46_source_var = ctk.StringVar(value=_v469_ps(self, "source") + ": —")
     self._v46_resolved_var = ctk.StringVar(value=_v469_ps(self, "resolved") + ": —")
@@ -4084,6 +4100,7 @@ def _v463_rebuild_progress_workspace(self: CYOADownloaderGUI) -> None:
     self._v46_install_url_menu(self._v46_source_label, lambda: self._v46_source_full, "source")
     self._v46_install_url_menu(self._v46_resolved_label, lambda: self._v46_resolved_full, "resolved")
     self._v46_progress_expanded = False
+    self._progress_view_ready = True
     self._v46_apply_progress_visibility(False)
 
 def _v463_gui_setup_ui_final(self: CYOADownloaderGUI) -> None:

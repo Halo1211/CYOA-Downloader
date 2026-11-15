@@ -283,7 +283,13 @@ def launch_gui() -> None:
     ctk.set_appearance_mode(_normalize_theme_mode(_theme_boot.get("theme_mode", "System")).lower())
     ctk.set_default_color_theme("blue")
     root = ctk.CTk()
+    from ..diagnostics.startup import probe
+    startup = probe()
+    if startup is not None:
+        startup.attach(root)
     CYOADownloaderGUI(root)
+    if startup is not None:
+        startup.constructed()
     root.mainloop()
 
 class CYOADownloaderGUI:

@@ -5,6 +5,12 @@ instructions are in [README.md](README.md) and the linked guides.
 
 ## Unreleased
 
+- Stop hidden/idle progress animations, draw changing progress only when visible,
+  and use one paced animation timer for visible unknown-length transfers. Restore
+  current telemetry when details or the window become visible again.
+- Measure GUI startup through main-window mapping and a delivered Tk event.
+  Omit pandas development-test data and Selenium helpers for other platforms
+  from Windows packages while retaining native helpers and runtime integrations.
 - Add atomic mirror asset/route checkpoints and verified interrupted-archive
   continuation through Retry Assets, including recovery before a final manifest
   exists. Reject changed hashes, profiles/cookies and superseded metadata writers.

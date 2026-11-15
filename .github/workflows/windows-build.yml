@@ -49,6 +49,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tools/smoke_windows_build.py "dist/verified/portable/CYOA Downloader/CYOA Downloader.exe" --require-self-test "archive checkpoint resume" --report dist/portable-smoke.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tools/smoke_batch_formats.py --executable "dist/verified/standalone/CYOA Downloader.exe" --runtime-root "dist/verified/portable/CYOA Downloader/_internal" --report dist/standalone-batch.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tools/smoke_batch_formats.py --executable "dist/verified/portable/CYOA Downloader/CYOA Downloader.exe" --runtime-root "dist/verified/portable/CYOA Downloader/_internal" --report dist/portable-batch.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tools/benchmark_startup.py --after "dist/verified/portable/CYOA Downloader/CYOA Downloader.exe" --runs 1 --output dist/gui-startup-smoke.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload executable artifacts
         uses: actions/upload-artifact@v7
@@ -61,3 +67,6 @@ jobs:
             dist/portable-smoke.json
             dist/standalone-package.json
             dist/portable-package.json
+            dist/standalone-batch.json
+            dist/portable-batch.json
+            dist/gui-startup-smoke.json
