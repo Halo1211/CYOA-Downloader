@@ -85,10 +85,12 @@ def run_internal_self_test() -> tuple[bool, str]:
         tests.append((name, bool(passed), detail))
 
     with _tempfile.TemporaryDirectory(prefix="cyoa_selftest_") as tmp_root:
+        private_checkpoint_path = None
         try:
             from ..storage.archive_checkpoint import ArchiveCheckpoint
 
             checkpoint_folder = os.path.join(tmp_root, "checkpoint")
+            private_checkpoint_path = ArchiveCheckpoint.path_for(checkpoint_folder)
             os.makedirs(checkpoint_folder)
             checkpoint_file = pathlib.Path(checkpoint_folder) / "asset.png"
             checkpoint_file.write_bytes(b"complete")
@@ -99,10 +101,18 @@ def run_internal_self_test() -> tuple[bool, str]:
             fenced = not checkpoint.put("asset", "https://fixture.invalid/a?v=1", str(checkpoint_file))
             checkpoint_file.write_bytes(b"corrupt!")
             record("archive checkpoint resume", valid and fenced
-                   and resumed.get("asset", "https://fixture.invalid/a?v=1") is None,
-                   "atomic metadata + hash validation + stale generation fence")
+                   and resumed.get("asset", "https://fixture.invalid/a?v=1") is None
+                   and not (pathlib.Path(checkpoint_folder) / "_audit").exists()
+                   and not pathlib.Path(private_checkpoint_path).is_relative_to(checkpoint_folder),
+                   "app-private metadata + hash validation + stale generation fence")
         except _SELF_TEST_PROBE_ERRORS as exc:
             record("archive checkpoint resume", False, str(exc))
+        finally:
+            if private_checkpoint_path:
+                try:
+                    pathlib.Path(private_checkpoint_path).unlink(missing_ok=True)
+                except OSError as exc:
+                    logger.debug("Could not remove self-test checkpoint: %s", exc)
         try:
             from ..download.asset_scan import _GeneratedEntryImageIndex
 

@@ -888,3 +888,25 @@ existing layout/performance). Lint, compilation and repository checks pass.
 python tools/benchmark_queue_cache.py --control-root path/to/trusted-checkout --runs 5 --items 50000 --output queue-cache.json
 python -m pytest tests/test_run_snapshot.py tests/test_cache_write_optimization.py -q
 ```
+
+## Download layout follow-up: private checkpoints
+
+Normal GUI/CLI website archives store checkpoint databases in
+`~/.cyoa_downloader/archive-checkpoints/`, keyed by the canonical absolute output
+path. Downloaded story folders no longer receive an application `_audit` folder.
+Private records retain source/folder provenance so Retry Assets can still find
+interrupted archives without a manifest. Existing legacy checkpoint databases
+are imported atomically when opened, preserving verified resume records; their
+old directory is removed only when empty. Unrelated files remain untouched.
+
+This is a layout change, with no new performance claim. Copying or moving an
+archive to a different path does not transfer its profile-owned checkpoint
+association. Manifest-based recovery remains available. The separate live-queue
+maintenance tools retain their library-level `_audit` workspace. Regression
+checks cover clean output, private discovery scope, distinct output roots,
+legacy migration, failed migration and preservation of unrelated files.
+Application-owned queue publication carries its private checkpoint association
+from staging to the final title folder. Validation passes **1,633 source tests**
+with **21 default skips**, the existing **42/42 self-tests**, lint, compilation
+and repository/documentation checks. This follow-up does not rebuild the earlier
+Windows candidate packages.

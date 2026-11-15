@@ -131,10 +131,17 @@ def has_website_recovery_work(root: str) -> bool:
 
 
 def _interrupted_archives(base):
+    private = set()
+    for folder, source in ArchiveCheckpoint.interrupted(base):
+        private.add(folder.resolve())
+        yield folder, source
+    # Read old downloads until their owned database is migrated on resume.
     for path in base.rglob("archive-checkpoints.sqlite3"):
         if path.parent.name != "_audit":
             continue
         folder = path.parent.parent
+        if folder.resolve() in private:
+            continue
         if (folder / "archive_manifest.json").exists():
             continue
         source = ArchiveCheckpoint.source(str(path))

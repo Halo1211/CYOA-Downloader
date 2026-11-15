@@ -101,8 +101,18 @@ suffixes keep the same layout.
 
 For website archives, **Retry Assets** can continue atomic route checkpoints
 even when interruption prevented `archive_manifest.json` from being written.
-Internal `_audit/archive-checkpoints.sqlite3` stores metadata and hashes of the
-existing files, not a second payload cache. Keep it with an unfinished archive.
+Website download checkpoints now live under
+`~/.cyoa_downloader/archive-checkpoints/`, keyed by the archive's absolute path.
+Normal GUI/CLI website downloads do not create `_audit` inside story folders.
+The databases store metadata and hashes, not a second payload cache. Retry Assets
+finds unfinished archives through this private store and still recognizes old
+`_audit/archive-checkpoints.sqlite3` files. Opening a legacy checkpoint migrates
+its owned database and removes the old directory only when empty; unrelated
+files remain. Keep the application profile for checkpoint-based continuation.
+Moving an archive to another path loses its private checkpoint association;
+existing manifests remain available to the legacy recovery path. The separate
+live-queue maintenance tools described above still use their library-level
+`_audit` workspace for batch logs and catalogue status.
 Resume verifies local hashes and request context. Completed routes are local
 snapshots; this action is not a remote freshness check. Ineligible/missing
 validators and changed profiles/cookies use normal fetching. Legacy manifests

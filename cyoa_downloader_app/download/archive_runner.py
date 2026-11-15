@@ -135,7 +135,9 @@ def resume_existing_archive(folder: str, start_url: str, policy: ArchivePolicy):
 
     folder = os.path.abspath(folder)
     manifest_path = os.path.join(folder, "archive_manifest.json")
-    has_checkpoints = os.path.isfile(os.path.join(folder, "_audit", "archive-checkpoints.sqlite3"))
+    from ..storage.archive_checkpoint import ArchiveCheckpoint
+
+    has_checkpoints = ArchiveCheckpoint.exists(folder)
     if not os.path.isfile(manifest_path) and not has_checkpoints:
         return finalize_existing_archive(folder, start_url, policy)
     try:
