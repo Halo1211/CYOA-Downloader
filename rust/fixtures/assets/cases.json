@@ -1,0 +1,710 @@
+{
+  "image_fields": [
+    "image",
+    "backgroundImage",
+    "rowBackgroundImage",
+    "objectBackgroundImage",
+    "defaultImage",
+    "bgImage",
+    "bg",
+    "img",
+    "thumbnail",
+    "coverImage",
+    "headerImage",
+    "icon",
+    "portrait",
+    "avatar",
+    "picture",
+    "addonBackgroundImage",
+    "rowBorderImage",
+    "objectBorderImage",
+    "addonBorderImage",
+    "backpackBgImage",
+    "loadingBgImage",
+    "favicon",
+    "negativeImage",
+    "selectedImage",
+    "unselectedImage",
+    "borderImage",
+    "loadingImage",
+    "rowImage",
+    "choiceImage"
+  ],
+  "audio_fields": [
+    "audio",
+    "audioSrc",
+    "backgroundMusic",
+    "backgroundAudio",
+    "rowAudio",
+    "objectAudio",
+    "soundEffect",
+    "sfx",
+    "bgm",
+    "ambience",
+    "voiceover",
+    "narration",
+    "soundFile",
+    "audioFile",
+    "musicFile",
+    "clickSound",
+    "hoverSound",
+    "selectSound",
+    "musicUrl",
+    "audioUrl",
+    "soundUrl"
+  ],
+  "refs": [
+    {
+      "v": "img/a.png",
+      "bare": false,
+      "prose": false,
+      "ok": []
+    },
+    {
+      "v": "img/a.png",
+      "bare": false,
+      "prose": true,
+      "ok": []
+    },
+    {
+      "v": "img/a.png",
+      "bare": true,
+      "prose": false,
+      "ok": [
+        "img/a.png"
+      ]
+    },
+    {
+      "v": "img/a.png",
+      "bare": true,
+      "prose": true,
+      "ok": [
+        "img/a.png"
+      ]
+    },
+    {
+      "v": "https:/cdn.x/a.png",
+      "bare": false,
+      "prose": false,
+      "ok": []
+    },
+    {
+      "v": "https:/cdn.x/a.png",
+      "bare": false,
+      "prose": true,
+      "ok": [
+        "https://cdn.x/a.png"
+      ]
+    },
+    {
+      "v": "https:/cdn.x/a.png",
+      "bare": true,
+      "prose": false,
+      "ok": [
+        "https:/cdn.x/a.png"
+      ]
+    },
+    {
+      "v": "https:/cdn.x/a.png",
+      "bare": true,
+      "prose": true,
+      "ok": [
+        "https://cdn.x/a.png"
+      ]
+    },
+    {
+      "v": "HTTP://x/y.JPG?z=1",
+      "bare": false,
+      "prose": false,
+      "ok": []
+    },
+    {
+      "v": "HTTP://x/y.JPG?z=1",
+      "bare": false,
+      "prose": true,
+      "ok": [
+        "HTTP://x/y.JPG?z=1"
+      ]
+    },
+    {
+      "v": "HTTP://x/y.JPG?z=1",
+      "bare": true,
+      "prose": false,
+      "ok": [
+        "HTTP://x/y.JPG?z=1"
+      ]
+    },
+    {
+      "v": "HTTP://x/y.JPG?z=1",
+      "bare": true,
+      "prose": true,
+      "ok": [
+        "HTTP://x/y.JPG?z=1"
+      ]
+    },
+    {
+      "v": "//cdn.x/b.webp",
+      "bare": false,
+      "prose": false,
+      "ok": []
+    },
+    {
+      "v": "//cdn.x/b.webp",
+      "bare": false,
+      "prose": true,
+      "ok": [
+        "https://cdn.x/b.webp"
+      ]
+    },
+    {
+      "v": "//cdn.x/b.webp",
+      "bare": true,
+      "prose": false,
+      "ok": [
+        "//cdn.x/b.webp"
+      ]
+    },
+    {
+      "v": "//cdn.x/b.webp",
+      "bare": true,
+      "prose": true,
+      "ok": [
+        "https://cdn.x/b.webp"
+      ]
+    },
+    {
+      "v": "data:image/png;base64,AA",
+      "bare": false,
+      "prose": false,
+      "ok": []
+    },
+    {
+      "v": "data:image/png;base64,AA",
+      "bare": false,
+      "prose": true,
+      "ok": []
+    },
+    {
+      "v": "data:image/png;base64,AA",
+      "bare": true,
+      "prose": false,
+      "ok": []
+    },
+    {
+      "v": "data:image/png;base64,AA",
+      "bare": true,
+      "prose": true,
+      "ok": []
+    },
+    {
+      "v": "",
+      "bare": false,
+      "prose": false,
+      "ok": []
+    },
+    {
+      "v": "",
+      "bare": false,
+      "prose": true,
+      "ok": []
+    },
+    {
+      "v": "",
+      "bare": true,
+      "prose": false,
+      "ok": []
+    },
+    {
+      "v": "",
+      "bare": true,
+      "prose": true,
+      "ok": []
+    },
+    {
+      "v": "  img/c.gif  ",
+      "bare": false,
+      "prose": false,
+      "ok": []
+    },
+    {
+      "v": "  img/c.gif  ",
+      "bare": false,
+      "prose": true,
+      "ok": []
+    },
+    {
+      "v": "  img/c.gif  ",
+      "bare": true,
+      "prose": false,
+      "ok": [
+        "img/c.gif"
+      ]
+    },
+    {
+      "v": "  img/c.gif  ",
+      "bare": true,
+      "prose": true,
+      "ok": [
+        "img/c.gif"
+      ]
+    },
+    {
+      "v": "not an image",
+      "bare": false,
+      "prose": false,
+      "ok": []
+    },
+    {
+      "v": "not an image",
+      "bare": false,
+      "prose": true,
+      "ok": []
+    },
+    {
+      "v": "not an image",
+      "bare": true,
+      "prose": false,
+      "ok": []
+    },
+    {
+      "v": "not an image",
+      "bare": true,
+      "prose": true,
+      "ok": []
+    },
+    {
+      "v": "<img src='p/a.png' srcset='a1.png 1x, a2.png 2x'> text https://x/q.jpg.",
+      "bare": false,
+      "prose": false,
+      "ok": [
+        "a1.png",
+        "a2.png",
+        "p/a.png"
+      ]
+    },
+    {
+      "v": "<img src='p/a.png' srcset='a1.png 1x, a2.png 2x'> text https://x/q.jpg.",
+      "bare": false,
+      "prose": true,
+      "ok": [
+        "a1.png",
+        "a2.png",
+        "https://x/q.jpg",
+        "p/a.png"
+      ]
+    },
+    {
+      "v": "<img src='p/a.png' srcset='a1.png 1x, a2.png 2x'> text https://x/q.jpg.",
+      "bare": true,
+      "prose": false,
+      "ok": [
+        "a1.png",
+        "a2.png",
+        "p/a.png"
+      ]
+    },
+    {
+      "v": "<img src='p/a.png' srcset='a1.png 1x, a2.png 2x'> text https://x/q.jpg.",
+      "bare": true,
+      "prose": true,
+      "ok": [
+        "a1.png",
+        "a2.png",
+        "https://x/q.jpg",
+        "p/a.png"
+      ]
+    },
+    {
+      "v": "<p>Credit CC BY-SA 4.0https:/site.org/Mam'etu.jpg)</p>",
+      "bare": false,
+      "prose": false,
+      "ok": []
+    },
+    {
+      "v": "<p>Credit CC BY-SA 4.0https:/site.org/Mam'etu.jpg)</p>",
+      "bare": false,
+      "prose": true,
+      "ok": [
+        "https://site.org/Mam'etu.jpg"
+      ]
+    },
+    {
+      "v": "<p>Credit CC BY-SA 4.0https:/site.org/Mam'etu.jpg)</p>",
+      "bare": true,
+      "prose": false,
+      "ok": []
+    },
+    {
+      "v": "<p>Credit CC BY-SA 4.0https:/site.org/Mam'etu.jpg)</p>",
+      "bare": true,
+      "prose": true,
+      "ok": [
+        "https://site.org/Mam'etu.jpg"
+      ]
+    },
+    {
+      "v": "background-image: url('bg/x.png')",
+      "bare": false,
+      "prose": false,
+      "ok": [
+        "bg/x.png"
+      ]
+    },
+    {
+      "v": "background-image: url('bg/x.png')",
+      "bare": false,
+      "prose": true,
+      "ok": [
+        "bg/x.png"
+      ]
+    },
+    {
+      "v": "background-image: url('bg/x.png')",
+      "bare": true,
+      "prose": false,
+      "ok": [
+        "bg/x.png"
+      ]
+    },
+    {
+      "v": "background-image: url('bg/x.png')",
+      "bare": true,
+      "prose": true,
+      "ok": [
+        "bg/x.png"
+      ]
+    },
+    {
+      "v": "<source srcset='s.webp'> and https://x/no-ext",
+      "bare": false,
+      "prose": false,
+      "ok": [
+        "s.webp"
+      ]
+    },
+    {
+      "v": "<source srcset='s.webp'> and https://x/no-ext",
+      "bare": false,
+      "prose": true,
+      "ok": [
+        "s.webp"
+      ]
+    },
+    {
+      "v": "<source srcset='s.webp'> and https://x/no-ext",
+      "bare": true,
+      "prose": false,
+      "ok": [
+        "s.webp"
+      ]
+    },
+    {
+      "v": "<source srcset='s.webp'> and https://x/no-ext",
+      "bare": true,
+      "prose": true,
+      "ok": [
+        "s.webp"
+      ]
+    },
+    {
+      "v": "see https://x/a.png, https://x/b.svg; done",
+      "bare": false,
+      "prose": false,
+      "ok": []
+    },
+    {
+      "v": "see https://x/a.png, https://x/b.svg; done",
+      "bare": false,
+      "prose": true,
+      "ok": [
+        "https://x/a.png",
+        "https://x/b.svg"
+      ]
+    },
+    {
+      "v": "see https://x/a.png, https://x/b.svg; done",
+      "bare": true,
+      "prose": false,
+      "ok": [
+        "see https://x/a.png, https://x/b.svg; done"
+      ]
+    },
+    {
+      "v": "see https://x/a.png, https://x/b.svg; done",
+      "bare": true,
+      "prose": true,
+      "ok": [
+        "https://x/a.png",
+        "https://x/b.svg"
+      ]
+    },
+    {
+      "v": "blob:abc",
+      "bare": false,
+      "prose": false,
+      "ok": []
+    },
+    {
+      "v": "blob:abc",
+      "bare": false,
+      "prose": true,
+      "ok": []
+    },
+    {
+      "v": "blob:abc",
+      "bare": true,
+      "prose": false,
+      "ok": []
+    },
+    {
+      "v": "blob:abc",
+      "bare": true,
+      "prose": true,
+      "ok": []
+    },
+    {
+      "v": "javascript:alert(1)",
+      "bare": false,
+      "prose": false,
+      "ok": []
+    },
+    {
+      "v": "javascript:alert(1)",
+      "bare": false,
+      "prose": true,
+      "ok": []
+    },
+    {
+      "v": "javascript:alert(1)",
+      "bare": true,
+      "prose": false,
+      "ok": []
+    },
+    {
+      "v": "javascript:alert(1)",
+      "bare": true,
+      "prose": true,
+      "ok": []
+    },
+    {
+      "v": "#frag",
+      "bare": false,
+      "prose": false,
+      "ok": []
+    },
+    {
+      "v": "#frag",
+      "bare": false,
+      "prose": true,
+      "ok": []
+    },
+    {
+      "v": "#frag",
+      "bare": true,
+      "prose": false,
+      "ok": []
+    },
+    {
+      "v": "#frag",
+      "bare": true,
+      "prose": true,
+      "ok": []
+    },
+    {
+      "v": "img/a.png?v=2",
+      "bare": false,
+      "prose": false,
+      "ok": []
+    },
+    {
+      "v": "img/a.png?v=2",
+      "bare": false,
+      "prose": true,
+      "ok": []
+    },
+    {
+      "v": "img/a.png?v=2",
+      "bare": true,
+      "prose": false,
+      "ok": [
+        "img/a.png?v=2"
+      ]
+    },
+    {
+      "v": "img/a.png?v=2",
+      "bare": true,
+      "prose": true,
+      "ok": [
+        "img/a.png?v=2"
+      ]
+    },
+    {
+      "v": "<b>x</b>",
+      "bare": false,
+      "prose": false,
+      "ok": []
+    },
+    {
+      "v": "<b>x</b>",
+      "bare": false,
+      "prose": true,
+      "ok": []
+    },
+    {
+      "v": "<b>x</b>",
+      "bare": true,
+      "prose": false,
+      "ok": []
+    },
+    {
+      "v": "<b>x</b>",
+      "bare": true,
+      "prose": true,
+      "ok": []
+    },
+    {
+      "v": "https://x/a b.png",
+      "bare": false,
+      "prose": false,
+      "ok": []
+    },
+    {
+      "v": "https://x/a b.png",
+      "bare": false,
+      "prose": true,
+      "ok": []
+    },
+    {
+      "v": "https://x/a b.png",
+      "bare": true,
+      "prose": false,
+      "ok": [
+        "https://x/a b.png"
+      ]
+    },
+    {
+      "v": "https://x/a b.png",
+      "bare": true,
+      "prose": true,
+      "ok": [
+        "https://x/a b.png"
+      ]
+    },
+    {
+      "v": "foo.PNG",
+      "bare": false,
+      "prose": false,
+      "ok": []
+    },
+    {
+      "v": "foo.PNG",
+      "bare": false,
+      "prose": true,
+      "ok": []
+    },
+    {
+      "v": "foo.PNG",
+      "bare": true,
+      "prose": false,
+      "ok": [
+        "foo.PNG"
+      ]
+    },
+    {
+      "v": "foo.PNG",
+      "bare": true,
+      "prose": true,
+      "ok": [
+        "foo.PNG"
+      ]
+    }
+  ],
+  "srcsets": [
+    {
+      "v": "a.png 1x, b.png 2x",
+      "ok": [
+        [
+          "a.png",
+          "1x"
+        ],
+        [
+          "b.png",
+          "2x"
+        ]
+      ]
+    },
+    {
+      "v": "a.png,b.png",
+      "ok": [
+        [
+          "a.png,b.png",
+          ""
+        ]
+      ]
+    },
+    {
+      "v": " ,a.png 100w",
+      "ok": [
+        [
+          "a.png",
+          "100w"
+        ]
+      ]
+    },
+    {
+      "v": "x.png (max-width: 1px, 2px) 1x, y.png",
+      "ok": [
+        [
+          "x.png",
+          "(max-width: 1px, 2px) 1x"
+        ],
+        [
+          "y.png",
+          ""
+        ]
+      ]
+    },
+    {
+      "v": "",
+      "ok": []
+    }
+  ],
+  "media": [
+    {
+      "v": "https://youtu.be/abc",
+      "yt": true,
+      "id": false,
+      "sc": false
+    },
+    {
+      "v": "www.youtube.com/watch?v=x",
+      "yt": true,
+      "id": false,
+      "sc": false
+    },
+    {
+      "v": "dQw4w9WgXcQ",
+      "yt": false,
+      "id": true,
+      "sc": false
+    },
+    {
+      "v": "dQw4w9WgXc",
+      "yt": false,
+      "id": false,
+      "sc": false
+    },
+    {
+      "v": "https://soundcloud.com/a/b",
+      "yt": false,
+      "id": false,
+      "sc": true
+    },
+    {
+      "v": "a.mp3",
+      "yt": false,
+      "id": false,
+      "sc": false
+    }
+  ]
+}
