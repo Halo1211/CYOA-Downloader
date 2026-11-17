@@ -1,6 +1,11 @@
 # Migration progress (primary state document)
 
-**Current phase:** Phase 1 audit and Phase 2 architecture proposal complete. **Stopped at the architecture approval gate.**
+**Current phase (02:30):** Stage 1 complete (1a paths/url, 1b atomic I/O and ZIP, 1c settings/secrets). **Next: Stage 2 storage.** See OVERNIGHT_REPORT.md for detail. Feature status: F-001, F-002, F-003, F-004, F-005 and F-006 are **TESTED** (golden parity; F-003/F-004 also Sol-reviewed). All other features are NOT_STARTED.
+
+Resume procedure: `cd rust; cargo test --offline`. Regenerate fixtures with `python rust/fixtures/export_*.py`, run from the repo root. Pre-fetch any new crate with `cargo add` + `cargo fetch` before delegating (agents run `--offline`).
+
+---
+**Earlier state:** Phase 1 audit and Phase 2 architecture proposal complete.
 **Last updated:** 2026-11-18 · Branch `migration/python-to-rust` · No Rust code exists yet.
 
 ## Completed
