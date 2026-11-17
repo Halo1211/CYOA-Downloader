@@ -1,0 +1,18 @@
+﻿[package]
+name = "cyoa-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "cyoa-downloader"
+path = "src/main.rs"
+
+[dependencies]
+cyoa-engine = { path = "../cyoa-engine" }
+cyoa-integrations = { path = "../cyoa-integrations" }
+cyoa-core = { path = "../cyoa-core" }
+
+[lints]
+workspace = true

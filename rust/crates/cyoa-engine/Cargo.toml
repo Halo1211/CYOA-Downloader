@@ -1,0 +1,15 @@
+﻿[package]
+name = "cyoa-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+cyoa-core = { path = "../cyoa-core" }
+cyoa-storage = { path = "../cyoa-storage" }
+cyoa-net = { path = "../cyoa-net" }
+cyoa-parse = { path = "../cyoa-parse" }
+
+[lints]
+workspace = true
