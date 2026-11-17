@@ -1,0 +1,46 @@
+{
+  "normal.zip": {
+    "result": "accept",
+    "members": 1
+  },
+  "traversal.zip": {
+    "result": "error",
+    "class": "ValueError",
+    "message_prefix": "Unsafe archive path rejected: '../escape.txt'"
+  },
+  "absolute.zip": {
+    "result": "error",
+    "class": "ValueError",
+    "message_prefix": "Unsafe archive path rejected: '/x'"
+  },
+  "drive.zip": {
+    "result": "error",
+    "class": "ValueError",
+    "message_prefix": "Unsafe archive path rejected: 'C:x'"
+  },
+  "device.zip": {
+    "result": "error",
+    "class": "ValueError",
+    "message_prefix": "Unsafe archive path rejected: 'CON.txt'"
+  },
+  "case_duplicate.zip": {
+    "result": "error",
+    "class": "ValueError",
+    "message_prefix": "Archive contains duplicate paths: a.txt"
+  },
+  "symlink.zip": {
+    "result": "error",
+    "class": "ValueError",
+    "message_prefix": "Archive contains a symbolic link: link"
+  },
+  "ratio_bomb.zip": {
+    "result": "error",
+    "class": "ValueError",
+    "message_prefix": "Suspicious archive compression ratio: zeros.bin"
+  },
+  "too_many.zip": {
+    "result": "error",
+    "class": "ValueError",
+    "message_prefix": "Archive contains too many members: 10001 > 10000"
+  }
+}

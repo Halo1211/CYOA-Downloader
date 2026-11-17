@@ -1,0 +1,10 @@
+{
+  "items": [
+    1,
+    {
+      "enabled": true,
+      "nothing": null
+    }
+  ],
+  "empty": {}
+}
