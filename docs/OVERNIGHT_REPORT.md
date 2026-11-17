@@ -37,6 +37,19 @@ See `DECISION_LOG.md` (DL-1…DL-9).
 
 c8705cc docs · e5c1d13 Stage 0 · e8ed523 1a · ffd7866 1a security fixes · ec49d01 1b · 33baf9d fixture EOL · 358aed2 1c · be02514 2a history/resume · c01bc67 2b cache · 66d88cd 2c checkpoints
 
+## Update ~05:15 — HTTP client done
+
+- **`cyoa-net::client`** (Sol design; commit 7137978):
+  - reqwest with a policy-enforcing DNS resolver, so every connection's resolved addresses are vetted.
+  - Manual redirects with a per-hop policy check, Authorization/Cookie stripped cross-origin, and the admission lease moved to the new host.
+  - Streaming download to a same-dir temp file with incremental byte cap (SEC-4) and atomic rename.
+  - Cancellation and deadline on every await.
+- **wiremock tests:** redirect chain/cap, internal-host redirect blocked, Authorization stripped across origins, oversize leaves no temp, mid-body cancel cleans up, lease released.
+- **Test fix:** NTFS directory enumeration reports stale sizes for open files; the observer now queries the path.
+- **Workspace:** 90 tests pass; clippy -D warnings clean.
+- **`cargo audit`:** 0 vulnerabilities. 3 "unmaintained" warnings (zbus/zvariant) come only through keyring's Linux-target store and are not compiled on Windows.
+- **Still open in cyoa-net:** proxy configuration (manual/env/per-scheme/bypass), custom DNS (hickory: UDP/TCP/DoH/DoT), VPN guard, response metadata, Cloudflare/FlareSolverr, charset-aware text decoding.
+
 ## Update ~04:30 — Stage 3a/3b-policy done
 
 - **cyoa-net** has:
