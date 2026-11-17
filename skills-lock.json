@@ -1,0 +1,26 @@
+{
+  "version": 2,
+  "skills": {
+    "migrate-to-rust": {
+      "source": "google/skills",
+      "commit": "7b88e1fa6d0483c61058af21b7bd583ed7cdbdf9",
+      "sourceType": "github",
+      "skillPath": "skills/developers/migrate-to-rust/SKILL.md",
+      "computedHash": "56c60c4a34b0a6409015c64018f78e568bec9b66a32db804a641d5902bc9b516"
+    },
+    "rust-best-practices": {
+      "source": "apollographql/skills",
+      "commit": "9dda1397730370aeb8df4ff8f2015c34c86b5003",
+      "sourceType": "github",
+      "skillPath": "skills/rust-best-practices/SKILL.md",
+      "computedHash": "7e12e68aa50152eb7ba9ea1f88ca5380c846ea0175f8ab6788bb79b7faf12ca0"
+    },
+    "rust-engineer": {
+      "source": "Jeffallan/claude-skills",
+      "commit": "67c1961b180dc92cf08983344627109e983e8f51",
+      "sourceType": "github",
+      "skillPath": "skills/rust-engineer/SKILL.md",
+      "computedHash": "41b14a9b58417e000511e6fb3e7eb3727c9a051627788a0ad67963c7244ba248"
+    }
+  }
+}
