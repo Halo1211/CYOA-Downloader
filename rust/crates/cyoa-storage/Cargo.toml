@@ -7,6 +7,7 @@ rust-version.workspace = true
 
 [dependencies]
 cyoa-core = { path = "../cyoa-core" }
+keyring = { version = "4.2.0", default-features = false, features = ["v1", "windows-native-keyring-store"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
 thiserror = "2.0.21"
