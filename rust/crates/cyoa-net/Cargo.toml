@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "cyoa-net"
 version.workspace = true
 edition.workspace = true
@@ -6,7 +6,19 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+bytes = "1.12.1"
 cyoa-core = { path = "../cyoa-core" }
+futures-util = "0.3.34"
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "stream", "socks", "cookies", "http2", "gzip", "brotli", "deflate", "charset"] }
+thiserror = "2.0.21"
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "io-util"] }
+tokio-util = { version = "0.7.20", features = ["rt"] }
+tracing = "0.1.44"
+url = "2.5.8"
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+tokio = { version = "1.54.1", features = ["test-util"] }
+wiremock = "0.6.5"
