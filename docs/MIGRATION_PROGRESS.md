@@ -1,6 +1,13 @@
 # Migration progress (primary state document)
 
-**Current phase (02:30):** Stage 1 complete (1a paths/url, 1b atomic I/O and ZIP, 1c settings/secrets). **Next: Stage 2 storage.** See OVERNIGHT_REPORT.md for detail. Feature status: F-001, F-002, F-003, F-004, F-005 and F-006 are **TESTED** (golden parity; F-003/F-004 also Sol-reviewed). All other features are NOT_STARTED.
+**Current phase (03:20):** Stages 1 and 2 complete. **Next: Stage 3 network (cyoa-net).**
+
+Feature status:
+- **TESTED** (golden or byte parity against Python): F-001…F-006, F-008 (cache), F-010 (resume), F-011 (checkpoints, interoperable DB naming/schema/payload), F-009 (history record path; the background metadata probe is pending the network stage).
+- **Sol-reviewed:** F-003 and F-004.
+- **Not yet reviewed:** cache and checkpoints still need a Sol security pass for the link guards.
+
+Rust tests: 59 in storage plus 7 in core, all passing; clippy -D warnings is clean.
 
 Resume procedure: `cd rust; cargo test --offline`. Regenerate fixtures with `python rust/fixtures/export_*.py`, run from the repo root. Pre-fetch any new crate with `cargo add` + `cargo fetch` before delegating (agents run `--offline`).
 

@@ -35,7 +35,17 @@ See `DECISION_LOG.md` (DL-1…DL-9).
 
 ## Commits (local)
 
-c8705cc docs · e5c1d13 Stage 0 · e8ed523 1a · ffd7866 1a security fixes · ec49d01 1b · 33baf9d fixture EOL · 358aed2 1c
+c8705cc docs · e5c1d13 Stage 0 · e8ed523 1a · ffd7866 1a security fixes · ec49d01 1b · 33baf9d fixture EOL · 358aed2 1c · be02514 2a history/resume · c01bc67 2b cache · 66d88cd 2c checkpoints
+
+## Update 03:20 — Stage 2 done
+
+- **Working pattern change:** Luna's sandbox now denies file writes even for new files. Luna therefore works through `luna_review` and returns code as text; Claude saves it, fixes compile errors and adds Python fixtures.
+- **Luna's drafts needed real corrections:**
+  - Cache dropped the Python link/junction guards and had borrow errors.
+  - The checkpoint DB name used `canonicalize()` (`\\?\` prefix), which would never match Python's `path_for`. Rewritten and proven by a fixture.
+- **Parity proof:** Rust computes byte-identical checkpoint DB names, payloads, history/resume files and job keys to Python.
+- **Deliberate difference:** checkpoint `get` always re-hashes. It cannot read NTFS ChangeTime without `unsafe`.
+- **Tests:** 66 Rust tests passing.
 
 ## Blockers / owner attention
 
