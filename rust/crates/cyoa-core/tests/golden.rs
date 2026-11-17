@@ -31,7 +31,9 @@ fn call(c: &Value) -> Result<Value, String> {
             &s(&a[0]),
             k["max_length"].as_u64().unwrap_or(72) as usize
         )),
-        "_cyoap_local_path" => json!(url::cyoap_local_path(&s(&a[0]), &s(&a[1]))),
+        "_cyoap_local_path" => url::cyoap_local_path(&s(&a[0]), &s(&a[1]))
+            .map(|v| json!(v.to_string_lossy()))
+            .map_err(|_| String::from("ValueError"))?,
         "_candidate_urls_for_cyoap_asset" => {
             json!(url::candidate_urls(&s(&a[0]), &s(&a[1]), &s(&a[2])))
         }

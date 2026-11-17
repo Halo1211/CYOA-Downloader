@@ -30,30 +30,61 @@ pub fn is_link_or_junction(path: &Path) -> bool {
     }
 }
 
+/// Files copied and entries skipped while merging a directory tree.
+#[derive(Debug, Default)]
+pub struct CopyReport {
+    pub copied: usize,
+    pub skipped: Vec<(std::path::PathBuf, String)>,
+}
 /// Merge a directory tree while skipping linked entries and unsafe names.
-/// Returns the number of files copied successfully.
-pub fn copytree_merge_safe(src: &Path, dst: &Path, _label: &str) -> usize {
+pub fn copytree_merge_safe(src: &Path, dst: &Path, _label: &str) -> CopyReport {
+    let mut report = CopyReport::default();
     if !src.is_dir() || is_link_or_junction(src) {
-        return 0;
+        report.skipped.push((
+            src.to_path_buf(),
+            "invalid or linked source directory".into(),
+        ));
+        return report;
     }
     if std::fs::create_dir_all(dst).is_err() {
-        return 0;
+        report.skipped.push((
+            dst.to_path_buf(),
+            "could not create destination directory".into(),
+        ));
+        return report;
     }
-    let mut count = 0;
     let mut pending = vec![src.to_path_buf()];
     while let Some(dir) = pending.pop() {
         let Ok(entries) = std::fs::read_dir(&dir) else {
+            report
+                .skipped
+                .push((dir, "could not read source directory".into()));
             continue;
         };
-        for entry in entries.flatten() {
+        for entry in entries {
+            let Ok(entry) = entry else {
+                report
+                    .skipped
+                    .push((dir.clone(), "could not read directory entry".into()));
+                continue;
+            };
             let source = entry.path();
             if is_link_or_junction(&source) {
+                report
+                    .skipped
+                    .push((source, "linked file or directory".into()));
                 continue;
             }
             let Ok(relative) = source.strip_prefix(src) else {
+                report
+                    .skipped
+                    .push((source, "entry outside source directory".into()));
                 continue;
             };
             let Ok(kind) = entry.file_type() else {
+                report
+                    .skipped
+                    .push((source, "could not inspect entry type".into()));
                 continue;
             };
             if kind.is_dir() {
@@ -61,9 +92,15 @@ pub fn copytree_merge_safe(src: &Path, dst: &Path, _label: &str) -> usize {
                 continue;
             }
             if !kind.is_file() {
+                report
+                    .skipped
+                    .push((source, "entry is not a regular file or directory".into()));
                 continue;
             }
             let Some(relative_text) = relative.to_str() else {
+                report
+                    .skipped
+                    .push((source, "path is not valid UTF-8".into()));
                 continue;
             };
             let Ok(target) = safe_archive_join(
@@ -71,17 +108,25 @@ pub fn copytree_merge_safe(src: &Path, dst: &Path, _label: &str) -> usize {
                 &relative_text.replace('\\', "/"),
                 false,
             ) else {
+                report.skipped.push((source, "unsafe archive path".into()));
                 continue;
             };
             if let Some(parent) = target.parent()
                 && std::fs::create_dir_all(parent).is_err()
             {
+                report
+                    .skipped
+                    .push((source, "could not create destination parent".into()));
                 continue;
             }
             let Ok(metadata) = std::fs::metadata(&source) else {
+                report
+                    .skipped
+                    .push((source, "could not read source metadata".into()));
                 continue;
             };
             if std::fs::copy(&source, &target).is_err() {
+                report.skipped.push((source, "copy failed".into()));
                 continue;
             }
             if let Ok(modified) = metadata.modified() {
@@ -90,10 +135,10 @@ pub fn copytree_merge_safe(src: &Path, dst: &Path, _label: &str) -> usize {
                     let _ = file.set_times(times);
                 }
             }
-            count += 1;
+            report.copied += 1;
         }
     }
-    count
+    report
 }
 fn py_space(c: char) -> bool {
     matches!(c as u32, 0x09..=0x0d | 0x1c..=0x20 | 0x85 | 0xa0 | 0x1680 | 0x2000..=0x200a | 0x2028..=0x2029 | 0x202f | 0x205f | 0x3000)
@@ -254,29 +299,73 @@ pub fn safe_join(
     if !target.starts_with(&root_abs) {
         return Err(PathError::Unsafe(rel_path.to_owned()));
     }
-    let root_real = root_abs.canonicalize().unwrap_or_else(|_| root_abs.clone());
-    if is_link_or_junction(&root_abs) {
-        return Err(PathError::Unsafe(root.to_owned()));
-    }
-    let mut ancestor = target.as_path();
-    let mut suffix: Vec<std::ffi::OsString> = Vec::new();
-    while !ancestor.exists() {
-        let name = ancestor
-            .file_name()
-            .ok_or_else(|| PathError::Unsafe(rel_path.to_owned()))?;
-        suffix.push(name.to_owned());
+    validate_containment(&root_abs, &target, rel_path)?;
+    Ok(target)
+}
+
+/// Canonicalize the longest existing prefix and append the missing suffix.
+fn canonicalize_existing_prefix(path: &Path) -> Result<std::path::PathBuf, PathError> {
+    let mut ancestor = path;
+    let mut suffix = Vec::<std::ffi::OsString>::new();
+    while std::fs::symlink_metadata(ancestor).is_err() {
+        suffix.push(
+            ancestor
+                .file_name()
+                .ok_or_else(|| PathError::Unsafe(path.display().to_string()))?
+                .to_owned(),
+        );
         ancestor = ancestor
             .parent()
-            .ok_or_else(|| PathError::Unsafe(rel_path.to_owned()))?;
+            .ok_or_else(|| PathError::Unsafe(path.display().to_string()))?;
     }
     let mut resolved = ancestor.canonicalize()?;
     for part in suffix.iter().rev() {
         resolved.push(part);
     }
-    if !resolved.starts_with(&root_real) {
-        return Err(PathError::Unsafe(rel_path.to_owned()));
+    #[cfg(windows)]
+    {
+        let text = resolved.to_string_lossy();
+        if let Some(v) = text.strip_prefix(r"\\?\") {
+            resolved = std::path::PathBuf::from(v);
+        }
     }
-    Ok(target)
+    Ok(resolved)
+}
+fn contained(root: &Path, target: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        let r = root
+            .to_string_lossy()
+            .trim_end_matches(['\\', '/'])
+            .to_lowercase();
+        let t = target.to_string_lossy().to_lowercase();
+        t == r || t.starts_with(&format!("{r}\\"))
+    }
+    #[cfg(not(windows))]
+    {
+        target.starts_with(root)
+    }
+}
+/// Reject all links, including dangling junctions; this is stricter than Python's realpath check.
+fn validate_containment(root: &Path, target: &Path, original: &str) -> Result<(), PathError> {
+    let mut cursor = target;
+    while cursor != root {
+        if std::fs::symlink_metadata(cursor).is_ok() && is_link_or_junction(cursor) {
+            return Err(PathError::Unsafe(original.into()));
+        }
+        cursor = cursor
+            .parent()
+            .ok_or_else(|| PathError::Unsafe(original.into()))?;
+    }
+    if std::fs::symlink_metadata(root).is_ok() && is_link_or_junction(root) {
+        return Err(PathError::Unsafe(original.into()));
+    }
+    let rr = canonicalize_existing_prefix(root)?;
+    let tr = canonicalize_existing_prefix(target)?;
+    if !contained(&rr, &tr) {
+        return Err(PathError::Unsafe(original.into()));
+    }
+    Ok(())
 }
 /// Python counterpart: `core.paths._safe_archive_join` (strict archive validation).
 pub fn safe_archive_join(
@@ -284,6 +373,22 @@ pub fn safe_archive_join(
     member: &str,
     decode_url: bool,
 ) -> Result<std::path::PathBuf, PathError> {
+    use std::path::PathBuf;
     let rel = safe_archive_rel_path(member, decode_url)?;
-    safe_join(root, &rel, "asset")
+    let rp = if root.is_empty() {
+        std::env::current_dir()?
+    } else {
+        PathBuf::from(root)
+    };
+    let root_abs = if rp.is_absolute() {
+        rp
+    } else {
+        std::env::current_dir()?.join(rp)
+    };
+    let target = rel.split('/').fold(root_abs.clone(), |p, c| p.join(c));
+    if target == root_abs || !target.starts_with(&root_abs) {
+        return Err(PathError::Unsafe(member.to_owned()));
+    }
+    validate_containment(&root_abs, &target, member)?;
+    Ok(target)
 }

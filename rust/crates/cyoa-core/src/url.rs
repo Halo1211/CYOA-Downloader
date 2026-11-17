@@ -1,4 +1,4 @@
-use crate::paths::{py_strip, safe_rel_path};
+use crate::paths::{PathError, py_strip, safe_join};
 use regex::Regex;
 use thiserror::Error;
 #[derive(Debug, Error)]
@@ -301,23 +301,12 @@ fn join(base: &str, rel: &str) -> String {
     p.fragment.clear();
     urlunparse(&p)
 }
-/// Python counterpart: `core.url_utils._cyoap_local_path` (lexical path mapping).
-pub fn cyoap_local_path(root: &str, remote: &str) -> String {
+/// Python counterpart for filesystem-safe CYOAP path mapping.
+pub fn cyoap_local_path(root: &str, remote: &str) -> Result<std::path::PathBuf, PathError> {
     let p = parse(remote).unwrap_or_default();
     let mut path = p.path.trim_start_matches('/').to_owned();
     if path.is_empty() || path.ends_with('/') {
-        path.push_str("index.html")
+        path.push_str("index.html");
     }
-    let root_path = std::path::PathBuf::from(root);
-    let root_abs = if root_path.is_absolute() {
-        root_path
-    } else {
-        std::env::current_dir()
-            .map(|cwd| cwd.join(root_path))
-            .unwrap_or_else(|_| std::path::PathBuf::from(root))
-    };
-    root_abs
-        .join(safe_rel_path(&path, "index.html"))
-        .to_string_lossy()
-        .into_owned()
+    safe_join(root, &path, "index.html")
 }
