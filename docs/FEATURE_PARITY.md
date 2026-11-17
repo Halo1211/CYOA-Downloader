@@ -1,5 +1,42 @@
 # Feature parity matrix
 
+## Status update (2026-11-18 ~05:45) — this section overrides the row statuses below
+
+| ID | Status | Evidence |
+|---|---|---|
+| F-001 settings | TESTED | 30 Python golden cases, byte-identical `settings.json` formatting |
+| F-002 secrets | TESTED (intentional change DL-5) | MemoryBackend tests; the native keyring is not yet checked against Python's real entries |
+| F-003 paths | TESTED + REVIEWED (Sol) | 110 golden cases plus junction/dangling-link tests |
+| F-004 url utils | TESTED + REVIEWED (Sol) | 111 golden cases |
+| F-005 atomic I/O | TESTED | Byte parity for JSON writes |
+| F-006 ZIP validation | TESTED | 9 Python verdicts, including the symlink attribute |
+| F-008 image cache | TESTED | Unit tests plus the Python index format; Sol review pending |
+| F-009 history | PARTIAL | Record path byte-identical; background metadata probe pending |
+| F-010 resume | TESTED | Bytes and job keys identical to Python |
+| F-011 checkpoints | TESTED | DB names (`path_for`) and payloads identical to Python; interoperable |
+| F-012 HTTP client | IMPLEMENTED + TESTED (wiremock) | Policy resolver, redirects, caps, cancel; charset decoding pending |
+| F-013 admission | TESTED | 7 async tests (Sol design) |
+| F-014 retry | TESTED | Python-derived schedules (Sol) |
+| F-015 throttle | TESTED | Python window accounting |
+| F-020 project parse | PARTIAL | `parse.py` text functions: 18 inputs × 5 functions identical; archive-bytes extraction pending |
+| Policy (SEC-1/SEC-6) | TESTED | 43 host classes plus 8 SSRF decisions identical to CPython 3.12 |
+| Headers | TESTED | 15 URLs; headers and key order identical |
+
+## Intentional behavior differences (Rust is equal or better; each is covered by a test)
+
+1. **DL-5 secrets:** stored in the keyring by default; legacy plaintext is migrated into the keyring and never written back out.
+2. **DL-8 paths:** any link or junction component inside the output root is rejected. This is stricter than Python.
+3. **Checkpoint `get`:** always re-hashes, because NTFS ChangeTime cannot be read without `unsafe`.
+4. **Parse, out-of-range floats (`1e400`):** Python emits the invalid JSON token `Infinity`; Rust emits `null`, which is valid JSON.
+5. **Parse, non-UTF-8 decoding:** Python's chardet misdetected latin-1 and Shift-JIS samples (`"ZÈZ"`, `"𣲚塲"`); Rust's fixed fallback chain decodes them correctly (`"été"`, `"日本"`).
+6. **HTTP:** connections go only to DNS answers vetted by the policy (closes the Python rebinding window, SEC-6). Downloads have a byte cap (SEC-4).
+7. **Copy/report APIs:** return structured reports instead of logging and skipping.
+
+Known parity gaps:
+- ZIP duplicate detection uses `to_lowercase`, where Python uses `casefold` (ß).
+- Some settings edge numerics: huge ints, NaN, unpaired surrogates.
+- History has no inter-process file lock.
+
 Statuses: NOT_STARTED · IN_PROGRESS · IMPLEMENTED · TESTED · REVIEWED · VERIFIED · BLOCKED.
 
 Every feature below is **NOT_STARTED**. This is the Phase 1 inventory; Phase 3 adds detailed inputs and outputs, fixtures and tests to each row.
