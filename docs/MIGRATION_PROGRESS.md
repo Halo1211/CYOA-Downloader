@@ -1,6 +1,12 @@
 # Migration progress (primary state document)
 
-**Current phase (03:20):** Stages 1 and 2 complete. **Next: Stage 3 network (cyoa-net).**
+**Current phase (06:00):**
+- Stages 1–2 complete.
+- Stage 3 core complete: admission, retry, throttle, policy, headers and the HTTP client. Still open: proxy, DNS, VPN, Cloudflare, response metadata.
+- Stage 4 in progress: `parse.py` and the pure discovery helpers are done.
+- **94 Rust tests pass.** Next steps: OVERNIGHT_REPORT.md → "Remaining Stage 4 work".
+
+**Earlier (03:20):** Stages 1 and 2 complete.
 
 Feature status:
 - **TESTED** (golden or byte parity against Python): F-001…F-006, F-008 (cache), F-010 (resume), F-011 (checkpoints, interoperable DB naming/schema/payload), F-009 (history record path; the background metadata probe is pending the network stage).

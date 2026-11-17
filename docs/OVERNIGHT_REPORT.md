@@ -37,6 +37,30 @@ See `DECISION_LOG.md` (DL-1…DL-9).
 
 c8705cc docs · e5c1d13 Stage 0 · e8ed523 1a · ffd7866 1a security fixes · ec49d01 1b · 33baf9d fixture EOL · 358aed2 1c · be02514 2a history/resume · c01bc67 2b cache · 66d88cd 2c checkpoints
 
+## Update ~06:00 — Stage 4 started (parsing and discovery)
+
+- **`cyoa-parse::project`** (`parse.py`):
+  - 18 texts × 5 functions identical to Python, plus brace extraction and decoding.
+  - Intentional improvements: invalid `Infinity` becomes `null`; chardet misdetections replaced by correct decoding.
+- **`cyoa-parse::discover`** (pure helpers from `discover.py` lines 1–510):
+  - Candidate URLs, script sources (iterative `app.*.js` via fetch closure), HTML hints, default project candidates for 8 URL shapes (GitHub Pages, Neocities, itch, cyoa.cafe...): all identical to Python.
+  - Python's backreference regex is replaced by an exact manual scanner.
+  - Intentional difference: an unclosed `<iframe>` is parsed per the HTML5 spec.
+- **Workspace:** 94 tests pass; clippy clean. Commit 7197cbe.
+
+### Remaining Stage 4 work (in order)
+
+1. **`discover.rs` network part:** `try_project_candidate`, `get_project_source` (lines 510–860) in cyoa-engine, using `cyoa_net::client`.
+2. **Image references in the project JSON:** `orchestrator._classify_project_image_references`, `core/embed_io.py` (`project_chunks`, `EmbeddedMedia`).
+3. **Embedded JSON writer and ZIP package** (`download/package.py`), output naming, reports (`backup_report.txt`, `failed_images.txt`).
+4. **CLI MVP** (`cyoa-cli`, clap): `url -o out`, `--zip`, `--both`. Compare byte output with Python against a local `http.server` fixture site (deterministic, no live internet).
+
+### How to continue (for a fresh session)
+
+- **Agents:** Luna and Sol can no longer write files (sandbox "Access is denied"). Ask them with `luna_review` / `sol_review` to RETURN code (one file, under about 14k characters). Claude saves the file, wires the modules, runs `python rust/fixtures/export_*.py`, and runs the gates.
+- **Crates:** Claude pre-fetches every new crate (`cargo add` + `cargo fetch`) because agents build `--offline`.
+- **Gates:** run from `rust/`: `cargo fmt --all -- --check`, `cargo clippy --all-targets --offline -- -D warnings`, `cargo test --offline`.
+
 ## Update ~05:15 — HTTP client done
 
 - **`cyoa-net::client`** (Sol design; commit 7137978):
