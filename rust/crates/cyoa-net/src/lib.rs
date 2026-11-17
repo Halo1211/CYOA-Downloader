@@ -1,6 +1,7 @@
 pub const CRATE_NAME: &str = "cyoa-net";
 
 pub mod admission;
+pub mod client;
 pub mod headers;
 pub mod policy;
 pub mod retry;
