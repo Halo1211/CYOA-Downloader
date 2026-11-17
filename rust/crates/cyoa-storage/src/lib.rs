@@ -1,6 +1,7 @@
 pub const CRATE_NAME: &str = "cyoa-storage";
 
 pub mod archive;
+pub mod archive_checkpoint;
 pub mod atomic_io;
 pub mod cache;
 pub mod history;

@@ -1,0 +1,56 @@
+{
+  "names": [
+    {
+      "folder": "C:\\__cyoa_missing__\\Out\\Site",
+      "name": "0c5c61cee3ff644ea6fc57925850779918f298e06103bb78ba64c69b2dde9208.sqlite3"
+    },
+    {
+      "folder": "C:/__cyoa_missing__/Out/Site",
+      "name": "0c5c61cee3ff644ea6fc57925850779918f298e06103bb78ba64c69b2dde9208.sqlite3"
+    },
+    {
+      "folder": "C:\\__cyoa_missing__\\OUT\\site\\\\",
+      "name": "0c5c61cee3ff644ea6fc57925850779918f298e06103bb78ba64c69b2dde9208.sqlite3"
+    },
+    {
+      "folder": "C:\\__cyoa_missing__\\名前\\Ünïcode Site",
+      "name": "ebc2399d68c95e5a17ed61057bd88b98b27b61aa56bc16804571afeb672f818b.sqlite3"
+    },
+    {
+      "folder": "C:\\__cyoa_missing__\\a b\\c.d",
+      "name": "792b35d8ccef703ce771cf74361d14f9ccc2004ab7d0dd0b3f03ddd9fb02687c.sqlite3"
+    }
+  ],
+  "payloads": [
+    {
+      "meta": {},
+      "json": "{\"local\": \"dir/a b.png\", \"size\": 7, \"sha256\": \"abababababababababababababababababababababababababababababababab\"}"
+    },
+    {
+      "meta": {
+        "mime": "image/png"
+      },
+      "json": "{\"mime\": \"image/png\", \"local\": \"dir/a b.png\", \"size\": 7, \"sha256\": \"abababababababababababababababababababababababababababababababab\"}"
+    },
+    {
+      "meta": {
+        "etag": "\"x\"",
+        "note": "é😀\n"
+      },
+      "json": "{\"etag\": \"\\\"x\\\"\", \"note\": \"\\u00e9\\ud83d\\ude00\\n\", \"local\": \"dir/a b.png\", \"size\": 7, \"sha256\": \"abababababababababababababababababababababababababababababababab\"}"
+    },
+    {
+      "meta": {
+        "size": 1,
+        "nested": {
+          "a": [
+            1,
+            null,
+            true
+          ]
+        }
+      },
+      "json": "{\"size\": 7, \"nested\": {\"a\": [1, null, true]}, \"local\": \"dir/a b.png\", \"sha256\": \"abababababababababababababababababababababababababababababababab\"}"
+    }
+  ]
+}
