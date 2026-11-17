@@ -1,0 +1,925 @@
+{
+ "resolve": [
+  {
+   "base": "https://example.test/game/",
+   "path": "img/a.png",
+   "url": "https://example.test/game/img/a.png"
+  },
+  {
+   "base": "https://example.test/game/",
+   "path": "/abs/b.jpg",
+   "url": "https://example.test/abs/b.jpg"
+  },
+  {
+   "base": "https://example.test/game/",
+   "path": "../up.png",
+   "url": "https://example.test/up.png"
+  },
+  {
+   "base": "https://example.test/game/",
+   "path": "./x/./y/../z.gif",
+   "url": "https://example.test/game/x/z.gif"
+  },
+  {
+   "base": "https://example.test/game/",
+   "path": "//cdn.test/c.png",
+   "url": "https://cdn.test/c.png"
+  },
+  {
+   "base": "https://example.test/game/",
+   "path": "https:/cdn.test/d.png",
+   "url": "https://example.test/cdn.test/d.png"
+  },
+  {
+   "base": "https://example.test/game/",
+   "path": "HTTPS:/cdn.test/e.png",
+   "url": "https://example.test/cdn.test/e.png"
+  },
+  {
+   "base": "https://example.test/game/",
+   "path": "http:/x.test/f",
+   "url": "http://x.test/f"
+  },
+  {
+   "base": "https://example.test/game/",
+   "path": "?v=2",
+   "url": "https://example.test/game/?v=2"
+  },
+  {
+   "base": "https://example.test/game/",
+   "path": "#frag",
+   "url": "https://example.test/game/#frag"
+  },
+  {
+   "base": "https://example.test/game/",
+   "path": "https://ok.test/g.png",
+   "url": "https://ok.test/g.png"
+  },
+  {
+   "base": "https://example.test/game/",
+   "path": "HTTP://up.test/h.png",
+   "url": "HTTP://up.test/h.png"
+  },
+  {
+   "base": "https://example.test/game/",
+   "path": "a;p=1/b.png",
+   "url": "https://example.test/game/a;p=1/b.png"
+  },
+  {
+   "base": "https://example.test/game/",
+   "path": "",
+   "url": "https://example.test/game/"
+  },
+  {
+   "base": "https://example.test/game/",
+   "path": "..",
+   "url": "https://example.test/"
+  },
+  {
+   "base": "https://example.test/game/",
+   "path": "../../../../r.png",
+   "url": "https://example.test/r.png"
+  },
+  {
+   "base": "https://example.test/game/",
+   "path": "ünï/ç ode.png",
+   "url": "https://example.test/game/ünï/ç ode.png"
+  },
+  {
+   "base": "https://example.test/game/",
+   "path": "data/%20sp.png",
+   "url": "https://example.test/game/data/%20sp.png"
+  },
+  {
+   "base": "https://example.test/game/",
+   "path": "mailto:x@y",
+   "url": "mailto:x@y"
+  },
+  {
+   "base": "https://example.test/game/index.html",
+   "path": "img/a.png",
+   "url": "https://example.test/game/index.html/img/a.png"
+  },
+  {
+   "base": "https://example.test/game/index.html",
+   "path": "/abs/b.jpg",
+   "url": "https://example.test/abs/b.jpg"
+  },
+  {
+   "base": "https://example.test/game/index.html",
+   "path": "../up.png",
+   "url": "https://example.test/game/up.png"
+  },
+  {
+   "base": "https://example.test/game/index.html",
+   "path": "./x/./y/../z.gif",
+   "url": "https://example.test/game/index.html/x/z.gif"
+  },
+  {
+   "base": "https://example.test/game/index.html",
+   "path": "//cdn.test/c.png",
+   "url": "https://cdn.test/c.png"
+  },
+  {
+   "base": "https://example.test/game/index.html",
+   "path": "https:/cdn.test/d.png",
+   "url": "https://example.test/cdn.test/d.png"
+  },
+  {
+   "base": "https://example.test/game/index.html",
+   "path": "HTTPS:/cdn.test/e.png",
+   "url": "https://example.test/cdn.test/e.png"
+  },
+  {
+   "base": "https://example.test/game/index.html",
+   "path": "http:/x.test/f",
+   "url": "http://x.test/f"
+  },
+  {
+   "base": "https://example.test/game/index.html",
+   "path": "?v=2",
+   "url": "https://example.test/game/index.html/?v=2"
+  },
+  {
+   "base": "https://example.test/game/index.html",
+   "path": "#frag",
+   "url": "https://example.test/game/index.html/#frag"
+  },
+  {
+   "base": "https://example.test/game/index.html",
+   "path": "https://ok.test/g.png",
+   "url": "https://ok.test/g.png"
+  },
+  {
+   "base": "https://example.test/game/index.html",
+   "path": "HTTP://up.test/h.png",
+   "url": "HTTP://up.test/h.png"
+  },
+  {
+   "base": "https://example.test/game/index.html",
+   "path": "a;p=1/b.png",
+   "url": "https://example.test/game/index.html/a;p=1/b.png"
+  },
+  {
+   "base": "https://example.test/game/index.html",
+   "path": "",
+   "url": "https://example.test/game/index.html/"
+  },
+  {
+   "base": "https://example.test/game/index.html",
+   "path": "..",
+   "url": "https://example.test/game/"
+  },
+  {
+   "base": "https://example.test/game/index.html",
+   "path": "../../../../r.png",
+   "url": "https://example.test/r.png"
+  },
+  {
+   "base": "https://example.test/game/index.html",
+   "path": "ünï/ç ode.png",
+   "url": "https://example.test/game/index.html/ünï/ç ode.png"
+  },
+  {
+   "base": "https://example.test/game/index.html",
+   "path": "data/%20sp.png",
+   "url": "https://example.test/game/index.html/data/%20sp.png"
+  },
+  {
+   "base": "https://example.test/game/index.html",
+   "path": "mailto:x@y",
+   "url": "mailto:x@y"
+  },
+  {
+   "base": "https://example.test",
+   "path": "img/a.png",
+   "url": "https://example.test/img/a.png"
+  },
+  {
+   "base": "https://example.test",
+   "path": "/abs/b.jpg",
+   "url": "https://example.test/abs/b.jpg"
+  },
+  {
+   "base": "https://example.test",
+   "path": "../up.png",
+   "url": "https://example.test/up.png"
+  },
+  {
+   "base": "https://example.test",
+   "path": "./x/./y/../z.gif",
+   "url": "https://example.test/x/z.gif"
+  },
+  {
+   "base": "https://example.test",
+   "path": "//cdn.test/c.png",
+   "url": "https://cdn.test/c.png"
+  },
+  {
+   "base": "https://example.test",
+   "path": "https:/cdn.test/d.png",
+   "url": "https://example.test/cdn.test/d.png"
+  },
+  {
+   "base": "https://example.test",
+   "path": "HTTPS:/cdn.test/e.png",
+   "url": "https://example.test/cdn.test/e.png"
+  },
+  {
+   "base": "https://example.test",
+   "path": "http:/x.test/f",
+   "url": "http://x.test/f"
+  },
+  {
+   "base": "https://example.test",
+   "path": "?v=2",
+   "url": "https://example.test/?v=2"
+  },
+  {
+   "base": "https://example.test",
+   "path": "#frag",
+   "url": "https://example.test/#frag"
+  },
+  {
+   "base": "https://example.test",
+   "path": "https://ok.test/g.png",
+   "url": "https://ok.test/g.png"
+  },
+  {
+   "base": "https://example.test",
+   "path": "HTTP://up.test/h.png",
+   "url": "HTTP://up.test/h.png"
+  },
+  {
+   "base": "https://example.test",
+   "path": "a;p=1/b.png",
+   "url": "https://example.test/a;p=1/b.png"
+  },
+  {
+   "base": "https://example.test",
+   "path": "",
+   "url": "https://example.test/"
+  },
+  {
+   "base": "https://example.test",
+   "path": "..",
+   "url": "https://example.test/"
+  },
+  {
+   "base": "https://example.test",
+   "path": "../../../../r.png",
+   "url": "https://example.test/r.png"
+  },
+  {
+   "base": "https://example.test",
+   "path": "ünï/ç ode.png",
+   "url": "https://example.test/ünï/ç ode.png"
+  },
+  {
+   "base": "https://example.test",
+   "path": "data/%20sp.png",
+   "url": "https://example.test/data/%20sp.png"
+  },
+  {
+   "base": "https://example.test",
+   "path": "mailto:x@y",
+   "url": "mailto:x@y"
+  },
+  {
+   "base": "http://127.0.0.1:8000/a/b/",
+   "path": "img/a.png",
+   "url": "http://127.0.0.1:8000/a/b/img/a.png"
+  },
+  {
+   "base": "http://127.0.0.1:8000/a/b/",
+   "path": "/abs/b.jpg",
+   "url": "http://127.0.0.1:8000/abs/b.jpg"
+  },
+  {
+   "base": "http://127.0.0.1:8000/a/b/",
+   "path": "../up.png",
+   "url": "http://127.0.0.1:8000/a/up.png"
+  },
+  {
+   "base": "http://127.0.0.1:8000/a/b/",
+   "path": "./x/./y/../z.gif",
+   "url": "http://127.0.0.1:8000/a/b/x/z.gif"
+  },
+  {
+   "base": "http://127.0.0.1:8000/a/b/",
+   "path": "//cdn.test/c.png",
+   "url": "http://cdn.test/c.png"
+  },
+  {
+   "base": "http://127.0.0.1:8000/a/b/",
+   "path": "https:/cdn.test/d.png",
+   "url": "https://cdn.test/d.png"
+  },
+  {
+   "base": "http://127.0.0.1:8000/a/b/",
+   "path": "HTTPS:/cdn.test/e.png",
+   "url": "HTTPS://cdn.test/e.png"
+  },
+  {
+   "base": "http://127.0.0.1:8000/a/b/",
+   "path": "http:/x.test/f",
+   "url": "http://127.0.0.1:8000/x.test/f"
+  },
+  {
+   "base": "http://127.0.0.1:8000/a/b/",
+   "path": "?v=2",
+   "url": "http://127.0.0.1:8000/a/b/?v=2"
+  },
+  {
+   "base": "http://127.0.0.1:8000/a/b/",
+   "path": "#frag",
+   "url": "http://127.0.0.1:8000/a/b/#frag"
+  },
+  {
+   "base": "http://127.0.0.1:8000/a/b/",
+   "path": "https://ok.test/g.png",
+   "url": "https://ok.test/g.png"
+  },
+  {
+   "base": "http://127.0.0.1:8000/a/b/",
+   "path": "HTTP://up.test/h.png",
+   "url": "http://up.test/h.png"
+  },
+  {
+   "base": "http://127.0.0.1:8000/a/b/",
+   "path": "a;p=1/b.png",
+   "url": "http://127.0.0.1:8000/a/b/a;p=1/b.png"
+  },
+  {
+   "base": "http://127.0.0.1:8000/a/b/",
+   "path": "",
+   "url": "http://127.0.0.1:8000/a/b/"
+  },
+  {
+   "base": "http://127.0.0.1:8000/a/b/",
+   "path": "..",
+   "url": "http://127.0.0.1:8000/a/"
+  },
+  {
+   "base": "http://127.0.0.1:8000/a/b/",
+   "path": "../../../../r.png",
+   "url": "http://127.0.0.1:8000/r.png"
+  },
+  {
+   "base": "http://127.0.0.1:8000/a/b/",
+   "path": "ünï/ç ode.png",
+   "url": "http://127.0.0.1:8000/a/b/ünï/ç ode.png"
+  },
+  {
+   "base": "http://127.0.0.1:8000/a/b/",
+   "path": "data/%20sp.png",
+   "url": "http://127.0.0.1:8000/a/b/data/%20sp.png"
+  },
+  {
+   "base": "http://127.0.0.1:8000/a/b/",
+   "path": "mailto:x@y",
+   "url": "mailto:x@y"
+  },
+  {
+   "base": "https://h.test/a/b?q=1#f",
+   "path": "img/a.png",
+   "url": "https://h.test/a/img/a.png"
+  },
+  {
+   "base": "https://h.test/a/b?q=1#f",
+   "path": "/abs/b.jpg",
+   "url": "https://h.test/abs/b.jpg"
+  },
+  {
+   "base": "https://h.test/a/b?q=1#f",
+   "path": "../up.png",
+   "url": "https://h.test/up.png"
+  },
+  {
+   "base": "https://h.test/a/b?q=1#f",
+   "path": "./x/./y/../z.gif",
+   "url": "https://h.test/a/x/z.gif"
+  },
+  {
+   "base": "https://h.test/a/b?q=1#f",
+   "path": "//cdn.test/c.png",
+   "url": "https://cdn.test/c.png"
+  },
+  {
+   "base": "https://h.test/a/b?q=1#f",
+   "path": "https:/cdn.test/d.png",
+   "url": "https://h.test/cdn.test/d.png"
+  },
+  {
+   "base": "https://h.test/a/b?q=1#f",
+   "path": "HTTPS:/cdn.test/e.png",
+   "url": "https://h.test/cdn.test/e.png"
+  },
+  {
+   "base": "https://h.test/a/b?q=1#f",
+   "path": "http:/x.test/f",
+   "url": "http://x.test/f"
+  },
+  {
+   "base": "https://h.test/a/b?q=1#f",
+   "path": "?v=2",
+   "url": "https://h.test/a/b?v=2"
+  },
+  {
+   "base": "https://h.test/a/b?q=1#f",
+   "path": "#frag",
+   "url": "https://h.test/a/b?q=1#frag"
+  },
+  {
+   "base": "https://h.test/a/b?q=1#f",
+   "path": "https://ok.test/g.png",
+   "url": "https://ok.test/g.png"
+  },
+  {
+   "base": "https://h.test/a/b?q=1#f",
+   "path": "HTTP://up.test/h.png",
+   "url": "HTTP://up.test/h.png"
+  },
+  {
+   "base": "https://h.test/a/b?q=1#f",
+   "path": "a;p=1/b.png",
+   "url": "https://h.test/a/a;p=1/b.png"
+  },
+  {
+   "base": "https://h.test/a/b?q=1#f",
+   "path": "",
+   "url": "https://h.test/a/b?q=1#f/"
+  },
+  {
+   "base": "https://h.test/a/b?q=1#f",
+   "path": "..",
+   "url": "https://h.test/"
+  },
+  {
+   "base": "https://h.test/a/b?q=1#f",
+   "path": "../../../../r.png",
+   "url": "https://h.test/r.png"
+  },
+  {
+   "base": "https://h.test/a/b?q=1#f",
+   "path": "ünï/ç ode.png",
+   "url": "https://h.test/a/ünï/ç ode.png"
+  },
+  {
+   "base": "https://h.test/a/b?q=1#f",
+   "path": "data/%20sp.png",
+   "url": "https://h.test/a/data/%20sp.png"
+  },
+  {
+   "base": "https://h.test/a/b?q=1#f",
+   "path": "mailto:x@y",
+   "url": "mailto:x@y"
+  }
+ ],
+ "ssrf": [
+  {
+   "asset": "http://127.0.0.1:8000/x.png",
+   "base": "http://127.0.0.1:8000/",
+   "block": false
+  },
+  {
+   "asset": "http://127.0.0.1:8000/x.png",
+   "base": "http://localhost/",
+   "block": true
+  },
+  {
+   "asset": "http://127.0.0.1:8000/x.png",
+   "base": "https://localhost:443/g",
+   "block": true
+  },
+  {
+   "asset": "http://127.0.0.1:8000/x.png",
+   "base": "",
+   "block": true
+  },
+  {
+   "asset": "http://127.0.0.1:8000/x.png",
+   "base": "HTTP://127.0.0.1/",
+   "block": true
+  },
+  {
+   "asset": "http://127.0.0.1/x.png",
+   "base": "http://127.0.0.1:8000/",
+   "block": true
+  },
+  {
+   "asset": "http://127.0.0.1/x.png",
+   "base": "http://localhost/",
+   "block": true
+  },
+  {
+   "asset": "http://127.0.0.1/x.png",
+   "base": "https://localhost:443/g",
+   "block": true
+  },
+  {
+   "asset": "http://127.0.0.1/x.png",
+   "base": "",
+   "block": true
+  },
+  {
+   "asset": "http://127.0.0.1/x.png",
+   "base": "HTTP://127.0.0.1/",
+   "block": false
+  },
+  {
+   "asset": "http://127.0.0.1:80/x",
+   "base": "http://127.0.0.1:8000/",
+   "block": true
+  },
+  {
+   "asset": "http://127.0.0.1:80/x",
+   "base": "http://localhost/",
+   "block": true
+  },
+  {
+   "asset": "http://127.0.0.1:80/x",
+   "base": "https://localhost:443/g",
+   "block": true
+  },
+  {
+   "asset": "http://127.0.0.1:80/x",
+   "base": "",
+   "block": true
+  },
+  {
+   "asset": "http://127.0.0.1:80/x",
+   "base": "HTTP://127.0.0.1/",
+   "block": false
+  },
+  {
+   "asset": "https://LOCALHOST/x",
+   "base": "http://127.0.0.1:8000/",
+   "block": true
+  },
+  {
+   "asset": "https://LOCALHOST/x",
+   "base": "http://localhost/",
+   "block": true
+  },
+  {
+   "asset": "https://LOCALHOST/x",
+   "base": "https://localhost:443/g",
+   "block": false
+  },
+  {
+   "asset": "https://LOCALHOST/x",
+   "base": "",
+   "block": true
+  },
+  {
+   "asset": "https://LOCALHOST/x",
+   "base": "HTTP://127.0.0.1/",
+   "block": true
+  },
+  {
+   "asset": "http://169.254.169.254/meta",
+   "base": "http://127.0.0.1:8000/",
+   "block": true
+  },
+  {
+   "asset": "http://169.254.169.254/meta",
+   "base": "http://localhost/",
+   "block": true
+  },
+  {
+   "asset": "http://169.254.169.254/meta",
+   "base": "https://localhost:443/g",
+   "block": true
+  },
+  {
+   "asset": "http://169.254.169.254/meta",
+   "base": "",
+   "block": true
+  },
+  {
+   "asset": "http://169.254.169.254/meta",
+   "base": "HTTP://127.0.0.1/",
+   "block": true
+  },
+  {
+   "asset": "https://public.test/x",
+   "base": "http://127.0.0.1:8000/",
+   "block": false
+  },
+  {
+   "asset": "https://public.test/x",
+   "base": "http://localhost/",
+   "block": false
+  },
+  {
+   "asset": "https://public.test/x",
+   "base": "https://localhost:443/g",
+   "block": false
+  },
+  {
+   "asset": "https://public.test/x",
+   "base": "",
+   "block": false
+  },
+  {
+   "asset": "https://public.test/x",
+   "base": "HTTP://127.0.0.1/",
+   "block": false
+  },
+  {
+   "asset": "ftp://127.0.0.1/x",
+   "base": "http://127.0.0.1:8000/",
+   "block": false
+  },
+  {
+   "asset": "ftp://127.0.0.1/x",
+   "base": "http://localhost/",
+   "block": false
+  },
+  {
+   "asset": "ftp://127.0.0.1/x",
+   "base": "https://localhost:443/g",
+   "block": false
+  },
+  {
+   "asset": "ftp://127.0.0.1/x",
+   "base": "",
+   "block": false
+  },
+  {
+   "asset": "ftp://127.0.0.1/x",
+   "base": "HTTP://127.0.0.1/",
+   "block": false
+  },
+  {
+   "asset": "http://[::1]:8000/x",
+   "base": "http://127.0.0.1:8000/",
+   "block": true
+  },
+  {
+   "asset": "http://[::1]:8000/x",
+   "base": "http://localhost/",
+   "block": true
+  },
+  {
+   "asset": "http://[::1]:8000/x",
+   "base": "https://localhost:443/g",
+   "block": true
+  },
+  {
+   "asset": "http://[::1]:8000/x",
+   "base": "",
+   "block": true
+  },
+  {
+   "asset": "http://[::1]:8000/x",
+   "base": "HTTP://127.0.0.1/",
+   "block": true
+  },
+  {
+   "asset": "http://10.0.0.5:443/x",
+   "base": "http://127.0.0.1:8000/",
+   "block": true
+  },
+  {
+   "asset": "http://10.0.0.5:443/x",
+   "base": "http://localhost/",
+   "block": true
+  },
+  {
+   "asset": "http://10.0.0.5:443/x",
+   "base": "https://localhost:443/g",
+   "block": true
+  },
+  {
+   "asset": "http://10.0.0.5:443/x",
+   "base": "",
+   "block": true
+  },
+  {
+   "asset": "http://10.0.0.5:443/x",
+   "base": "HTTP://127.0.0.1/",
+   "block": true
+  },
+  {
+   "asset": "https:///nohost",
+   "base": "http://127.0.0.1:8000/",
+   "block": false
+  },
+  {
+   "asset": "https:///nohost",
+   "base": "http://localhost/",
+   "block": false
+  },
+  {
+   "asset": "https:///nohost",
+   "base": "https://localhost:443/g",
+   "block": false
+  },
+  {
+   "asset": "https:///nohost",
+   "base": "",
+   "block": false
+  },
+  {
+   "asset": "https:///nohost",
+   "base": "HTTP://127.0.0.1/",
+   "block": false
+  }
+ ],
+ "attempts": [
+  {
+   "url": "https://x/a.PNG?x=1",
+   "img": true,
+   "pre": true,
+   "n": 0
+  },
+  {
+   "url": "https://x/a.PNG?x=1",
+   "img": true,
+   "pre": false,
+   "n": 4
+  },
+  {
+   "url": "https://x/a.PNG?x=1",
+   "img": false,
+   "pre": true,
+   "n": 0
+  },
+  {
+   "url": "https://x/a.PNG?x=1",
+   "img": false,
+   "pre": false,
+   "n": 4
+  },
+  {
+   "url": "https://x/gallery/post",
+   "img": true,
+   "pre": true,
+   "n": 0
+  },
+  {
+   "url": "https://x/gallery/post",
+   "img": true,
+   "pre": false,
+   "n": 1
+  },
+  {
+   "url": "https://x/gallery/post",
+   "img": false,
+   "pre": true,
+   "n": 0
+  },
+  {
+   "url": "https://x/gallery/post",
+   "img": false,
+   "pre": false,
+   "n": 4
+  },
+  {
+   "url": "https://x/a.jpeg;p",
+   "img": true,
+   "pre": true,
+   "n": 0
+  },
+  {
+   "url": "https://x/a.jpeg;p",
+   "img": true,
+   "pre": false,
+   "n": 4
+  },
+  {
+   "url": "https://x/a.jpeg;p",
+   "img": false,
+   "pre": true,
+   "n": 0
+  },
+  {
+   "url": "https://x/a.jpeg;p",
+   "img": false,
+   "pre": false,
+   "n": 4
+  },
+  {
+   "url": "https://x/a.mp3",
+   "img": true,
+   "pre": true,
+   "n": 0
+  },
+  {
+   "url": "https://x/a.mp3",
+   "img": true,
+   "pre": false,
+   "n": 1
+  },
+  {
+   "url": "https://x/a.mp3",
+   "img": false,
+   "pre": true,
+   "n": 0
+  },
+  {
+   "url": "https://x/a.mp3",
+   "img": false,
+   "pre": false,
+   "n": 4
+  },
+  {
+   "url": "https://x/dir.png/",
+   "img": true,
+   "pre": true,
+   "n": 0
+  },
+  {
+   "url": "https://x/dir.png/",
+   "img": true,
+   "pre": false,
+   "n": 1
+  },
+  {
+   "url": "https://x/dir.png/",
+   "img": false,
+   "pre": true,
+   "n": 0
+  },
+  {
+   "url": "https://x/dir.png/",
+   "img": false,
+   "pre": false,
+   "n": 4
+  },
+  {
+   "url": "https://x/.png",
+   "img": true,
+   "pre": true,
+   "n": 0
+  },
+  {
+   "url": "https://x/.png",
+   "img": true,
+   "pre": false,
+   "n": 1
+  },
+  {
+   "url": "https://x/.png",
+   "img": false,
+   "pre": true,
+   "n": 0
+  },
+  {
+   "url": "https://x/.png",
+   "img": false,
+   "pre": false,
+   "n": 4
+  },
+  {
+   "url": "https://x/a.tiff#f",
+   "img": true,
+   "pre": true,
+   "n": 0
+  },
+  {
+   "url": "https://x/a.tiff#f",
+   "img": true,
+   "pre": false,
+   "n": 4
+  },
+  {
+   "url": "https://x/a.tiff#f",
+   "img": false,
+   "pre": true,
+   "n": 0
+  },
+  {
+   "url": "https://x/a.tiff#f",
+   "img": false,
+   "pre": false,
+   "n": 4
+  },
+  {
+   "url": "https://x/a.webp.html",
+   "img": true,
+   "pre": true,
+   "n": 0
+  },
+  {
+   "url": "https://x/a.webp.html",
+   "img": true,
+   "pre": false,
+   "n": 1
+  },
+  {
+   "url": "https://x/a.webp.html",
+   "img": false,
+   "pre": true,
+   "n": 0
+  },
+  {
+   "url": "https://x/a.webp.html",
+   "img": false,
+   "pre": false,
+   "n": 4
+  }
+ ]
+}

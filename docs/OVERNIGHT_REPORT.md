@@ -143,3 +143,13 @@ c8705cc docs · e5c1d13 Stage 0 · e8ed523 1a · ffd7866 1a security fixes · ec
 1. Stage 2: cache index, history, resume, SQLite checkpoints (needs `rusqlite` pre-fetched).
 2. Stage 3: network (reqwest, admission 20/12, retry) with a Sol review.
 3. Stage 4: project discovery and embed/ZIP pipeline, plus CLI MVP (first end-to-end parity milestone).
+
+## Update — session 3 (2026-11-18)
+
+- **Report correction:** items 1–2 of the session-2 Next list were already committed (937f807 deep scan, 669fc73 `_process_images` collection, 3070429 asset naming). Verified baseline: 100 tests, fmt and clippy clean.
+- **Agent bridge:** `team_status` OK (ChatGPT login; writes enabled). luna_review and sol_review OK. luna_implement can **create** files but gets "Access is denied" when **rewriting** them (rustfmt, edits). Rule: Luna drafts new files; Claude formats, fixes and integrates.
+- **`cyoa-engine::fetch_plan`** (Luna draft, Claude fixes): the pure pre-network part of `fetch_one`. It covers asset URL resolution (CPython `urljoin` plus the `https:/` repair), `_ssrf_block_cross_origin` with injected DNS, and the direct-attempt count. 177 Python cases (95 resolve, 50 ssrf, 32 attempts) via `rust/fixtures/export_fetch_plan.py`.
+  - Bug fixed: `urljoin(base, "")` must return the base verbatim, including the fragment.
+  - Luna's wrong unit expectation for `HTTPS:/` was corrected to the Python value.
+- **Totals:** 106 Rust tests pass; fmt and clippy clean.
+- **Next:** async fetch loop. Cache get, then `asset_is_error_document` rejection, then `cyoa_net::client` GET with headers, retry and byte cap, then cache put, then MIME/extension, tested against a mocked HTTP server. After that: gallery-dl, headless and cookie fallbacks (Sol), then network discovery, outputs, CLI, and an end-to-end test.
