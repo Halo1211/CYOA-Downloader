@@ -1,0 +1,106 @@
+{
+  "fixed_time": "2026-11-18T02:00:00+07:00",
+  "job_keys": [
+    {
+      "args": [
+        "https://x.com/a",
+        "a.json",
+        "auto"
+      ],
+      "ok": "job-v2:a21679e5cd12776a730042cf87d10fc19710302b3134e48ac4ab12d06b9d2bb3"
+    },
+    {
+      "args": [
+        " https://x.com/a ",
+        " a.json ",
+        " ZIP "
+      ],
+      "ok": "job-v2:c7f0b3c1e3b95718bde6d34db0abd0086346d8cc5f4207db3fe27389339ae899"
+    },
+    {
+      "args": [
+        "",
+        "",
+        ""
+      ],
+      "ok": "job-v2:c37192243400adbc341cb72d3653b93ba910cea188e8b3e2cacccc32d2d825a4"
+    },
+    {
+      "args": [
+        "https://x.com/你好",
+        "名前.json",
+        "Both"
+      ],
+      "ok": "job-v2:75bdb1845ff4491e0ff3b3b3136bd4dfa3a5169f198a57b402a87d4ca886bb99"
+    },
+    {
+      "args": [
+        "u",
+        "f",
+        "   "
+      ],
+      "ok": "job-v2:8f615b688f004d331b55c8455c538ced7bcccf36c728d66e880cbaaf1f32e625"
+    },
+    {
+      "args": [
+        "u\u001c",
+        "f ",
+        "Auto"
+      ],
+      "ok": "job-v2:a40daedbd9631f5d5861cf08a65a928a78023f67e50b514767b2cfa65732468f"
+    }
+  ],
+  "resume": [
+    {
+      "name": "basic",
+      "completed": [
+        "a",
+        "b"
+      ],
+      "failed": [],
+      "bytes": "{\n  \"format_version\": 2,\n  \"completed\": [\n    \"a\",\n    \"b\"\n  ],\n  \"failed\": [],\n  \"updated_at\": \"2026-11-18T02:00:00+07:00\"\n}"
+    },
+    {
+      "name": "unicode",
+      "completed": [
+        "你好",
+        "é"
+      ],
+      "failed": [
+        "x\"y"
+      ],
+      "bytes": "{\n  \"format_version\": 2,\n  \"completed\": [\n    \"你好\",\n    \"é\"\n  ],\n  \"failed\": [\n    \"x\\\"y\"\n  ],\n  \"updated_at\": \"2026-11-18T02:00:00+07:00\"\n}"
+    },
+    {
+      "name": "empty",
+      "completed": [],
+      "failed": [],
+      "bytes": "{\n  \"format_version\": 2,\n  \"completed\": [],\n  \"failed\": [],\n  \"updated_at\": \"2026-11-18T02:00:00+07:00\"\n}"
+    }
+  ],
+  "history": [
+    {
+      "calls": [
+        [
+          "https://x.com/a",
+          "a.json",
+          "auto",
+          true
+        ],
+        [
+          "https://x.com/b",
+          "b é.zip",
+          "zip",
+          false
+        ],
+        [
+          "https://x.com/a",
+          "a2.json",
+          "both",
+          true
+        ]
+      ],
+      "bytes": "{\n  \"https://x.com/a\": {\n    \"last_downloaded\": \"2026-11-18T02:00:00+07:00\",\n    \"file_name\": \"a2.json\",\n    \"filename\": \"a2.json\",\n    \"mode\": \"both\",\n    \"success\": true,\n    \"url\": \"https://x.com/a\",\n    \"_metadata_id\": \"00000000000000000000000000000003\",\n    \"metadata_state\": \"pending\"\n  },\n  \"https://x.com/b\": {\n    \"last_downloaded\": \"2026-11-18T02:00:00+07:00\",\n    \"file_name\": \"b é.zip\",\n    \"filename\": \"b é.zip\",\n    \"mode\": \"zip\",\n    \"success\": false,\n    \"url\": \"https://x.com/b\",\n    \"_metadata_id\": \"00000000000000000000000000000002\"\n  }\n}"
+    }
+  ]
+}
