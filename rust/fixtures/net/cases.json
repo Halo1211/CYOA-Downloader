@@ -1,0 +1,443 @@
+{
+  "hosts": [
+    {
+      "host": "localhost",
+      "internal": true
+    },
+    {
+      "host": "LOCALHOST.",
+      "internal": true
+    },
+    {
+      "host": "x.localhost",
+      "internal": true
+    },
+    {
+      "host": "printer.local",
+      "internal": true
+    },
+    {
+      "host": "example.com",
+      "internal": false
+    },
+    {
+      "host": "",
+      "internal": true
+    },
+    {
+      "host": "0.0.0.0",
+      "internal": true
+    },
+    {
+      "host": "0.1.2.3",
+      "internal": true
+    },
+    {
+      "host": "10.0.0.1",
+      "internal": true
+    },
+    {
+      "host": "127.1.2.3",
+      "internal": true
+    },
+    {
+      "host": "169.254.169.254",
+      "internal": true
+    },
+    {
+      "host": "172.16.0.1",
+      "internal": true
+    },
+    {
+      "host": "172.31.255.255",
+      "internal": true
+    },
+    {
+      "host": "172.32.0.0",
+      "internal": false
+    },
+    {
+      "host": "192.0.0.8",
+      "internal": true
+    },
+    {
+      "host": "192.0.0.9",
+      "internal": false
+    },
+    {
+      "host": "192.0.2.1",
+      "internal": true
+    },
+    {
+      "host": "192.168.1.1",
+      "internal": true
+    },
+    {
+      "host": "198.18.0.1",
+      "internal": true
+    },
+    {
+      "host": "198.51.100.1",
+      "internal": true
+    },
+    {
+      "host": "203.0.113.1",
+      "internal": true
+    },
+    {
+      "host": "224.0.0.1",
+      "internal": true
+    },
+    {
+      "host": "240.0.0.1",
+      "internal": true
+    },
+    {
+      "host": "255.255.255.255",
+      "internal": true
+    },
+    {
+      "host": "8.8.8.8",
+      "internal": false
+    },
+    {
+      "host": "100.64.0.1",
+      "internal": false
+    },
+    {
+      "host": "::",
+      "internal": true
+    },
+    {
+      "host": "::1",
+      "internal": true
+    },
+    {
+      "host": "::8.8.8.8",
+      "internal": true
+    },
+    {
+      "host": "64:ff9b::1",
+      "internal": true
+    },
+    {
+      "host": "100::1",
+      "internal": true
+    },
+    {
+      "host": "2001::1",
+      "internal": true
+    },
+    {
+      "host": "2001:db8::1",
+      "internal": true
+    },
+    {
+      "host": "2002::1",
+      "internal": true
+    },
+    {
+      "host": "fc00::1",
+      "internal": true
+    },
+    {
+      "host": "fe80::1",
+      "internal": true
+    },
+    {
+      "host": "fec0::1",
+      "internal": false
+    },
+    {
+      "host": "ff02::1",
+      "internal": true
+    },
+    {
+      "host": "::ffff:127.0.0.1",
+      "internal": true
+    },
+    {
+      "host": "::ffff:8.8.8.8",
+      "internal": false
+    },
+    {
+      "host": "2606:4700::1111",
+      "internal": false
+    },
+    {
+      "host": "2001:20::1",
+      "internal": false
+    },
+    {
+      "host": "3fff::1",
+      "internal": true
+    }
+  ],
+  "ssrf": [
+    {
+      "asset": "http://127.0.0.1/x",
+      "base": "",
+      "blocked": true
+    },
+    {
+      "asset": "http://127.0.0.1/x",
+      "base": "http://127.0.0.1/",
+      "blocked": false
+    },
+    {
+      "asset": "http://127.0.0.1:9/x",
+      "base": "http://127.0.0.1:8000/",
+      "blocked": true
+    },
+    {
+      "asset": "http://localhost/a",
+      "base": "http://LOCALHOST:80/g",
+      "blocked": false
+    },
+    {
+      "asset": "http://x.local/a",
+      "base": "https://example.com/",
+      "blocked": true
+    },
+    {
+      "asset": "https://8.8.8.8/a",
+      "base": "",
+      "blocked": false
+    },
+    {
+      "asset": "http://[::1]/a",
+      "base": "http://[::1]/",
+      "blocked": false
+    },
+    {
+      "asset": "http://10.0.0.5/a",
+      "base": "https://example.com/",
+      "blocked": true
+    }
+  ],
+  "headers": [
+    {
+      "url": "https://i.imgur.com/a.png",
+      "headers": [
+        [
+          "User-Agent",
+          "curl/8.1.1"
+        ],
+        [
+          "Accept",
+          "*/*"
+        ]
+      ]
+    },
+    {
+      "url": "https://IMGUR.com./x",
+      "headers": [
+        [
+          "User-Agent",
+          "curl/8.1.1"
+        ],
+        [
+          "Accept",
+          "*/*"
+        ]
+      ]
+    },
+    {
+      "url": "https://cdn.discordapp.com/a",
+      "headers": [
+        [
+          "User-Agent",
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        ],
+        [
+          "Referer",
+          "https://discord.com/"
+        ],
+        [
+          "Accept",
+          "image/avif,image/webp,*/*"
+        ]
+      ]
+    },
+    {
+      "url": "https://x.tumblr.com/a",
+      "headers": [
+        [
+          "User-Agent",
+          "Mozilla/5.0"
+        ],
+        [
+          "Accept",
+          "image/webp,*/*"
+        ],
+        [
+          "Referer",
+          "https://www.tumblr.com/"
+        ]
+      ]
+    },
+    {
+      "url": "https://64.media.tumblr.com/a",
+      "headers": [
+        [
+          "User-Agent",
+          "Mozilla/5.0"
+        ],
+        [
+          "Accept",
+          "image/webp,*/*"
+        ],
+        [
+          "Referer",
+          "https://www.tumblr.com/"
+        ]
+      ]
+    },
+    {
+      "url": "https://abc.cloudfront.net/a",
+      "headers": [
+        [
+          "User-Agent",
+          "Mozilla/5.0"
+        ],
+        [
+          "Accept",
+          "*/*"
+        ]
+      ]
+    },
+    {
+      "url": "https://user:pw@static1.e621.net:443/a",
+      "headers": [
+        [
+          "User-Agent",
+          "Mozilla/5.0 (compatible; e621-dl/1.0)"
+        ],
+        [
+          "Accept",
+          "image/webp,*/*"
+        ]
+      ]
+    },
+    {
+      "url": "https://foo.e621.net/a",
+      "headers": [
+        [
+          "User-Agent",
+          "Mozilla/5.0 (compatible; e621-dl/1.0)"
+        ],
+        [
+          "Accept",
+          "image/webp,*/*"
+        ]
+      ]
+    },
+    {
+      "url": "https://example.com/a",
+      "headers": [
+        [
+          "User-Agent",
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        ],
+        [
+          "Accept",
+          "image/avif,image/webp,image/apng,*/*;q=0.8"
+        ],
+        [
+          "Accept-Language",
+          "en-US,en;q=0.9"
+        ]
+      ]
+    },
+    {
+      "url": "not a url",
+      "headers": [
+        [
+          "User-Agent",
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        ],
+        [
+          "Accept",
+          "image/avif,image/webp,image/apng,*/*;q=0.8"
+        ],
+        [
+          "Accept-Language",
+          "en-US,en;q=0.9"
+        ]
+      ]
+    },
+    {
+      "url": "https://neocities.org/",
+      "headers": [
+        [
+          "User-Agent",
+          "Mozilla/5.0"
+        ],
+        [
+          "Accept",
+          "*/*"
+        ]
+      ]
+    },
+    {
+      "url": "https://a.neocities.org/",
+      "headers": [
+        [
+          "User-Agent",
+          "Mozilla/5.0"
+        ],
+        [
+          "Accept",
+          "*/*"
+        ]
+      ]
+    },
+    {
+      "url": "https://drive.google.com/uc?id=1",
+      "headers": [
+        [
+          "User-Agent",
+          "Mozilla/5.0"
+        ],
+        [
+          "Accept",
+          "image/webp,*/*,application/octet-stream"
+        ]
+      ]
+    },
+    {
+      "url": "https://img.sankakucomplex.com/x",
+      "headers": [
+        [
+          "User-Agent",
+          "Mozilla/5.0"
+        ],
+        [
+          "Accept",
+          "image/webp,*/*"
+        ],
+        [
+          "Referer",
+          "https://sankakucomplex.com/"
+        ]
+      ]
+    },
+    {
+      "url": "https://v.sankakucomplex.com/x",
+      "headers": [
+        [
+          "User-Agent",
+          "Mozilla/5.0"
+        ],
+        [
+          "Accept",
+          "image/webp,*/*"
+        ],
+        [
+          "Referer",
+          "https://sankakucomplex.com/"
+        ]
+      ]
+    }
+  ]
+}

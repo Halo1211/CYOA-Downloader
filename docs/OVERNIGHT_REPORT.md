@@ -37,6 +37,21 @@ See `DECISION_LOG.md` (DL-1…DL-9).
 
 c8705cc docs · e5c1d13 Stage 0 · e8ed523 1a · ffd7866 1a security fixes · ec49d01 1b · 33baf9d fixture EOL · 358aed2 1c · be02514 2a history/resume · c01bc67 2b cache · 66d88cd 2c checkpoints
 
+## Update ~04:30 — Stage 3a/3b-policy done
+
+- **cyoa-net** has:
+  - `admission` (20/12 fair async budget; Sol design; 7 tests).
+  - `retry` (transport/media retry ownership, Retry-After, domain backoff; Sol).
+  - `throttle` (Python window accounting, cancellable).
+  - `policy` (one destination policy; CPython 3.12 address classification; DNS pinning API).
+  - `headers` (CDN hotlink profiles).
+- **Parity fixtures from live Python** (all pass): 43 host classifications, 8 SSRF decisions, 15 header profiles with key order.
+- **Sol finding (confirms SEC-6):** Python rejects any internal DNS answer but then connects after a *second* resolution. The Rust policy returns vetted addresses for pinning.
+- **Sol's replies truncate at ~15k characters.** Ask for one or two files per call.
+- **Next:**
+  - HTTP client on reqwest with a custom DNS resolver that enforces `DestinationPolicy` on every connection (initial and redirects), manual redirects, streamed bodies with byte caps (SEC-4), proxy.
+  - Then DNS (hickory), the VPN guard, and response metadata.
+
 ## Update 03:20 — Stage 2 done
 
 - **Working pattern change:** Luna's sandbox now denies file writes even for new files. Luna therefore works through `luna_review` and returns code as text; Claude saves it, fixes compile errors and adds Python fixtures.

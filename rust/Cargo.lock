@@ -607,6 +607,7 @@ dependencies = [
  "cyoa-core",
  "futures-util",
  "reqwest",
+ "serde_json",
  "thiserror",
  "tokio",
  "tokio-util",
