@@ -295,3 +295,94 @@ mod tests {
         assert_eq!(py_splitext_ext("x.tar.gz"), ".gz");
     }
 }
+
+static DATA_URI_RE: LazyLock<Option<Regex>> = LazyLock::new(|| {
+    Regex::new(r"\Adata:(?:image|audio|application)/[a-zA-Z0-9.+-]+;base64,").ok()
+});
+static FIELD_RE: LazyLock<Option<Regex>> = LazyLock::new(|| {
+    let group = IMAGE_FIELDS
+        .iter()
+        .chain(AUDIO_FIELDS)
+        .map(|f| regex::escape(f))
+        .collect::<Vec<_>>()
+        .join("|");
+    Regex::new(&format!(r#"(?i)"({group})"\s*:\s*"([^"]+)""#)).ok()
+});
+
+fn is_data_uri(v: &str) -> bool {
+    DATA_URI_RE.as_ref().is_some_and(|r| r.is_match(v))
+}
+
+/// Asset sets collected by `_process_images` phases A and B.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct ProjectAssets {
+    pub images: BTreeSet<String>,
+    pub audio: BTreeSet<String>,
+    pub youtube: BTreeSet<String>,
+    /// Raw field value -> the single absolute URL extracted from it.
+    pub image_field_aliases: std::collections::BTreeMap<String, String>,
+}
+
+impl ProjectAssets {
+    pub fn is_empty(&self) -> bool {
+        self.images.is_empty() && self.audio.is_empty() && self.youtube.is_empty()
+    }
+}
+
+/// Port of `_process_images` asset collection (deep scan + regex supplement +
+/// data-URI cleanup + YouTube/SoundCloud disjointness).
+pub fn collect_project_assets(input: &str) -> ProjectAssets {
+    let deep = deep_scan_project_assets(input);
+    let mut a = ProjectAssets {
+        images: deep.images,
+        audio: deep.audio,
+        youtube: deep.youtube,
+        ..Default::default()
+    };
+    let image_lower: HashSet<String> = IMAGE_FIELDS.iter().map(|f| f.to_lowercase()).collect();
+    if let Some(re) = FIELD_RE.as_ref() {
+        for c in re.captures_iter(input) {
+            let field = &c[1];
+            let path = c[2].replace("\\/", "/");
+            if is_data_uri(&path) {
+                continue;
+            }
+            if is_youtube_url(&path) {
+                a.youtube.insert(path);
+            } else if image_lower.contains(&field.to_lowercase()) {
+                let refs = extract_image_references(&path, true, true);
+                if refs.len() == 1
+                    && !path.contains(['<', '>'])
+                    && let Some(r) = refs.first()
+                    && *r != path
+                    && (r.starts_with("http://") || r.starts_with("https://"))
+                {
+                    a.image_field_aliases.insert(path.clone(), r.clone());
+                }
+                a.images.extend(refs);
+            } else {
+                a.audio.insert(path);
+            }
+        }
+    }
+    for s in [&mut a.images, &mut a.audio, &mut a.youtube] {
+        s.retain(|p| !p.is_empty() && !is_data_uri(p));
+    }
+    for set in [&mut a.images, &mut a.audio] {
+        let mut moved = Vec::new();
+        set.retain(|cand| {
+            let v = py_strip(cand);
+            if is_youtube_url(v) || is_soundcloud_url(v) {
+                moved.push(v.to_owned());
+                false
+            } else if is_youtube_id(v) {
+                moved.push(format!("https://www.youtube.com/watch?v={v}"));
+                false
+            } else {
+                true
+            }
+        });
+        a.youtube.extend(moved);
+    }
+    a
+}

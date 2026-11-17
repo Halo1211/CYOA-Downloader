@@ -1,0 +1,84 @@
+[
+  {
+    "input": "{\"image\": \"img\\/esc.png\", \"Image\": \"https://youtu.be/xyz\", \"audio\": \"dQw4w9WgXcQ\"}",
+    "images": [
+      "img/esc.png"
+    ],
+    "audio": [],
+    "youtube": [
+      "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      "https://youtu.be/xyz"
+    ],
+    "aliases": {}
+  },
+  {
+    "input": "{\"rows\": [{\"image\": \"a.png\", \"backgroundImage\": \"<img src='h/b.png'>\", \"audio\": \"s/a.mp3\"}]} trailing junk \"image\": \"x.png\"",
+    "images": [
+      "a.png",
+      "h/b.png",
+      "x.png"
+    ],
+    "audio": [
+      "s/a.mp3"
+    ],
+    "youtube": [],
+    "aliases": {}
+  },
+  {
+    "input": "var p = {\"image\":\"https://cdn.x/raw.png?x=1 \", \"objectBackgroundImage\": \"https:/cdn.y/z.jpg\", \"soundUrl\": \"https://soundcloud.com/a\"}",
+    "images": [
+      "https://cdn.x/raw.png?x=1",
+      "https://cdn.y/z.jpg"
+    ],
+    "audio": [],
+    "youtube": [
+      "https://soundcloud.com/a"
+    ],
+    "aliases": {
+      "https://cdn.x/raw.png?x=1 ": "https://cdn.x/raw.png?x=1",
+      "https:/cdn.y/z.jpg": "https://cdn.y/z.jpg"
+    }
+  },
+  {
+    "input": "{\"image\": \"data:image/png;base64,AAAA\", \"audioUrl\": \"data:audio/mp3;base64,AA\", \"image2\": \"dQw4w9WgXcQ\"}",
+    "images": [],
+    "audio": [],
+    "youtube": [],
+    "aliases": {}
+  },
+  {
+    "input": "{\"rows\": [{\"objects\": [{\"image\": \"ünï/图.png\", \"title\": \"see https://cdn.z/q.webp\"}]}], \"bgmId\": \"abcdefghijk\"}",
+    "images": [
+      "https://cdn.z/q.webp",
+      "ünï/图.png"
+    ],
+    "audio": [],
+    "youtube": [
+      "https://www.youtube.com/watch?v=abcdefghijk"
+    ],
+    "aliases": {}
+  },
+  {
+    "input": "{\"image\": \"  padded.png  \", \"backgroundImage\": \"Credit https://cdn.k/one.png\"}",
+    "images": [
+      "https://cdn.k/one.png",
+      "padded.png"
+    ],
+    "audio": [],
+    "youtube": [],
+    "aliases": {
+      "Credit https://cdn.k/one.png": "https://cdn.k/one.png"
+    }
+  },
+  {
+    "input": "not json at all \"image\" : \"loose.png\" and \"audio\":\"loose.ogg\"",
+    "images": [
+      "loose.png"
+    ],
+    "audio": [
+      "loose.ogg"
+    ],
+    "youtube": [],
+    "aliases": {}
+  }
+]

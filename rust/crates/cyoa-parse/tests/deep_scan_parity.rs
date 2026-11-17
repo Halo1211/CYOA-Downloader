@@ -28,3 +28,20 @@ fn deep_scan_matches_python() {
     }
     assert!(fails.is_empty(), "{}", fails.join("\n"));
 }
+
+#[test]
+fn collect_project_assets_matches_python() {
+    let cases: Value =
+        serde_json::from_str(include_str!("../../../fixtures/deep_scan/collect.json")).unwrap();
+    let mut fails = Vec::new();
+    for c in cases.as_array().unwrap() {
+        let src = c["input"].as_str().unwrap();
+        let r = cyoa_parse::deep_scan::collect_project_assets(src);
+        let got = json!({"images": r.images, "audio": r.audio, "youtube": r.youtube, "aliases": r.image_field_aliases});
+        let want = json!({"images": c["images"], "audio": c["audio"], "youtube": c["youtube"], "aliases": c["aliases"]});
+        if got != want {
+            fails.push(format!("{src}\n  got  {got}\n  want {want}"));
+        }
+    }
+    assert!(fails.is_empty(), "{}", fails.join("\n"));
+}
