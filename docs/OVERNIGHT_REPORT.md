@@ -37,6 +37,25 @@ See `DECISION_LOG.md` (DL-1…DL-9).
 
 c8705cc docs · e5c1d13 Stage 0 · e8ed523 1a · ffd7866 1a security fixes · ec49d01 1b · 33baf9d fixture EOL · 358aed2 1c · be02514 2a history/resume · c01bc67 2b cache · 66d88cd 2c checkpoints
 
+## Update ~06:30 — FINAL CHECKPOINT of this session (Claude context nearly exhausted)
+
+- **`cyoa-engine::embed`** (commit 35a3166):
+  - Text-level port of `core/embed_io.project_chunks`, byte-identical to Python on 6 cases: 200 KB base64 media, `https:/` variants, aliases, preserved data URIs, whitespace.
+  - Also ports `_classify_project_image_references`.
+  - Luna's Value-walking draft was rejected: it re-serialized the JSON and could never be byte-identical.
+- **Totals:**
+  - 95 Rust tests pass; clippy -D warnings clean; `cargo audit` shows 0 vulnerabilities.
+  - 19 local commits on `migration/python-to-rust`. Nothing pushed.
+- **Next session, in order:**
+  1. **Image pipeline** (`download/image_pipeline.py`):
+     - Collect image refs, download via `cyoa_net::client` into `cyoa_storage::cache`.
+     - Detect MIME and build the mapping for `embed::project_chunks`.
+     - Work in pieces: one function group per agent call.
+  2. **Network discovery** (`discover.py` 510–860): `try_project_candidate`, `get_project_source`.
+  3. **Outputs and reports:** output naming, `failed_images.txt` / `backup_report.txt`, ZIP/Both packaging (`download/package.py`).
+  4. **`cyoa-cli` with clap:** first end-to-end parity test against a local Python `http.server` fixture site, comparing output bytes Python vs Rust.
+  5. **Sol security review** of cache.rs and archive_checkpoint.rs (pending).
+
 ## Update ~06:00 — Stage 4 started (parsing and discovery)
 
 - **`cyoa-parse::project`** (`parse.py`):
