@@ -13,3 +13,6 @@ mod tests {
         assert_eq!(app_version(), "1.1.5");
     }
 }
+
+pub mod paths;
+pub mod url;

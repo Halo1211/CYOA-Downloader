@@ -1,0 +1,1033 @@
+[
+  {
+    "fn": "canonicalize_url",
+    "args": [
+      ""
+    ],
+    "kwargs": {},
+    "err": "ValueError"
+  },
+  {
+    "fn": "canonicalize_url",
+    "args": [
+      null
+    ],
+    "kwargs": {},
+    "err": "ValueError"
+  },
+  {
+    "fn": "canonicalize_url",
+    "args": [
+      "https://example.com"
+    ],
+    "kwargs": {},
+    "ok": "https://example.com/"
+  },
+  {
+    "fn": "canonicalize_url",
+    "args": [
+      "HTTP://Example.COM:80/a/../b?x=1#f"
+    ],
+    "kwargs": {},
+    "ok": "http://example.com/b?x=1"
+  },
+  {
+    "fn": "canonicalize_url",
+    "args": [
+      "example.com:8080/a"
+    ],
+    "kwargs": {},
+    "ok": "https://example.com:8080/a"
+  },
+  {
+    "fn": "canonicalize_url",
+    "args": [
+      "//example.com/x"
+    ],
+    "kwargs": {},
+    "ok": "https://example.com/x"
+  },
+  {
+    "fn": "canonicalize_url",
+    "args": [
+      "localhost"
+    ],
+    "kwargs": {},
+    "ok": "https://localhost/"
+  },
+  {
+    "fn": "canonicalize_url",
+    "args": [
+      "127.0.0.1"
+    ],
+    "kwargs": {},
+    "ok": "https://127.0.0.1/"
+  },
+  {
+    "fn": "canonicalize_url",
+    "args": [
+      "[::1]:443/x"
+    ],
+    "kwargs": {},
+    "ok": "https://[::1]/x"
+  },
+  {
+    "fn": "canonicalize_url",
+    "args": [
+      "https://[2001:db8::1]:443/a"
+    ],
+    "kwargs": {},
+    "ok": "https://[2001:db8::1]/a"
+  },
+  {
+    "fn": "canonicalize_url",
+    "args": [
+      "https://bücher.de/a"
+    ],
+    "kwargs": {},
+    "ok": "https://bücher.de/a"
+  },
+  {
+    "fn": "canonicalize_url",
+    "args": [
+      "ftp://example.com"
+    ],
+    "kwargs": {},
+    "err": "ValueError"
+  },
+  {
+    "fn": "canonicalize_url",
+    "args": [
+      "file:///tmp/x"
+    ],
+    "kwargs": {},
+    "err": "ValueError"
+  },
+  {
+    "fn": "canonicalize_url",
+    "args": [
+      "relative/path"
+    ],
+    "kwargs": {},
+    "err": "ValueError"
+  },
+  {
+    "fn": "canonicalize_url",
+    "args": [
+      "https://exa mple.com"
+    ],
+    "kwargs": {},
+    "err": "ValueError"
+  },
+  {
+    "fn": "canonicalize_url",
+    "args": [
+      "https://x.com/%"
+    ],
+    "kwargs": {},
+    "ok": "https://x.com/%"
+  },
+  {
+    "fn": "canonicalize_url",
+    "args": [
+      "https://x.com/a//b"
+    ],
+    "kwargs": {},
+    "ok": "https://x.com/a//b"
+  },
+  {
+    "fn": "canonicalize_url",
+    "args": [
+      "https://x.com/a/./b/../c"
+    ],
+    "kwargs": {},
+    "ok": "https://x.com/a/c"
+  },
+  {
+    "fn": "canonicalize_url",
+    "args": [
+      "https://x.com:bad/"
+    ],
+    "kwargs": {},
+    "err": "ValueError"
+  },
+  {
+    "fn": "canonicalize_url",
+    "args": [
+      "https://x.com:65536/"
+    ],
+    "kwargs": {},
+    "err": "ValueError"
+  },
+  {
+    "fn": "canonicalize_url",
+    "args": [
+      "https://user:pw@x.com./a"
+    ],
+    "kwargs": {},
+    "ok": "https://x.com/a"
+  },
+  {
+    "fn": "canonicalize_url",
+    "args": [
+      "https://x.com:443/a;b?x#y"
+    ],
+    "kwargs": {},
+    "ok": "https://x.com/a;b?x"
+  },
+  {
+    "fn": "canonicalize_url",
+    "args": [
+      "https://x.com/你好"
+    ],
+    "kwargs": {},
+    "ok": "https://x.com/你好"
+  },
+  {
+    "fn": "canonicalize_url",
+    "args": [
+      "https://x.com//x85"
+    ],
+    "kwargs": {},
+    "ok": "https://x.com//x85"
+  },
+  {
+    "fn": "canonicalize_url",
+    "args": [
+      "https://10.0.0.1"
+    ],
+    "kwargs": {},
+    "ok": "https://10.0.0.1/"
+  },
+  {
+    "fn": "is_probable_url",
+    "args": [
+      ""
+    ],
+    "kwargs": {},
+    "ok": false
+  },
+  {
+    "fn": "is_probable_url",
+    "args": [
+      null
+    ],
+    "kwargs": {},
+    "ok": false
+  },
+  {
+    "fn": "is_probable_url",
+    "args": [
+      "https://example.com"
+    ],
+    "kwargs": {},
+    "ok": true
+  },
+  {
+    "fn": "is_probable_url",
+    "args": [
+      "HTTP://Example.COM:80/a/../b?x=1#f"
+    ],
+    "kwargs": {},
+    "ok": true
+  },
+  {
+    "fn": "is_probable_url",
+    "args": [
+      "example.com:8080/a"
+    ],
+    "kwargs": {},
+    "ok": false
+  },
+  {
+    "fn": "is_probable_url",
+    "args": [
+      "//example.com/x"
+    ],
+    "kwargs": {},
+    "ok": false
+  },
+  {
+    "fn": "is_probable_url",
+    "args": [
+      "localhost"
+    ],
+    "kwargs": {},
+    "ok": false
+  },
+  {
+    "fn": "is_probable_url",
+    "args": [
+      "127.0.0.1"
+    ],
+    "kwargs": {},
+    "ok": false
+  },
+  {
+    "fn": "is_probable_url",
+    "args": [
+      "[::1]:443/x"
+    ],
+    "kwargs": {},
+    "ok": false
+  },
+  {
+    "fn": "is_probable_url",
+    "args": [
+      "https://[2001:db8::1]:443/a"
+    ],
+    "kwargs": {},
+    "ok": true
+  },
+  {
+    "fn": "is_probable_url",
+    "args": [
+      "https://bücher.de/a"
+    ],
+    "kwargs": {},
+    "ok": true
+  },
+  {
+    "fn": "is_probable_url",
+    "args": [
+      "ftp://example.com"
+    ],
+    "kwargs": {},
+    "ok": false
+  },
+  {
+    "fn": "is_probable_url",
+    "args": [
+      "file:///tmp/x"
+    ],
+    "kwargs": {},
+    "ok": false
+  },
+  {
+    "fn": "is_probable_url",
+    "args": [
+      "relative/path"
+    ],
+    "kwargs": {},
+    "ok": false
+  },
+  {
+    "fn": "is_probable_url",
+    "args": [
+      "https://exa mple.com"
+    ],
+    "kwargs": {},
+    "ok": false
+  },
+  {
+    "fn": "is_probable_url",
+    "args": [
+      "https://x.com/%"
+    ],
+    "kwargs": {},
+    "ok": true
+  },
+  {
+    "fn": "is_probable_url",
+    "args": [
+      "https://x.com/a//b"
+    ],
+    "kwargs": {},
+    "ok": true
+  },
+  {
+    "fn": "is_probable_url",
+    "args": [
+      "https://x.com/a/./b/../c"
+    ],
+    "kwargs": {},
+    "ok": true
+  },
+  {
+    "fn": "is_probable_url",
+    "args": [
+      "https://x.com:bad/"
+    ],
+    "kwargs": {},
+    "ok": false
+  },
+  {
+    "fn": "is_probable_url",
+    "args": [
+      "https://x.com:65536/"
+    ],
+    "kwargs": {},
+    "ok": false
+  },
+  {
+    "fn": "is_probable_url",
+    "args": [
+      "https://user:pw@x.com./a"
+    ],
+    "kwargs": {},
+    "ok": true
+  },
+  {
+    "fn": "is_probable_url",
+    "args": [
+      "https://x.com:443/a;b?x#y"
+    ],
+    "kwargs": {},
+    "ok": true
+  },
+  {
+    "fn": "is_probable_url",
+    "args": [
+      "https://x.com/你好"
+    ],
+    "kwargs": {},
+    "ok": true
+  },
+  {
+    "fn": "is_probable_url",
+    "args": [
+      "https://x.com//x85"
+    ],
+    "kwargs": {},
+    "ok": true
+  },
+  {
+    "fn": "is_probable_url",
+    "args": [
+      "https://10.0.0.1"
+    ],
+    "kwargs": {},
+    "ok": true
+  },
+  {
+    "fn": "_directory_base_url",
+    "args": [
+      ""
+    ],
+    "kwargs": {},
+    "err": "ValueError"
+  },
+  {
+    "fn": "_directory_base_url",
+    "args": [
+      null
+    ],
+    "kwargs": {},
+    "err": "ValueError"
+  },
+  {
+    "fn": "_directory_base_url",
+    "args": [
+      "https://example.com"
+    ],
+    "kwargs": {},
+    "ok": "https://example.com/"
+  },
+  {
+    "fn": "_directory_base_url",
+    "args": [
+      "HTTP://Example.COM:80/a/../b?x=1#f"
+    ],
+    "kwargs": {},
+    "ok": "http://example.com/b/"
+  },
+  {
+    "fn": "_directory_base_url",
+    "args": [
+      "example.com:8080/a"
+    ],
+    "kwargs": {},
+    "ok": "https://example.com:8080/a/"
+  },
+  {
+    "fn": "_directory_base_url",
+    "args": [
+      "//example.com/x"
+    ],
+    "kwargs": {},
+    "ok": "https://example.com/x/"
+  },
+  {
+    "fn": "_directory_base_url",
+    "args": [
+      "localhost"
+    ],
+    "kwargs": {},
+    "ok": "https://localhost/"
+  },
+  {
+    "fn": "_directory_base_url",
+    "args": [
+      "127.0.0.1"
+    ],
+    "kwargs": {},
+    "ok": "https://127.0.0.1/"
+  },
+  {
+    "fn": "_directory_base_url",
+    "args": [
+      "[::1]:443/x"
+    ],
+    "kwargs": {},
+    "ok": "https://[::1]/x/"
+  },
+  {
+    "fn": "_directory_base_url",
+    "args": [
+      "https://[2001:db8::1]:443/a"
+    ],
+    "kwargs": {},
+    "ok": "https://[2001:db8::1]/a/"
+  },
+  {
+    "fn": "_directory_base_url",
+    "args": [
+      "https://bücher.de/a"
+    ],
+    "kwargs": {},
+    "ok": "https://bücher.de/a/"
+  },
+  {
+    "fn": "_directory_base_url",
+    "args": [
+      "ftp://example.com"
+    ],
+    "kwargs": {},
+    "err": "ValueError"
+  },
+  {
+    "fn": "_directory_base_url",
+    "args": [
+      "file:///tmp/x"
+    ],
+    "kwargs": {},
+    "err": "ValueError"
+  },
+  {
+    "fn": "_directory_base_url",
+    "args": [
+      "relative/path"
+    ],
+    "kwargs": {},
+    "err": "ValueError"
+  },
+  {
+    "fn": "_directory_base_url",
+    "args": [
+      "https://exa mple.com"
+    ],
+    "kwargs": {},
+    "err": "ValueError"
+  },
+  {
+    "fn": "_directory_base_url",
+    "args": [
+      "https://x.com/%"
+    ],
+    "kwargs": {},
+    "ok": "https://x.com/%/"
+  },
+  {
+    "fn": "_directory_base_url",
+    "args": [
+      "https://x.com/a//b"
+    ],
+    "kwargs": {},
+    "ok": "https://x.com/a//b/"
+  },
+  {
+    "fn": "_directory_base_url",
+    "args": [
+      "https://x.com/a/./b/../c"
+    ],
+    "kwargs": {},
+    "ok": "https://x.com/a/c/"
+  },
+  {
+    "fn": "_directory_base_url",
+    "args": [
+      "https://x.com:bad/"
+    ],
+    "kwargs": {},
+    "err": "ValueError"
+  },
+  {
+    "fn": "_directory_base_url",
+    "args": [
+      "https://x.com:65536/"
+    ],
+    "kwargs": {},
+    "err": "ValueError"
+  },
+  {
+    "fn": "_directory_base_url",
+    "args": [
+      "https://user:pw@x.com./a"
+    ],
+    "kwargs": {},
+    "ok": "https://x.com/a/"
+  },
+  {
+    "fn": "_directory_base_url",
+    "args": [
+      "https://x.com:443/a;b?x#y"
+    ],
+    "kwargs": {},
+    "ok": "https://x.com/a/"
+  },
+  {
+    "fn": "_directory_base_url",
+    "args": [
+      "https://x.com/你好"
+    ],
+    "kwargs": {},
+    "ok": "https://x.com/你好/"
+  },
+  {
+    "fn": "_directory_base_url",
+    "args": [
+      "https://x.com//x85"
+    ],
+    "kwargs": {},
+    "ok": "https://x.com//x85/"
+  },
+  {
+    "fn": "_directory_base_url",
+    "args": [
+      "https://10.0.0.1"
+    ],
+    "kwargs": {},
+    "ok": "https://10.0.0.1/"
+  },
+  {
+    "fn": "truncate_display_url",
+    "args": [
+      "http://x.com/a"
+    ],
+    "kwargs": {
+      "max_length": 20
+    },
+    "ok": "http://x.com/a"
+  },
+  {
+    "fn": "truncate_display_url",
+    "args": [
+      "https://x.com/a?query"
+    ],
+    "kwargs": {
+      "max_length": 20
+    },
+    "ok": "x.com/a?query"
+  },
+  {
+    "fn": "truncate_display_url",
+    "args": [
+      "https://x.com/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    ],
+    "kwargs": {
+      "max_length": 20
+    },
+    "ok": "x.com/aaaaaa…aaaaaaa"
+  },
+  {
+    "fn": "truncate_display_url",
+    "args": [
+      "plain text"
+    ],
+    "kwargs": {
+      "max_length": 20
+    },
+    "ok": "plain text"
+  },
+  {
+    "fn": "truncate_display_url",
+    "args": [
+      "https://x.com/a#fragment"
+    ],
+    "kwargs": {
+      "max_length": 20
+    },
+    "ok": "x.com/a"
+  },
+  {
+    "fn": "_same_origin",
+    "args": [
+      "https://Example.com",
+      "https://example.com:443/x"
+    ],
+    "kwargs": {},
+    "ok": true
+  },
+  {
+    "fn": "_same_origin",
+    "args": [
+      "http://x.com",
+      "https://x.com"
+    ],
+    "kwargs": {},
+    "ok": false
+  },
+  {
+    "fn": "_same_origin",
+    "args": [
+      "https://x.com:443",
+      "https://x.com"
+    ],
+    "kwargs": {},
+    "ok": true
+  },
+  {
+    "fn": "_same_origin",
+    "args": [
+      "https://10.0.0.1",
+      "https://10.0.0.1:443"
+    ],
+    "kwargs": {},
+    "ok": true
+  },
+  {
+    "fn": "_same_origin",
+    "args": [
+      "bad",
+      "https://x.com"
+    ],
+    "kwargs": {},
+    "ok": false
+  },
+  {
+    "fn": "_same_origin",
+    "args": [
+      "https://[::1]",
+      "https://[::1]:443"
+    ],
+    "kwargs": {},
+    "ok": true
+  },
+  {
+    "fn": "_candidate_urls_for_cyoap_asset",
+    "args": [
+      "https://example.com/game/index.html",
+      "foo.png",
+      "images"
+    ],
+    "kwargs": {},
+    "ok": [
+      "https://example.com/game/dist/images/foo.png",
+      "https://example.com/game/foo.png"
+    ]
+  },
+  {
+    "fn": "_candidate_urls_for_cyoap_asset",
+    "args": [
+      "https://example.com/game/index.html",
+      "foo.png",
+      "audio"
+    ],
+    "kwargs": {},
+    "ok": [
+      "https://example.com/game/foo.png",
+      "https://example.com/game/dist/audio/foo.png",
+      "https://example.com/game/dist/media/foo.png",
+      "https://example.com/game/dist/images/foo.png",
+      "https://example.com/game/audio/foo.png",
+      "https://example.com/game/media/foo.png"
+    ]
+  },
+  {
+    "fn": "_candidate_urls_for_cyoap_asset",
+    "args": [
+      "https://example.com/game/index.html",
+      "/foo.png",
+      "images"
+    ],
+    "kwargs": {},
+    "ok": [
+      "https://example.com/foo.png"
+    ]
+  },
+  {
+    "fn": "_candidate_urls_for_cyoap_asset",
+    "args": [
+      "https://example.com/game/index.html",
+      "/foo.png",
+      "audio"
+    ],
+    "kwargs": {},
+    "ok": [
+      "https://example.com/foo.png"
+    ]
+  },
+  {
+    "fn": "_candidate_urls_for_cyoap_asset",
+    "args": [
+      "https://example.com/game/index.html",
+      "//cdn.example/x.png",
+      "images"
+    ],
+    "kwargs": {},
+    "ok": [
+      "https://cdn.example/x.png"
+    ]
+  },
+  {
+    "fn": "_candidate_urls_for_cyoap_asset",
+    "args": [
+      "https://example.com/game/index.html",
+      "//cdn.example/x.png",
+      "audio"
+    ],
+    "kwargs": {},
+    "ok": [
+      "https://cdn.example/x.png"
+    ]
+  },
+  {
+    "fn": "_candidate_urls_for_cyoap_asset",
+    "args": [
+      "https://example.com/game/index.html",
+      "https://cdn.example/a.png",
+      "images"
+    ],
+    "kwargs": {},
+    "ok": [
+      "https://cdn.example/a.png"
+    ]
+  },
+  {
+    "fn": "_candidate_urls_for_cyoap_asset",
+    "args": [
+      "https://example.com/game/index.html",
+      "https://cdn.example/a.png",
+      "audio"
+    ],
+    "kwargs": {},
+    "ok": [
+      "https://cdn.example/a.png"
+    ]
+  },
+  {
+    "fn": "_candidate_urls_for_cyoap_asset",
+    "args": [
+      "https://example.com/game/index.html",
+      "data:image/png,x",
+      "images"
+    ],
+    "kwargs": {},
+    "ok": []
+  },
+  {
+    "fn": "_candidate_urls_for_cyoap_asset",
+    "args": [
+      "https://example.com/game/index.html",
+      "data:image/png,x",
+      "audio"
+    ],
+    "kwargs": {},
+    "ok": []
+  },
+  {
+    "fn": "_candidate_urls_for_cyoap_asset",
+    "args": [
+      "https://example.com/game/index.html",
+      "https://",
+      "images"
+    ],
+    "kwargs": {},
+    "ok": [
+      "https://example.com/game/dist/images/https:/",
+      "https://example.com/game/index.html"
+    ]
+  },
+  {
+    "fn": "_candidate_urls_for_cyoap_asset",
+    "args": [
+      "https://example.com/game/index.html",
+      "https://",
+      "audio"
+    ],
+    "kwargs": {},
+    "ok": [
+      "https://example.com/game/index.html",
+      "https://example.com/game/dist/audio/https:/",
+      "https://example.com/game/dist/media/https:/",
+      "https://example.com/game/dist/images/https:/",
+      "https://example.com/game/audio/https:/",
+      "https://example.com/game/media/https:/"
+    ]
+  },
+  {
+    "fn": "_candidate_urls_for_cyoap_asset",
+    "args": [
+      "https://example.com/game/index.html",
+      "myfolder/a.png",
+      "images"
+    ],
+    "kwargs": {},
+    "ok": [
+      "https://example.com/game/dist/images/myfolder/a.png",
+      "https://example.com/game/myfolder/a.png"
+    ]
+  },
+  {
+    "fn": "_candidate_urls_for_cyoap_asset",
+    "args": [
+      "https://example.com/game/index.html",
+      "myfolder/a.png",
+      "audio"
+    ],
+    "kwargs": {},
+    "ok": [
+      "https://example.com/game/myfolder/a.png",
+      "https://example.com/game/dist/audio/myfolder/a.png",
+      "https://example.com/game/dist/media/myfolder/a.png",
+      "https://example.com/game/dist/images/myfolder/a.png",
+      "https://example.com/game/audio/myfolder/a.png",
+      "https://example.com/game/media/myfolder/a.png"
+    ]
+  },
+  {
+    "fn": "_candidate_urls_for_cyoap_asset",
+    "args": [
+      "https://example.com/game/index.html",
+      "a b.png",
+      "images"
+    ],
+    "kwargs": {},
+    "ok": [
+      "https://example.com/game/dist/images/a b.png",
+      "https://example.com/game/dist/images/a%20b.png",
+      "https://example.com/game/a b.png",
+      "https://example.com/game/a%20b.png"
+    ]
+  },
+  {
+    "fn": "_candidate_urls_for_cyoap_asset",
+    "args": [
+      "https://example.com/game/index.html",
+      "a b.png",
+      "audio"
+    ],
+    "kwargs": {},
+    "ok": [
+      "https://example.com/game/a b.png",
+      "https://example.com/game/a%20b.png",
+      "https://example.com/game/dist/audio/a b.png",
+      "https://example.com/game/dist/audio/a%20b.png",
+      "https://example.com/game/dist/media/a b.png",
+      "https://example.com/game/dist/media/a%20b.png",
+      "https://example.com/game/dist/images/a b.png",
+      "https://example.com/game/dist/images/a%20b.png",
+      "https://example.com/game/audio/a b.png",
+      "https://example.com/game/audio/a%20b.png",
+      "https://example.com/game/media/a b.png",
+      "https://example.com/game/media/a%20b.png"
+    ]
+  },
+  {
+    "fn": "_candidate_urls_for_cyoap_asset",
+    "args": [
+      "https://example.com/game/index.html",
+      "你好.png",
+      "images"
+    ],
+    "kwargs": {},
+    "ok": [
+      "https://example.com/game/dist/images/你好.png",
+      "https://example.com/game/dist/images/%E4%BD%A0%E5%A5%BD.png",
+      "https://example.com/game/你好.png",
+      "https://example.com/game/%E4%BD%A0%E5%A5%BD.png"
+    ]
+  },
+  {
+    "fn": "_candidate_urls_for_cyoap_asset",
+    "args": [
+      "https://example.com/game/index.html",
+      "你好.png",
+      "audio"
+    ],
+    "kwargs": {},
+    "ok": [
+      "https://example.com/game/你好.png",
+      "https://example.com/game/%E4%BD%A0%E5%A5%BD.png",
+      "https://example.com/game/dist/audio/你好.png",
+      "https://example.com/game/dist/audio/%E4%BD%A0%E5%A5%BD.png",
+      "https://example.com/game/dist/media/你好.png",
+      "https://example.com/game/dist/media/%E4%BD%A0%E5%A5%BD.png",
+      "https://example.com/game/dist/images/你好.png",
+      "https://example.com/game/dist/images/%E4%BD%A0%E5%A5%BD.png",
+      "https://example.com/game/audio/你好.png",
+      "https://example.com/game/audio/%E4%BD%A0%E5%A5%BD.png",
+      "https://example.com/game/media/你好.png",
+      "https://example.com/game/media/%E4%BD%A0%E5%A5%BD.png"
+    ]
+  },
+  {
+    "fn": "_candidate_urls_for_cyoap_asset",
+    "args": [
+      "https://example.com/game/index.html",
+      "dist/x.png",
+      "images"
+    ],
+    "kwargs": {},
+    "ok": [
+      "https://example.com/game/dist/x.png"
+    ]
+  },
+  {
+    "fn": "_candidate_urls_for_cyoap_asset",
+    "args": [
+      "https://example.com/game/index.html",
+      "dist/x.png",
+      "audio"
+    ],
+    "kwargs": {},
+    "ok": [
+      "https://example.com/game/dist/x.png"
+    ]
+  },
+  {
+    "fn": "_cyoap_local_path",
+    "args": [
+      "<ROOT>",
+      "https://example.com"
+    ],
+    "kwargs": {},
+    "ok": "<ROOT>/index.html"
+  },
+  {
+    "fn": "_cyoap_local_path",
+    "args": [
+      "<ROOT>",
+      "https://example.com/"
+    ],
+    "kwargs": {},
+    "ok": "<ROOT>/index.html"
+  },
+  {
+    "fn": "_cyoap_local_path",
+    "args": [
+      "<ROOT>",
+      "https://example.com/a%2520b.png"
+    ],
+    "kwargs": {},
+    "ok": "<ROOT>/a%20b.png"
+  },
+  {
+    "fn": "_cyoap_local_path",
+    "args": [
+      "<ROOT>",
+      "https://example.com/a?x=1"
+    ],
+    "kwargs": {},
+    "ok": "<ROOT>/a"
+  },
+  {
+    "fn": "_cyoap_local_path",
+    "args": [
+      "<ROOT>",
+      "https://example.com/你好"
+    ],
+    "kwargs": {},
+    "ok": "<ROOT>/你好"
+  }
+]

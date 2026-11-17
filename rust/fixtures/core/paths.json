@@ -1,0 +1,958 @@
+[
+  {
+    "fn": "_safe_rel_path",
+    "args": [
+      ""
+    ],
+    "kwargs": {},
+    "ok": "asset"
+  },
+  {
+    "fn": "_safe_rel_path",
+    "args": [
+      null
+    ],
+    "kwargs": {},
+    "ok": "asset"
+  },
+  {
+    "fn": "_safe_rel_path",
+    "args": [
+      "hello world"
+    ],
+    "kwargs": {},
+    "ok": "hello world"
+  },
+  {
+    "fn": "_safe_rel_path",
+    "args": [
+      "你好/😀/é"
+    ],
+    "kwargs": {},
+    "ok": "你好/😀/é"
+  },
+  {
+    "fn": "_safe_rel_path",
+    "args": [
+      "rtl/שלום"
+    ],
+    "kwargs": {},
+    "ok": "rtl/שלום"
+  },
+  {
+    "fn": "_safe_rel_path",
+    "args": [
+      "a%2Fb%3Fc%23d"
+    ],
+    "kwargs": {},
+    "ok": "a/b_c#d"
+  },
+  {
+    "fn": "_safe_rel_path",
+    "args": [
+      "%ZZ/%"
+    ],
+    "kwargs": {},
+    "ok": "%ZZ/%"
+  },
+  {
+    "fn": "_safe_rel_path",
+    "args": [
+      "%E2%82%AC"
+    ],
+    "kwargs": {},
+    "ok": "€"
+  },
+  {
+    "fn": "_safe_rel_path",
+    "args": [
+      "%FF"
+    ],
+    "kwargs": {},
+    "ok": "�"
+  },
+  {
+    "fn": "_safe_rel_path",
+    "args": [
+      "a?b#c"
+    ],
+    "kwargs": {},
+    "ok": "a"
+  },
+  {
+    "fn": "_safe_rel_path",
+    "args": [
+      "a\\\\b"
+    ],
+    "kwargs": {},
+    "ok": "a/b"
+  },
+  {
+    "fn": "_safe_rel_path",
+    "args": [
+      "nul.png"
+    ],
+    "kwargs": {},
+    "ok": "_nul.png"
+  },
+  {
+    "fn": "_safe_rel_path",
+    "args": [
+      "CON"
+    ],
+    "kwargs": {},
+    "ok": "_CON"
+  },
+  {
+    "fn": "_safe_rel_path",
+    "args": [
+      "COM¹"
+    ],
+    "kwargs": {},
+    "ok": "_COM¹"
+  },
+  {
+    "fn": "_safe_rel_path",
+    "args": [
+      "LPT3.txt"
+    ],
+    "kwargs": {},
+    "ok": "_LPT3.txt"
+  },
+  {
+    "fn": "_safe_rel_path",
+    "args": [
+      "con .txt"
+    ],
+    "kwargs": {},
+    "ok": "_con .txt"
+  },
+  {
+    "fn": "_safe_rel_path",
+    "args": [
+      "C:foo"
+    ],
+    "kwargs": {},
+    "ok": "_foo"
+  },
+  {
+    "fn": "_safe_rel_path",
+    "args": [
+      "../x"
+    ],
+    "kwargs": {},
+    "ok": "x"
+  },
+  {
+    "fn": "_safe_rel_path",
+    "args": [
+      ".//.."
+    ],
+    "kwargs": {},
+    "ok": "asset"
+  },
+  {
+    "fn": "_safe_rel_path",
+    "args": [
+      "\u0000x\u001f"
+    ],
+    "kwargs": {},
+    "ok": "x__"
+  },
+  {
+    "fn": "_safe_rel_path",
+    "args": [
+      "x\u001c\u001d\u001e\u001f 　y"
+    ],
+    "kwargs": {},
+    "ok": "x____ 　y"
+  },
+  {
+    "fn": "_safe_rel_path",
+    "args": [
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    ],
+    "kwargs": {},
+    "ok": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx_aa20c23e32"
+  },
+  {
+    "fn": "_safe_rel_path",
+    "args": [
+      "界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界"
+    ],
+    "kwargs": {},
+    "ok": "界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界_f646bc6742"
+  },
+  {
+    "fn": "_safe_rel_path",
+    "args": [
+      "name.xxxxxxxxxxxxxxxxxxxx"
+    ],
+    "kwargs": {},
+    "ok": "name.xxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "fn": "_is_windows_reserved_basename",
+    "args": [
+      ""
+    ],
+    "kwargs": {},
+    "ok": false
+  },
+  {
+    "fn": "_is_windows_reserved_basename",
+    "args": [
+      null
+    ],
+    "kwargs": {},
+    "ok": false
+  },
+  {
+    "fn": "_is_windows_reserved_basename",
+    "args": [
+      "hello world"
+    ],
+    "kwargs": {},
+    "ok": false
+  },
+  {
+    "fn": "_is_windows_reserved_basename",
+    "args": [
+      "你好/😀/é"
+    ],
+    "kwargs": {},
+    "ok": false
+  },
+  {
+    "fn": "_is_windows_reserved_basename",
+    "args": [
+      "rtl/שלום"
+    ],
+    "kwargs": {},
+    "ok": false
+  },
+  {
+    "fn": "_is_windows_reserved_basename",
+    "args": [
+      "a%2Fb%3Fc%23d"
+    ],
+    "kwargs": {},
+    "ok": false
+  },
+  {
+    "fn": "_is_windows_reserved_basename",
+    "args": [
+      "%ZZ/%"
+    ],
+    "kwargs": {},
+    "ok": false
+  },
+  {
+    "fn": "_is_windows_reserved_basename",
+    "args": [
+      "%E2%82%AC"
+    ],
+    "kwargs": {},
+    "ok": false
+  },
+  {
+    "fn": "_is_windows_reserved_basename",
+    "args": [
+      "%FF"
+    ],
+    "kwargs": {},
+    "ok": false
+  },
+  {
+    "fn": "_is_windows_reserved_basename",
+    "args": [
+      "a?b#c"
+    ],
+    "kwargs": {},
+    "ok": false
+  },
+  {
+    "fn": "_is_windows_reserved_basename",
+    "args": [
+      "a\\\\b"
+    ],
+    "kwargs": {},
+    "ok": false
+  },
+  {
+    "fn": "_is_windows_reserved_basename",
+    "args": [
+      "nul.png"
+    ],
+    "kwargs": {},
+    "ok": true
+  },
+  {
+    "fn": "_is_windows_reserved_basename",
+    "args": [
+      "CON"
+    ],
+    "kwargs": {},
+    "ok": true
+  },
+  {
+    "fn": "_is_windows_reserved_basename",
+    "args": [
+      "COM¹"
+    ],
+    "kwargs": {},
+    "ok": true
+  },
+  {
+    "fn": "_is_windows_reserved_basename",
+    "args": [
+      "LPT3.txt"
+    ],
+    "kwargs": {},
+    "ok": true
+  },
+  {
+    "fn": "_is_windows_reserved_basename",
+    "args": [
+      "con .txt"
+    ],
+    "kwargs": {},
+    "ok": true
+  },
+  {
+    "fn": "_is_windows_reserved_basename",
+    "args": [
+      "C:foo"
+    ],
+    "kwargs": {},
+    "ok": false
+  },
+  {
+    "fn": "_is_windows_reserved_basename",
+    "args": [
+      "../x"
+    ],
+    "kwargs": {},
+    "ok": false
+  },
+  {
+    "fn": "_is_windows_reserved_basename",
+    "args": [
+      ".//.."
+    ],
+    "kwargs": {},
+    "ok": false
+  },
+  {
+    "fn": "_is_windows_reserved_basename",
+    "args": [
+      "\u0000x\u001f"
+    ],
+    "kwargs": {},
+    "ok": false
+  },
+  {
+    "fn": "_is_windows_reserved_basename",
+    "args": [
+      "x\u001c\u001d\u001e\u001f 　y"
+    ],
+    "kwargs": {},
+    "ok": false
+  },
+  {
+    "fn": "_is_windows_reserved_basename",
+    "args": [
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    ],
+    "kwargs": {},
+    "ok": false
+  },
+  {
+    "fn": "_is_windows_reserved_basename",
+    "args": [
+      "界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界"
+    ],
+    "kwargs": {},
+    "ok": false
+  },
+  {
+    "fn": "_is_windows_reserved_basename",
+    "args": [
+      "name.xxxxxxxxxxxxxxxxxxxx"
+    ],
+    "kwargs": {},
+    "ok": false
+  },
+  {
+    "fn": "_truncate_path_segment",
+    "args": [
+      ""
+    ],
+    "kwargs": {},
+    "ok": ""
+  },
+  {
+    "fn": "_truncate_path_segment",
+    "args": [
+      ""
+    ],
+    "kwargs": {},
+    "ok": ""
+  },
+  {
+    "fn": "_truncate_path_segment",
+    "args": [
+      "hello world"
+    ],
+    "kwargs": {},
+    "ok": "hello world"
+  },
+  {
+    "fn": "_truncate_path_segment",
+    "args": [
+      "你好/😀/é"
+    ],
+    "kwargs": {},
+    "ok": "你好/😀/é"
+  },
+  {
+    "fn": "_truncate_path_segment",
+    "args": [
+      "rtl/שלום"
+    ],
+    "kwargs": {},
+    "ok": "rtl/שלום"
+  },
+  {
+    "fn": "_truncate_path_segment",
+    "args": [
+      "a%2Fb%3Fc%23d"
+    ],
+    "kwargs": {},
+    "ok": "a%2Fb%3Fc%23d"
+  },
+  {
+    "fn": "_truncate_path_segment",
+    "args": [
+      "%ZZ/%"
+    ],
+    "kwargs": {},
+    "ok": "%ZZ/%"
+  },
+  {
+    "fn": "_truncate_path_segment",
+    "args": [
+      "%E2%82%AC"
+    ],
+    "kwargs": {},
+    "ok": "%E2%82%AC"
+  },
+  {
+    "fn": "_truncate_path_segment",
+    "args": [
+      "%FF"
+    ],
+    "kwargs": {},
+    "ok": "%FF"
+  },
+  {
+    "fn": "_truncate_path_segment",
+    "args": [
+      "a?b#c"
+    ],
+    "kwargs": {},
+    "ok": "a?b#c"
+  },
+  {
+    "fn": "_truncate_path_segment",
+    "args": [
+      "a\\\\b"
+    ],
+    "kwargs": {},
+    "ok": "a\\\\b"
+  },
+  {
+    "fn": "_truncate_path_segment",
+    "args": [
+      "nul.png"
+    ],
+    "kwargs": {},
+    "ok": "nul.png"
+  },
+  {
+    "fn": "_truncate_path_segment",
+    "args": [
+      "CON"
+    ],
+    "kwargs": {},
+    "ok": "CON"
+  },
+  {
+    "fn": "_truncate_path_segment",
+    "args": [
+      "COM¹"
+    ],
+    "kwargs": {},
+    "ok": "COM¹"
+  },
+  {
+    "fn": "_truncate_path_segment",
+    "args": [
+      "LPT3.txt"
+    ],
+    "kwargs": {},
+    "ok": "LPT3.txt"
+  },
+  {
+    "fn": "_truncate_path_segment",
+    "args": [
+      "con .txt"
+    ],
+    "kwargs": {},
+    "ok": "con .txt"
+  },
+  {
+    "fn": "_truncate_path_segment",
+    "args": [
+      "C:foo"
+    ],
+    "kwargs": {},
+    "ok": "C:foo"
+  },
+  {
+    "fn": "_truncate_path_segment",
+    "args": [
+      "../x"
+    ],
+    "kwargs": {},
+    "ok": "../x"
+  },
+  {
+    "fn": "_truncate_path_segment",
+    "args": [
+      ".//.."
+    ],
+    "kwargs": {},
+    "ok": ".//.."
+  },
+  {
+    "fn": "_truncate_path_segment",
+    "args": [
+      "\u0000x\u001f"
+    ],
+    "kwargs": {},
+    "ok": "\u0000x\u001f"
+  },
+  {
+    "fn": "_truncate_path_segment",
+    "args": [
+      "x\u001c\u001d\u001e\u001f 　y"
+    ],
+    "kwargs": {},
+    "ok": "x\u001c\u001d\u001e\u001f 　y"
+  },
+  {
+    "fn": "_truncate_path_segment",
+    "args": [
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    ],
+    "kwargs": {},
+    "ok": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx_aa20c23e32"
+  },
+  {
+    "fn": "_truncate_path_segment",
+    "args": [
+      "界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界"
+    ],
+    "kwargs": {},
+    "ok": "界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界_f646bc6742"
+  },
+  {
+    "fn": "_truncate_path_segment",
+    "args": [
+      "name.xxxxxxxxxxxxxxxxxxxx"
+    ],
+    "kwargs": {},
+    "ok": "name.xxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      ""
+    ],
+    "kwargs": {
+      "decode_url": true
+    },
+    "err": "ValueError"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      null
+    ],
+    "kwargs": {
+      "decode_url": true
+    },
+    "err": "ValueError"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      "hello world"
+    ],
+    "kwargs": {
+      "decode_url": true
+    },
+    "ok": "hello world"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      "你好/😀/é"
+    ],
+    "kwargs": {
+      "decode_url": true
+    },
+    "ok": "你好/😀/é"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      "rtl/שלום"
+    ],
+    "kwargs": {
+      "decode_url": true
+    },
+    "ok": "rtl/שלום"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      "a%2Fb%3Fc%23d"
+    ],
+    "kwargs": {
+      "decode_url": true
+    },
+    "err": "ValueError"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      "%ZZ/%"
+    ],
+    "kwargs": {
+      "decode_url": true
+    },
+    "ok": "%ZZ/%"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      "%E2%82%AC"
+    ],
+    "kwargs": {
+      "decode_url": true
+    },
+    "ok": "€"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      "%FF"
+    ],
+    "kwargs": {
+      "decode_url": true
+    },
+    "ok": "�"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      "a?b#c"
+    ],
+    "kwargs": {
+      "decode_url": true
+    },
+    "err": "ValueError"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      "a\\\\b"
+    ],
+    "kwargs": {
+      "decode_url": true
+    },
+    "err": "ValueError"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      "nul.png"
+    ],
+    "kwargs": {
+      "decode_url": true
+    },
+    "err": "ValueError"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      "CON"
+    ],
+    "kwargs": {
+      "decode_url": true
+    },
+    "err": "ValueError"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      "COM¹"
+    ],
+    "kwargs": {
+      "decode_url": true
+    },
+    "err": "ValueError"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      "LPT3.txt"
+    ],
+    "kwargs": {
+      "decode_url": true
+    },
+    "err": "ValueError"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      "con .txt"
+    ],
+    "kwargs": {
+      "decode_url": true
+    },
+    "err": "ValueError"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      "C:foo"
+    ],
+    "kwargs": {
+      "decode_url": true
+    },
+    "err": "ValueError"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      "../x"
+    ],
+    "kwargs": {
+      "decode_url": true
+    },
+    "err": "ValueError"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      ".//.."
+    ],
+    "kwargs": {
+      "decode_url": true
+    },
+    "err": "ValueError"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      "\u0000x\u001f"
+    ],
+    "kwargs": {
+      "decode_url": true
+    },
+    "err": "ValueError"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      "x\u001c\u001d\u001e\u001f 　y"
+    ],
+    "kwargs": {
+      "decode_url": true
+    },
+    "err": "ValueError"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    ],
+    "kwargs": {
+      "decode_url": true
+    },
+    "ok": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      "界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界"
+    ],
+    "kwargs": {
+      "decode_url": true
+    },
+    "ok": "界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      "name.xxxxxxxxxxxxxxxxxxxx"
+    ],
+    "kwargs": {
+      "decode_url": true
+    },
+    "ok": "name.xxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      "%2e%2e/x"
+    ],
+    "kwargs": {
+      "decode_url": false
+    },
+    "ok": "%2e%2e/x"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      "a//b"
+    ],
+    "kwargs": {
+      "decode_url": false
+    },
+    "err": "ValueError"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      "a/./b"
+    ],
+    "kwargs": {
+      "decode_url": false
+    },
+    "err": "ValueError"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      "a/../b"
+    ],
+    "kwargs": {
+      "decode_url": false
+    },
+    "err": "ValueError"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      " a"
+    ],
+    "kwargs": {
+      "decode_url": false
+    },
+    "err": "ValueError"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      "a "
+    ],
+    "kwargs": {
+      "decode_url": false
+    },
+    "err": "ValueError"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      "a."
+    ],
+    "kwargs": {
+      "decode_url": false
+    },
+    "err": "ValueError"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      "a/b?c"
+    ],
+    "kwargs": {
+      "decode_url": false
+    },
+    "err": "ValueError"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      "a:b"
+    ],
+    "kwargs": {
+      "decode_url": false
+    },
+    "err": "ValueError"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      "a\\b"
+    ],
+    "kwargs": {
+      "decode_url": false
+    },
+    "ok": "a/b"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      "NUL"
+    ],
+    "kwargs": {
+      "decode_url": false
+    },
+    "err": "ValueError"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      "foo%00bar"
+    ],
+    "kwargs": {
+      "decode_url": false
+    },
+    "ok": "foo%00bar"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      ""
+    ],
+    "kwargs": {
+      "decode_url": false
+    },
+    "err": "ValueError"
+  },
+  {
+    "fn": "_safe_archive_rel_path",
+    "args": [
+      null
+    ],
+    "kwargs": {
+      "decode_url": false
+    },
+    "err": "ValueError"
+  }
+]
