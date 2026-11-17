@@ -1,0 +1,175 @@
+[
+  {
+    "json": "{\"rows\": [{\"image\": \"img/row.png\", \"objects\": [{\"image\": \"https://cdn.x/o.JPG?v=1\", \"title\": \"<img src='t/a.webp'> hi\"}]}]}",
+    "images": [
+      "https://cdn.x/o.JPG?v=1",
+      "img/row.png",
+      "t/a.webp"
+    ],
+    "audio": [],
+    "youtube": []
+  },
+  {
+    "json": "{\"rows\": [{\"objects\": [{\"text\": \"![alt](md/pic.png) and url('css/bg.gif') url(\\\"snd/a.mp3\\\")\"}]}]}",
+    "images": [
+      "css/bg.gif",
+      "md/pic.png"
+    ],
+    "audio": [
+      "snd/a.mp3"
+    ],
+    "youtube": []
+  },
+  {
+    "json": "{\"bgmId\": \"dQw4w9WgXcQ\", \"x\": {\"bgmId\": \"https://a.b/s.mp3\", \"useAudioURL\": true}}",
+    "images": [
+      "https://a.b/s.mp3"
+    ],
+    "audio": [
+      "https://a.b/s.mp3"
+    ],
+    "youtube": [
+      "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    ]
+  },
+  {
+    "json": "{\"bgmId\": \"https://youtu.be/abc\", \"y\": {\"bgmId\": \"https://soundcloud.com/a/b\", \"useAudioURL\": 1}, \"z\": {\"bgmId\": \"not-an-id\", \"useAudioURL\": \"\"}, \"w\": {\"bgmId\": \"https://youtube.com/watch?v=1\", \"useAudioURL\": \"yes\"}}",
+    "images": [
+      "https://soundcloud.com/a/b",
+      "https://youtu.be/abc",
+      "https://youtube.com/watch?v=1"
+    ],
+    "audio": [],
+    "youtube": [
+      "https://soundcloud.com/a/b",
+      "https://youtu.be/abc",
+      "https://youtube.com/watch?v=1"
+    ]
+  },
+  {
+    "json": "{\"bgmList\": [\"dQw4w9WgXcQ\", \"https://www.youtube.com/watch?v=x\", \"music/a.mp3\", \"music/a.MP3\", \"\", 5, [\"nested.mp3\"], {\"audio\": \"inner.ogg\"}], \"PLAYLIST\": [\"b.wav\"]}",
+    "images": [],
+    "audio": [
+      "b.wav",
+      "inner.ogg",
+      "music/a.mp3"
+    ],
+    "youtube": [
+      "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      "https://www.youtube.com/watch?v=x"
+    ]
+  },
+  {
+    "json": "{\"soundEffects\": [{\"audio\": \"sfx/click.wav\"}, {\"audio\": \"https://youtu.be/q\"}, {\"audio\": \"data:audio/mp3;base64,AA\"}], \"ClickSound\": \"ui/c.opus\"}",
+    "images": [
+      "https://youtu.be/q"
+    ],
+    "audio": [
+      "sfx/click.wav",
+      "ui/c.opus"
+    ],
+    "youtube": [
+      "https://youtu.be/q"
+    ]
+  },
+  {
+    "json": "{\"custom\": \"https://cdn.x/pic.svg\", \"custom2\": \"https://cdn.x/song.flac\", \"c3\": \"https://cdn.x/page.html\", \"rel\": \"images/hero.png?x=1\", \"rel2\": \"audio/theme.m4a\", \"rel3\": \"#a/b.png\", \"rel4\": \"javascript:x/y.png\", \"prose\": \"see images/a.png https://cdn.x/real.png\"}",
+    "images": [
+      "https://cdn.x/page.html",
+      "https://cdn.x/pic.svg",
+      "https://cdn.x/real.png",
+      "https://cdn.x/song.flac",
+      "images/hero.png?x=1"
+    ],
+    "audio": [
+      "audio/theme.m4a",
+      "https://cdn.x/song.flac"
+    ],
+    "youtube": []
+  },
+  {
+    "json": "{\"onclick\": \"playVideo('dQw4w9WgXcQ')\", \"t\": \"youtubeId: \\\"abcdefghijk\\\" https://www.youtube.com/embed/zzz.\", \"creditSourceTooltip\": \"<a href='https://wiki/x.png'>src</a> <img src='badge.png'>\"}",
+    "images": [
+      "badge.png"
+    ],
+    "audio": [],
+    "youtube": [
+      "https://www.youtube.com/embed/zzz",
+      "https://www.youtube.com/watch?v=abcdefghijk",
+      "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    ]
+  },
+  {
+    "json": "[[{\"image\": \"deep/a.png\"}], {\"backgroundImage\": \"  spaced.png  \"}, null, 3, true, \"top-level-string.png\"]",
+    "images": [
+      "deep/a.png",
+      "spaced.png"
+    ],
+    "audio": [],
+    "youtube": []
+  },
+  {
+    "json": "{\"image\": \"<img srcset='s1.png 1x, s2.png 2x'>\", \"rowBackgroundImage\": \"//cdn.x/bg.avif\", \"favicon\": \"fav.ico\", \"objectBorderImage\": \"data:image/png;base64,AA\"}",
+    "images": [
+      "fav.ico",
+      "https://cdn.x/bg.avif",
+      "s1.png",
+      "s2.png"
+    ],
+    "audio": [],
+    "youtube": []
+  },
+  {
+    "json": "{\"name\": \"Ünïcødé/图片.png\", \"image\": \"bilder/Grüße.jpeg\", \"audioUrl\": \"a/ß.mp3\"}",
+    "images": [
+      "bilder/Grüße.jpeg",
+      "Ünïcødé/图片.png"
+    ],
+    "audio": [
+      "a/ß.mp3"
+    ],
+    "youtube": []
+  },
+  {
+    "json": "{\"image\": \"dup.png\", \"rows\": [{\"image\": \"dup.png\"}, {\"image\": \"dup.png\"}]}",
+    "images": [
+      "dup.png"
+    ],
+    "audio": [],
+    "youtube": []
+  },
+  {
+    "json": "{\"text\": \"url(data:image/png;base64,AA.png) url(  x.png) url('a b.png')\", \"Image\": \"UPPER.PNG\"}",
+    "images": [
+      "UPPER.PNG"
+    ],
+    "audio": [],
+    "youtube": []
+  },
+  {
+    "json": "not json",
+    "images": [],
+    "audio": [],
+    "youtube": []
+  },
+  {
+    "json": "{\"image\": \"a.png\",}",
+    "images": [],
+    "audio": [],
+    "youtube": []
+  },
+  {
+    "json": "",
+    "images": [],
+    "audio": [],
+    "youtube": []
+  },
+  {
+    "json": "{\"image\": \"nan.png\", \"v\": NaN}",
+    "images": [
+      "nan.png"
+    ],
+    "audio": [],
+    "youtube": []
+  }
+]
