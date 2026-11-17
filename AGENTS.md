@@ -1,2 +1,5 @@
 # Python-to-Rust migration
 Keep the original Python runnable. Audit first, plan second, implement approved modules only. Prefer safe idiomatic Rust, minimal dependencies, bounded concurrency, and non-blocking GUI. Never access secrets, push, change billing or delete unrelated code. Use feature-parity and gui-performance skills as relevant. No recursive agent delegation. Respect allowed file scope. Run cargo fmt --all -- --check, cargo check --all-targets, cargo clippy --all-targets -- -D warnings, cargo test; report actual results. Use Python baseline fixtures and record untested behaviors. Maintain docs/MIGRATION_PROGRESS.md and docs/FEATURE_PARITY.md. Wait for approval on architecture changes.
+
+# Routing (approved 2026-11-18)
+MiMo/Qwen: only narrow, mechanically checkable tasks; never trust their numbers or code without compiling/testing. Luna: implementation. Sol: review of network, concurrency, security, browser. Rust code lives in rust/; Python stays the reference. Goal: all features kept (Rust replacements allowed), outputs identical or better, differences documented in docs/FEATURE_PARITY.md.
