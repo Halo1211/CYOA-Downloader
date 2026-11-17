@@ -611,6 +611,9 @@ dependencies = [
  "cyoa-net",
  "cyoa-parse",
  "cyoa-storage",
+ "regex",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]
