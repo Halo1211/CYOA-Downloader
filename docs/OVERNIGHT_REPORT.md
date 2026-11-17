@@ -37,6 +37,19 @@ See `DECISION_LOG.md` (DL-1…DL-9).
 
 c8705cc docs · e5c1d13 Stage 0 · e8ed523 1a · ffd7866 1a security fixes · ec49d01 1b · 33baf9d fixture EOL · 358aed2 1c · be02514 2a history/resume · c01bc67 2b cache · 66d88cd 2c checkpoints
 
+## Update — session 2 ("lanjut"), checkpoint
+
+- **`cyoa-parse::assets`** (commit dabc5f1):
+  - `IMAGE_FIELDS`/`AUDIO_FIELDS`, YouTube/SoundCloud classifiers, srcset parsing, `extract_image_references`.
+  - 80 Python cases identical.
+  - Fix found during verification: `is_image_reference` must use Python `urlparse().path` semantics, including `;params` and `splitext`. Exposed as `py_urlparse_path`.
+- **Totals:** 96 Rust tests pass; clippy clean.
+- **Next (unchanged order):**
+  1. `asset_scan._scan_large_json_for_assets` and `_deep_scan_project_assets` (lines 223–311, 1262–1315).
+  2. Phase B regex collection in `_process_images` (lines 345–405); use `cyoa_parse::assets` and `cyoa_engine::embed`.
+  3. Fetch loop (`fetch_one`) on `cyoa_net::client` + `cyoa_storage::cache`; MIME via `_media_content_extension`.
+  4. Network discovery, outputs, CLI, end-to-end fixture test.
+
 ## Update ~06:30 — FINAL CHECKPOINT of this session (Claude context nearly exhausted)
 
 - **`cyoa-engine::embed`** (commit 35a3166):
