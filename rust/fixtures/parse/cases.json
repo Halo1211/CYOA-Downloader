@@ -1,0 +1,232 @@
+{
+  "texts": [
+    {
+      "text": "",
+      "looks_like_project_payload": false,
+      "extract_json_like_block": "",
+      "normalize_project_payload_text": null,
+      "extract_project_text_from_payload": null,
+      "extract_embedded_project_from_js": null
+    },
+    {
+      "text": "{}",
+      "looks_like_project_payload": false,
+      "extract_json_like_block": "{}",
+      "normalize_project_payload_text": null,
+      "extract_project_text_from_payload": null,
+      "extract_embedded_project_from_js": null
+    },
+    {
+      "text": "not json",
+      "looks_like_project_payload": false,
+      "extract_json_like_block": "",
+      "normalize_project_payload_text": null,
+      "extract_project_text_from_payload": null,
+      "extract_embedded_project_from_js": null
+    },
+    {
+      "text": "{\"rows\": [{\"id\": \"r1\", \"title\": \"Row é\", \"image\": \"img/a.png\", \"objects\": [{\"id\": \"o1\", \"image\": \"b.webp\"}]}], \"backpack\": [], \"pointTypes\": [{\"name\": \"Points\", \"startingSum\": 10}], \"styling\": {\"x\": 1.5}}",
+      "looks_like_project_payload": true,
+      "extract_json_like_block": "{\"rows\": [{\"id\": \"r1\", \"title\": \"Row é\", \"image\": \"img/a.png\", \"objects\": [{\"id\": \"o1\", \"image\": \"b.webp\"}]}], \"backpack\": [], \"pointTypes\": [{\"name\": \"Points\", \"startingSum\": 10}], \"styling\": {\"x\": 1.5}}",
+      "normalize_project_payload_text": "{\"rows\":[{\"id\":\"r1\",\"title\":\"Row é\",\"image\":\"img/a.png\",\"objects\":[{\"id\":\"o1\",\"image\":\"b.webp\"}]}],\"backpack\":[],\"pointTypes\":[{\"name\":\"Points\",\"startingSum\":10}],\"styling\":{\"x\":1.5}}",
+      "extract_project_text_from_payload": "{\"rows\":[{\"id\":\"r1\",\"title\":\"Row é\",\"image\":\"img/a.png\",\"objects\":[{\"id\":\"o1\",\"image\":\"b.webp\"}]}],\"backpack\":[],\"pointTypes\":[{\"name\":\"Points\",\"startingSum\":10}],\"styling\":{\"x\":1.5}}",
+      "extract_embedded_project_from_js": "{\"rows\": [{\"id\": \"r1\", \"title\": \"Row é\", \"image\": \"img/a.png\", \"objects\": [{\"id\": \"o1\", \"image\": \"b.webp\"}]}], \"backpack\": [], \"pointTypes\": [{\"name\": \"Points\", \"startingSum\": 10}], \"styling\": {\"x\": 1.5}}"
+    },
+    {
+      "text": "{\"app\": {\"rows\": [{\"id\": \"r1\", \"title\": \"Row \\u00e9\", \"image\": \"img/a.png\", \"objects\": [{\"id\": \"o1\", \"image\": \"b.webp\"}]}], \"backpack\": [], \"pointTypes\": [{\"name\": \"Points\", \"startingSum\": 10}], \"styling\": {\"x\": 1.5}}}",
+      "looks_like_project_payload": true,
+      "extract_json_like_block": "{\"app\": {\"rows\": [{\"id\": \"r1\", \"title\": \"Row \\u00e9\", \"image\": \"img/a.png\", \"objects\": [{\"id\": \"o1\", \"image\": \"b.webp\"}]}], \"backpack\": [], \"pointTypes\": [{\"name\": \"Points\", \"startingSum\": 10}], \"styling\": {\"x\": 1.5}}}",
+      "normalize_project_payload_text": "{\"app\":{\"rows\":[{\"id\":\"r1\",\"title\":\"Row é\",\"image\":\"img/a.png\",\"objects\":[{\"id\":\"o1\",\"image\":\"b.webp\"}]}],\"backpack\":[],\"pointTypes\":[{\"name\":\"Points\",\"startingSum\":10}],\"styling\":{\"x\":1.5}}}",
+      "extract_project_text_from_payload": "{\"app\":{\"rows\":[{\"id\":\"r1\",\"title\":\"Row é\",\"image\":\"img/a.png\",\"objects\":[{\"id\":\"o1\",\"image\":\"b.webp\"}]}],\"backpack\":[],\"pointTypes\":[{\"name\":\"Points\",\"startingSum\":10}],\"styling\":{\"x\":1.5}}}",
+      "extract_embedded_project_from_js": "{\"rows\": [{\"id\": \"r1\", \"title\": \"Row \\u00e9\", \"image\": \"img/a.png\", \"objects\": [{\"id\": \"o1\", \"image\": \"b.webp\"}]}], \"backpack\": [], \"pointTypes\": [{\"name\": \"Points\", \"startingSum\": 10}], \"styling\": {\"x\": 1.5}}"
+    },
+    {
+      "text": "{rows: [], backpack: [], image: 'x', title: 'T',}",
+      "looks_like_project_payload": true,
+      "extract_json_like_block": "{rows: [], backpack: [], image: 'x', title: 'T',}",
+      "normalize_project_payload_text": "{\"rows\":[],\"backpack\":[],\"image\":\"x\",\"title\":\"T\"}",
+      "extract_project_text_from_payload": "{\"rows\":[],\"backpack\":[],\"image\":\"x\",\"title\":\"T\"}",
+      "extract_embedded_project_from_js": null
+    },
+    {
+      "text": "var x = {\"rows\": [{\"id\": \"r1\", \"title\": \"Row é\", \"image\": \"img/a.png\", \"objects\": [{\"id\": \"o1\", \"image\": \"b.webp\"}]}], \"backpack\": [], \"pointTypes\": [{\"name\": \"Points\", \"startingSum\": 10}], \"styling\": {\"x\": 1.5}};",
+      "looks_like_project_payload": true,
+      "extract_json_like_block": "{\"rows\": [{\"id\": \"r1\", \"title\": \"Row é\", \"image\": \"img/a.png\", \"objects\": [{\"id\": \"o1\", \"image\": \"b.webp\"}]}], \"backpack\": [], \"pointTypes\": [{\"name\": \"Points\", \"startingSum\": 10}], \"styling\": {\"x\": 1.5}}",
+      "normalize_project_payload_text": "{\"rows\":[{\"id\":\"r1\",\"title\":\"Row é\",\"image\":\"img/a.png\",\"objects\":[{\"id\":\"o1\",\"image\":\"b.webp\"}]}],\"backpack\":[],\"pointTypes\":[{\"name\":\"Points\",\"startingSum\":10}],\"styling\":{\"x\":1.5}}",
+      "extract_project_text_from_payload": "{\"rows\":[{\"id\":\"r1\",\"title\":\"Row é\",\"image\":\"img/a.png\",\"objects\":[{\"id\":\"o1\",\"image\":\"b.webp\"}]}],\"backpack\":[],\"pointTypes\":[{\"name\":\"Points\",\"startingSum\":10}],\"styling\":{\"x\":1.5}}",
+      "extract_embedded_project_from_js": "{\"rows\": [{\"id\": \"r1\", \"title\": \"Row é\", \"image\": \"img/a.png\", \"objects\": [{\"id\": \"o1\", \"image\": \"b.webp\"}]}], \"backpack\": [], \"pointTypes\": [{\"name\": \"Points\", \"startingSum\": 10}], \"styling\": {\"x\": 1.5}}"
+    },
+    {
+      "text": "window.__INITIAL_STATE__ = {\"rows\": [{\"id\": \"r1\", \"title\": \"Row é\", \"image\": \"img/a.png\", \"objects\": [{\"id\": \"o1\", \"image\": \"b.webp\"}]}], \"backpack\": [], \"pointTypes\": [{\"name\": \"Points\", \"startingSum\": 10}], \"styling\": {\"x\": 1.5}};",
+      "looks_like_project_payload": true,
+      "extract_json_like_block": "{\"rows\": [{\"id\": \"r1\", \"title\": \"Row é\", \"image\": \"img/a.png\", \"objects\": [{\"id\": \"o1\", \"image\": \"b.webp\"}]}], \"backpack\": [], \"pointTypes\": [{\"name\": \"Points\", \"startingSum\": 10}], \"styling\": {\"x\": 1.5}}",
+      "normalize_project_payload_text": "{\"rows\":[{\"id\":\"r1\",\"title\":\"Row é\",\"image\":\"img/a.png\",\"objects\":[{\"id\":\"o1\",\"image\":\"b.webp\"}]}],\"backpack\":[],\"pointTypes\":[{\"name\":\"Points\",\"startingSum\":10}],\"styling\":{\"x\":1.5}}",
+      "extract_project_text_from_payload": "{\"rows\":[{\"id\":\"r1\",\"title\":\"Row é\",\"image\":\"img/a.png\",\"objects\":[{\"id\":\"o1\",\"image\":\"b.webp\"}]}],\"backpack\":[],\"pointTypes\":[{\"name\":\"Points\",\"startingSum\":10}],\"styling\":{\"x\":1.5}}",
+      "extract_embedded_project_from_js": "{\"rows\": [{\"id\": \"r1\", \"title\": \"Row é\", \"image\": \"img/a.png\", \"objects\": [{\"id\": \"o1\", \"image\": \"b.webp\"}]}], \"backpack\": [], \"pointTypes\": [{\"name\": \"Points\", \"startingSum\": 10}], \"styling\": {\"x\": 1.5}}"
+    },
+    {
+      "text": "new Vuex.Store({state:{app:{\"rows\": [{\"id\": \"r1\", \"title\": \"Row é\", \"image\": \"img/a.png\", \"objects\": [{\"id\": \"o1\", \"image\": \"b.webp\"}]}], \"backpack\": [], \"pointTypes\": [{\"name\": \"Points\", \"startingSum\": 10}], \"styling\": {\"x\": 1.5}}},getters:{}})",
+      "looks_like_project_payload": false,
+      "extract_json_like_block": "{state:{app:{\"rows\": [{\"id\": \"r1\", \"title\": \"Row é\", \"image\": \"img/a.png\", \"objects\": [{\"id\": \"o1\", \"image\": \"b.webp\"}]}], \"backpack\": [], \"pointTypes\": [{\"name\": \"Points\", \"startingSum\": 10}], \"styling\": {\"x\": 1.5}}},getters:{}}",
+      "normalize_project_payload_text": null,
+      "extract_project_text_from_payload": "{\"rows\":[{\"id\":\"r1\",\"title\":\"Row é\",\"image\":\"img/a.png\",\"objects\":[{\"id\":\"o1\",\"image\":\"b.webp\"}]}],\"backpack\":[],\"pointTypes\":[{\"name\":\"Points\",\"startingSum\":10}],\"styling\":{\"x\":1.5}}",
+      "extract_embedded_project_from_js": "{\"rows\": [{\"id\": \"r1\", \"title\": \"Row é\", \"image\": \"img/a.png\", \"objects\": [{\"id\": \"o1\", \"image\": \"b.webp\"}]}], \"backpack\": [], \"pointTypes\": [{\"name\": \"Points\", \"startingSum\": 10}], \"styling\": {\"x\": 1.5}}"
+    },
+    {
+      "text": "/*! Delete and replace this part */ var app = {\"rows\": [{\"id\": \"r1\", \"title\": \"Row é\", \"image\": \"img/a.png\", \"objects\": [{\"id\": \"o1\", \"image\": \"b.webp\"}]}], \"backpack\": [], \"pointTypes\": [{\"name\": \"Points\", \"startingSum\": 10}], \"styling\": {\"x\": 1.5}}",
+      "looks_like_project_payload": true,
+      "extract_json_like_block": "{\"rows\": [{\"id\": \"r1\", \"title\": \"Row é\", \"image\": \"img/a.png\", \"objects\": [{\"id\": \"o1\", \"image\": \"b.webp\"}]}], \"backpack\": [], \"pointTypes\": [{\"name\": \"Points\", \"startingSum\": 10}], \"styling\": {\"x\": 1.5}}",
+      "normalize_project_payload_text": "{\"rows\":[{\"id\":\"r1\",\"title\":\"Row é\",\"image\":\"img/a.png\",\"objects\":[{\"id\":\"o1\",\"image\":\"b.webp\"}]}],\"backpack\":[],\"pointTypes\":[{\"name\":\"Points\",\"startingSum\":10}],\"styling\":{\"x\":1.5}}",
+      "extract_project_text_from_payload": "{\"rows\":[{\"id\":\"r1\",\"title\":\"Row é\",\"image\":\"img/a.png\",\"objects\":[{\"id\":\"o1\",\"image\":\"b.webp\"}]}],\"backpack\":[],\"pointTypes\":[{\"name\":\"Points\",\"startingSum\":10}],\"styling\":{\"x\":1.5}}",
+      "extract_embedded_project_from_js": "{\"rows\": [{\"id\": \"r1\", \"title\": \"Row é\", \"image\": \"img/a.png\", \"objects\": [{\"id\": \"o1\", \"image\": \"b.webp\"}]}], \"backpack\": [], \"pointTypes\": [{\"name\": \"Points\", \"startingSum\": 10}], \"styling\": {\"x\": 1.5}}"
+    },
+    {
+      "text": "function f(){return {\"rows\": [{\"id\": \"r1\", \"title\": \"Row é\", \"image\": \"img/a.png\", \"objects\": [{\"id\": \"o1\", \"image\": \"b.webp\"}]}], \"backpack\": [], \"pointTypes\": [{\"name\": \"Points\", \"startingSum\": 10}], \"styling\": {\"x\": 1.5}}}",
+      "looks_like_project_payload": true,
+      "extract_json_like_block": "{return {\"rows\": [{\"id\": \"r1\", \"title\": \"Row é\", \"image\": \"img/a.png\", \"objects\": [{\"id\": \"o1\", \"image\": \"b.webp\"}]}], \"backpack\": [], \"pointTypes\": [{\"name\": \"Points\", \"startingSum\": 10}], \"styling\": {\"x\": 1.5}}}",
+      "normalize_project_payload_text": null,
+      "extract_project_text_from_payload": "{\"rows\":[{\"id\":\"r1\",\"title\":\"Row é\",\"image\":\"img/a.png\",\"objects\":[{\"id\":\"o1\",\"image\":\"b.webp\"}]}],\"backpack\":[],\"pointTypes\":[{\"name\":\"Points\",\"startingSum\":10}],\"styling\":{\"x\":1.5}}",
+      "extract_embedded_project_from_js": "{\"rows\": [{\"id\": \"r1\", \"title\": \"Row é\", \"image\": \"img/a.png\", \"objects\": [{\"id\": \"o1\", \"image\": \"b.webp\"}]}], \"backpack\": [], \"pointTypes\": [{\"name\": \"Points\", \"startingSum\": 10}], \"styling\": {\"x\": 1.5}}"
+    },
+    {
+      "text": "app = reactive({rows: [], backpack: [], 'image': 'x', title: 't'})",
+      "looks_like_project_payload": true,
+      "extract_json_like_block": "{rows: [], backpack: [], 'image': 'x', title: 't'}",
+      "normalize_project_payload_text": "{\"rows\":[],\"backpack\":[],\"image\":\"x\",\"title\":\"t\"}",
+      "extract_project_text_from_payload": "{\"rows\":[],\"backpack\":[],\"image\":\"x\",\"title\":\"t\"}",
+      "extract_embedded_project_from_js": "{rows: [], backpack: [], 'image': 'x', title: 't'}"
+    },
+    {
+      "text": "{\"rows\": [], // comment }\n \"image\": \"a}b\" }",
+      "looks_like_project_payload": true,
+      "extract_json_like_block": "{\"rows\": [], // comment }\n \"image\": \"a}b\" }",
+      "normalize_project_payload_text": "{\"rows\":[],\"image\":\"a}b\"}",
+      "extract_project_text_from_payload": "{\"rows\":[],\"image\":\"a}b\"}",
+      "extract_embedded_project_from_js": null
+    },
+    {
+      "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"rows\": [{\"image\":\"1\",\"title\":\"t\"}]yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
+      "looks_like_project_payload": true,
+      "extract_json_like_block": "{\"image\":\"1\",\"title\":\"t\"}",
+      "normalize_project_payload_text": "{\"image\":\"1\",\"title\":\"t\"}",
+      "extract_project_text_from_payload": "{\"image\":\"1\",\"title\":\"t\"}",
+      "extract_embedded_project_from_js": null
+    },
+    {
+      "text": "{'rows': [1,2], 'backpack': [], \"title\": \"Q\"}",
+      "looks_like_project_payload": true,
+      "extract_json_like_block": "{'rows': [1,2], 'backpack': [], \"title\": \"Q\"}",
+      "normalize_project_payload_text": "{\"rows\":[1,2],\"backpack\":[],\"title\":\"Q\"}",
+      "extract_project_text_from_payload": "{\"rows\":[1,2],\"backpack\":[],\"title\":\"Q\"}",
+      "extract_embedded_project_from_js": null
+    },
+    {
+      "text": "prefix {\"title\": \"no\"} suffix",
+      "looks_like_project_payload": false,
+      "extract_json_like_block": "{\"title\": \"no\"}",
+      "normalize_project_payload_text": null,
+      "extract_project_text_from_payload": null,
+      "extract_embedded_project_from_js": null
+    },
+    {
+      "text": "日本語 {\"rows\": [{\"id\": \"r1\", \"title\": \"Row é\", \"image\": \"img/a.png\", \"objects\": [{\"id\": \"o1\", \"image\": \"b.webp\"}]}], \"backpack\": [], \"pointTypes\": [{\"name\": \"Points\", \"startingSum\": 10}], \"styling\": {\"x\": 1.5}}",
+      "looks_like_project_payload": true,
+      "extract_json_like_block": "{\"rows\": [{\"id\": \"r1\", \"title\": \"Row é\", \"image\": \"img/a.png\", \"objects\": [{\"id\": \"o1\", \"image\": \"b.webp\"}]}], \"backpack\": [], \"pointTypes\": [{\"name\": \"Points\", \"startingSum\": 10}], \"styling\": {\"x\": 1.5}}",
+      "normalize_project_payload_text": "{\"rows\":[{\"id\":\"r1\",\"title\":\"Row é\",\"image\":\"img/a.png\",\"objects\":[{\"id\":\"o1\",\"image\":\"b.webp\"}]}],\"backpack\":[],\"pointTypes\":[{\"name\":\"Points\",\"startingSum\":10}],\"styling\":{\"x\":1.5}}",
+      "extract_project_text_from_payload": "{\"rows\":[{\"id\":\"r1\",\"title\":\"Row é\",\"image\":\"img/a.png\",\"objects\":[{\"id\":\"o1\",\"image\":\"b.webp\"}]}],\"backpack\":[],\"pointTypes\":[{\"name\":\"Points\",\"startingSum\":10}],\"styling\":{\"x\":1.5}}",
+      "extract_embedded_project_from_js": "{\"rows\": [{\"id\": \"r1\", \"title\": \"Row é\", \"image\": \"img/a.png\", \"objects\": [{\"id\": \"o1\", \"image\": \"b.webp\"}]}], \"backpack\": [], \"pointTypes\": [{\"name\": \"Points\", \"startingSum\": 10}], \"styling\": {\"x\": 1.5}}"
+    },
+    {
+      "text": "{\"rows\":[],\"image\":\"x\",\"big\":12345678901234567890,\"f\":1e400}",
+      "looks_like_project_payload": true,
+      "extract_json_like_block": "{\"rows\":[],\"image\":\"x\",\"big\":12345678901234567890,\"f\":1e400}",
+      "normalize_project_payload_text": "{\"rows\":[],\"image\":\"x\",\"big\":12345678901234567890,\"f\":Infinity}",
+      "extract_project_text_from_payload": "{\"rows\":[],\"image\":\"x\",\"big\":12345678901234567890,\"f\":Infinity}",
+      "extract_embedded_project_from_js": null
+    }
+  ],
+  "braces": [
+    {
+      "text": "{a{b}c}",
+      "start": 0,
+      "ok": "{a{b}c}"
+    },
+    {
+      "text": "x{\"}\"}",
+      "start": 1,
+      "ok": "{\"}\"}"
+    },
+    {
+      "text": "{/*}*/}",
+      "start": 0,
+      "ok": "{/*}*/}"
+    },
+    {
+      "text": "{//}\n}",
+      "start": 0,
+      "ok": "{//}\n}"
+    },
+    {
+      "text": "{'\\''}",
+      "start": 0,
+      "ok": "{'\\''}"
+    },
+    {
+      "text": "{{",
+      "start": 0,
+      "ok": ""
+    },
+    {
+      "text": "é{ü}",
+      "start": 1,
+      "ok": "{ü}"
+    },
+    {
+      "text": "abc",
+      "start": 0,
+      "ok": ""
+    }
+  ],
+  "decodes": [
+    {
+      "raw": "cGxhaW4=",
+      "pref": "",
+      "ok": "plain"
+    },
+    {
+      "raw": "w6k=",
+      "pref": "",
+      "ok": "é"
+    },
+    {
+      "raw": "77u/Ym9t",
+      "pref": "",
+      "ok": "bom"
+    },
+    {
+      "raw": "//5oAGkA",
+      "pref": "",
+      "ok": "hi"
+    },
+    {
+      "raw": "6XTp",
+      "pref": "",
+      "ok": "ZÈZ"
+    },
+    {
+      "raw": "k/qWew==",
+      "pref": "",
+      "ok": "𣲚塲"
+    },
+    {
+      "raw": "6XTp",
+      "pref": "utf-8",
+      "ok": "ZÈZ"
+    },
+    {
+      "raw": "x9GxuQ==",
+      "pref": "euc-kr",
+      "ok": "한국"
+    }
+  ]
+}
