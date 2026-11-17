@@ -1,0 +1,164 @@
+[
+  {
+    "resolved": "https://ex.com/cyoa/images/a.png",
+    "base": "https://ex.com/cyoa/",
+    "mime": "image/png",
+    "content": "PNG\r\n\u001a\n....",
+    "is_image": true,
+    "fn": "a.png",
+    "rel": "images/a.png"
+  },
+  {
+    "resolved": "https://ex.com/cyoa/img/sub/b.webp",
+    "base": "https://ex.com/cyoa/",
+    "mime": "image/webp",
+    "content": "",
+    "is_image": true,
+    "fn": "sub/b.webp",
+    "rel": "images/sub/b.webp"
+  },
+  {
+    "resolved": "https://ex.com/cyoa/x.jpg",
+    "base": "https://ex.com/cyoa",
+    "mime": "image/jpeg",
+    "content": "ÿØÿ..",
+    "is_image": true,
+    "fn": "x.jpg",
+    "rel": "images/x.jpg"
+  },
+  {
+    "resolved": "https://ex.com/tale-assets/x.png",
+    "base": "https://ex.com/tale/",
+    "mime": "",
+    "content": "PNG\r\n\u001a\n....",
+    "is_image": true,
+    "fn": "tale-assets/x.png",
+    "rel": "images/tale-assets/x.png"
+  },
+  {
+    "resolved": "https://cdn.Other.com/original/05/8b/My%20Pic.JPG?v=1",
+    "base": "https://ex.com/",
+    "mime": "image/jpeg",
+    "content": "",
+    "is_image": true,
+    "fn": "cdn_other_com_My Pic_ef669a4c26e9.JPG",
+    "rel": "images/cdn_other_com_My Pic_ef669a4c26e9.JPG"
+  },
+  {
+    "resolved": "https://cdn.other.com/avatarhd",
+    "base": "https://ex.com/",
+    "mime": "",
+    "content": "GIF89a....",
+    "is_image": true,
+    "fn": "cdn_other_com_avatarhd_ad3570b4d828.gif",
+    "rel": "images/cdn_other_com_avatarhd_ad3570b4d828.gif"
+  },
+  {
+    "resolved": "https://cdn.other.com/",
+    "base": "https://ex.com/",
+    "mime": "image/png",
+    "content": "",
+    "is_image": true,
+    "fn": "cdn_other_com_image_b77edc48f49b.png",
+    "rel": "images/cdn_other_com_image_b77edc48f49b.png"
+  },
+  {
+    "resolved": "https://ex.com/audio/music/theme.mp3",
+    "base": "https://ex.com/",
+    "mime": "audio/mpeg",
+    "content": "ID3...",
+    "is_image": false,
+    "fn": "music/theme.mp3",
+    "rel": "audio/music/theme.mp3"
+  },
+  {
+    "resolved": "https://ex.com/song",
+    "base": "https://ex.com/",
+    "mime": "audio/ogg",
+    "content": "OggS",
+    "is_image": false,
+    "fn": "song.oga",
+    "rel": "audio/song.oga"
+  },
+  {
+    "resolved": "https://ex.com/sfx/x;v=1.wav",
+    "base": "https://ex.com/",
+    "mime": "audio/wav",
+    "content": "RIFF",
+    "is_image": false,
+    "fn": "x.wav",
+    "rel": "audio/x.wav"
+  },
+  {
+    "resolved": "https://ex.com/bilder/Gr%C3%BC%C3%9Fe.png",
+    "base": "https://ex.com/",
+    "mime": "image/png",
+    "content": "PNG\r\n\u001a\n....",
+    "is_image": true,
+    "fn": "bilder/Gr%C3%BC%C3%9Fe.png",
+    "rel": "images/bilder/Grüße.png"
+  },
+  {
+    "resolved": "https://ex.com/./weird/../a b.png",
+    "base": "https://ex.com/",
+    "mime": "",
+    "content": "",
+    "is_image": true,
+    "fn": "weird/../a b.png",
+    "rel": "images/weird/a b.png"
+  },
+  {
+    "resolved": "https://cdn.x.org/CON.png",
+    "base": "https://ex.com/",
+    "mime": "",
+    "content": "PNG\r\n\u001a\n....",
+    "is_image": true,
+    "fn": "cdn_x_org_CON_d86a88ee888a.png",
+    "rel": "images/cdn_x_org_CON_d86a88ee888a.png"
+  },
+  {
+    "resolved": "https://cdn.x.org/llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll.png",
+    "base": "https://ex.com/",
+    "mime": "",
+    "content": "PNG\r\n\u001a\n....",
+    "is_image": true,
+    "fn": "cdn_x_org_lllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll_d626e6cde4.png",
+    "rel": "images/cdn_x_org_lllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll_d626e6cde4.png"
+  },
+  {
+    "resolved": "https://cdn.x.org/img?format=webp",
+    "base": "https://ex.com/",
+    "mime": "",
+    "content": "",
+    "is_image": true,
+    "fn": "cdn_x_org_img_7414eb8d955b.webp",
+    "rel": "images/cdn_x_org_img_7414eb8d955b.webp"
+  },
+  {
+    "resolved": "https://ex.com/noext",
+    "base": "https://ex.com/",
+    "mime": "",
+    "content": "",
+    "is_image": true,
+    "fn": "noext.bin",
+    "rel": "images/noext.bin"
+  },
+  {
+    "resolved": "https://ex.com:8080/a.png",
+    "base": "https://ex.com/",
+    "mime": "",
+    "content": "PNG\r\n\u001a\n....",
+    "is_image": true,
+    "fn": "ex_com_a_0ecc606fda69.png",
+    "rel": "images/ex_com_a_0ecc606fda69.png"
+  },
+  {
+    "resolved": "https://ex.com/图片/猫.png",
+    "base": "https://ex.com/",
+    "mime": "",
+    "content": "PNG\r\n\u001a\n....",
+    "is_image": true,
+    "fn": "图片/猫.png",
+    "rel": "images/图片/猫.png"
+  }
+]
