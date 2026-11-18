@@ -1,0 +1,1881 @@
+{
+"contents": [
+null,
+"89504e470d0a1a0a2e2e2e",
+"ffd8ffe0",
+"474946383961",
+"524946460000000057454250565038",
+"0000001c6674797061766966",
+"424d2e2e",
+"49443303",
+"20203c73766720786d6c6e73",
+"706c61696e"
+],
+"cases": [
+{
+"base": "https://Site.Test/game/",
+"url": "https://site.test/game/img/a.png",
+"canonical": "https://site.test/game/img/a.png",
+"local": "img/a.png",
+"route": null
+},
+{
+"base": "https://Site.Test/game/",
+"url": "https://SITE.test/game/img/a.png?v=3&w=10#x",
+"canonical": "https://site.test/game/img/a.png?w=10",
+"local": "img/a_0ce544e6f0.png",
+"route": null
+},
+{
+"base": "https://Site.Test/game/",
+"url": "https://site.test/gamedata/app.js",
+"canonical": "https://site.test/gamedata/app.js",
+"local": "gamedata/app.js",
+"route": null
+},
+{
+"base": "https://Site.Test/game/",
+"url": "https://site.test/game",
+"canonical": "https://site.test/game",
+"local": "asset",
+"route": null
+},
+{
+"base": "https://Site.Test/game/",
+"url": "https://site.test/assets/x.js",
+"canonical": "https://site.test/assets/x.js",
+"local": "assets/x.js",
+"route": "https://site.test/game/assets/x.js"
+},
+{
+"base": "https://Site.Test/game/",
+"url": "https://cdn.other/path/to/pic",
+"canonical": "https://cdn.other/path/to/pic",
+"local": "external/assets/pic_02b480949e.bin",
+"route": null
+},
+{
+"base": "https://Site.Test/game/",
+"url": "https://cdn.other/a/b.png?fm=webp",
+"canonical": "https://cdn.other/a/b.png?fm=webp",
+"local": "external/images/b_30001e9563.png",
+"route": null
+},
+{
+"base": "https://Site.Test/game/",
+"url": "https://cdn.other/z?format=image/jpeg",
+"canonical": "https://cdn.other/z?format=image%2Fjpeg",
+"local": "external/assets/z_56453ef5e8.bin",
+"route": null
+},
+{
+"base": "https://Site.Test/game/",
+"url": "https://cdn.other/q?ext=.mp3",
+"canonical": "https://cdn.other/q?ext=.mp3",
+"local": "external/audio/q_d115a7a361.mp3",
+"route": null
+},
+{
+"base": "https://Site.Test/game/",
+"url": "https://cdn.other/long/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn.png",
+"canonical": "https://cdn.other/long/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn.png",
+"local": "external/images/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn_cfcb642755.png",
+"route": null
+},
+{
+"base": "https://Site.Test/game/",
+"url": "https://cdn.other/CON.png",
+"canonical": "https://cdn.other/CON.png",
+"local": "external/images/_CON_fc1609da4c.png",
+"route": null
+},
+{
+"base": "https://Site.Test/game/",
+"url": "https://cdn.other/%E3%81%82.png",
+"canonical": "https://cdn.other/%E3%81%82.png",
+"local": "external/images/あ_b3712d7350.png",
+"route": null
+},
+{
+"base": "https://Site.Test/game/",
+"url": "https://cdn.other/a%2Fb:c*.webp",
+"canonical": "https://cdn.other/a%2Fb:c*.webp",
+"local": "external/images/a_b_c__c040e794e5.webp",
+"route": null
+},
+{
+"base": "https://Site.Test/game/",
+"url": "https://cdn.other/",
+"canonical": "https://cdn.other/",
+"local": "external/assets/asset_3392a42e10.bin",
+"route": null
+},
+{
+"base": "https://Site.Test/game/",
+"url": "http://site.test/game/x y.css?t=1&_=2&keep=1&cb",
+"canonical": "http://site.test/game/x y.css?keep=1",
+"local": "x y_472264dcfe.css",
+"route": null
+},
+{
+"base": "https://Site.Test/game/",
+"url": "https://site.test/game/./a/../b.png",
+"canonical": "https://site.test/game/./a/../b.png",
+"local": "a/b.png",
+"route": null
+},
+{
+"base": "https://Site.Test/game/",
+"url": "HTTPS://Site.Test/Game/A.PNG",
+"canonical": "https://site.test/Game/A.PNG",
+"local": "Game/A.PNG",
+"route": null
+},
+{
+"base": "https://Site.Test/game/",
+"url": "ftp://site.test/x.png",
+"canonical": "ftp://site.test/x.png",
+"local": "x.png",
+"route": null
+},
+{
+"base": "https://Site.Test/game/",
+"url": "/relative.png",
+"canonical": "/relative.png",
+"local": "relative.png",
+"route": null
+},
+{
+"base": "https://Site.Test/game/",
+"url": "https://site.test/game/assets/a.js",
+"canonical": "https://site.test/game/assets/a.js",
+"local": "assets/a.js",
+"route": null
+},
+{
+"base": "https://Site.Test/game/",
+"url": "https://site.test:8443/assets/k.js",
+"canonical": "https://site.test:8443/assets/k.js",
+"local": "external/assets/k_5cbcb389b8.js",
+"route": null
+},
+{
+"base": "https://Site.Test/game/",
+"url": "https://site.test/game/%20sp.png",
+"canonical": "https://site.test/game/%20sp.png",
+"local": "sp.png",
+"route": null
+},
+{
+"base": "https://Site.Test/game/",
+"url": "https://cdn.other/x.unknownext",
+"canonical": "https://cdn.other/x.unknownext",
+"local": "external/assets/x.unknownext_abf7c424bd.bin",
+"route": null
+},
+{
+"base": "https://site.test/",
+"url": "https://site.test/game/img/a.png",
+"canonical": "https://site.test/game/img/a.png",
+"local": "game/img/a.png",
+"route": null
+},
+{
+"base": "https://site.test/",
+"url": "https://SITE.test/game/img/a.png?v=3&w=10#x",
+"canonical": "https://site.test/game/img/a.png?w=10",
+"local": "game/img/a_0ce544e6f0.png",
+"route": null
+},
+{
+"base": "https://site.test/",
+"url": "https://site.test/gamedata/app.js",
+"canonical": "https://site.test/gamedata/app.js",
+"local": "gamedata/app.js",
+"route": null
+},
+{
+"base": "https://site.test/",
+"url": "https://site.test/game",
+"canonical": "https://site.test/game",
+"local": "game",
+"route": null
+},
+{
+"base": "https://site.test/",
+"url": "https://site.test/assets/x.js",
+"canonical": "https://site.test/assets/x.js",
+"local": "assets/x.js",
+"route": null
+},
+{
+"base": "https://site.test/",
+"url": "https://cdn.other/path/to/pic",
+"canonical": "https://cdn.other/path/to/pic",
+"local": "external/assets/pic_02b480949e.bin",
+"route": null
+},
+{
+"base": "https://site.test/",
+"url": "https://cdn.other/a/b.png?fm=webp",
+"canonical": "https://cdn.other/a/b.png?fm=webp",
+"local": "external/images/b_30001e9563.png",
+"route": null
+},
+{
+"base": "https://site.test/",
+"url": "https://cdn.other/z?format=image/jpeg",
+"canonical": "https://cdn.other/z?format=image%2Fjpeg",
+"local": "external/assets/z_56453ef5e8.bin",
+"route": null
+},
+{
+"base": "https://site.test/",
+"url": "https://cdn.other/q?ext=.mp3",
+"canonical": "https://cdn.other/q?ext=.mp3",
+"local": "external/audio/q_d115a7a361.mp3",
+"route": null
+},
+{
+"base": "https://site.test/",
+"url": "https://cdn.other/long/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn.png",
+"canonical": "https://cdn.other/long/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn.png",
+"local": "external/images/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn_cfcb642755.png",
+"route": null
+},
+{
+"base": "https://site.test/",
+"url": "https://cdn.other/CON.png",
+"canonical": "https://cdn.other/CON.png",
+"local": "external/images/_CON_fc1609da4c.png",
+"route": null
+},
+{
+"base": "https://site.test/",
+"url": "https://cdn.other/%E3%81%82.png",
+"canonical": "https://cdn.other/%E3%81%82.png",
+"local": "external/images/あ_b3712d7350.png",
+"route": null
+},
+{
+"base": "https://site.test/",
+"url": "https://cdn.other/a%2Fb:c*.webp",
+"canonical": "https://cdn.other/a%2Fb:c*.webp",
+"local": "external/images/a_b_c__c040e794e5.webp",
+"route": null
+},
+{
+"base": "https://site.test/",
+"url": "https://cdn.other/",
+"canonical": "https://cdn.other/",
+"local": "external/assets/asset_3392a42e10.bin",
+"route": null
+},
+{
+"base": "https://site.test/",
+"url": "http://site.test/game/x y.css?t=1&_=2&keep=1&cb",
+"canonical": "http://site.test/game/x y.css?keep=1",
+"local": "game/x y_472264dcfe.css",
+"route": null
+},
+{
+"base": "https://site.test/",
+"url": "https://site.test/game/./a/../b.png",
+"canonical": "https://site.test/game/./a/../b.png",
+"local": "game/a/b.png",
+"route": null
+},
+{
+"base": "https://site.test/",
+"url": "HTTPS://Site.Test/Game/A.PNG",
+"canonical": "https://site.test/Game/A.PNG",
+"local": "Game/A.PNG",
+"route": null
+},
+{
+"base": "https://site.test/",
+"url": "ftp://site.test/x.png",
+"canonical": "ftp://site.test/x.png",
+"local": "x.png",
+"route": null
+},
+{
+"base": "https://site.test/",
+"url": "/relative.png",
+"canonical": "/relative.png",
+"local": "relative.png",
+"route": null
+},
+{
+"base": "https://site.test/",
+"url": "https://site.test/game/assets/a.js",
+"canonical": "https://site.test/game/assets/a.js",
+"local": "game/assets/a.js",
+"route": null
+},
+{
+"base": "https://site.test/",
+"url": "https://site.test:8443/assets/k.js",
+"canonical": "https://site.test:8443/assets/k.js",
+"local": "external/assets/k_5cbcb389b8.js",
+"route": null
+},
+{
+"base": "https://site.test/",
+"url": "https://site.test/game/%20sp.png",
+"canonical": "https://site.test/game/%20sp.png",
+"local": "game/sp.png",
+"route": null
+},
+{
+"base": "https://site.test/",
+"url": "https://cdn.other/x.unknownext",
+"canonical": "https://cdn.other/x.unknownext",
+"local": "external/assets/x.unknownext_abf7c424bd.bin",
+"route": null
+},
+{
+"base": "https://site.test/game",
+"url": "https://site.test/game/img/a.png",
+"canonical": "https://site.test/game/img/a.png",
+"local": "img/a.png",
+"route": null
+},
+{
+"base": "https://site.test/game",
+"url": "https://SITE.test/game/img/a.png?v=3&w=10#x",
+"canonical": "https://site.test/game/img/a.png?w=10",
+"local": "img/a_0ce544e6f0.png",
+"route": null
+},
+{
+"base": "https://site.test/game",
+"url": "https://site.test/gamedata/app.js",
+"canonical": "https://site.test/gamedata/app.js",
+"local": "gamedata/app.js",
+"route": null
+},
+{
+"base": "https://site.test/game",
+"url": "https://site.test/game",
+"canonical": "https://site.test/game",
+"local": "asset",
+"route": null
+},
+{
+"base": "https://site.test/game",
+"url": "https://site.test/assets/x.js",
+"canonical": "https://site.test/assets/x.js",
+"local": "assets/x.js",
+"route": "https://site.test/game/assets/x.js"
+},
+{
+"base": "https://site.test/game",
+"url": "https://cdn.other/path/to/pic",
+"canonical": "https://cdn.other/path/to/pic",
+"local": "external/assets/pic_02b480949e.bin",
+"route": null
+},
+{
+"base": "https://site.test/game",
+"url": "https://cdn.other/a/b.png?fm=webp",
+"canonical": "https://cdn.other/a/b.png?fm=webp",
+"local": "external/images/b_30001e9563.png",
+"route": null
+},
+{
+"base": "https://site.test/game",
+"url": "https://cdn.other/z?format=image/jpeg",
+"canonical": "https://cdn.other/z?format=image%2Fjpeg",
+"local": "external/assets/z_56453ef5e8.bin",
+"route": null
+},
+{
+"base": "https://site.test/game",
+"url": "https://cdn.other/q?ext=.mp3",
+"canonical": "https://cdn.other/q?ext=.mp3",
+"local": "external/audio/q_d115a7a361.mp3",
+"route": null
+},
+{
+"base": "https://site.test/game",
+"url": "https://cdn.other/long/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn.png",
+"canonical": "https://cdn.other/long/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn.png",
+"local": "external/images/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn_cfcb642755.png",
+"route": null
+},
+{
+"base": "https://site.test/game",
+"url": "https://cdn.other/CON.png",
+"canonical": "https://cdn.other/CON.png",
+"local": "external/images/_CON_fc1609da4c.png",
+"route": null
+},
+{
+"base": "https://site.test/game",
+"url": "https://cdn.other/%E3%81%82.png",
+"canonical": "https://cdn.other/%E3%81%82.png",
+"local": "external/images/あ_b3712d7350.png",
+"route": null
+},
+{
+"base": "https://site.test/game",
+"url": "https://cdn.other/a%2Fb:c*.webp",
+"canonical": "https://cdn.other/a%2Fb:c*.webp",
+"local": "external/images/a_b_c__c040e794e5.webp",
+"route": null
+},
+{
+"base": "https://site.test/game",
+"url": "https://cdn.other/",
+"canonical": "https://cdn.other/",
+"local": "external/assets/asset_3392a42e10.bin",
+"route": null
+},
+{
+"base": "https://site.test/game",
+"url": "http://site.test/game/x y.css?t=1&_=2&keep=1&cb",
+"canonical": "http://site.test/game/x y.css?keep=1",
+"local": "x y_472264dcfe.css",
+"route": null
+},
+{
+"base": "https://site.test/game",
+"url": "https://site.test/game/./a/../b.png",
+"canonical": "https://site.test/game/./a/../b.png",
+"local": "a/b.png",
+"route": null
+},
+{
+"base": "https://site.test/game",
+"url": "HTTPS://Site.Test/Game/A.PNG",
+"canonical": "https://site.test/Game/A.PNG",
+"local": "Game/A.PNG",
+"route": null
+},
+{
+"base": "https://site.test/game",
+"url": "ftp://site.test/x.png",
+"canonical": "ftp://site.test/x.png",
+"local": "x.png",
+"route": null
+},
+{
+"base": "https://site.test/game",
+"url": "/relative.png",
+"canonical": "/relative.png",
+"local": "relative.png",
+"route": null
+},
+{
+"base": "https://site.test/game",
+"url": "https://site.test/game/assets/a.js",
+"canonical": "https://site.test/game/assets/a.js",
+"local": "assets/a.js",
+"route": null
+},
+{
+"base": "https://site.test/game",
+"url": "https://site.test:8443/assets/k.js",
+"canonical": "https://site.test:8443/assets/k.js",
+"local": "external/assets/k_5cbcb389b8.js",
+"route": null
+},
+{
+"base": "https://site.test/game",
+"url": "https://site.test/game/%20sp.png",
+"canonical": "https://site.test/game/%20sp.png",
+"local": "sp.png",
+"route": null
+},
+{
+"base": "https://site.test/game",
+"url": "https://cdn.other/x.unknownext",
+"canonical": "https://cdn.other/x.unknownext",
+"local": "external/assets/x.unknownext_abf7c424bd.bin",
+"route": null
+}
+],
+"ext_cases": [
+{
+"url": "https://site.test/game/img/a.png",
+"content": 0,
+"ext": ".png",
+"external": "external/images/a_04a752b1f4.png"
+},
+{
+"url": "https://site.test/game/img/a.png",
+"content": 1,
+"ext": ".png",
+"external": "external/images/a_04a752b1f4.png"
+},
+{
+"url": "https://site.test/game/img/a.png",
+"content": 2,
+"ext": ".png",
+"external": "external/images/a_04a752b1f4.png"
+},
+{
+"url": "https://site.test/game/img/a.png",
+"content": 3,
+"ext": ".png",
+"external": "external/images/a_04a752b1f4.png"
+},
+{
+"url": "https://site.test/game/img/a.png",
+"content": 4,
+"ext": ".png",
+"external": "external/images/a_04a752b1f4.png"
+},
+{
+"url": "https://site.test/game/img/a.png",
+"content": 5,
+"ext": ".png",
+"external": "external/images/a_04a752b1f4.png"
+},
+{
+"url": "https://site.test/game/img/a.png",
+"content": 6,
+"ext": ".png",
+"external": "external/images/a_04a752b1f4.png"
+},
+{
+"url": "https://site.test/game/img/a.png",
+"content": 7,
+"ext": ".png",
+"external": "external/images/a_04a752b1f4.png"
+},
+{
+"url": "https://site.test/game/img/a.png",
+"content": 8,
+"ext": ".png",
+"external": "external/images/a_04a752b1f4.png"
+},
+{
+"url": "https://site.test/game/img/a.png",
+"content": 9,
+"ext": ".png",
+"external": "external/images/a_04a752b1f4.png"
+},
+{
+"url": "https://SITE.test/game/img/a.png?v=3&w=10#x",
+"content": 0,
+"ext": ".png",
+"external": "external/images/a_2fc7354528.png"
+},
+{
+"url": "https://SITE.test/game/img/a.png?v=3&w=10#x",
+"content": 1,
+"ext": ".png",
+"external": "external/images/a_2fc7354528.png"
+},
+{
+"url": "https://SITE.test/game/img/a.png?v=3&w=10#x",
+"content": 2,
+"ext": ".png",
+"external": "external/images/a_2fc7354528.png"
+},
+{
+"url": "https://SITE.test/game/img/a.png?v=3&w=10#x",
+"content": 3,
+"ext": ".png",
+"external": "external/images/a_2fc7354528.png"
+},
+{
+"url": "https://SITE.test/game/img/a.png?v=3&w=10#x",
+"content": 4,
+"ext": ".png",
+"external": "external/images/a_2fc7354528.png"
+},
+{
+"url": "https://SITE.test/game/img/a.png?v=3&w=10#x",
+"content": 5,
+"ext": ".png",
+"external": "external/images/a_2fc7354528.png"
+},
+{
+"url": "https://SITE.test/game/img/a.png?v=3&w=10#x",
+"content": 6,
+"ext": ".png",
+"external": "external/images/a_2fc7354528.png"
+},
+{
+"url": "https://SITE.test/game/img/a.png?v=3&w=10#x",
+"content": 7,
+"ext": ".png",
+"external": "external/images/a_2fc7354528.png"
+},
+{
+"url": "https://SITE.test/game/img/a.png?v=3&w=10#x",
+"content": 8,
+"ext": ".png",
+"external": "external/images/a_2fc7354528.png"
+},
+{
+"url": "https://SITE.test/game/img/a.png?v=3&w=10#x",
+"content": 9,
+"ext": ".png",
+"external": "external/images/a_2fc7354528.png"
+},
+{
+"url": "https://site.test/gamedata/app.js",
+"content": 0,
+"ext": ".js",
+"external": "external/assets/app_72806bb452.js"
+},
+{
+"url": "https://site.test/gamedata/app.js",
+"content": 1,
+"ext": ".js",
+"external": "external/assets/app_72806bb452.js"
+},
+{
+"url": "https://site.test/gamedata/app.js",
+"content": 2,
+"ext": ".js",
+"external": "external/assets/app_72806bb452.js"
+},
+{
+"url": "https://site.test/gamedata/app.js",
+"content": 3,
+"ext": ".js",
+"external": "external/assets/app_72806bb452.js"
+},
+{
+"url": "https://site.test/gamedata/app.js",
+"content": 4,
+"ext": ".js",
+"external": "external/assets/app_72806bb452.js"
+},
+{
+"url": "https://site.test/gamedata/app.js",
+"content": 5,
+"ext": ".js",
+"external": "external/assets/app_72806bb452.js"
+},
+{
+"url": "https://site.test/gamedata/app.js",
+"content": 6,
+"ext": ".js",
+"external": "external/assets/app_72806bb452.js"
+},
+{
+"url": "https://site.test/gamedata/app.js",
+"content": 7,
+"ext": ".js",
+"external": "external/assets/app_72806bb452.js"
+},
+{
+"url": "https://site.test/gamedata/app.js",
+"content": 8,
+"ext": ".js",
+"external": "external/assets/app_72806bb452.js"
+},
+{
+"url": "https://site.test/gamedata/app.js",
+"content": 9,
+"ext": ".js",
+"external": "external/assets/app_72806bb452.js"
+},
+{
+"url": "https://site.test/game",
+"content": 0,
+"ext": "",
+"external": "external/assets/game_9a1ccf6892.bin"
+},
+{
+"url": "https://site.test/game",
+"content": 1,
+"ext": ".png",
+"external": "external/images/game_9a1ccf6892.png"
+},
+{
+"url": "https://site.test/game",
+"content": 2,
+"ext": ".jpg",
+"external": "external/images/game_9a1ccf6892.jpg"
+},
+{
+"url": "https://site.test/game",
+"content": 3,
+"ext": ".gif",
+"external": "external/images/game_9a1ccf6892.gif"
+},
+{
+"url": "https://site.test/game",
+"content": 4,
+"ext": ".webp",
+"external": "external/images/game_9a1ccf6892.webp"
+},
+{
+"url": "https://site.test/game",
+"content": 5,
+"ext": ".avif",
+"external": "external/images/game_9a1ccf6892.avif"
+},
+{
+"url": "https://site.test/game",
+"content": 6,
+"ext": ".bmp",
+"external": "external/images/game_9a1ccf6892.bmp"
+},
+{
+"url": "https://site.test/game",
+"content": 7,
+"ext": ".mp3",
+"external": "external/audio/game_9a1ccf6892.mp3"
+},
+{
+"url": "https://site.test/game",
+"content": 8,
+"ext": ".svg",
+"external": "external/images/game_9a1ccf6892.svg"
+},
+{
+"url": "https://site.test/game",
+"content": 9,
+"ext": "",
+"external": "external/assets/game_9a1ccf6892.bin"
+},
+{
+"url": "https://site.test/assets/x.js",
+"content": 0,
+"ext": ".js",
+"external": "external/assets/x_fcfe062f56.js"
+},
+{
+"url": "https://site.test/assets/x.js",
+"content": 1,
+"ext": ".js",
+"external": "external/assets/x_fcfe062f56.js"
+},
+{
+"url": "https://site.test/assets/x.js",
+"content": 2,
+"ext": ".js",
+"external": "external/assets/x_fcfe062f56.js"
+},
+{
+"url": "https://site.test/assets/x.js",
+"content": 3,
+"ext": ".js",
+"external": "external/assets/x_fcfe062f56.js"
+},
+{
+"url": "https://site.test/assets/x.js",
+"content": 4,
+"ext": ".js",
+"external": "external/assets/x_fcfe062f56.js"
+},
+{
+"url": "https://site.test/assets/x.js",
+"content": 5,
+"ext": ".js",
+"external": "external/assets/x_fcfe062f56.js"
+},
+{
+"url": "https://site.test/assets/x.js",
+"content": 6,
+"ext": ".js",
+"external": "external/assets/x_fcfe062f56.js"
+},
+{
+"url": "https://site.test/assets/x.js",
+"content": 7,
+"ext": ".js",
+"external": "external/assets/x_fcfe062f56.js"
+},
+{
+"url": "https://site.test/assets/x.js",
+"content": 8,
+"ext": ".js",
+"external": "external/assets/x_fcfe062f56.js"
+},
+{
+"url": "https://site.test/assets/x.js",
+"content": 9,
+"ext": ".js",
+"external": "external/assets/x_fcfe062f56.js"
+},
+{
+"url": "https://cdn.other/path/to/pic",
+"content": 0,
+"ext": "",
+"external": "external/assets/pic_02b480949e.bin"
+},
+{
+"url": "https://cdn.other/path/to/pic",
+"content": 1,
+"ext": ".png",
+"external": "external/images/pic_02b480949e.png"
+},
+{
+"url": "https://cdn.other/path/to/pic",
+"content": 2,
+"ext": ".jpg",
+"external": "external/images/pic_02b480949e.jpg"
+},
+{
+"url": "https://cdn.other/path/to/pic",
+"content": 3,
+"ext": ".gif",
+"external": "external/images/pic_02b480949e.gif"
+},
+{
+"url": "https://cdn.other/path/to/pic",
+"content": 4,
+"ext": ".webp",
+"external": "external/images/pic_02b480949e.webp"
+},
+{
+"url": "https://cdn.other/path/to/pic",
+"content": 5,
+"ext": ".avif",
+"external": "external/images/pic_02b480949e.avif"
+},
+{
+"url": "https://cdn.other/path/to/pic",
+"content": 6,
+"ext": ".bmp",
+"external": "external/images/pic_02b480949e.bmp"
+},
+{
+"url": "https://cdn.other/path/to/pic",
+"content": 7,
+"ext": ".mp3",
+"external": "external/audio/pic_02b480949e.mp3"
+},
+{
+"url": "https://cdn.other/path/to/pic",
+"content": 8,
+"ext": ".svg",
+"external": "external/images/pic_02b480949e.svg"
+},
+{
+"url": "https://cdn.other/path/to/pic",
+"content": 9,
+"ext": "",
+"external": "external/assets/pic_02b480949e.bin"
+},
+{
+"url": "https://cdn.other/a/b.png?fm=webp",
+"content": 0,
+"ext": ".png",
+"external": "external/images/b_30001e9563.png"
+},
+{
+"url": "https://cdn.other/a/b.png?fm=webp",
+"content": 1,
+"ext": ".png",
+"external": "external/images/b_30001e9563.png"
+},
+{
+"url": "https://cdn.other/a/b.png?fm=webp",
+"content": 2,
+"ext": ".png",
+"external": "external/images/b_30001e9563.png"
+},
+{
+"url": "https://cdn.other/a/b.png?fm=webp",
+"content": 3,
+"ext": ".png",
+"external": "external/images/b_30001e9563.png"
+},
+{
+"url": "https://cdn.other/a/b.png?fm=webp",
+"content": 4,
+"ext": ".png",
+"external": "external/images/b_30001e9563.png"
+},
+{
+"url": "https://cdn.other/a/b.png?fm=webp",
+"content": 5,
+"ext": ".png",
+"external": "external/images/b_30001e9563.png"
+},
+{
+"url": "https://cdn.other/a/b.png?fm=webp",
+"content": 6,
+"ext": ".png",
+"external": "external/images/b_30001e9563.png"
+},
+{
+"url": "https://cdn.other/a/b.png?fm=webp",
+"content": 7,
+"ext": ".png",
+"external": "external/images/b_30001e9563.png"
+},
+{
+"url": "https://cdn.other/a/b.png?fm=webp",
+"content": 8,
+"ext": ".png",
+"external": "external/images/b_30001e9563.png"
+},
+{
+"url": "https://cdn.other/a/b.png?fm=webp",
+"content": 9,
+"ext": ".png",
+"external": "external/images/b_30001e9563.png"
+},
+{
+"url": "https://cdn.other/z?format=image/jpeg",
+"content": 0,
+"ext": "",
+"external": "external/assets/z_56453ef5e8.bin"
+},
+{
+"url": "https://cdn.other/z?format=image/jpeg",
+"content": 1,
+"ext": ".png",
+"external": "external/images/z_56453ef5e8.png"
+},
+{
+"url": "https://cdn.other/z?format=image/jpeg",
+"content": 2,
+"ext": ".jpg",
+"external": "external/images/z_56453ef5e8.jpg"
+},
+{
+"url": "https://cdn.other/z?format=image/jpeg",
+"content": 3,
+"ext": ".gif",
+"external": "external/images/z_56453ef5e8.gif"
+},
+{
+"url": "https://cdn.other/z?format=image/jpeg",
+"content": 4,
+"ext": ".webp",
+"external": "external/images/z_56453ef5e8.webp"
+},
+{
+"url": "https://cdn.other/z?format=image/jpeg",
+"content": 5,
+"ext": ".avif",
+"external": "external/images/z_56453ef5e8.avif"
+},
+{
+"url": "https://cdn.other/z?format=image/jpeg",
+"content": 6,
+"ext": ".bmp",
+"external": "external/images/z_56453ef5e8.bmp"
+},
+{
+"url": "https://cdn.other/z?format=image/jpeg",
+"content": 7,
+"ext": ".mp3",
+"external": "external/audio/z_56453ef5e8.mp3"
+},
+{
+"url": "https://cdn.other/z?format=image/jpeg",
+"content": 8,
+"ext": ".svg",
+"external": "external/images/z_56453ef5e8.svg"
+},
+{
+"url": "https://cdn.other/z?format=image/jpeg",
+"content": 9,
+"ext": "",
+"external": "external/assets/z_56453ef5e8.bin"
+},
+{
+"url": "https://cdn.other/q?ext=.mp3",
+"content": 0,
+"ext": ".mp3",
+"external": "external/audio/q_d115a7a361.mp3"
+},
+{
+"url": "https://cdn.other/q?ext=.mp3",
+"content": 1,
+"ext": ".mp3",
+"external": "external/audio/q_d115a7a361.mp3"
+},
+{
+"url": "https://cdn.other/q?ext=.mp3",
+"content": 2,
+"ext": ".mp3",
+"external": "external/audio/q_d115a7a361.mp3"
+},
+{
+"url": "https://cdn.other/q?ext=.mp3",
+"content": 3,
+"ext": ".mp3",
+"external": "external/audio/q_d115a7a361.mp3"
+},
+{
+"url": "https://cdn.other/q?ext=.mp3",
+"content": 4,
+"ext": ".mp3",
+"external": "external/audio/q_d115a7a361.mp3"
+},
+{
+"url": "https://cdn.other/q?ext=.mp3",
+"content": 5,
+"ext": ".mp3",
+"external": "external/audio/q_d115a7a361.mp3"
+},
+{
+"url": "https://cdn.other/q?ext=.mp3",
+"content": 6,
+"ext": ".mp3",
+"external": "external/audio/q_d115a7a361.mp3"
+},
+{
+"url": "https://cdn.other/q?ext=.mp3",
+"content": 7,
+"ext": ".mp3",
+"external": "external/audio/q_d115a7a361.mp3"
+},
+{
+"url": "https://cdn.other/q?ext=.mp3",
+"content": 8,
+"ext": ".mp3",
+"external": "external/audio/q_d115a7a361.mp3"
+},
+{
+"url": "https://cdn.other/q?ext=.mp3",
+"content": 9,
+"ext": ".mp3",
+"external": "external/audio/q_d115a7a361.mp3"
+},
+{
+"url": "https://cdn.other/long/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn.png",
+"content": 0,
+"ext": ".png",
+"external": "external/images/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn_cfcb642755.png"
+},
+{
+"url": "https://cdn.other/long/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn.png",
+"content": 1,
+"ext": ".png",
+"external": "external/images/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn_cfcb642755.png"
+},
+{
+"url": "https://cdn.other/long/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn.png",
+"content": 2,
+"ext": ".png",
+"external": "external/images/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn_cfcb642755.png"
+},
+{
+"url": "https://cdn.other/long/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn.png",
+"content": 3,
+"ext": ".png",
+"external": "external/images/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn_cfcb642755.png"
+},
+{
+"url": "https://cdn.other/long/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn.png",
+"content": 4,
+"ext": ".png",
+"external": "external/images/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn_cfcb642755.png"
+},
+{
+"url": "https://cdn.other/long/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn.png",
+"content": 5,
+"ext": ".png",
+"external": "external/images/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn_cfcb642755.png"
+},
+{
+"url": "https://cdn.other/long/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn.png",
+"content": 6,
+"ext": ".png",
+"external": "external/images/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn_cfcb642755.png"
+},
+{
+"url": "https://cdn.other/long/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn.png",
+"content": 7,
+"ext": ".png",
+"external": "external/images/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn_cfcb642755.png"
+},
+{
+"url": "https://cdn.other/long/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn.png",
+"content": 8,
+"ext": ".png",
+"external": "external/images/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn_cfcb642755.png"
+},
+{
+"url": "https://cdn.other/long/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn.png",
+"content": 9,
+"ext": ".png",
+"external": "external/images/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn_cfcb642755.png"
+},
+{
+"url": "https://cdn.other/CON.png",
+"content": 0,
+"ext": ".png",
+"external": "external/images/_CON_fc1609da4c.png"
+},
+{
+"url": "https://cdn.other/CON.png",
+"content": 1,
+"ext": ".png",
+"external": "external/images/_CON_fc1609da4c.png"
+},
+{
+"url": "https://cdn.other/CON.png",
+"content": 2,
+"ext": ".png",
+"external": "external/images/_CON_fc1609da4c.png"
+},
+{
+"url": "https://cdn.other/CON.png",
+"content": 3,
+"ext": ".png",
+"external": "external/images/_CON_fc1609da4c.png"
+},
+{
+"url": "https://cdn.other/CON.png",
+"content": 4,
+"ext": ".png",
+"external": "external/images/_CON_fc1609da4c.png"
+},
+{
+"url": "https://cdn.other/CON.png",
+"content": 5,
+"ext": ".png",
+"external": "external/images/_CON_fc1609da4c.png"
+},
+{
+"url": "https://cdn.other/CON.png",
+"content": 6,
+"ext": ".png",
+"external": "external/images/_CON_fc1609da4c.png"
+},
+{
+"url": "https://cdn.other/CON.png",
+"content": 7,
+"ext": ".png",
+"external": "external/images/_CON_fc1609da4c.png"
+},
+{
+"url": "https://cdn.other/CON.png",
+"content": 8,
+"ext": ".png",
+"external": "external/images/_CON_fc1609da4c.png"
+},
+{
+"url": "https://cdn.other/CON.png",
+"content": 9,
+"ext": ".png",
+"external": "external/images/_CON_fc1609da4c.png"
+},
+{
+"url": "https://cdn.other/%E3%81%82.png",
+"content": 0,
+"ext": ".png",
+"external": "external/images/あ_b3712d7350.png"
+},
+{
+"url": "https://cdn.other/%E3%81%82.png",
+"content": 1,
+"ext": ".png",
+"external": "external/images/あ_b3712d7350.png"
+},
+{
+"url": "https://cdn.other/%E3%81%82.png",
+"content": 2,
+"ext": ".png",
+"external": "external/images/あ_b3712d7350.png"
+},
+{
+"url": "https://cdn.other/%E3%81%82.png",
+"content": 3,
+"ext": ".png",
+"external": "external/images/あ_b3712d7350.png"
+},
+{
+"url": "https://cdn.other/%E3%81%82.png",
+"content": 4,
+"ext": ".png",
+"external": "external/images/あ_b3712d7350.png"
+},
+{
+"url": "https://cdn.other/%E3%81%82.png",
+"content": 5,
+"ext": ".png",
+"external": "external/images/あ_b3712d7350.png"
+},
+{
+"url": "https://cdn.other/%E3%81%82.png",
+"content": 6,
+"ext": ".png",
+"external": "external/images/あ_b3712d7350.png"
+},
+{
+"url": "https://cdn.other/%E3%81%82.png",
+"content": 7,
+"ext": ".png",
+"external": "external/images/あ_b3712d7350.png"
+},
+{
+"url": "https://cdn.other/%E3%81%82.png",
+"content": 8,
+"ext": ".png",
+"external": "external/images/あ_b3712d7350.png"
+},
+{
+"url": "https://cdn.other/%E3%81%82.png",
+"content": 9,
+"ext": ".png",
+"external": "external/images/あ_b3712d7350.png"
+},
+{
+"url": "https://cdn.other/a%2Fb:c*.webp",
+"content": 0,
+"ext": ".webp",
+"external": "external/images/a_b_c__c040e794e5.webp"
+},
+{
+"url": "https://cdn.other/a%2Fb:c*.webp",
+"content": 1,
+"ext": ".webp",
+"external": "external/images/a_b_c__c040e794e5.webp"
+},
+{
+"url": "https://cdn.other/a%2Fb:c*.webp",
+"content": 2,
+"ext": ".webp",
+"external": "external/images/a_b_c__c040e794e5.webp"
+},
+{
+"url": "https://cdn.other/a%2Fb:c*.webp",
+"content": 3,
+"ext": ".webp",
+"external": "external/images/a_b_c__c040e794e5.webp"
+},
+{
+"url": "https://cdn.other/a%2Fb:c*.webp",
+"content": 4,
+"ext": ".webp",
+"external": "external/images/a_b_c__c040e794e5.webp"
+},
+{
+"url": "https://cdn.other/a%2Fb:c*.webp",
+"content": 5,
+"ext": ".webp",
+"external": "external/images/a_b_c__c040e794e5.webp"
+},
+{
+"url": "https://cdn.other/a%2Fb:c*.webp",
+"content": 6,
+"ext": ".webp",
+"external": "external/images/a_b_c__c040e794e5.webp"
+},
+{
+"url": "https://cdn.other/a%2Fb:c*.webp",
+"content": 7,
+"ext": ".webp",
+"external": "external/images/a_b_c__c040e794e5.webp"
+},
+{
+"url": "https://cdn.other/a%2Fb:c*.webp",
+"content": 8,
+"ext": ".webp",
+"external": "external/images/a_b_c__c040e794e5.webp"
+},
+{
+"url": "https://cdn.other/a%2Fb:c*.webp",
+"content": 9,
+"ext": ".webp",
+"external": "external/images/a_b_c__c040e794e5.webp"
+},
+{
+"url": "https://cdn.other/",
+"content": 0,
+"ext": "",
+"external": "external/assets/asset_3392a42e10.bin"
+},
+{
+"url": "https://cdn.other/",
+"content": 1,
+"ext": ".png",
+"external": "external/images/asset_3392a42e10.png"
+},
+{
+"url": "https://cdn.other/",
+"content": 2,
+"ext": ".jpg",
+"external": "external/images/asset_3392a42e10.jpg"
+},
+{
+"url": "https://cdn.other/",
+"content": 3,
+"ext": ".gif",
+"external": "external/images/asset_3392a42e10.gif"
+},
+{
+"url": "https://cdn.other/",
+"content": 4,
+"ext": ".webp",
+"external": "external/images/asset_3392a42e10.webp"
+},
+{
+"url": "https://cdn.other/",
+"content": 5,
+"ext": ".avif",
+"external": "external/images/asset_3392a42e10.avif"
+},
+{
+"url": "https://cdn.other/",
+"content": 6,
+"ext": ".bmp",
+"external": "external/images/asset_3392a42e10.bmp"
+},
+{
+"url": "https://cdn.other/",
+"content": 7,
+"ext": ".mp3",
+"external": "external/audio/asset_3392a42e10.mp3"
+},
+{
+"url": "https://cdn.other/",
+"content": 8,
+"ext": ".svg",
+"external": "external/images/asset_3392a42e10.svg"
+},
+{
+"url": "https://cdn.other/",
+"content": 9,
+"ext": "",
+"external": "external/assets/asset_3392a42e10.bin"
+},
+{
+"url": "http://site.test/game/x y.css?t=1&_=2&keep=1&cb",
+"content": 0,
+"ext": ".css",
+"external": "external/assets/x y_38bd21ab1b.css"
+},
+{
+"url": "http://site.test/game/x y.css?t=1&_=2&keep=1&cb",
+"content": 1,
+"ext": ".css",
+"external": "external/assets/x y_38bd21ab1b.css"
+},
+{
+"url": "http://site.test/game/x y.css?t=1&_=2&keep=1&cb",
+"content": 2,
+"ext": ".css",
+"external": "external/assets/x y_38bd21ab1b.css"
+},
+{
+"url": "http://site.test/game/x y.css?t=1&_=2&keep=1&cb",
+"content": 3,
+"ext": ".css",
+"external": "external/assets/x y_38bd21ab1b.css"
+},
+{
+"url": "http://site.test/game/x y.css?t=1&_=2&keep=1&cb",
+"content": 4,
+"ext": ".css",
+"external": "external/assets/x y_38bd21ab1b.css"
+},
+{
+"url": "http://site.test/game/x y.css?t=1&_=2&keep=1&cb",
+"content": 5,
+"ext": ".css",
+"external": "external/assets/x y_38bd21ab1b.css"
+},
+{
+"url": "http://site.test/game/x y.css?t=1&_=2&keep=1&cb",
+"content": 6,
+"ext": ".css",
+"external": "external/assets/x y_38bd21ab1b.css"
+},
+{
+"url": "http://site.test/game/x y.css?t=1&_=2&keep=1&cb",
+"content": 7,
+"ext": ".css",
+"external": "external/assets/x y_38bd21ab1b.css"
+},
+{
+"url": "http://site.test/game/x y.css?t=1&_=2&keep=1&cb",
+"content": 8,
+"ext": ".css",
+"external": "external/assets/x y_38bd21ab1b.css"
+},
+{
+"url": "http://site.test/game/x y.css?t=1&_=2&keep=1&cb",
+"content": 9,
+"ext": ".css",
+"external": "external/assets/x y_38bd21ab1b.css"
+},
+{
+"url": "https://site.test/game/./a/../b.png",
+"content": 0,
+"ext": ".png",
+"external": "external/images/b_22b8923b9c.png"
+},
+{
+"url": "https://site.test/game/./a/../b.png",
+"content": 1,
+"ext": ".png",
+"external": "external/images/b_22b8923b9c.png"
+},
+{
+"url": "https://site.test/game/./a/../b.png",
+"content": 2,
+"ext": ".png",
+"external": "external/images/b_22b8923b9c.png"
+},
+{
+"url": "https://site.test/game/./a/../b.png",
+"content": 3,
+"ext": ".png",
+"external": "external/images/b_22b8923b9c.png"
+},
+{
+"url": "https://site.test/game/./a/../b.png",
+"content": 4,
+"ext": ".png",
+"external": "external/images/b_22b8923b9c.png"
+},
+{
+"url": "https://site.test/game/./a/../b.png",
+"content": 5,
+"ext": ".png",
+"external": "external/images/b_22b8923b9c.png"
+},
+{
+"url": "https://site.test/game/./a/../b.png",
+"content": 6,
+"ext": ".png",
+"external": "external/images/b_22b8923b9c.png"
+},
+{
+"url": "https://site.test/game/./a/../b.png",
+"content": 7,
+"ext": ".png",
+"external": "external/images/b_22b8923b9c.png"
+},
+{
+"url": "https://site.test/game/./a/../b.png",
+"content": 8,
+"ext": ".png",
+"external": "external/images/b_22b8923b9c.png"
+},
+{
+"url": "https://site.test/game/./a/../b.png",
+"content": 9,
+"ext": ".png",
+"external": "external/images/b_22b8923b9c.png"
+},
+{
+"url": "HTTPS://Site.Test/Game/A.PNG",
+"content": 0,
+"ext": ".png",
+"external": "external/images/A_9e0524f942.PNG"
+},
+{
+"url": "HTTPS://Site.Test/Game/A.PNG",
+"content": 1,
+"ext": ".png",
+"external": "external/images/A_9e0524f942.PNG"
+},
+{
+"url": "HTTPS://Site.Test/Game/A.PNG",
+"content": 2,
+"ext": ".png",
+"external": "external/images/A_9e0524f942.PNG"
+},
+{
+"url": "HTTPS://Site.Test/Game/A.PNG",
+"content": 3,
+"ext": ".png",
+"external": "external/images/A_9e0524f942.PNG"
+},
+{
+"url": "HTTPS://Site.Test/Game/A.PNG",
+"content": 4,
+"ext": ".png",
+"external": "external/images/A_9e0524f942.PNG"
+},
+{
+"url": "HTTPS://Site.Test/Game/A.PNG",
+"content": 5,
+"ext": ".png",
+"external": "external/images/A_9e0524f942.PNG"
+},
+{
+"url": "HTTPS://Site.Test/Game/A.PNG",
+"content": 6,
+"ext": ".png",
+"external": "external/images/A_9e0524f942.PNG"
+},
+{
+"url": "HTTPS://Site.Test/Game/A.PNG",
+"content": 7,
+"ext": ".png",
+"external": "external/images/A_9e0524f942.PNG"
+},
+{
+"url": "HTTPS://Site.Test/Game/A.PNG",
+"content": 8,
+"ext": ".png",
+"external": "external/images/A_9e0524f942.PNG"
+},
+{
+"url": "HTTPS://Site.Test/Game/A.PNG",
+"content": 9,
+"ext": ".png",
+"external": "external/images/A_9e0524f942.PNG"
+},
+{
+"url": "ftp://site.test/x.png",
+"content": 0,
+"ext": ".png",
+"external": "external/images/x_d9efee5e83.png"
+},
+{
+"url": "ftp://site.test/x.png",
+"content": 1,
+"ext": ".png",
+"external": "external/images/x_d9efee5e83.png"
+},
+{
+"url": "ftp://site.test/x.png",
+"content": 2,
+"ext": ".png",
+"external": "external/images/x_d9efee5e83.png"
+},
+{
+"url": "ftp://site.test/x.png",
+"content": 3,
+"ext": ".png",
+"external": "external/images/x_d9efee5e83.png"
+},
+{
+"url": "ftp://site.test/x.png",
+"content": 4,
+"ext": ".png",
+"external": "external/images/x_d9efee5e83.png"
+},
+{
+"url": "ftp://site.test/x.png",
+"content": 5,
+"ext": ".png",
+"external": "external/images/x_d9efee5e83.png"
+},
+{
+"url": "ftp://site.test/x.png",
+"content": 6,
+"ext": ".png",
+"external": "external/images/x_d9efee5e83.png"
+},
+{
+"url": "ftp://site.test/x.png",
+"content": 7,
+"ext": ".png",
+"external": "external/images/x_d9efee5e83.png"
+},
+{
+"url": "ftp://site.test/x.png",
+"content": 8,
+"ext": ".png",
+"external": "external/images/x_d9efee5e83.png"
+},
+{
+"url": "ftp://site.test/x.png",
+"content": 9,
+"ext": ".png",
+"external": "external/images/x_d9efee5e83.png"
+},
+{
+"url": "/relative.png",
+"content": 0,
+"ext": ".png",
+"external": "external/images/relative_bb40c4e858.png"
+},
+{
+"url": "/relative.png",
+"content": 1,
+"ext": ".png",
+"external": "external/images/relative_bb40c4e858.png"
+},
+{
+"url": "/relative.png",
+"content": 2,
+"ext": ".png",
+"external": "external/images/relative_bb40c4e858.png"
+},
+{
+"url": "/relative.png",
+"content": 3,
+"ext": ".png",
+"external": "external/images/relative_bb40c4e858.png"
+},
+{
+"url": "/relative.png",
+"content": 4,
+"ext": ".png",
+"external": "external/images/relative_bb40c4e858.png"
+},
+{
+"url": "/relative.png",
+"content": 5,
+"ext": ".png",
+"external": "external/images/relative_bb40c4e858.png"
+},
+{
+"url": "/relative.png",
+"content": 6,
+"ext": ".png",
+"external": "external/images/relative_bb40c4e858.png"
+},
+{
+"url": "/relative.png",
+"content": 7,
+"ext": ".png",
+"external": "external/images/relative_bb40c4e858.png"
+},
+{
+"url": "/relative.png",
+"content": 8,
+"ext": ".png",
+"external": "external/images/relative_bb40c4e858.png"
+},
+{
+"url": "/relative.png",
+"content": 9,
+"ext": ".png",
+"external": "external/images/relative_bb40c4e858.png"
+},
+{
+"url": "https://site.test/game/assets/a.js",
+"content": 0,
+"ext": ".js",
+"external": "external/assets/a_3d4ba5657f.js"
+},
+{
+"url": "https://site.test/game/assets/a.js",
+"content": 1,
+"ext": ".js",
+"external": "external/assets/a_3d4ba5657f.js"
+},
+{
+"url": "https://site.test/game/assets/a.js",
+"content": 2,
+"ext": ".js",
+"external": "external/assets/a_3d4ba5657f.js"
+},
+{
+"url": "https://site.test/game/assets/a.js",
+"content": 3,
+"ext": ".js",
+"external": "external/assets/a_3d4ba5657f.js"
+},
+{
+"url": "https://site.test/game/assets/a.js",
+"content": 4,
+"ext": ".js",
+"external": "external/assets/a_3d4ba5657f.js"
+},
+{
+"url": "https://site.test/game/assets/a.js",
+"content": 5,
+"ext": ".js",
+"external": "external/assets/a_3d4ba5657f.js"
+},
+{
+"url": "https://site.test/game/assets/a.js",
+"content": 6,
+"ext": ".js",
+"external": "external/assets/a_3d4ba5657f.js"
+},
+{
+"url": "https://site.test/game/assets/a.js",
+"content": 7,
+"ext": ".js",
+"external": "external/assets/a_3d4ba5657f.js"
+},
+{
+"url": "https://site.test/game/assets/a.js",
+"content": 8,
+"ext": ".js",
+"external": "external/assets/a_3d4ba5657f.js"
+},
+{
+"url": "https://site.test/game/assets/a.js",
+"content": 9,
+"ext": ".js",
+"external": "external/assets/a_3d4ba5657f.js"
+},
+{
+"url": "https://site.test:8443/assets/k.js",
+"content": 0,
+"ext": ".js",
+"external": "external/assets/k_5cbcb389b8.js"
+},
+{
+"url": "https://site.test:8443/assets/k.js",
+"content": 1,
+"ext": ".js",
+"external": "external/assets/k_5cbcb389b8.js"
+},
+{
+"url": "https://site.test:8443/assets/k.js",
+"content": 2,
+"ext": ".js",
+"external": "external/assets/k_5cbcb389b8.js"
+},
+{
+"url": "https://site.test:8443/assets/k.js",
+"content": 3,
+"ext": ".js",
+"external": "external/assets/k_5cbcb389b8.js"
+},
+{
+"url": "https://site.test:8443/assets/k.js",
+"content": 4,
+"ext": ".js",
+"external": "external/assets/k_5cbcb389b8.js"
+},
+{
+"url": "https://site.test:8443/assets/k.js",
+"content": 5,
+"ext": ".js",
+"external": "external/assets/k_5cbcb389b8.js"
+},
+{
+"url": "https://site.test:8443/assets/k.js",
+"content": 6,
+"ext": ".js",
+"external": "external/assets/k_5cbcb389b8.js"
+},
+{
+"url": "https://site.test:8443/assets/k.js",
+"content": 7,
+"ext": ".js",
+"external": "external/assets/k_5cbcb389b8.js"
+},
+{
+"url": "https://site.test:8443/assets/k.js",
+"content": 8,
+"ext": ".js",
+"external": "external/assets/k_5cbcb389b8.js"
+},
+{
+"url": "https://site.test:8443/assets/k.js",
+"content": 9,
+"ext": ".js",
+"external": "external/assets/k_5cbcb389b8.js"
+},
+{
+"url": "https://site.test/game/%20sp.png",
+"content": 0,
+"ext": ".png",
+"external": "external/images/sp_a7c6aa4cdd.png"
+},
+{
+"url": "https://site.test/game/%20sp.png",
+"content": 1,
+"ext": ".png",
+"external": "external/images/sp_a7c6aa4cdd.png"
+},
+{
+"url": "https://site.test/game/%20sp.png",
+"content": 2,
+"ext": ".png",
+"external": "external/images/sp_a7c6aa4cdd.png"
+},
+{
+"url": "https://site.test/game/%20sp.png",
+"content": 3,
+"ext": ".png",
+"external": "external/images/sp_a7c6aa4cdd.png"
+},
+{
+"url": "https://site.test/game/%20sp.png",
+"content": 4,
+"ext": ".png",
+"external": "external/images/sp_a7c6aa4cdd.png"
+},
+{
+"url": "https://site.test/game/%20sp.png",
+"content": 5,
+"ext": ".png",
+"external": "external/images/sp_a7c6aa4cdd.png"
+},
+{
+"url": "https://site.test/game/%20sp.png",
+"content": 6,
+"ext": ".png",
+"external": "external/images/sp_a7c6aa4cdd.png"
+},
+{
+"url": "https://site.test/game/%20sp.png",
+"content": 7,
+"ext": ".png",
+"external": "external/images/sp_a7c6aa4cdd.png"
+},
+{
+"url": "https://site.test/game/%20sp.png",
+"content": 8,
+"ext": ".png",
+"external": "external/images/sp_a7c6aa4cdd.png"
+},
+{
+"url": "https://site.test/game/%20sp.png",
+"content": 9,
+"ext": ".png",
+"external": "external/images/sp_a7c6aa4cdd.png"
+},
+{
+"url": "https://cdn.other/x.unknownext",
+"content": 0,
+"ext": "",
+"external": "external/assets/x.unknownext_abf7c424bd.bin"
+},
+{
+"url": "https://cdn.other/x.unknownext",
+"content": 1,
+"ext": ".png",
+"external": "external/images/x.unknownext_abf7c424bd.png"
+},
+{
+"url": "https://cdn.other/x.unknownext",
+"content": 2,
+"ext": ".jpg",
+"external": "external/images/x.unknownext_abf7c424bd.jpg"
+},
+{
+"url": "https://cdn.other/x.unknownext",
+"content": 3,
+"ext": ".gif",
+"external": "external/images/x.unknownext_abf7c424bd.gif"
+},
+{
+"url": "https://cdn.other/x.unknownext",
+"content": 4,
+"ext": ".webp",
+"external": "external/images/x.unknownext_abf7c424bd.webp"
+},
+{
+"url": "https://cdn.other/x.unknownext",
+"content": 5,
+"ext": ".avif",
+"external": "external/images/x.unknownext_abf7c424bd.avif"
+},
+{
+"url": "https://cdn.other/x.unknownext",
+"content": 6,
+"ext": ".bmp",
+"external": "external/images/x.unknownext_abf7c424bd.bmp"
+},
+{
+"url": "https://cdn.other/x.unknownext",
+"content": 7,
+"ext": ".mp3",
+"external": "external/audio/x.unknownext_abf7c424bd.mp3"
+},
+{
+"url": "https://cdn.other/x.unknownext",
+"content": 8,
+"ext": ".svg",
+"external": "external/images/x.unknownext_abf7c424bd.svg"
+},
+{
+"url": "https://cdn.other/x.unknownext",
+"content": 9,
+"ext": "",
+"external": "external/assets/x.unknownext_abf7c424bd.bin"
+}
+]
+}

@@ -1081,6 +1081,336 @@ pub fn scan_file_for_assets(
         .collect()
 }
 
+// ───────────── deep-scan driver path helpers (image_pipeline.py) ─────────────
+
+const DEEP_IMAGE_EXT: &[&str] = &[
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".bmp", ".svg", ".ico", ".tif", ".tiff",
+];
+const DEEP_AUDIO_EXT: &[&str] = &[
+    ".mp3", ".ogg", ".wav", ".m4a", ".aac", ".opus", ".flac", ".weba",
+];
+const DEEP_FONT_EXT: &[&str] = &[".woff", ".woff2", ".ttf", ".otf", ".eot"];
+const DEEP_TEXT_EXT: &[&str] = &[
+    ".css", ".js", ".mjs", ".cjs", ".json", ".txt", ".html", ".htm",
+];
+
+fn in_sets(ext: &str, sets: &[&[&str]]) -> bool {
+    sets.iter().any(|s| s.contains(&ext))
+}
+
+/// `os.path.splitext` (ntpath on Windows: `\` also separates).
+fn splitext(path: &str) -> (&str, &str) {
+    let seps: &[char] = if cfg!(windows) { &['/', '\\'] } else { &['/'] };
+    let name_start = path.rfind(seps).map_or(0, |i| i + 1);
+    let name = &path[name_start..];
+    let lead = name.len() - name.trim_start_matches('.').len();
+    match name[lead..].rfind('.') {
+        Some(i) => path.split_at(name_start + lead + i),
+        None => (path, ""),
+    }
+}
+
+/// `os.path.basename` (ntpath on Windows).
+fn basename(path: &str) -> &str {
+    let seps: &[char] = if cfg!(windows) { &['/', '\\'] } else { &['/'] };
+    path.rsplit(seps).next().unwrap_or("")
+}
+
+fn unquote_lossy(s: &str) -> String {
+    percent_encoding::percent_decode_str(s)
+        .decode_utf8_lossy()
+        .into_owned()
+}
+
+/// `urllib.parse.parse_qsl(query, keep_blank_values=True)`.
+fn parse_qsl(query: &str) -> Vec<(String, String)> {
+    query
+        .split('&')
+        .filter(|p| !p.is_empty())
+        .map(|p| {
+            let (k, v) = p.split_once('=').unwrap_or((p, ""));
+            (
+                unquote_lossy(&k.replace('+', " ")),
+                unquote_lossy(&v.replace('+', " ")),
+            )
+        })
+        .collect()
+}
+
+/// `urllib.parse.quote(s, safe="/")`.
+fn py_quote(s: &str) -> String {
+    let mut out = String::new();
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'_' | b'.' | b'-' | b'~' | b'/' => {
+                out.push(b as char)
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+fn sha1_10(data: &str) -> String {
+    use sha1::{Digest, Sha1};
+    Sha1::digest(data.as_bytes())
+        .iter()
+        .take(5)
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// Deep-scan `_canonical_scan_url`: lowercase scheme/host, drop params,
+/// fragment and cache-buster query keys (`v`, `t`, `cb`, ...).
+pub fn canonical_scan_url(url: &str) -> String {
+    const BUSTERS: &[&str] = &[
+        "v",
+        "ver",
+        "version",
+        "cb",
+        "cache",
+        "cachebust",
+        "cache_bust",
+        "cachebuster",
+        "t",
+        "ts",
+        "timestamp",
+        "_",
+        "dpl",
+    ];
+    let Some(p) = urlparse(py_strip(url)) else {
+        return url.split('#').next().unwrap_or("").to_owned();
+    };
+    if !matches!(p.scheme.as_str(), "http" | "https") {
+        return url.to_owned();
+    }
+    let query: Vec<String> = parse_qsl(&p.query)
+        .into_iter()
+        .filter(|(k, _)| !BUSTERS.contains(&k.to_lowercase().as_str()))
+        .map(|(k, v)| {
+            format!(
+                "{}={}",
+                super::payload::quote_plus(&k),
+                super::payload::quote_plus(&v)
+            )
+        })
+        .collect();
+    urlunparse(&Split {
+        scheme: p.scheme.to_lowercase(),
+        netloc: p.netloc.to_lowercase(),
+        path: if p.path.is_empty() {
+            "/".into()
+        } else {
+            p.path
+        },
+        query: query.join("&"),
+        ..Split::default()
+    })
+}
+
+/// `_deep_scan_content_extension`: URL/query hint, then magic bytes.
+pub fn deep_scan_content_extension(url: &str, content: Option<&[u8]>) -> String {
+    if let Some(p) = urlparse(url) {
+        let path_ext = splitext(p.path.trim_end_matches('/')).1.to_lowercase();
+        if in_sets(
+            &path_ext,
+            &[DEEP_IMAGE_EXT, DEEP_AUDIO_EXT, DEEP_FONT_EXT, DEEP_TEXT_EXT],
+        ) {
+            return path_ext;
+        }
+        for (k, v) in parse_qsl(&p.query) {
+            if !["format", "fm", "ext", "type"].contains(&k.to_lowercase().as_str()) {
+                continue;
+            }
+            let tail = v.split_once('/').map_or(v.as_str(), |(_, t)| t);
+            let hint = splitext(tail).1.to_lowercase();
+            if in_sets(&hint, &[DEEP_IMAGE_EXT, DEEP_AUDIO_EXT]) {
+                return hint;
+            }
+            let bare = v.to_lowercase();
+            let bare = bare.trim_start_matches('.');
+            if DEEP_IMAGE_EXT
+                .iter()
+                .chain(DEEP_AUDIO_EXT)
+                .any(|e| &e[1..] == bare)
+            {
+                return format!(".{bare}");
+            }
+        }
+    }
+    let raw = content.unwrap_or_default();
+    let ext = if raw.starts_with(b"\x89PNG\r\n\x1a\n") {
+        ".png"
+    } else if raw.starts_with(b"\xff\xd8\xff") {
+        ".jpg"
+    } else if raw.starts_with(b"GIF87a") || raw.starts_with(b"GIF89a") {
+        ".gif"
+    } else if raw.starts_with(b"RIFF") && raw.get(8..12) == Some(b"WEBP") {
+        ".webp"
+    } else if raw.len() >= 12 && matches!(&raw[4..12], b"ftypavif" | b"ftypavis") {
+        ".avif"
+    } else if raw.starts_with(b"BM") {
+        ".bmp"
+    } else if raw.starts_with(b"ID3") || raw.starts_with(b"\xff\xfb") {
+        ".mp3"
+    } else {
+        let trimmed = raw.trim_ascii_start();
+        if trimmed.starts_with(b"<svg") || trimmed.starts_with(b"<?xml") {
+            ".svg"
+        } else {
+            ""
+        }
+    };
+    ext.to_owned()
+}
+
+/// `_deep_scan_external_rel_path`: flat `external/<kind>/<name>_<sha1>.<ext>`.
+pub fn deep_scan_external_rel_path(url: &str, content: Option<&[u8]>) -> String {
+    let path = urlparse(url).map(|p| p.path).unwrap_or_default();
+    let name = basename(path.trim_end_matches('/'));
+    let name = if name.is_empty() { "asset" } else { name };
+    let path_name = crate::localize::clean_url_path_component(name);
+    let (stem, existing) = splitext(&path_name);
+    let (stem, extension) = if in_sets(
+        &existing.to_lowercase(),
+        &[DEEP_IMAGE_EXT, DEEP_AUDIO_EXT, DEEP_FONT_EXT, DEEP_TEXT_EXT],
+    ) {
+        (stem.to_owned(), existing.to_owned())
+    } else {
+        let e = deep_scan_content_extension(url, content);
+        (
+            path_name.clone(),
+            if e.is_empty() { ".bin".into() } else { e },
+        )
+    };
+    let stem: String = stem.chars().take(120).collect();
+    let filename = format!("{stem}_{}{extension}", sha1_10(url));
+    let lower = extension.to_lowercase();
+    let kind = if DEEP_IMAGE_EXT.contains(&lower.as_str()) {
+        "images"
+    } else if DEEP_AUDIO_EXT.contains(&lower.as_str()) {
+        "audio"
+    } else if DEEP_FONT_EXT.contains(&lower.as_str()) {
+        "fonts"
+    } else {
+        "assets"
+    };
+    cyoa_core::paths::safe_rel_path(&py_quote(&format!("external/{kind}/{filename}")), "asset")
+}
+
+/// Deep-scan `_url_to_local`: same-site paths keep their layout under the
+/// viewer base; other hosts go flat under `external/`.
+pub fn deep_scan_url_to_local(url: &str, base_url: &str, content: Option<&[u8]>) -> String {
+    let p = urlparse(url).unwrap_or_default();
+    let b = urlparse(base_url).unwrap_or_default();
+    if matches!(p.scheme.as_str(), "http" | "https")
+        && p.netloc.to_lowercase() != b.netloc.to_lowercase()
+    {
+        return deep_scan_external_rel_path(url, content);
+    }
+    let mut rel = p.path.trim_start_matches('/').to_owned();
+    let bp = b.path.trim_end_matches('/').trim_start_matches('/');
+    if !bp.is_empty() && (rel == bp || rel.starts_with(&format!("{bp}/"))) {
+        rel = rel[bp.len()..].to_owned();
+    }
+    let mut rel = rel.trim_start_matches('/').to_owned();
+    if !p.query.is_empty() {
+        let (root, ext) = splitext(&rel);
+        rel = format!("{root}_{}{ext}", sha1_10(&p.query));
+    }
+    cyoa_core::paths::safe_rel_path(&rel, "asset")
+}
+
+/// Deep-scan `_viewer_route_asset_fallback`: retry a failed root `/assets/`
+/// URL under the deployed viewer route.
+pub fn viewer_route_asset_fallback(url: &str, base_url: &str) -> Option<String> {
+    let mut p = urlparse(url)?;
+    let b = urlparse(base_url)?;
+    let route = b.path.trim_end_matches('/');
+    if route.is_empty() || !p.path.starts_with("/assets/") {
+        return None;
+    }
+    if p.scheme.to_lowercase() != b.scheme.to_lowercase()
+        || p.netloc.to_lowercase() != b.netloc.to_lowercase()
+        || p.path.starts_with(&format!("{route}/"))
+    {
+        return None;
+    }
+    p.path = format!("{route}{}", p.path);
+    Some(urlunparse(&p))
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod path_tests {
+    use super::*;
+
+    #[test]
+    fn deep_paths_match_python() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../fixtures/deep_paths.json"
+        );
+        let fx: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let mut bad = Vec::new();
+        for c in fx["cases"].as_array().unwrap() {
+            let (url, base) = (c["url"].as_str().unwrap(), c["base"].as_str().unwrap());
+            let got = (
+                canonical_scan_url(url),
+                deep_scan_url_to_local(url, base, None),
+                viewer_route_asset_fallback(url, base),
+            );
+            let want = (
+                c["canonical"].as_str().unwrap().to_owned(),
+                c["local"].as_str().unwrap().to_owned(),
+                c["route"].as_str().map(str::to_owned),
+            );
+            if got != want {
+                bad.push(format!(
+                    "{url} @ {base}\n  rust   {got:?}\n  python {want:?}"
+                ));
+            }
+        }
+        let contents: Vec<Option<Vec<u8>>> = fx["contents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|h| {
+                h.as_str().map(|h| {
+                    (0..h.len())
+                        .step_by(2)
+                        .map(|i| u8::from_str_radix(&h[i..i + 2], 16).unwrap())
+                        .collect()
+                })
+            })
+            .collect();
+        for c in fx["ext_cases"].as_array().unwrap() {
+            let url = c["url"].as_str().unwrap();
+            let content = contents[c["content"].as_u64().unwrap() as usize].as_deref();
+            let got = (
+                deep_scan_content_extension(url, content),
+                deep_scan_external_rel_path(url, content),
+            );
+            let want = (
+                c["ext"].as_str().unwrap().to_owned(),
+                c["external"].as_str().unwrap().to_owned(),
+            );
+            if got != want {
+                bad.push(format!(
+                    "{url} [{}]\n  rust   {got:?}\n  python {want:?}",
+                    c["content"]
+                ));
+            }
+        }
+        assert!(
+            bad.is_empty(),
+            "{} mismatches:\n{}",
+            bad.len(),
+            bad.join("\n")
+        );
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
