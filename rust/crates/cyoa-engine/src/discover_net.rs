@@ -160,6 +160,125 @@ pub async fn get_project_source(
     get_at_depth(client, url, 0, cancel).await
 }
 
+fn is_cafe_host(url: &str) -> bool {
+    Url::parse(url)
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_ascii_lowercase))
+        .is_some_and(|h| h == "cyoa.cafe" || h.ends_with(".cyoa.cafe"))
+}
+
+/// `crate::cafe::CafeFetch` over the shared client (runs on a blocking
+/// thread; every request blocks on the runtime handle).
+struct ClientCafeFetch {
+    client: FetchClient,
+    handle: tokio::runtime::Handle,
+    cancel: CancellationToken,
+}
+
+impl crate::cafe::CafeFetch for ClientCafeFetch {
+    fn fetch(&mut self, url: &str) -> Option<crate::cafe::CafeResponse> {
+        let parsed = Url::parse(url).ok()?;
+        let opts = FetchOptions {
+            return_error_response: true,
+            ..Default::default()
+        };
+        self.handle.block_on(async {
+            let resp = self.client.get(&parsed, &opts, &self.cancel).await.ok()?;
+            let status = resp.status.as_u16();
+            let raw_ct = resp
+                .headers
+                .get("content-type")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("")
+                .to_owned();
+            let charset = raw_ct
+                .split(';')
+                .skip(1)
+                .filter_map(|p| p.trim().strip_prefix("charset="))
+                .map(|c| c.trim_matches(['"', '\'']).to_owned())
+                .next()
+                .unwrap_or_default();
+            let bytes = FetchClient::bytes(resp, MAX_PAGE_BYTES).await.ok()?;
+            Some(crate::cafe::CafeResponse {
+                status,
+                content_type: raw_ct,
+                text: try_decode_bytes(&bytes, &charset),
+            })
+        })
+    }
+}
+
+/// Python `get_project_source` prologue for cyoa.cafe: catalog URLs are
+/// resolved (up to 3 hops) to the hosted viewer, then a React shell at
+/// `/slug/` is redirected to `/slug/game/`.
+async fn resolve_cafe_entry(
+    client: &FetchClient,
+    url: &str,
+    cancel: &CancellationToken,
+) -> Result<String, DiscoverError> {
+    let mut url = url.to_owned();
+    let host = |u: &str| {
+        Url::parse(u)
+            .ok()
+            .and_then(|p| p.host_str().map(str::to_ascii_lowercase))
+            .unwrap_or_default()
+    };
+    if host(&url) == "cyoa.cafe" {
+        tracing::info!("cyoa.cafe detected, resolving real URL…");
+        for _ in 0..3 {
+            let (c, h, k, u) = (
+                client.clone(),
+                tokio::runtime::Handle::current(),
+                cancel.clone(),
+                url.clone(),
+            );
+            let resolved = tokio::task::spawn_blocking(move || {
+                let mut fetch = ClientCafeFetch {
+                    client: c,
+                    handle: h,
+                    cancel: k,
+                };
+                crate::cafe::CafeResolver::new(&mut fetch).resolve(&u)
+            })
+            .await
+            .map_err(|_| DiscoverError::NotFound)?;
+            let resolved = match resolved {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::error!("cyoa.cafe resolve error: {e}");
+                    return Err(DiscoverError::NotFound);
+                }
+            };
+            if resolved.is_empty() || resolved == url {
+                tracing::info!("cyoa.cafe: using resolved URL directly");
+                break;
+            }
+            tracing::info!("cyoa.cafe resolved → {resolved}");
+            url = resolved;
+            if !is_cafe_host(&url) {
+                break;
+            }
+            if host(&url) != "cyoa.cafe" {
+                tracing::info!("cyoa.cafe: resolved to subdomain host — using as final CYOA URL");
+                break;
+            }
+        }
+    }
+    // cyoa.cafe React shell detection (`/slug/` shell, viewer at `/slug/game/`).
+    if is_cafe_host(&url)
+        && let Ok(Some(shell)) = request_text(client, &url, cancel, MAX_PAGE_BYTES).await
+        && shell.contains("game/assets/")
+        && (shell.contains("<div id=\"root\">") || shell.contains("placeholder-content"))
+        && !shell.contains("id=\"app\"")
+        && !shell.contains("js/app.js")
+    {
+        let game = format!("{}/game/", url.trim_end_matches('/'));
+        tracing::info!("cyoa.cafe React shell detected → redirect to {game}");
+        url = game;
+    }
+    Ok(url)
+}
+
 async fn get_at_depth(
     client: &FetchClient,
     url: &str,
@@ -173,11 +292,10 @@ async fn get_at_depth(
         return Err(DiscoverError::NotFound);
     }
 
-    // Python can use catalog resolution, browser rendering, Cloudflare/FlareSolverr,
-    // and AI detection here; these are unavailable in the static FetchClient port.
-    // DEFERRED(cyoa.cafe catalog metadata / iframe resolution): the static path continues at the given URL.
     // DEFERRED(headless browser / Cloudflare / FlareSolverr / cookies): disabled-path failure is preserved.
     // DEFERRED(AI-assisted detection): disabled-path failure is preserved.
+    let url_owned = resolve_cafe_entry(client, url, cancel).await?;
+    let url = url_owned.as_str();
     let base_url = strip_document_from_url(url);
 
     // Python accepts a direct project URL before treating the response as an HTML document.
@@ -328,6 +446,43 @@ mod tests {
             &CancellationToken::new(),
         )
         .await
+    }
+
+    /// The cafe resolver's transport keeps error statuses, the raw content
+    /// type and charset-decoded text (Python `_response_status/_text`).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn cafe_fetch_adapter_reports_status_type_and_text() {
+        use crate::cafe::CafeFetch;
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/latin"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/html; charset=windows-1252")
+                    .set_body_bytes(b"caf\xe9".to_vec()),
+            )
+            .mount(&s)
+            .await;
+        let (c, base) = (client(&s), s.uri());
+        let handle = tokio::runtime::Handle::current();
+        let (ok, missing) = tokio::task::spawn_blocking(move || {
+            let mut f = ClientCafeFetch {
+                client: c,
+                handle,
+                cancel: CancellationToken::new(),
+            };
+            (
+                f.fetch(&format!("{base}/latin")),
+                f.fetch(&format!("{base}/nope")),
+            )
+        })
+        .await
+        .unwrap();
+        let ok = ok.unwrap();
+        assert_eq!(ok.status, 200);
+        assert_eq!(ok.content_type, "text/html; charset=windows-1252");
+        assert_eq!(ok.text, "café");
+        assert_eq!(missing.unwrap().status, 404);
     }
 
     #[tokio::test]
