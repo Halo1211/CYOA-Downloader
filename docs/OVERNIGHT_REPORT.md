@@ -181,3 +181,12 @@ c8705cc docs · e5c1d13 Stage 0 · e8ed523 1a · ffd7866 1a security fixes · ec
   2. Rust never used the persistent image cache (Python always does: `~/.cyoa_downloader/image_cache`, 2048 MB).
   - Cache is now wired via `RunOptions.cache_dir/cache_limit_mb`. Tests and `e2e_parity.sh` use an isolated `USERPROFILE`/`HOME`.
   - Rust↔Python cache interop verified (300/300 hits).
+- **Batch import / `-L` (Claude-implemented):**
+  - `cyoa-engine::batch` ports `import_queue_items_from_file` for .txt and .csv. CSV follows pandas `read_csv` semantics, because pandas 3.0.2 is installed and used. Fixture `rust/fixtures/batch` (11 files, via `export_batch.py` against the real importer) all match.
+  - CLI now has a positional `filename`, `-L/--list` and `failed_urls.txt` (append format). Exit codes: 2 for bad input, 1 when any item failed, 130 on cancel.
+  - `RunOptions.file_name` output-name override.
+  - Discovery failures now report Python's exact "Could not resolve project data …" message.
+  - Live `-L` parity against Python: renamed ZIP identical; failed_urls.txt identical except timestamp; both exit 1.
+  - Unsupported batch modes (website/ICC/pure/cyoap-vue) fail per item with an explicit message; they are never silently downgraded.
+  - DEFERRED: .xlsx/.xls, remote/Google Sheets lists.
+  - Also fixed a flaky CLI test: Windows accepted sockets inherit non-blocking mode.

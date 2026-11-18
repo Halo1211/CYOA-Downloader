@@ -24,6 +24,7 @@ zip = { version = "9.6.1", default-features = false, features = ["deflate"] }
 flate2 = { version = "1.1.11", default-features = false, features = ["rust_backend"] }
 time = { version = "0.3.55", features = ["local-offset"] }
 psl = "2.1.256"
+csv = "1.4.0"
 
 [dev-dependencies]
 wiremock = "0.6.5"

@@ -1,0 +1,11 @@
+URL,Name,Mode
+https://a.example/,A,zip
+https://b.example/,"B, quoted",both
+,empty,
+not-url,x,zip
+https://c.example/,C
+https://d.example/,D,zip,extra
+
+https://e.example/,"multi
+line",cyoap-vue-folder
+  https://f.example/  ,  F  ,  Website_Folder 

@@ -1,0 +1,2 @@
+﻿https://bom.example/
+https://u.example/ü | Größe

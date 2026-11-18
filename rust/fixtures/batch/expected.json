@@ -1,0 +1,125 @@
+{
+ "basic.csv": [
+  {
+   "url": "https://a.example/",
+   "filename": "A",
+   "mode": "zip"
+  },
+  {
+   "url": "https://b.example/",
+   "filename": "B, quoted",
+   "mode": "both"
+  },
+  {
+   "url": "https://c.example/",
+   "filename": "C",
+   "mode": ""
+  },
+  {
+   "url": "https://e.example/",
+   "filename": "multi\nline",
+   "mode": "cyoap_vue_folder"
+  },
+  {
+   "url": "https://f.example/",
+   "filename": "F",
+   "mode": "website_folder"
+  }
+ ],
+ "basic.txt": [
+  {
+   "url": "https://a.example/cyoa/",
+   "filename": "",
+   "mode": ""
+  },
+  {
+   "url": "https://b.example/x",
+   "filename": "MyName",
+   "mode": ""
+  },
+  {
+   "url": "https://c.example/y",
+   "filename": "Other",
+   "mode": "zip"
+  },
+  {
+   "url": "https://d.example/z",
+   "filename": "spaced",
+   "mode": "both"
+  },
+  {
+   "url": "https://e.example/q",
+   "filename": "n",
+   "mode": "website_zip"
+  },
+  {
+   "url": "https://f.example/q",
+   "filename": "n",
+   "mode": "website_folder"
+  },
+  {
+   "url": "https://g.example/q",
+   "filename": "n",
+   "mode": ""
+  },
+  {
+   "url": "https://h.example/a,b?x=1,2",
+   "filename": "",
+   "mode": ""
+  },
+  {
+   "url": "https://i.example/p",
+   "filename": "a",
+   "mode": ""
+  }
+ ],
+ "bom.csv": [
+  {
+   "url": "https://bom.example/c",
+   "filename": "F",
+   "mode": ""
+  }
+ ],
+ "bom8.txt": [
+  {
+   "url": "https://bom.example/",
+   "filename": "",
+   "mode": ""
+  },
+  {
+   "url": "https://u.example/ü",
+   "filename": "Größe",
+   "mode": ""
+  }
+ ],
+ "dupcols.csv": [
+  {
+   "url": "https://x.example/1",
+   "filename": "N",
+   "mode": ""
+  }
+ ],
+ "empty.txt": [],
+ "link.csv": [
+  {
+   "url": "https://l.example/1",
+   "filename": "T1",
+   "mode": "website_zip"
+  },
+  {
+   "url": "https://l.example/2",
+   "filename": "T2",
+   "mode": ""
+  }
+ ],
+ "nourl.csv": [],
+ "unknown.ext": [],
+ "utf16.txt": [
+  {
+   "url": "https://w.example/",
+   "filename": "wide",
+   "mode": "embed"
+  }
+ ],
+ "__missing__": []
+}

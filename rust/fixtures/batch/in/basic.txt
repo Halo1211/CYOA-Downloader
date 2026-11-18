@@ -1,0 +1,14 @@
+# comment
+https://a.example/cyoa/
+
+https://b.example/x | MyName
+https://c.example/y | Other | zip
+not a url
+ftp://x.example/
+  https://d.example/z  |  spaced  |  BOTH  
+https://e.example/q | n | icc
+https://f.example/q | n | icc-folder
+https://g.example/q | n | bogus
+https://h.example/a,b?x=1,2
+https://i.example/p | a | b | c
+http://

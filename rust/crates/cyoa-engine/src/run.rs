@@ -81,6 +81,8 @@ pub struct RunOptions {
     pub cache_dir: Option<PathBuf>,
     /// Python setting `image_cache_max_mb` (default 2048).
     pub cache_limit_mb: u64,
+    /// Optional output name (Python `file_name`; cleaned like Python).
+    pub file_name: Option<String>,
 }
 
 /// Python default for `image_cache_max_mb`.
@@ -96,6 +98,7 @@ impl Default for RunOptions {
             wait_time: 60,
             cache_dir: cyoa_storage::cache::ImageCache::default_root(),
             cache_limit_mb: DEFAULT_CACHE_LIMIT_MB,
+            file_name: None,
         }
     }
 }
@@ -108,6 +111,14 @@ pub struct RunReport {
 
 #[derive(Debug, Error)]
 pub enum RunError {
+    /// orchestrator.py's message when no project source is found (AI disabled).
+    #[error(
+        "Could not resolve project data (project.json / project.txt / embedded JS / zip payload).
+If this site uses a custom viewer without a standard project file,
+try using mode: ICC ZIP/Folder or --icc to download
+the viewer HTML/CSS/JS directly without needing a project file."
+    )]
+    ProjectUnresolved,
     #[error("invalid URL: expected an absolute http:// or https:// URL")]
     InvalidUrl,
     #[error("could not prepare output directory: {0}")]
@@ -154,7 +165,16 @@ pub async fn run_download(
         ..ClientConfig::default()
     })
     .map_err(|e| RunError::OutputDirectory(std::io::Error::other(e.to_string())))?;
-    let source = discover_net::get_project_source(&client, &opts.url, &cancel).await?;
+    let source = match discover_net::get_project_source(&client, &opts.url, &cancel).await {
+        Ok(s) => s,
+        Err(DiscoverError::Fetch(cyoa_net::client::FetchError::Cancelled)) => {
+            return Err(RunError::Cancelled);
+        }
+        Err(e) => {
+            tracing::warn!("project discovery failed: {e}");
+            return Err(RunError::ProjectUnresolved);
+        }
+    };
 
     let temp_guard = RunTempDir::create()?;
     let temp = temp_guard.0.clone();
@@ -217,7 +237,11 @@ pub async fn run_download(
         return Err(RunError::Cancelled);
     }
 
-    let stem = output::build_output_name(&opts.url);
+    // orchestrator.py: explicit name, else derived; always cleaned.
+    let stem = match opts.file_name.as_deref().map(str::trim) {
+        Some(n) if !n.is_empty() => output::clean_url_path_component(n),
+        _ => output::build_output_name(&opts.url),
+    };
     let output_dir = opts.output_dir.clone();
     let user_url = opts.url.clone();
     let embed_str = processed.embed_str;

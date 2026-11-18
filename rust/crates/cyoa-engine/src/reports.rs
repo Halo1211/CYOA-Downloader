@@ -163,6 +163,51 @@ pub fn write_failed_assets_log(
     Ok(())
 }
 
+/// `importers/batch.py::write_failed_url_log` (appends; header only for a new or empty file).
+pub fn write_failed_url_log(
+    failed: &[(String, String)],
+    output_dir: &Path,
+) -> std::io::Result<Option<std::path::PathBuf>> {
+    use std::io::Write;
+    if failed.is_empty() {
+        return Ok(None);
+    }
+    let dir = if output_dir.is_dir() {
+        output_dir.to_path_buf()
+    } else {
+        std::env::current_dir()?
+    };
+    let path = dir.join("failed_urls.txt");
+    let is_new = fs::metadata(&path).map_or(true, |m| m.len() == 0);
+    let clean = |s: &str| {
+        s.split(['\r', '\n', '\t'])
+            .filter(|p| !p.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ")
+            .trim()
+            .to_owned()
+    };
+    let mut text = String::new();
+    if is_new {
+        text.push_str("# Failed batch URL downloads\n# Format: url<TAB>error_message\n\n");
+    }
+    text.push_str(&format!(
+        "# --- {} ({} failed) ---\n",
+        local_timestamp(),
+        failed.len()
+    ));
+    for (url, err) in failed {
+        text.push_str(&format!("{}\t{}\n", clean(url), clean(err)));
+    }
+    text.push('\n');
+    let mut f = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)?;
+    f.write_all(text.as_bytes())?;
+    Ok(Some(path))
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {

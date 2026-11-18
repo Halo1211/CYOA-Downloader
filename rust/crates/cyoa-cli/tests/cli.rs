@@ -36,7 +36,7 @@ fn cli(args: &[&str]) -> Output {
 fn help_succeeds() {
     let out = cli(&["--help"]);
     assert!(out.status.success());
-    assert!(String::from_utf8_lossy(&out.stdout).contains("Download and package"));
+    assert!(String::from_utf8_lossy(&out.stdout).contains("Download and process a CYOA project"));
 }
 #[test]
 fn rejects_invalid_url() {
@@ -76,7 +76,10 @@ fn mock_server() -> (String, thread::JoinHandle<()>) {
             match listener.accept() {
                 Ok((mut stream, _)) => {
                     last_request = Instant::now();
-                    let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
+                    // Accepted sockets inherit non-blocking mode on Windows; a
+                    // WouldBlock read would be misparsed as a request for "/".
+                    let _ = stream.set_nonblocking(false);
+                    let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
                     let mut request = [0u8; 4096];
                     let n = stream.read(&mut request).unwrap_or(0);
                     let line = String::from_utf8_lossy(&request[..n]);
@@ -148,4 +151,42 @@ fn both_mode_embeds_and_zips_without_overwriting() {
     assert!(archive.contains("images/a.png"));
     assert!(archive.contains("images/b.png"));
     assert!(archive.contains("project.json"));
+}
+
+#[test]
+fn list_mode_rejects_missing_file_and_reports_unsupported_modes() {
+    let home = std::env::temp_dir().join("cyoa-cli-test-home");
+    let out = temp_dir();
+    let missing = Command::new(env!("CARGO_BIN_EXE_cyoa-downloader"))
+        .env("USERPROFILE", &home)
+        .env("HOME", &home)
+        .args(["-L"])
+        .arg(out.join("nope.txt"))
+        .arg("-o")
+        .arg(&out)
+        .output()
+        .unwrap();
+    assert_eq!(missing.status.code(), Some(2));
+
+    let list = out.join("list.txt");
+    fs::write(
+        &list,
+        "# c\nhttps://a.example/x | Name | icc_folder\nnot a url\n",
+    )
+    .unwrap();
+    let run = Command::new(env!("CARGO_BIN_EXE_cyoa-downloader"))
+        .env("USERPROFILE", &home)
+        .env("HOME", &home)
+        .arg("-L")
+        .arg(&list)
+        .arg("-o")
+        .arg(&out)
+        .output()
+        .unwrap();
+    assert_eq!(run.status.code(), Some(1));
+    let log = fs::read_to_string(out.join("failed_urls.txt")).unwrap();
+    assert!(log.starts_with("# Failed batch URL downloads\n# Format: url<TAB>error_message\n\n"));
+    assert!(log.contains(
+        "https://a.example/x\tmode 'website_folder' is not supported by the Rust port yet\n"
+    ));
 }
