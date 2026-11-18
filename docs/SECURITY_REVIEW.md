@@ -32,3 +32,15 @@ No CRITICAL findings.
 - Medium: output stage runs in spawn_blocking with cancellation before each publication.
 - Medium: CLI keeps the real result if Ctrl-C registration fails.
 - Open (deferred): aggregate run byte budget (KI-R5).
+
+## Session 4 — Sol review of GUI worker (concurrency)
+Fixed by Claude:
+- High: cancel/shutdown no longer go through the bounded job channel; shared `Control` state means they are never lost.
+- Medium: a panicked job task now emits Finished(Failed).
+- Medium: tokens are dropped when jobs finish.
+- Medium: cancelled queued jobs finish immediately.
+- Medium: pending queue capped at 10,000.
+- Medium: the folder dialog runs on its own thread.
+- Medium: close waits at most 500 ms, with a bounded drain.
+- Low: the UI is woken only when an event is actually queued.
+- Open: the UI job history grows with user-submitted jobs (virtualized rendering; no pruning yet).

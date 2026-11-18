@@ -1,7 +1,7 @@
 //! eframe UI. Rendering only touches in-memory state; all network and file work
 //! happens in [`crate::worker`].
 
-use crate::worker::{Command, Event, JobId, JobResult, WorkerHandle};
+use crate::worker::{Event, JobId, JobResult, WorkerHandle};
 use cyoa_engine::run::{OutputMode, RunOptions};
 use eframe::egui;
 use std::{collections::VecDeque, path::PathBuf, time::Duration};
@@ -117,6 +117,7 @@ pub struct DownloaderApp {
     next_id: JobId,
     log: RingLog,
     worker: Option<WorkerHandle>,
+    folder_pick: Option<std::sync::mpsc::Receiver<Option<PathBuf>>>,
 }
 
 impl DownloaderApp {
@@ -143,6 +144,7 @@ impl DownloaderApp {
             next_id: 1,
             log,
             worker,
+            folder_pick: None,
         }
     }
 
@@ -235,10 +237,7 @@ impl DownloaderApp {
                     workers: self.settings.threads,
                     wait_time: self.settings.wait_time,
                 };
-                let sent = self
-                    .worker
-                    .as_ref()
-                    .is_some_and(|w| w.send(Command::Start(id, opts)));
+                let sent = self.worker.as_ref().is_some_and(|w| w.start(id, opts));
                 self.jobs.push(Job {
                     id,
                     url,
@@ -276,12 +275,38 @@ impl DownloaderApp {
                 egui::TextEdit::singleline(&mut self.settings.output_dir)
                     .desired_width(ui.available_width() - 120.0),
             );
-            if ui.button("Browse…").clicked()
-                && let Some(dir) = rfd::FileDialog::new()
-                    .set_directory(&self.settings.output_dir)
-                    .pick_folder()
+            let picking = self.folder_pick.is_some();
+            if ui
+                .add_enabled(!picking, egui::Button::new("Browse…"))
+                .clicked()
             {
-                self.settings.output_dir = dir.display().to_string();
+                // The native dialog runs on its own thread so the UI keeps
+                // repainting and draining worker events while it is open.
+                let (tx, rx) = std::sync::mpsc::channel();
+                let start = self.settings.output_dir.clone();
+                let ctx = ui.ctx().clone();
+                let spawned = std::thread::Builder::new()
+                    .name("folder-dialog".into())
+                    .spawn(move || {
+                        let picked = rfd::FileDialog::new().set_directory(start).pick_folder();
+                        let _ = tx.send(picked);
+                        ctx.request_repaint();
+                    });
+                if spawned.is_ok() {
+                    self.folder_pick = Some(rx);
+                }
+            }
+            if let Some(rx) = &self.folder_pick {
+                match rx.try_recv() {
+                    Ok(picked) => {
+                        if let Some(dir) = picked {
+                            self.settings.output_dir = dir.display().to_string();
+                        }
+                        self.folder_pick = None;
+                    }
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => self.folder_pick = None,
+                    Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                }
             }
         });
         ui.horizontal(|ui| {
@@ -327,7 +352,7 @@ impl DownloaderApp {
                 if ui.button("Cancel all").clicked()
                     && let Some(w) = &self.worker
                 {
-                    w.send(Command::CancelAll);
+                    w.cancel_all();
                 }
                 let sel = self.selected.and_then(|i| self.jobs.get(i)).map(|j| j.id);
                 if ui
@@ -335,7 +360,7 @@ impl DownloaderApp {
                     .clicked()
                     && let (Some(id), Some(w)) = (sel, &self.worker)
                 {
-                    w.send(Command::Cancel(id));
+                    w.cancel(id);
                 }
             });
         });
@@ -419,7 +444,9 @@ impl eframe::App for DownloaderApp {
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         if let Some(mut w) = self.worker.take() {
-            w.shutdown(Duration::from_secs(3));
+            // Cancellation is signalled instantly; wait only briefly so closing
+            // the window never feels stuck. The engine cleans temp dirs on drop.
+            w.shutdown(Duration::from_millis(500));
         }
     }
 }
