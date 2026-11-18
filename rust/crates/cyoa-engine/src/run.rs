@@ -228,6 +228,10 @@ pub struct RunOptions {
     pub archive: crate::icc::ArchivePolicy,
     /// Python `engine_mode` for website modes: standard, cyoap_vue, auto.
     pub engine: Engine,
+    /// `--fonts`: download fonts into the output and rewrite project URLs.
+    pub fonts: bool,
+    /// `--analyse-fonts`: log the font report (analysis only unless `fonts`).
+    pub analyse_fonts: bool,
 }
 
 /// Python default for `image_cache_max_mb`.
@@ -250,6 +254,8 @@ impl Default for RunOptions {
             deep_scan: true,
             archive: crate::icc::ArchivePolicy::default(),
             engine: Engine::Standard,
+            fonts: false,
+            analyse_fonts: false,
         }
     }
 }
@@ -452,6 +458,33 @@ pub async fn run_download(
         }
     };
 
+    // orchestrator.py 628-635: font analysis on the project + viewer HTML.
+    let viewer_html = if opts.fonts || opts.analyse_fonts {
+        discover_net::fetch_page_text(&client, &opts.url, &cancel)
+            .await
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+    if opts.fonts || opts.analyse_fonts {
+        crate::fonts::analyse_fonts_with_client(
+            &client,
+            &cancel,
+            &source.project_json,
+            &source.base_url,
+            &viewer_html,
+        )
+        .await;
+        if !opts.fonts {
+            tracing::info!("Analysis-only mode complete; no download output written.");
+            return Ok(RunReport {
+                stem: output_stem(opts),
+                written_paths: Vec::new(),
+                failed_assets: Vec::new(),
+            });
+        }
+    }
+
     let temp_guard = RunTempDir::create()?;
     let temp = temp_guard.0.clone();
     // pkg/ becomes the ZIP; spool/ holds fetched bodies; embedded.json is the
@@ -490,10 +523,27 @@ pub async fn run_download(
             ctx,
             cancel: cancel.clone(),
             progress,
+            fonts: opts.fonts,
         }
         .run()
         .await;
     }
+    // orchestrator.py 835-839: zip/both download fonts into the package and
+    // feed the rewritten project to image processing.
+    let working = if opts.fonts && download {
+        crate::fonts::download_fonts_with_client(
+            &client,
+            &cancel,
+            &source.project_json,
+            &source.base_url,
+            &pkg,
+            &viewer_html,
+        )
+        .await
+        .map_err(RunError::OutputStage)?
+    } else {
+        source.project_json.clone()
+    };
     let process_opts = ProcessOptions {
         embed,
         download,
@@ -504,14 +554,8 @@ pub async fn run_download(
         report_dir: Some(opts.output_dir.clone()),
         ..Default::default()
     };
-    let processed = pipeline::process_images(
-        &source.project_json,
-        &source.base_url,
-        ctx,
-        &process_opts,
-        progress,
-    )
-    .await?;
+    let processed =
+        pipeline::process_images(&working, &source.base_url, ctx, &process_opts, progress).await?;
     if let Some(c) = &cache
         && let Err(e) = c.flush()
     {
@@ -527,7 +571,8 @@ pub async fn run_download(
     let user_url = opts.url.clone();
     let embed_str = processed.embed_str;
     let embed_file = processed.embed_file;
-    let embed_changed = processed.embed_changed;
+    // Python compares the embedded output with the original `cleaned`.
+    let embed_changed = processed.embed_changed || working != source.project_json;
     let dl_str = processed.dl_str;
     let stage_cancel = cancel.clone();
     // Blocking file I/O and compression run off the async runtime. Cancellation is

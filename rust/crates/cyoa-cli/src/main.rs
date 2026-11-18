@@ -47,6 +47,12 @@ struct Args {
     /// Same as --pure-website but keep as folder instead of ZIP.
     #[arg(long)]
     pure_website_folder: bool,
+    /// Download & localise fonts (ZIP/ICC mode).
+    #[arg(short = 'f', long)]
+    fonts: bool,
+    /// Print font analysis report only.
+    #[arg(short = 'a', long)]
+    analyse_fonts: bool,
     /// Auto-probe dedicated cyoap_vue ICC backup mode before standard ICC detection.
     #[arg(long)]
     cyoap_vue: bool,
@@ -555,6 +561,8 @@ async fn main() -> ExitCode {
             dns: dns.clone(),
             vpn: vpn.clone(),
             deep_scan: !args.no_deep_scan,
+            fonts: args.fonts,
+            analyse_fonts: args.analyse_fonts,
             // cli.py: engine per row (cyoap_vue* rows) or from the flags.
             engine: if item.mode.starts_with("cyoap_vue")
                 || args.cyoap_vue_website

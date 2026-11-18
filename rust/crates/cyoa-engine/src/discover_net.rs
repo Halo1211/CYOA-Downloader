@@ -214,6 +214,21 @@ impl crate::cafe_static::StaticFetch for ClientCafeFetch {
     }
 }
 
+impl crate::fonts::FontFetch for ClientCafeFetch {
+    /// Python `get_source(url)`: text of a 200 response.
+    fn text(&mut self, url: &str) -> Option<String> {
+        crate::cafe::CafeFetch::fetch(self, url)
+            .filter(|r| r.status == 200)
+            .map(|r| r.text)
+    }
+    fn bytes(&mut self, url: &str) -> Option<crate::fonts::FontResponse> {
+        crate::cafe_static::StaticFetch::fetch(self, url).map(|r| crate::fonts::FontResponse {
+            status: r.status,
+            body: r.body,
+        })
+    }
+}
+
 impl crate::cafe::CafeFetch for ClientCafeFetch {
     fn fetch(&mut self, url: &str) -> Option<crate::cafe::CafeResponse> {
         let parsed = Url::parse(url).ok()?;

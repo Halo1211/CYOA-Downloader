@@ -40,6 +40,9 @@ pub struct IccRun<'a> {
     pub ctx: Arc<FetchCtx>,
     pub cancel: CancellationToken,
     pub progress: Option<tokio::sync::mpsc::Sender<Progress>>,
+    /// `--fonts`: project.json fonts into `<site>/fonts/` (viewer fonts are
+    /// handled by the mirror), rewritten project fed to image processing.
+    pub fonts: bool,
 }
 
 impl IccRun<'_> {
@@ -79,6 +82,21 @@ impl IccRun<'_> {
             self.write_archive_manifest(&site, Some(crawl))?;
         }
 
+        let working = if self.fonts {
+            crate::fonts::download_fonts_with_client(
+                &self.client,
+                &self.cancel,
+                &self.source.project_json,
+                &self.source.base_url,
+                &site,
+                "",
+            )
+            .await
+            .map_err(RunError::OutputStage)?
+        } else {
+            self.source.project_json.clone()
+        };
+
         // 2. Project images into a temp tree, reusing files the mirror saved.
         let tmp = tempfile_dir()?;
         let opts = ProcessOptions {
@@ -92,7 +110,7 @@ impl IccRun<'_> {
             ..Default::default()
         };
         let processed = pipeline::process_images(
-            &self.source.project_json,
+            &working,
             &self.source.base_url,
             self.ctx.clone(),
             &opts,

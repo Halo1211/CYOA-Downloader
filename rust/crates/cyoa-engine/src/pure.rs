@@ -137,6 +137,22 @@ impl PureRun<'_> {
         .await
         .map_err(|e| RunError::OutputStage(format!("website worker failed: {e}")))?;
         check.map_err(RunError::OutputStage)?;
+        if self.run_opts.fonts {
+            // orchestrator.py 417-420 / 518-521: viewer HTML fonts only.
+            let html = crate::discover_net::fetch_page_text(&self.client, self.url, &self.cancel)
+                .await
+                .unwrap_or_default();
+            crate::fonts::download_fonts_with_client(
+                &self.client,
+                &self.cancel,
+                "",
+                self.url,
+                &site,
+                &html,
+            )
+            .await
+            .map_err(RunError::OutputStage)?;
+        }
         let zip = {
             let (site_b, stem_b, out_b) =
                 (site.clone(), self.stem.clone(), self.output_dir.clone());

@@ -45,6 +45,52 @@ const CACHE_BUSTERS: &[&str] = &[
     "dpl",
 ];
 
+/// `_download_fonts_into_folder` over the run's client, off the async runtime.
+pub async fn download_fonts_with_client(
+    client: &cyoa_net::client::FetchClient,
+    cancel: &tokio_util::sync::CancellationToken,
+    project: &str,
+    base_url: &str,
+    folder: &Path,
+    html: &str,
+) -> Result<String, String> {
+    let mut fetch = crate::discover_net::ClientCafeFetch {
+        client: client.clone(),
+        handle: tokio::runtime::Handle::current(),
+        cancel: cancel.clone(),
+    };
+    let (project, base_url, folder, html) = (
+        project.to_owned(),
+        base_url.to_owned(),
+        folder.to_path_buf(),
+        html.to_owned(),
+    );
+    tokio::task::spawn_blocking(move || {
+        download_fonts_into_folder(&mut fetch, &project, &base_url, &folder, &html)
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// `analyse_fonts` over the run's client, off the async runtime.
+pub async fn analyse_fonts_with_client(
+    client: &cyoa_net::client::FetchClient,
+    cancel: &tokio_util::sync::CancellationToken,
+    project: &str,
+    base_url: &str,
+    html: &str,
+) {
+    let mut fetch = crate::discover_net::ClientCafeFetch {
+        client: client.clone(),
+        handle: tokio::runtime::Handle::current(),
+        cancel: cancel.clone(),
+    };
+    let (project, base_url, html) = (project.to_owned(), base_url.to_owned(), html.to_owned());
+    let _ =
+        tokio::task::spawn_blocking(move || analyse_fonts(&mut fetch, &project, &base_url, &html))
+            .await;
+}
+
 pub fn is_font_reference(url: &str) -> bool {
     let parsed = crate::localize::py_urlparse(url);
     !url.to_lowercase().starts_with("data:")

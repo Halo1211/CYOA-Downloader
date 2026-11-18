@@ -26,7 +26,8 @@ PROJECT = (
     '{"rows":[{"id":"r1","title":"Row","image":"img/hero.png","objects":['
     '{"id":"o1","title":"Obj","image":"https://HOST/game/img/obj.png"},'
     '{"id":"o2","title":"Gone","image":"img/gone.png"}]}],'
-    '"styling":{"customCss":"body{background:url(img/bg.png)}"},"version":"1.2"}'
+    '"styling":{"customCss":"body{background:url(img/bg.png)} @font-face{src:url(fonts/p.woff2)}"},'
+    '"font":"http://HOST/game/fonts/d.ttf?v=2","version":"1.2"}'
 )
 SITE = {
     "game/index.html": b'<!doctype html><html><head><meta charset="utf-8"><title>T</title>'
@@ -49,6 +50,8 @@ SITE = {
     "game/img/extra.webp": b"RIFF\x00\x00\x00\x00WEBPVP8 x",
     "game/img/deep.png": PNG + b"deep",
     "game/fonts/f.woff2": b"wOF2font",
+    "game/fonts/p.woff2": b"wOF2project",
+    "game/fonts/d.ttf": b"\x00\x01\x00\x00ttf",
 }
 SKIP = {"cyoa_downloader.log"}
 RUST_STATUS = re.compile(rb"Err  : HTTP [1-5][0-9][0-9]$", re.M)
@@ -152,8 +155,12 @@ def main() -> int:
         # needs Playwright on the Python side and is not ported).
         runs = [("auto", "--icc-folder", ""), ("auto", "--icc", ""), ("classic", "--icc-folder", ""),
                 ("smart", "--icc-folder", ""), ("auto", "--pure-website-folder", "ch1/"),
-                ("classic", "--pure-website-folder", ""), ("smart", "--pure-website", "")]
-        for strategy, flag, sub in runs:
+                ("classic", "--pure-website-folder", ""), ("smart", "--pure-website", ""),
+                # --fonts: ICC (project fonts), pure (viewer fonts), plain ZIP.
+                ("auto", "--icc-folder", "", "--fonts"),
+                ("classic", "--pure-website-folder", "", "--fonts"),
+                ("auto", "--zip", "", "--fonts")]
+        for strategy, flag, sub, *extra in runs:
             # Python reads settings.json `archive_strategy` (default auto);
             # classic also runs the recovery pass and the deep scan.
             settings = home / ".cyoa_downloader" / "settings.json"
@@ -165,17 +172,20 @@ def main() -> int:
             )
             outs = {}
             for side in ("py", "rs"):
-                out = work / f"{side}{flag}-{strategy}-{sub.strip('/')}"
+                out = work / f"{side}{flag}-{strategy}-{sub.strip('/')}{''.join(extra)}"
                 cmd = ([sys.executable, "cyoa_downloader.py"] if side == "py" else [str(rust_bin)])
-                cmd += [url + sub, "game", flag, "-o", str(out), "-w", "0"]
+                cmd += [url + sub, "game", flag, "-o", str(out), "-w", "0", *extra]
                 run = subprocess.run(cmd, cwd=ROOT, env=iso, capture_output=True, text=True,
                                      encoding="utf-8", errors="replace")
                 if run.returncode:
                     print(f"{side} {flag} exit {run.returncode}\n{run.stderr[-2000:]}")
                     return 2
                 outs[side] = out
-            label = f"{flag} [{strategy}] {sub}".rstrip()
-            if flag.endswith("-folder"):
+            label = f"{flag} {' '.join(extra)} [{strategy}] {sub}".rstrip()
+            if flag == "--zip":
+                ok &= compare(label, zip_tree(outs["py"] / "game.zip", False),
+                              zip_tree(outs["rs"] / "game.zip", True))
+            elif flag.endswith("-folder"):
                 ok &= compare(label, folder_tree(outs["py"] / "game", False),
                               folder_tree(outs["rs"] / "game", True))
             else:
