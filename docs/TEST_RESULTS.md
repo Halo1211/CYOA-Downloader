@@ -23,3 +23,9 @@ Fixtures are regenerated from Python with `python rust/fixtures/export_core.py` 
 - GUI network panel round-trips Python `_SETTINGS_DEFAULTS` network keys exactly and keeps other keys.
 - CYOA Manager interop: Python `add_to_cyoa_manager` / `add_archive_to_cyoa_manager` wrote a DB for 3 projects; `CYOA_MGR_INTEROP=<dir> cargo test -p cyoa-integrations -- --include-ignored` passed (Rust reports all 3 as duplicates; Rust-written rows equal Python's apart from id/date_added).
 - Fixed a CLI test flake: tests shared one profile dir in parallel; each test now has its own.
+
+### Session 6 (cont.): release preview
+
+- `bash rust/scripts/make_dist.sh` built `rust/dist/cyoa-downloader-rust-0.1.0/` (36 MB: both exes, README from `docs/RUST_PREVIEW_GUIDE.md`, `LICENSES/` for 295 crates, notices). Packaged CLI `--version`/`--help` OK.
+- `RUST_BIN=<dist>/cyoa-downloader.exe bash rust/scripts/e2e_parity.sh`: 6 OK (release binary byte-identical to Python).
+- Not run: the packaged `cyoa-desktop.exe` (needs an interactive window check).

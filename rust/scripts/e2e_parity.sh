@@ -13,10 +13,14 @@ trap 'kill $SERVER 2>/dev/null; rm -rf "$WORK"' EXIT
 # user's real image cache/settings.
 mkdir -p "$WORK/home"
 HOMEDIR="$WORK/home"; command -v cygpath >/dev/null && HOMEDIR=$(cygpath -w "$HOMEDIR")
-(cd "$ROOT/rust" && cargo build -q -p cyoa-cli --offline)
+# RUST_BIN=<path> tests a prebuilt binary (e.g. the release/dist exe).
+if [ -z "${RUST_BIN:-}" ]; then
+  (cd "$ROOT/rust" && cargo build -q -p cyoa-cli --offline)
+  RUST_BIN="$ROOT/rust/target/debug/cyoa-downloader"
+fi
 sleep 1
 (cd "$ROOT" && USERPROFILE="$HOMEDIR" HOME="$HOMEDIR" python cyoa_downloader.py "$URL" --both -o "$WORK/py" -w 0 >/dev/null 2>&1)
-(cd "$ROOT/rust" && USERPROFILE="$HOMEDIR" HOME="$HOMEDIR" ./target/debug/cyoa-downloader "$URL" --both -o "$WORK/rs" -w 0 >/dev/null 2>&1)
+(cd "$ROOT/rust" && USERPROFILE="$HOMEDIR" HOME="$HOMEDIR" "$RUST_BIN" "$URL" --both -o "$WORK/rs" -w 0 >/dev/null 2>&1)
 STEM=mycyoa_project.json
 fail=0
 for f in "$STEM.json" "${STEM}_original.json"; do cmp -s "$WORK/py/$f" "$WORK/rs/$f" && echo "OK   $f" || { echo "DIFF $f"; fail=1; }; done

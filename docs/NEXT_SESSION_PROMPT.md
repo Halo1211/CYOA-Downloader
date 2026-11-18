@@ -16,7 +16,8 @@ Resume the CYOA Downloader Python→Rust migration on branch `migration/python-t
 - Luna and Sol could not write files for most of session 4 ("Failed to write file", "apply_patch failed"). Use `sol_review` / `luna_review` for reviews or code proposals, and let Claude apply edits.
 - Never trust agent-reported gate results.
 - Pre-fetch crates before delegating.
-- Python heredocs mangle ` 
+- Python heredocs mangle `
+ 
  	` escapes in Rust source: use the Write/Edit tools or raw strings.
 - Tests and parity scripts must set `USERPROFILE`/`HOME` to a temp dir, or they will touch the user's real image cache.
 
@@ -29,6 +30,6 @@ Resume the CYOA Downloader Python→Rust migration on branch `migration/python-t
 **Session 6 agent note:** `luna_implement` (isolated checkout) hung twice for 30 min (first: bridge `git status` 60 s timeout; second: stuck in `starting`, no codex pid). Prefer `luna_patch` next time. Root cause fixed in bridge.py (backup bridge.py.bak-20261118): bridge subprocesses inherited MCP stdin, which blocks CreateProcess on Windows; now stdin=DEVNULL. Needs MCP restart. Isolated mode also requires a clean main checkout (uncommitted AGENTS.md blocks it). `luna_patch` worked in ~1 min. After MCP restart + clean checkout, `luna_implement` isolated mode verified end-to-end (task 20261118-174357, patch applied cleanly). Commit before delegating isolated work.
 5. Fallbacks: gallery-dl, yt-dlp audio, browser/CDP, Cloudflare/FlareSolverr (D3), with a Sol review.
 6. Output gaps: (s6 done: `write_asset_failure_summary` = append to existing backup_report.txt / failed_assets.txt / remove broken_assets_report.html; .txt reports use Python text-mode CRLF on Windows; e2e script now byte-exact and fails on missing files) (s6 done: `cyoa_downloader.log` via `cyoa_engine::logfile` — Python format, INFO+, rotation 5 MiB×7, redaction identical on `fixtures/redact.json`), audio copy, offline viewer. (s6 done: CYOA Manager registration F-038 core + CLI --cyoa-manager; GUI toggle done; library browser panel pending.)
-7. Release prep: release build, license notices, distribution dir, user docs.
+7. Release prep: s6 done — `rust/scripts/make_dist.sh` (release build + LICENSES bundle + notices + `docs/RUST_PREVIEW_GUIDE.md`), e2e on the dist exe byte-exact. Remaining: hand-add canonical texts for the 11 crates without license files, manual GUI smoke test of the packaged desktop exe, owner decision on publishing.
 
 **Session 6 bridge state (owner action needed):** `active.json` recovery marker from task 20261118-180502-luna-077abfcc04 (DNS-3) blocked new Codex tasks. CLEARED by Claude on owner request (renamed to active.json.cleared-20261118); team_status shows no marker. MCP restart still needed to load the CRLF fix. Its work was reviewed and integrated in commit d020592 (the "outside scope" file was a CRLF-only false positive). Owner: delete `C:\Users\Albert\AI-Team-MiMo\task-logs\878f182801eafe60\active.json` after checking, then restart MCP. bridge.py now ignores EOL-only changes outside scope and exports only allowed paths (backup bridge.py.bak-20261118-crlf).
