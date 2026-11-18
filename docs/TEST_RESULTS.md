@@ -29,3 +29,10 @@ Fixtures are regenerated from Python with `python rust/fixtures/export_core.py` 
 - `bash rust/scripts/make_dist.sh` built `rust/dist/cyoa-downloader-rust-0.1.0/` (36 MB: both exes, README from `docs/RUST_PREVIEW_GUIDE.md`, `LICENSES/` for 295 crates, notices). Packaged CLI `--version`/`--help` OK.
 - `RUST_BIN=<dist>/cyoa-downloader.exe bash rust/scripts/e2e_parity.sh`: 6 OK (release binary byte-identical to Python).
 - Not run: the packaged `cyoa-desktop.exe` (needs an interactive window check).
+
+### Session 6 (cont.): website W4a-d
+
+- `cargo test --workspace --offline`: 243 passed (+1 ignored manual interop); clippy, fmt clean; e2e 6 OK.
+- New Python-generated fixtures: `backup_report.json`, `website_manifest.json`, `project_payload.json`, `integrity.json`, `integrity_report.json` (exporters in `rust/fixtures/export_*.py`). All Rust outputs byte-identical, including CRLF.
+- Rejected: a Luna draft for the same scope (self-reported incomplete, invented report format, no Python in its sandbox).
+- CLI test flake fixed: the mock server stopped after a 3 s idle gap that a loaded parallel run could exceed (commit 5abbfd8 was made while that flake failed once; c85ffaf fixes it, suite then passed 3x under parallel clippy load).
