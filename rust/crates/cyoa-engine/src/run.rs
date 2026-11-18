@@ -395,6 +395,7 @@ pub async fn run_download(
             Ok(false) => tracing::info!(
                 "cyoap_vue probe: no dist/platform.json + dist/nodes/list.json pair found; falling back."
             ),
+            Err(e) if e == crate::cyoap::CYOAP_CANCELLED => return Err(RunError::Cancelled),
             Err(e) if opts.engine == Engine::CyoapVue => return Err(RunError::Website(e)),
             Err(e) => tracing::warn!(
                 "cyoap_vue auto probe failed, falling back to standard resolver: {e}"

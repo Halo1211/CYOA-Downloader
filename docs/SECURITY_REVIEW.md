@@ -98,3 +98,8 @@ Static review of 4daffc4 (deep_driver.rs, deep_scan.rs, icc.rs, MirrorSink::down
 | 3 | Medium | Pre-project scan hard-coded 4 workers | Fixed: `MirrorSink.workers` from the run's worker setting |
 | 4 | Medium | Post-project scan walked/parsed files on an async worker | Fixed: runs on a blocking thread driving the async fetches via the runtime handle |
 | 5 | Medium | Tile-count overflow with huge values (Python: 1 tile) | Fixed: overflow-safe ceiling division; unit test |
+
+## Sol review 2026-11-19 (cafe, cafe_static, cyoap, pure, routes, profile)
+
+Fixed: CYOAP cancellation no longer finishes as success (typed cancel -> RunError::Cancelled, no report/ZIP); CYOAP node list deduplicated and capped (20k), site-asset BFS capped (20k requests).
+Open: aggregate byte budgets for CYOAP/static gallery; blocking FS/ZIP work inside async in cyoap/pure/run finalize; profiler reads whole JS before truncating; cafe resolver lacks Python's JSON/CSS-viewer validation branches and stale-cache invalidation; route-crawl redirects not re-checked against scope (also in Python); cafe_static creates parent dirs before containment check (junction case).

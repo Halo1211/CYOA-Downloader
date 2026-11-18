@@ -331,6 +331,12 @@ async fn fetch_remote(
     Ok((body, charset))
 }
 
+/// Error text used to carry cancellation out of `try_download_cyoap_vue_site`.
+pub const CYOAP_CANCELLED: &str = "download cancelled";
+/// Safety caps (Python has none; far above any real CYOAP site).
+const MAX_CYOAP_NODES: usize = 20_000;
+const MAX_CYOAP_SITE_REQUESTS: usize = 20_000;
+
 fn text_of(body: &[u8], charset: &str) -> String {
     cyoa_parse::project::try_decode_bytes(body, charset)
 }
@@ -430,7 +436,18 @@ pub async fn try_download_cyoap_vue_site(
     write_text_mode(&list_local, &list_text)?;
     res.success(output_folder, &list_url, &list_local, "json");
 
-    for name in file_list.iter().filter_map(Value::as_str) {
+    let mut seen_nodes = BTreeSet::new();
+    for name in file_list
+        .iter()
+        .filter_map(Value::as_str)
+        .take(MAX_CYOAP_NODES)
+    {
+        if cancel.is_cancelled() {
+            return Err(CYOAP_CANCELLED.into());
+        }
+        if !seen_nodes.insert(name) {
+            continue;
+        }
         let name = cyoa_core::paths::py_strip(name);
         if name.is_empty() {
             continue;
@@ -470,6 +487,9 @@ pub async fn try_download_cyoap_vue_site(
         );
     }
     'assets: for (item, bucket) in assets {
+        if cancel.is_cancelled() {
+            return Err(CYOAP_CANCELLED.into());
+        }
         for remote in candidate_urls_for_cyoap_asset(&base, &item, bucket) {
             let Ok((body, _)) = fetch_remote(client, &remote, &base, cancel).await else {
                 continue;
@@ -564,6 +584,9 @@ pub async fn try_download_cyoap_vue_site(
         }
     }
 
+    if cancel.is_cancelled() {
+        return Err(CYOAP_CANCELLED.into());
+    }
     let report = crate::reports::BackupReport {
         start_url: start_url.to_owned(),
         project_url: platform_url,
@@ -660,7 +683,19 @@ async fn site_assets(
     let import_re = regex::Regex::new(r#"(?i)@import\s+(?:url\()?["']?([^"')\s]+)"#).ok();
     let url_re = regex::Regex::new(r"(?i)url\(([^)]+)\)").ok();
     let mut seen = BTreeSet::new();
+    let mut requests = 0usize;
     while let Some(remote) = queue.pop_front() {
+        if cancel.is_cancelled() {
+            return Err(CYOAP_CANCELLED.into());
+        }
+        if seen.contains(&remote) {
+            continue;
+        }
+        requests += 1;
+        if requests > MAX_CYOAP_SITE_REQUESTS {
+            tracing::warn!("cyoap_vue site asset limit reached ({MAX_CYOAP_SITE_REQUESTS})");
+            break;
+        }
         if !seen.insert(remote.clone()) {
             continue;
         }
