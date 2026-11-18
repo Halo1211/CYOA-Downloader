@@ -74,9 +74,26 @@ def sort_downloaded_block(data: bytes) -> bytes:
     return b"\n".join(lines)
 
 
+def sort_deep_scan_entries(data: bytes) -> bytes:
+    """Deep-scan failures are appended in candidate-set order (randomised in
+    Python); compare the "[n] deep-scan" entries sorted and renumbered."""
+    text = data.replace(b"\r\n", b"\n")
+    if b"Broken Deep-Scan Asset Report" not in text:
+        return data
+    head, _, body = text.partition(b"\n\n[1] ")
+    if not body:
+        return data
+    blocks = (b"[1] " + body).strip(b"\n").split(b"\n\n")
+    stripped = sorted(b.split(b"\n", 1)[1] if b"\n" in b else b"" for b in blocks)
+    renumbered = [b"[%d] deep-scan\n" % (i + 1) + s for i, s in enumerate(stripped)]
+    return head + b"\n\n" + b"\n\n".join(renumbered) + b"\n"
+
+
 def normalise(rel: str, data: bytes, rust: bool) -> bytes:
     if rel == "backup_report.txt":
         data = sort_downloaded_block(data)
+    if rel == "failed_assets.txt":
+        data = sort_deep_scan_entries(data)
     if rel.endswith(".txt"):
         data = b"\n".join(
             l for l in data.splitlines()
@@ -130,9 +147,13 @@ def main() -> int:
         subprocess.run(["cargo", "build", "-q", "-p", "cyoa-cli", "--offline"], cwd=ROOT / "rust", check=True)
         rust_bin = ROOT / "rust" / "target" / "debug" / "cyoa-downloader"
         ok = True
-        runs = [("auto", "--icc-folder"), ("auto", "--icc"), ("classic", "--icc-folder"),
-                ("smart", "--icc-folder")]
-        for strategy, flag in runs:
+        # (strategy, flag, path). Pure Auto starts at ch1/ so the profile is
+        # deterministic Classic (from /game/ it would pick Browser, which
+        # needs Playwright on the Python side and is not ported).
+        runs = [("auto", "--icc-folder", ""), ("auto", "--icc", ""), ("classic", "--icc-folder", ""),
+                ("smart", "--icc-folder", ""), ("auto", "--pure-website-folder", "ch1/"),
+                ("classic", "--pure-website-folder", ""), ("smart", "--pure-website", "")]
+        for strategy, flag, sub in runs:
             # Python reads settings.json `archive_strategy` (default auto);
             # classic also runs the recovery pass and the deep scan.
             settings = home / ".cyoa_downloader" / "settings.json"
@@ -144,20 +165,21 @@ def main() -> int:
             )
             outs = {}
             for side in ("py", "rs"):
-                out = work / f"{side}{flag}-{strategy}"
+                out = work / f"{side}{flag}-{strategy}-{sub.strip('/')}"
                 cmd = ([sys.executable, "cyoa_downloader.py"] if side == "py" else [str(rust_bin)])
-                cmd += [url, "game", flag, "-o", str(out), "-w", "0"]
+                cmd += [url + sub, "game", flag, "-o", str(out), "-w", "0"]
                 run = subprocess.run(cmd, cwd=ROOT, env=iso, capture_output=True, text=True,
                                      encoding="utf-8", errors="replace")
                 if run.returncode:
                     print(f"{side} {flag} exit {run.returncode}\n{run.stderr[-2000:]}")
                     return 2
                 outs[side] = out
-            if flag == "--icc-folder":
-                ok &= compare(f"{flag} [{strategy}]", folder_tree(outs["py"] / "game", False),
+            label = f"{flag} [{strategy}] {sub}".rstrip()
+            if flag.endswith("-folder"):
+                ok &= compare(label, folder_tree(outs["py"] / "game", False),
                               folder_tree(outs["rs"] / "game", True))
             else:
-                ok &= compare(f"{flag} [{strategy}]", zip_tree(outs["py"] / "game_site.zip", False),
+                ok &= compare(label, zip_tree(outs["py"] / "game_site.zip", False),
                               zip_tree(outs["rs"] / "game_site.zip", True))
                 for side in ("py", "rs"):
                     if (outs[side] / "game").exists():

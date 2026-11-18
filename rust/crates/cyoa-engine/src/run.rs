@@ -62,6 +62,52 @@ impl Drop for RunTempDir {
     }
 }
 
+/// A cache that cannot be opened only disables caching (Python logs and continues).
+fn open_cache(opts: &RunOptions) -> Option<Arc<cyoa_storage::cache::ImageCache>> {
+    opts.cache_dir.as_ref().and_then(|dir| {
+        match cyoa_storage::cache::ImageCache::open(dir, opts.cache_limit_mb) {
+            Ok(c) => Some(Arc::new(c)),
+            Err(e) => {
+                tracing::warn!("image cache disabled: {e}");
+                None
+            }
+        }
+    })
+}
+
+/// Fetch context for `process_images` over `project_json` (image paths are
+/// the project's image references, like Python `image_paths`).
+pub(crate) fn build_ctx(
+    opts: &RunOptions,
+    client: &FetchClient,
+    cancel: &CancellationToken,
+    base_url: String,
+    project_json: &str,
+    cache: Option<Arc<cyoa_storage::cache::ImageCache>>,
+    spool_dir: PathBuf,
+) -> Arc<FetchCtx> {
+    let source_urls = cyoa_parse::deep_scan::collect_project_assets(project_json);
+    let image_paths: HashSet<String> = source_urls.images.into_iter().collect();
+    let resolver = Arc::new(|host: &str| {
+        (host, 0)
+            .to_socket_addrs()
+            .map(|values| values.map(|v| v.ip()).collect::<Vec<IpAddr>>())
+            .unwrap_or_default()
+    });
+    Arc::new(FetchCtx {
+        client: client.clone(),
+        cache,
+        domain: Arc::new(DomainThrottle::new(DOMAIN_MIN_INTERVAL)),
+        base_url,
+        image_paths,
+        wait_time: opts.wait_time as f64,
+        max_bytes: 512 * 1024 * 1024,
+        cancel: cancel.clone(),
+        resolver,
+        spool_dir: Some(spool_dir),
+    })
+}
+
 /// orchestrator.py: explicit name, else derived; always cleaned.
 fn output_stem(opts: &RunOptions) -> String {
     match opts.file_name.as_deref().map(str::trim) {
@@ -80,6 +126,10 @@ pub enum OutputMode {
     IccZip,
     /// `--icc-folder`: full viewer website kept as a folder.
     IccFolder,
+    /// `--pure-website`: viewer archive without project discovery, zipped.
+    PureZip,
+    /// `--pure-website-folder`: the same, kept as a folder.
+    PureFolder,
 }
 
 #[derive(Clone)]
@@ -197,6 +247,31 @@ pub async fn run_download(
         ..ClientConfig::default()
     })
     .map_err(|e| RunError::OutputDirectory(std::io::Error::other(e.to_string())))?;
+    // Pure website: no project discovery at all (orchestrator.py 374-424).
+    if matches!(opts.mode, OutputMode::PureZip | OutputMode::PureFolder) {
+        let temp_guard = RunTempDir::create()?;
+        let spool_dir = temp_guard.0.join("spool");
+        std::fs::create_dir(&spool_dir)?;
+        let result = crate::pure::PureRun {
+            url: &opts.url,
+            stem: output_stem(opts),
+            output_dir: opts.output_dir.clone(),
+            zip: opts.mode == OutputMode::PureZip,
+            deep_scan: opts.deep_scan,
+            workers: opts.workers,
+            policy: opts.archive.clone(),
+            client: client.clone(),
+            run_opts: opts.clone(),
+            cache: open_cache(opts),
+            spool_dir,
+            cancel: cancel.clone(),
+            progress,
+        }
+        .run()
+        .await;
+        drop(temp_guard);
+        return result;
+    }
     let source = match discover_net::get_project_source(&client, &opts.url, &cancel).await {
         Ok(s) => s,
         Err(DiscoverError::Fetch(cyoa_net::client::FetchError::Cancelled)) => {
@@ -220,39 +295,19 @@ pub async fn run_download(
     let mode = opts.mode;
     let embed = matches!(mode, OutputMode::Embed | OutputMode::Both);
     let download = matches!(mode, OutputMode::Zip | OutputMode::Both);
-    let source_urls = cyoa_parse::deep_scan::collect_project_assets(&source.project_json);
-    let image_paths: HashSet<String> = source_urls.images.into_iter().collect();
-    let resolver = Arc::new(|host: &str| {
-        (host, 0)
-            .to_socket_addrs()
-            .map(|values| values.map(|v| v.ip()).collect::<Vec<IpAddr>>())
-            .unwrap_or_default()
-    });
-    // A cache that cannot be opened only disables caching (Python logs and continues).
-    let cache =
-        opts.cache_dir.as_ref().and_then(|dir| {
-            match cyoa_storage::cache::ImageCache::open(dir, opts.cache_limit_mb) {
-                Ok(c) => Some(Arc::new(c)),
-                Err(e) => {
-                    tracing::warn!("image cache disabled: {e}");
-                    None
-                }
-            }
-        });
-    let ctx = Arc::new(FetchCtx {
-        client: client.clone(),
-        cache: cache.clone(),
-        domain: Arc::new(DomainThrottle::new(DOMAIN_MIN_INTERVAL)),
-        base_url: source.base_url.clone(),
-        image_paths,
-        wait_time: opts.wait_time as f64,
-        max_bytes: 512 * 1024 * 1024,
-        cancel: cancel.clone(),
-        resolver,
-        spool_dir: Some(spool_dir),
-    });
+    let cache = open_cache(opts);
+    let ctx = build_ctx(
+        opts,
+        &client,
+        &cancel,
+        source.base_url.clone(),
+        &source.project_json,
+        cache.clone(),
+        spool_dir,
+    );
     if matches!(mode, OutputMode::IccZip | OutputMode::IccFolder) {
-        drop(temp_guard);
+        // temp_guard stays alive until the ICC run returns: the fetch spool
+        // directory lives inside it.
         return crate::icc::IccRun {
             entry_url: &opts.url,
             source: &source,

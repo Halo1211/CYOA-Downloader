@@ -41,6 +41,12 @@ struct Args {
     /// ICC Mode (Folder): download the full ICC viewer + all assets into a folder.
     #[arg(long = "icc-folder")]
     website_folder: bool,
+    /// Pure ICC: download the viewer website without searching for a project file (ZIP).
+    #[arg(long)]
+    pure_website: bool,
+    /// Same as --pure-website but keep as folder instead of ZIP.
+    #[arg(long)]
+    pure_website_folder: bool,
     /// Disable the JS/CSS deep-scan asset pass (default: on).
     #[arg(long)]
     no_deep_scan: bool,
@@ -176,24 +182,48 @@ fn valid_url(url: &str) -> bool {
 /// silently producing a different output.
 fn item_mode(args: &Args, mode: &str) -> Result<OutputMode, String> {
     match mode {
-        "" | "auto" | "embed" | "zip" | "both" | "website_zip" | "website_folder" => {}
+        ""
+        | "auto"
+        | "embed"
+        | "zip"
+        | "both"
+        | "website"
+        | "website_zip"
+        | "website_folder"
+        | "pure_website"
+        | "pure_website_zip"
+        | "pure_website_folder" => {}
         other => {
             return Err(format!(
                 "mode '{other}' is not supported by the Rust port yet"
             ));
         }
     }
-    Ok(if args.website || mode == "website_zip" {
-        OutputMode::IccZip
-    } else if args.website_folder || mode == "website_folder" {
-        OutputMode::IccFolder
-    } else if args.both || mode == "both" {
-        OutputMode::Both
-    } else if args.zip || mode == "zip" {
-        OutputMode::Zip
-    } else {
-        OutputMode::Embed
-    })
+    Ok(
+        if args.pure_website || matches!(mode, "pure_website" | "pure_website_zip") {
+            OutputMode::PureZip
+        } else if args.pure_website_folder || mode == "pure_website_folder" {
+            OutputMode::PureFolder
+        } else if args.website || matches!(mode, "website" | "website_zip") {
+            OutputMode::IccZip
+        } else if args.website_folder || mode == "website_folder" {
+            OutputMode::IccFolder
+        } else if args.both || mode == "both" {
+            OutputMode::Both
+        } else if args.zip || mode == "zip" {
+            OutputMode::Zip
+        } else {
+            OutputMode::Embed
+        },
+    )
+}
+
+/// ICC / pure website runs (no CYOA Manager registration, like Python).
+fn is_site_mode(mode: OutputMode) -> bool {
+    matches!(
+        mode,
+        OutputMode::IccZip | OutputMode::IccFolder | OutputMode::PureZip | OutputMode::PureFolder
+    )
 }
 
 enum Outcome {
@@ -250,9 +280,7 @@ async fn run_one(
     match result {
         Ok(report) => {
             // Python's ICC branch returns before CYOA Manager registration.
-            if let Some(db) =
-                manager_db.filter(|_| !matches!(mode, OutputMode::IccZip | OutputMode::IccFolder))
-            {
+            if let Some(db) = manager_db.filter(|_| !is_site_mode(mode)) {
                 register_with_manager(db.clone(), mode, url, &report).await;
             }
             for path in report.written_paths {
@@ -285,10 +313,17 @@ async fn main() -> ExitCode {
         return ExitCode::from(2);
     }
     // cli.py: parser.error("Choose only one output mode.")
-    if [args.zip, args.both, args.website, args.website_folder]
-        .iter()
-        .filter(|f| **f)
-        .count()
+    if [
+        args.zip,
+        args.both,
+        args.website,
+        args.website_folder,
+        args.pure_website,
+        args.pure_website_folder,
+    ]
+    .iter()
+    .filter(|f| **f)
+    .count()
         > 1
     {
         eprintln!("error: Choose only one output mode.");
@@ -471,8 +506,13 @@ async fn main() -> ExitCode {
             eprintln!("Batch {}/{total}: {}", idx + 1, item.url);
         }
         let mode = match item_mode(&args, &item.mode).and_then(|m| {
-            if matches!(m, OutputMode::IccZip | OutputMode::IccFolder)
-                && archive.strategy == "browser"
+            if matches!(
+                m,
+                OutputMode::IccZip
+                    | OutputMode::IccFolder
+                    | OutputMode::PureZip
+                    | OutputMode::PureFolder
+            ) && archive.strategy == "browser"
             {
                 Err("archive strategy 'browser' is not supported by the Rust port yet (use auto, classic or smart)".to_owned())
             } else {

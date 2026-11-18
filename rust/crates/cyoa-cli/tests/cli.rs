@@ -191,7 +191,7 @@ fn list_mode_rejects_missing_file_and_reports_unsupported_modes() {
     let list = out.join("list.txt");
     fs::write(
         &list,
-        "# c\nhttps://a.example/x | Name | pure_website_folder\nnot a url\n",
+        "# c\nhttps://a.example/x | Name | cyoap_vue_folder\nnot a url\n",
     )
     .unwrap();
     let run = Command::new(env!("CARGO_BIN_EXE_cyoa-downloader"))
@@ -212,7 +212,7 @@ fn list_mode_rejects_missing_file_and_reports_unsupported_modes() {
     let log = raw.replace("\r\n", "\n");
     assert!(log.starts_with("# Failed batch URL downloads\n# Format: url<TAB>error_message\n\n"));
     assert!(log.contains(
-        "https://a.example/x\tmode 'pure_website_folder' is not supported by the Rust port yet\n"
+        "https://a.example/x\tmode 'cyoap_vue_folder' is not supported by the Rust port yet\n"
     ));
 }
 

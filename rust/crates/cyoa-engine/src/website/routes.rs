@@ -92,13 +92,33 @@ fn canonical_pairs(query: &str) -> String {
     out.join("&")
 }
 
+/// Minimal insertion-ordered string map with Python dict assignment
+/// semantics (re-assigning keeps the original position).
+#[derive(Debug, Default, Clone)]
+pub struct PyDict(Vec<(String, String)>);
+
+impl PyDict {
+    pub fn insert(&mut self, key: String, value: String) {
+        match self.0.iter_mut().find(|(k, _)| *k == key) {
+            Some(slot) => slot.1 = value,
+            None => self.0.push((key, value)),
+        }
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &String)> {
+        self.0.iter().map(|(k, v)| (k, v))
+    }
+}
+
 pub struct RouteCrawler {
     pub start_url: String,
     pub origin: (String, String),
     pub scope_path: String,
     pub local_route_owners: HashMap<String, String>,
     pub page_link_bases: HashMap<String, String>,
-    pub response_urls: HashMap<String, String>,
+    /// Python dict: iteration follows first-insertion order (the rewrite
+    /// lets a later redirect target win, exactly like Python).
+    pub response_urls: PyDict,
     pub output_paths: HashMap<String, String>,
 }
 
@@ -113,7 +133,7 @@ impl RouteCrawler {
             scope_path,
             local_route_owners: HashMap::new(),
             page_link_bases: HashMap::new(),
-            response_urls: HashMap::new(),
+            response_urls: PyDict::default(),
             output_paths: HashMap::new(),
         }
     }
@@ -329,7 +349,7 @@ impl RouteCrawler {
             .iter()
             .map(|(u, p)| (Self::canonicalize(u), p.clone()))
             .collect();
-        for (requested, effective) in &self.response_urls {
+        for (requested, effective) in self.response_urls.iter() {
             if let Some((_, local)) = pages
                 .iter()
                 .find(|(u, _)| Self::canonicalize(u) == *requested)

@@ -10,6 +10,7 @@ pub mod localize;
 pub mod logfile;
 pub mod output;
 pub mod pipeline;
+pub mod pure;
 pub mod reports;
 pub mod run;
 pub mod website;

@@ -25,11 +25,18 @@ pub enum Mode {
     IccZip,
     /// ICC website kept as a folder (Python "ICC Folder").
     IccFolder,
+    /// Pure website (no project search) as `<name>_site.zip`.
+    PureZip,
+    /// Pure website kept as a folder.
+    PureFolder,
 }
 
 impl Mode {
     pub fn is_icc(self) -> bool {
-        matches!(self, Mode::IccZip | Mode::IccFolder)
+        matches!(
+            self,
+            Mode::IccZip | Mode::IccFolder | Mode::PureZip | Mode::PureFolder
+        )
     }
 }
 
@@ -41,6 +48,8 @@ impl From<Mode> for OutputMode {
             Mode::Both => OutputMode::Both,
             Mode::IccZip => OutputMode::IccZip,
             Mode::IccFolder => OutputMode::IccFolder,
+            Mode::PureZip => OutputMode::PureZip,
+            Mode::PureFolder => OutputMode::PureFolder,
         }
     }
 }
@@ -177,7 +186,9 @@ pub fn batch_item_mode(default: Mode, mode: &str) -> Result<Mode, String> {
         "embed" => Ok(Mode::Embed),
         "zip" => Ok(Mode::Zip),
         "both" => Ok(Mode::Both),
-        "website_zip" => Ok(Mode::IccZip),
+        "website" | "website_zip" => Ok(Mode::IccZip),
+        "pure_website" | "pure_website_zip" => Ok(Mode::PureZip),
+        "pure_website_folder" => Ok(Mode::PureFolder),
         "website_folder" => Ok(Mode::IccFolder),
         other => Err(format!(
             "mode '{other}' is not supported by the Rust port yet"
@@ -511,6 +522,12 @@ impl DownloaderApp {
                 Mode::IccFolder,
                 "ICC website (folder)",
             );
+            ui.radio_value(&mut self.settings.mode, Mode::PureZip, "Pure website (ZIP)");
+            ui.radio_value(
+                &mut self.settings.mode,
+                Mode::PureFolder,
+                "Pure website (folder)",
+            );
             ui.separator();
             ui.label("Threads:");
             ui.add(egui::DragValue::new(&mut self.settings.threads).range(1..=64));
@@ -776,7 +793,11 @@ mod tests {
             batch_item_mode(Mode::Embed, "website_zip"),
             Ok(Mode::IccZip)
         );
-        assert!(batch_item_mode(Mode::Embed, "pure_website_folder").is_err());
+        assert_eq!(
+            batch_item_mode(Mode::Embed, "pure_website_folder"),
+            Ok(Mode::PureFolder)
+        );
+        assert!(batch_item_mode(Mode::Embed, "cyoap_vue_folder").is_err());
     }
 
     #[test]

@@ -582,6 +582,37 @@ impl MirrorSink {
         Ok(())
     }
 
+    /// `download()` with Auto profiling (Pure Website, no project hint): the
+    /// profile is computed after the entry page; only a `project_json`
+    /// profile skips the pre-project deep scan.
+    pub fn download_site_auto(
+        &mut self,
+        deep_scan_enabled: bool,
+    ) -> Result<super::profile::ArchiveProfile, String> {
+        tracing::info!("ICC download started: {}", self.start_url);
+        self.mirror_classic(None)?;
+        self.repair_missing_entry_scripts();
+        tracing::info!("ICC package saved: {}/", self.root.display());
+        let profile = super::profile::profile_archive_target(&self.root, &self.start_url);
+        tracing::info!(
+            "Auto archive profile: engine={} strategy={} ({})",
+            profile.detected_engine,
+            profile.effective_strategy,
+            profile.reason
+        );
+        if profile.detected_engine.eq_ignore_ascii_case("project_json") {
+            tracing::info!(
+                "[Auto] Project data is authoritative; skipping redundant pre-project JS/CSS deep scan."
+            );
+        } else if deep_scan_enabled {
+            self.pre_project_deep_scan();
+        } else {
+            tracing::info!("Deep scan disabled by toggle — skipping JS/CSS asset pass.");
+        }
+        self.repair_missing_google_fonts();
+        Ok(profile)
+    }
+
     /// `repair_missing_entry_scripts`: retry up to 20 local scripts that the
     /// entry HTML still references but that are absent on disk.
     fn repair_missing_entry_scripts(&mut self) {
