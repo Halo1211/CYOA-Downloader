@@ -1,0 +1,656 @@
+//! Deep-scan BFS driver: `image_pipeline._deep_scan_and_download_assets`
+//! (image_pipeline.py 1228-1837).
+//!
+//! Rounds (max 6): scan every not-yet-scanned text file in the site folder
+//! (`scan_file_for_assets` + generated Entry images), download candidates
+//! that are not on disk yet, then rescan the new files. Failed requests get
+//! the CSS page-root, viewer-route and Vite `/assets/` fallbacks like Python.
+//! Failures are written with `write_asset_failure_summary`.
+//!
+//! Not ported (documented in FEATURE_PARITY F-029): Python asset-scanner
+//! plugins (D4), the optional AI round, and the httpx HTTP/2 client (the
+//! shared client is used for every request, as in Python's fallback path).
+//! Candidates are processed in sorted order (Python iterates a set).
+
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use cyoa_net::client::{FetchClient, FetchOptions};
+use tokio::sync::Semaphore;
+use tokio_util::sync::CancellationToken;
+use url::Url;
+
+use super::deep_scan::{
+    GeneratedEntryImageIndex, canonical_scan_url, deep_scan_url_to_local, scan_file_for_assets,
+    viewer_route_asset_fallback,
+};
+use crate::fetch_plan::python_urljoin as urljoin;
+
+const TEXT_EXTS: &[&str] = &[
+    ".js", ".css", ".html", ".htm", ".mjs", ".cjs", ".json", ".hjson", ".svg",
+];
+const MAX_ROUNDS: usize = 6;
+/// Per-asset size cap (Python has none; generous safety bound).
+pub const DEEP_SCAN_MAX_BYTES: u64 = 512 * 1024 * 1024;
+
+/// One failed deep-scan asset (`failed_deep_assets` item, kind "deep-scan").
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DeepFailure {
+    pub url: String,
+    pub path: String,
+    pub error: String,
+}
+
+#[derive(Debug, Default)]
+pub struct DeepScanOutcome {
+    /// url -> relative path (`all_downloaded`).
+    pub downloaded: BTreeMap<String, String>,
+    pub failed: Vec<DeepFailure>,
+    pub rounds: usize,
+}
+
+/// Inputs of `_deep_scan_and_download_assets`.
+pub struct DeepScan<'a> {
+    pub folder: &'a Path,
+    pub base_url: &'a str,
+    pub client: &'a FetchClient,
+    pub cancel: &'a CancellationToken,
+    pub max_workers: usize,
+    /// URLs already fetched by `process_images` (`skip_urls`).
+    pub skip_urls: &'a BTreeSet<String>,
+    /// Relative paths never scanned (`exclude_relative_paths`).
+    pub exclude_relative_paths: &'a [&'a str],
+    /// Absolute local path -> remote document base (`source_urls`); extended
+    /// with the effective URLs of newly saved files.
+    pub source_urls: &'a mut HashMap<PathBuf, String>,
+}
+
+/// `os.path.splitext(name)[1].lower()`.
+fn ext_lower(name: &str) -> String {
+    let stripped = name.trim_start_matches('.');
+    stripped
+        .rfind('.')
+        .map(|i| stripped[i..].to_lowercase())
+        .unwrap_or_default()
+}
+
+/// `urllib.parse.quote(rel, safe="/")`.
+fn quote_path(s: &str) -> String {
+    let mut out = String::new();
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'_' | b'.' | b'-' | b'~' | b'/' => {
+                out.push(b as char)
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+fn split(url: &str) -> Option<Url> {
+    Url::parse(url).ok()
+}
+
+/// Python `urlparse(url).path` basename for the `or os.path.basename(...)`
+/// fallbacks.
+fn url_basename(url: &str) -> String {
+    crate::localize::py_urlparse(url)
+        .path
+        .rsplit('/')
+        .next()
+        .unwrap_or("")
+        .to_owned()
+}
+
+fn local_or_basename(url: &str, base: &str, content: Option<&[u8]>) -> String {
+    let rel = deep_scan_url_to_local(url, base, content);
+    if !rel.is_empty() {
+        return rel;
+    }
+    let b = url_basename(url);
+    if b.is_empty() { "asset".into() } else { b }
+}
+
+/// Result of one `_try_fetch`.
+struct Fetched {
+    url: String,
+    content: Option<Vec<u8>>,
+    status: u16,
+    effective: Option<String>,
+}
+
+async fn try_fetch(
+    client: FetchClient,
+    cancel: CancellationToken,
+    url: String,
+    base: String,
+) -> Fetched {
+    let none = |status: u16| Fetched {
+        url: url.clone(),
+        content: None,
+        status,
+        effective: None,
+    };
+    // Recovery copies are evidence, never fetched.
+    if deep_scan_url_to_local(&url, &base, None)
+        .split('/')
+        .any(|p| p == "__original_site__")
+    {
+        return none(200);
+    }
+    if cyoa_parse::discover::ssrf_block_cross_origin(&url, &base, false) {
+        tracing::warn!("  [SSRF blocked] cross-origin internal host: {url}");
+        return none(0);
+    }
+    let Some(parsed) = split(&url) else {
+        return none(0);
+    };
+    let opts = FetchOptions {
+        return_error_response: true,
+        ..FetchOptions::default()
+    };
+    let resp = match client.get(&parsed, &opts, &cancel).await {
+        Ok(r) => r,
+        Err(cyoa_net::client::FetchError::VpnBlocked) => {
+            tracing::error!(
+                "[deep scan] VPN guard blocked request; required interface not detected"
+            );
+            return none(0);
+        }
+        Err(_) => return none(0),
+    };
+    let status = resp.status.as_u16();
+    if status != 200 {
+        return none(status);
+    }
+    let mime = resp
+        .headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_owned();
+    let effective = {
+        let e = resp.final_url.to_string();
+        if matches!(resp.final_url.scheme(), "http" | "https") && resp.final_url.host().is_some() {
+            e
+        } else {
+            url.clone()
+        }
+    };
+    match FetchClient::bytes(resp, DEEP_SCAN_MAX_BYTES).await {
+        Ok(bytes) => {
+            if crate::localize::asset_is_error_document(&mime, &bytes, false) {
+                return none(200);
+            }
+            Fetched {
+                url: url.clone(),
+                content: Some(bytes.to_vec()),
+                status: 200,
+                effective: Some(effective),
+            }
+        }
+        Err(_) => none(0),
+    }
+}
+
+impl DeepScan<'_> {
+    async fn fetch_many(&self, urls: Vec<String>) -> Vec<Fetched> {
+        let workers = self.max_workers.clamp(1, 8);
+        let sem = Arc::new(Semaphore::new(workers));
+        let mut set = tokio::task::JoinSet::new();
+        for (i, url) in urls.into_iter().enumerate() {
+            let (client, cancel, base) = (
+                self.client.clone(),
+                self.cancel.clone(),
+                self.base_url.to_owned(),
+            );
+            let sem = sem.clone();
+            set.spawn(async move {
+                let _permit = sem.acquire_owned().await;
+                (i, try_fetch(client, cancel, url, base).await)
+            });
+        }
+        let mut out = Vec::new();
+        while let Some(joined) = set.join_next().await {
+            if let Ok(r) = joined {
+                out.push(r);
+            }
+        }
+        // Deterministic processing order (input order).
+        out.sort_by_key(|(i, _)| *i);
+        out.into_iter().map(|(_, f)| f).collect()
+    }
+}
+
+struct State {
+    downloaded: BTreeMap<String, String>,
+    failed: Vec<DeepFailure>,
+    failed_keys: BTreeSet<(String, String)>,
+    scanned: BTreeSet<PathBuf>,
+    known: BTreeSet<String>,
+    candidate_sources: HashMap<String, BTreeSet<String>>,
+    css_sources: BTreeSet<String>,
+    disk_files: BTreeSet<String>,
+    generated: GeneratedEntryImageIndex,
+}
+
+impl State {
+    fn record_failure(&mut self, url: &str, rel: &str, error: &str) {
+        if !self.failed_keys.insert((url.to_owned(), error.to_owned())) {
+            return;
+        }
+        self.failed.push(DeepFailure {
+            url: url.to_owned(),
+            path: rel.to_owned(),
+            error: error.to_owned(),
+        });
+    }
+}
+
+/// `_css_root_fallback`: a failed asset referenced from CSS under a nested
+/// folder is retried at the page root (same origin only).
+fn css_root_fallback(state: &State, url: &str, base_url: &str) -> Option<String> {
+    let refs = state.candidate_sources.get(&canonical_scan_url(url))?;
+    if !refs.iter().any(|r| {
+        state.css_sources.contains(r)
+            || crate::localize::py_urlparse(r)
+                .path
+                .to_lowercase()
+                .ends_with(".css")
+    }) {
+        return None;
+    }
+    let p = crate::localize::py_urlparse(url);
+    let b = crate::localize::py_urlparse(base_url);
+    if p.scheme != b.scheme || p.netloc.to_lowercase() != b.netloc.to_lowercase() {
+        return None;
+    }
+    let base_path = b.path.trim_end_matches('/');
+    if base_path.is_empty() || !p.path.starts_with(&format!("{base_path}/")) {
+        return None;
+    }
+    let relative = &p.path[base_path.len() + 1..];
+    let filename = relative.rsplit('/').next().unwrap_or("");
+    if !relative.contains('/') || filename.is_empty() {
+        return None;
+    }
+    let alt = format!("{base_path}/{filename}");
+    if alt == p.path {
+        return None;
+    }
+    // urlunparse(parsed._replace(path=alt)): rebuild around the new path.
+    let path_start = url.find(p.path)?;
+    Some(format!(
+        "{}{alt}{}",
+        &url[..path_start],
+        &url[path_start + p.path.len()..]
+    ))
+}
+
+impl DeepScan<'_> {
+    fn collect_candidates(&mut self, st: &mut State) -> BTreeSet<String> {
+        let mut new = BTreeSet::new();
+        st.disk_files.clear();
+        let excluded: BTreeSet<String> = self
+            .exclude_relative_paths
+            .iter()
+            .map(|p| {
+                p.replace('\\', "/")
+                    .trim_start_matches(['.', '/'])
+                    .to_lowercase()
+            })
+            .collect();
+        let mut stack = vec![self.folder.to_path_buf()];
+        let mut files = Vec::new();
+        while let Some(dir) = stack.pop() {
+            let Ok(rd) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            let mut entries: Vec<_> = rd.flatten().collect();
+            entries.sort_by_key(|e| e.file_name());
+            for e in entries {
+                let Ok(ft) = e.file_type() else { continue };
+                if ft.is_dir() {
+                    if e.file_name() != "__original_site__" {
+                        stack.push(e.path());
+                    }
+                } else if ft.is_file() {
+                    files.push(e.path());
+                }
+            }
+        }
+        for fpath in files {
+            let Ok(rel) = fpath.strip_prefix(self.folder) else {
+                continue;
+            };
+            let rel = rel.to_string_lossy().replace('\\', "/");
+            st.disk_files.insert(rel.clone());
+            let name = fpath
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let ext = ext_lower(&name);
+            if !TEXT_EXTS.contains(&ext.as_str()) || !st.scanned.insert(fpath.clone()) {
+                continue;
+            }
+            if excluded.contains(&rel.to_lowercase()) {
+                continue;
+            }
+            let abs = std::path::absolute(&fpath).unwrap_or_else(|_| fpath.clone());
+            let f_url = self.source_urls.get(&abs).cloned().unwrap_or_else(|| {
+                urljoin(
+                    &format!("{}/", self.base_url.trim_end_matches('/')),
+                    &quote_path(&rel),
+                )
+            });
+            if ext == ".css" {
+                st.css_sources.insert(f_url.clone());
+            }
+            let Ok(bytes) = std::fs::read(&fpath) else {
+                continue;
+            };
+            let text = String::from_utf8_lossy(&bytes);
+            st.generated.add_source(&text, false);
+            for url in scan_file_for_assets(&text, &f_url, self.base_url, &ext) {
+                let c = canonical_scan_url(&url);
+                st.candidate_sources
+                    .entry(c.clone())
+                    .or_default()
+                    .insert(f_url.clone());
+                if !st.known.contains(&c) {
+                    new.insert(c);
+                }
+            }
+        }
+        for inferred in st.generated.paths() {
+            let c = canonical_scan_url(&urljoin(
+                &format!("{}/", self.base_url.trim_end_matches('/')),
+                &inferred,
+            ));
+            st.candidate_sources
+                .entry(c.clone())
+                .or_default()
+                .insert("generated Entry.id image contract".into());
+            if !st.known.contains(&c) {
+                new.insert(c);
+            }
+        }
+        new
+    }
+
+    /// `_deep_scan_rel_for_content` + write + `_remember_download`.
+    fn save(&mut self, st: &mut State, f: &Fetched, label: &str) -> bool {
+        let Some(content) = f.content.as_deref() else {
+            return false;
+        };
+        if crate::localize::asset_is_error_document("", content, true) {
+            let hint = deep_scan_url_to_local(&f.url, self.base_url, None);
+            st.record_failure(
+                &f.url,
+                &hint,
+                "response was an HTML/error document, not a binary asset",
+            );
+            tracing::warn!("  [deep rejected] HTML/error document: {}", f.url);
+            return false;
+        }
+        let rel = local_or_basename(&f.url, self.base_url, Some(content));
+        let root = self.folder.to_string_lossy();
+        let local = match cyoa_core::paths::safe_archive_join(&root, &rel, false) {
+            Ok(p) => p,
+            Err(e) => {
+                st.record_failure(&f.url, &rel, &format!("save failed: {e}"));
+                return false;
+            }
+        };
+        let written = local
+            .parent()
+            .map_or(Ok(()), std::fs::create_dir_all)
+            .map_err(|e| e.to_string())
+            .and_then(|()| {
+                cyoa_storage::atomic_io::atomic_write_bytes(&local, content)
+                    .map_err(|e| e.to_string())
+            });
+        match written {
+            Ok(_) => {
+                st.downloaded.insert(f.url.clone(), rel.clone());
+                st.disk_files.insert(rel.clone());
+                let abs = std::path::absolute(&local).unwrap_or(local);
+                self.source_urls
+                    .insert(abs, f.effective.clone().unwrap_or_else(|| f.url.clone()));
+                tracing::info!("  [deep {label}] {rel}");
+                true
+            }
+            Err(e) => {
+                st.record_failure(&f.url, &rel, &format!("save failed: {e}"));
+                false
+            }
+        }
+    }
+
+    /// Run the BFS. Returns downloaded files and failures (also reported via
+    /// `write_asset_failure_summary` in the site folder).
+    pub async fn run(mut self) -> DeepScanOutcome {
+        let mut st = State {
+            downloaded: BTreeMap::new(),
+            failed: Vec::new(),
+            failed_keys: BTreeSet::new(),
+            scanned: BTreeSet::new(),
+            known: self
+                .skip_urls
+                .iter()
+                .map(|u| canonical_scan_url(u))
+                .collect(),
+            candidate_sources: HashMap::new(),
+            css_sources: BTreeSet::new(),
+            disk_files: BTreeSet::new(),
+            generated: GeneratedEntryImageIndex::new(),
+        };
+        let mut round = 0;
+        while round < MAX_ROUNDS && !self.cancel.is_cancelled() {
+            round += 1;
+            let new = self.collect_candidates(&mut st);
+            if new.is_empty() {
+                break;
+            }
+            st.known.extend(new.iter().cloned());
+            let to_download: Vec<String> = new
+                .into_iter()
+                .filter(|u| {
+                    let rel = deep_scan_url_to_local(u, self.base_url, None);
+                    rel.is_empty() || !st.disk_files.contains(&rel)
+                })
+                .collect();
+            if to_download.is_empty() {
+                break;
+            }
+            tracing::info!(
+                "[deep scan] Round {round}: fetching {} asset(s)…",
+                to_download.len()
+            );
+            let mut saved = 0usize;
+            let mut vite_retry: Vec<String> = Vec::new();
+            let mut vite_origin: HashMap<String, (String, u16)> = HashMap::new();
+            for f in self.fetch_many(to_download).await {
+                if self.cancel.is_cancelled() {
+                    break;
+                }
+                if f.content.is_some() {
+                    if self.save(&mut st, &f, "✓") {
+                        saved += 1;
+                    }
+                    continue;
+                }
+                if f.status == 200 {
+                    continue;
+                }
+                if let Some(alt) = css_root_fallback(&st, &f.url, self.base_url) {
+                    let alt_rel = local_or_basename(&alt, self.base_url, None);
+                    if st.downloaded.contains_key(&alt) || st.disk_files.contains(&alt_rel) {
+                        continue;
+                    }
+                    st.known.insert(alt.clone());
+                    let r = self.fetch_many(vec![alt]).await.into_iter().next();
+                    if let Some(r) = r.filter(|r| r.content.is_some())
+                        && self.save(&mut st, &r, "✓ CSS root")
+                    {
+                        saved += 1;
+                        continue;
+                    }
+                }
+                if let Some(route) = viewer_route_asset_fallback(&f.url, self.base_url) {
+                    st.known.insert(route.clone());
+                    let r = self.fetch_many(vec![route]).await.into_iter().next();
+                    if let Some(r) = r.filter(|r| r.content.is_some())
+                        && self.save(&mut st, &r, "✓ route")
+                    {
+                        saved += 1;
+                        continue;
+                    }
+                }
+                let path = crate::localize::py_urlparse(&f.url).path.to_owned();
+                if path.matches('/').count() == 1
+                    && (path.to_lowercase().ends_with(".js")
+                        || path.to_lowercase().ends_with(".mjs"))
+                {
+                    let alt =
+                        canonical_scan_url(&f.url.replacen(&path, &format!("/assets{path}"), 1));
+                    if !st.known.contains(&alt) {
+                        vite_origin.insert(alt.clone(), (f.url.clone(), f.status));
+                        vite_retry.push(alt.clone());
+                        st.known.insert(alt);
+                        continue;
+                    }
+                }
+                let rel = deep_scan_url_to_local(&f.url, self.base_url, None);
+                st.record_failure(&f.url, &rel, &http_error(f.status));
+            }
+            if !vite_retry.is_empty() {
+                for f in self.fetch_many(vite_retry).await {
+                    if f.content.is_some() {
+                        if self.save(&mut st, &f, "✓ Vite") {
+                            saved += 1;
+                        }
+                    } else if f.status != 200 {
+                        let (orig, orig_status) = vite_origin
+                            .get(&f.url)
+                            .cloned()
+                            .unwrap_or_else(|| (f.url.clone(), f.status));
+                        let rel = deep_scan_url_to_local(&orig, self.base_url, None);
+                        let status = if orig_status != 0 {
+                            orig_status
+                        } else {
+                            f.status
+                        };
+                        st.record_failure(&orig, &rel, &http_error(status));
+                    }
+                }
+            }
+            tracing::info!(
+                "[deep scan] Round {round}: {saved} saved{}",
+                if saved > 0 {
+                    " — rescanning for new refs…"
+                } else {
+                    ""
+                }
+            );
+            if saved == 0 {
+                break;
+            }
+        }
+        if !st.downloaded.is_empty() {
+            tracing::info!(
+                "[deep scan] Complete: {} total asset(s) downloaded in {round} round(s)",
+                st.downloaded.len()
+            );
+        }
+        if !st.failed.is_empty() {
+            let items: Vec<crate::reports::FailedItem<'_>> = st
+                .failed
+                .iter()
+                .map(|f| crate::reports::FailedItem {
+                    url: &f.url,
+                    path: &f.path,
+                    error: &f.error,
+                    kind: "deep-scan",
+                })
+                .collect();
+            match crate::reports::write_asset_failure_summary(
+                &items,
+                self.folder,
+                self.base_url,
+                "Broken Deep-Scan Asset Report",
+            ) {
+                Ok(()) => tracing::warn!(
+                    "[deep scan] {} asset(s) failed; see backup_report.txt",
+                    st.failed.len()
+                ),
+                Err(e) => tracing::debug!("[deep scan] broken report failed: {e}"),
+            }
+        }
+        DeepScanOutcome {
+            downloaded: st.downloaded,
+            failed: st.failed,
+            rounds: round,
+        }
+    }
+}
+
+/// Python `f"HTTP {status or 'request failed'}"`.
+fn http_error(status: u16) -> String {
+    if status == 0 {
+        "HTTP request failed".into()
+    } else {
+        format!("HTTP {status}")
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use cyoa_net::{client::ClientConfig, policy::DestinationPolicy};
+
+    /// Differential run driven by `rust/scripts/deep_scan_parity.sh`:
+    /// DEEP_E2E_DIR=<site folder copy> DEEP_E2E_BASE=<viewer base URL>.
+    /// Writes `<dir>.rust.json` with the downloaded map.
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "needs the parity script's local server"]
+    async fn deep_scan_e2e_runner() {
+        let dir = PathBuf::from(std::env::var("DEEP_E2E_DIR").unwrap());
+        let base = std::env::var("DEEP_E2E_BASE").unwrap();
+        let client = FetchClient::new(ClientConfig {
+            policy: DestinationPolicy {
+                origin: Some(Url::parse(&base).unwrap()),
+                allow_internal: false,
+            },
+            ..ClientConfig::default()
+        })
+        .unwrap();
+        let mut sources = HashMap::new();
+        let outcome = DeepScan {
+            folder: &dir,
+            base_url: &base,
+            client: &client,
+            cancel: &CancellationToken::new(),
+            max_workers: 4,
+            skip_urls: &BTreeSet::new(),
+            exclude_relative_paths: &["project.json"],
+            source_urls: &mut sources,
+        }
+        .run()
+        .await;
+        let json = serde_json::json!({
+            "downloaded": outcome.downloaded,
+            "failed": outcome.failed.iter().map(|f| [&f.url, &f.path, &f.error]).collect::<Vec<_>>(),
+        });
+        let mut out = dir.as_os_str().to_owned();
+        out.push(".rust.json");
+        std::fs::write(
+            PathBuf::from(out),
+            serde_json::to_string_pretty(&json).unwrap(),
+        )
+        .unwrap();
+    }
+}

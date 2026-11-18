@@ -711,6 +711,8 @@ pub async fn process_images(
                     url: &f.url,
                     path: &f.path,
                     error: &f.error,
+                    // Python process_images failure dicts carry no "kind".
+                    kind: "",
                 })
                 .collect();
             crate::reports::write_asset_failure_summary(

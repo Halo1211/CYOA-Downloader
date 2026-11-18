@@ -134,9 +134,11 @@ pub struct FailedItem<'a> {
     pub url: &'a str,
     pub path: &'a str,
     pub error: &'a str,
+    /// Python `item.get("kind", "asset") or "asset"`; empty means "asset".
+    pub kind: &'a str,
 }
 
-/// `write_failed_assets_log` (overwrites; items carry no `kind`, so "asset").
+/// `write_failed_assets_log` (overwrites).
 pub fn write_failed_assets_log(
     items: &[FailedItem<'_>],
     dir: &Path,
@@ -163,7 +165,11 @@ pub fn write_failed_assets_log(
         String::new(),
     ];
     for (i, it) in items.iter().enumerate() {
-        lines.push(format!("[{}] asset", i + 1));
+        lines.push(format!(
+            "[{}] {}",
+            i + 1,
+            if it.kind.is_empty() { "asset" } else { it.kind }
+        ));
         lines.push(format!("  Path : {}", dash(it.path)));
         lines.push(format!("  URL  : {}", dash(it.url)));
         lines.push(format!("  Err  : {}", dash(it.error)));
@@ -207,7 +213,11 @@ pub fn append_asset_failures_to_backup_report(
         String::new(),
     ];
     for (i, it) in items.iter().enumerate() {
-        lines.push(format!("[{}] asset", i + 1));
+        lines.push(format!(
+            "[{}] {}",
+            i + 1,
+            if it.kind.is_empty() { "asset" } else { it.kind }
+        ));
         lines.push(format!("  Path : {}", dash(it.path)));
         lines.push(format!("  URL  : {}", dash(it.url)));
         lines.push(format!("  Err  : {}", dash(it.error)));
@@ -482,11 +492,13 @@ mod tests {
                 url: "https://x/a.png",
                 path: "img/a.png",
                 error: "HTTP 404",
+                kind: "",
             },
             FailedItem {
                 url: "",
                 path: "",
                 error: "",
+                kind: "",
             },
         ];
         let tmp = tempfile::tempdir().unwrap();
