@@ -745,6 +745,32 @@ pub fn add_archive_to_cyoa_manager(
     }
 }
 
+/// orchestrator.py after a download: register the embedded JSON (embed /
+/// both) or the ZIP (zip-only) that was actually written. `None` when the
+/// run produced no matching output.
+pub fn register_output(
+    db: &Path,
+    embedded: bool,
+    written: &[PathBuf],
+    name: &str,
+    url: &str,
+) -> Option<AddOutcome> {
+    let ext = if embedded { "json" } else { "zip" };
+    let target = written
+        .iter()
+        .find(|p| p.extension().is_some_and(|e| e == ext))?;
+    Some(if embedded {
+        let opts = AddOptions {
+            name,
+            source_url: url,
+            ..Default::default()
+        };
+        add_to_cyoa_manager(target, &opts, db)
+    } else {
+        add_archive_to_cyoa_manager(target, name, url, db)
+    })
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -836,6 +862,30 @@ mod tests {
         let probe = probe_project(&p).unwrap().unwrap();
         assert!(probe.rows_is_list && probe.styling_is_object);
         assert_eq!(probe.version.as_deref(), Some("1.0"));
+    }
+
+    #[test]
+    fn register_output_picks_json_or_zip() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = tmp.path().join("library.sqlite3");
+        let json = tmp.path().join("game.json");
+        fs::write(&json, r#"{"rows":[]}"#).unwrap();
+        let meta = tmp.path().join("game_metadata.json");
+        let zip_path = tmp.path().join("game.zip");
+        write_zip(&zip_path, &[("project.json", r#"{"rows":[]}"#)]);
+        let written = vec![json.clone(), zip_path.clone(), meta];
+        assert_eq!(
+            register_output(&db, true, &written, "game", "u"),
+            Some(AddOutcome::Added)
+        );
+        assert_eq!(
+            register_output(&db, false, &written, "game", "u"),
+            Some(AddOutcome::Added)
+        );
+        assert_eq!(register_output(&db, false, &[json], "game", "u"), None);
+        let listed = list_projects(Some(&db));
+        assert_eq!(listed.len(), 2);
+        assert!(listed.iter().any(|p| p.file_path.ends_with("game.json")));
     }
 
     #[test]

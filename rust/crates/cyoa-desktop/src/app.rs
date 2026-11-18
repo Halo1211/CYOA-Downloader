@@ -131,6 +131,9 @@ pub struct DownloaderApp {
     /// Shared Python-format `settings.json` and the network values last
     /// synced with it (None: no shared file, e.g. headless tests).
     shared: Option<(PathBuf, crate::net::NetSettings)>,
+    /// CYOA Manager toggle, persisted only in settings.json like Python.
+    manager: crate::net::ManagerPrefs,
+    manager_synced: crate::net::ManagerPrefs,
 }
 
 type ListPick = std::sync::mpsc::Receiver<Option<Result<Vec<BatchItem>, String>>>;
@@ -163,6 +166,10 @@ impl DownloaderApp {
         if let Err(e) = settings.net.load_shared(&shared_path) {
             log.push(format!("Could not read {}: {e}", shared_path.display()));
         }
+        let manager = cyoa_storage::settings::SettingsStore::new(&shared_path)
+            .load()
+            .map(crate::net::ManagerPrefs::from_python)
+            .unwrap_or_default();
         let shared = Some((shared_path, settings.net.clone()));
         let worker = match WorkerHandle::spawn(Box::new(move || ctx.request_repaint())) {
             Ok(w) => Some(w),
@@ -184,6 +191,8 @@ impl DownloaderApp {
             list_pick: None,
             net_cache: None,
             shared,
+            manager_synced: manager.clone(),
+            manager,
         }
     }
 
@@ -292,7 +301,20 @@ impl DownloaderApp {
                     vpn: net.vpn,
                     ..RunOptions::default()
                 };
-                if self.worker.as_ref().is_some_and(|w| w.start(id, opts)) {
+                let manager_db = if self.manager.enabled {
+                    let db = cyoa_integrations::cyoa_manager::resolve_db(&self.manager.db_path);
+                    if db.is_none() {
+                        self.log.push(
+                            "CYOA Manager: library.sqlite3 not found; registration skipped."
+                                .to_owned(),
+                        );
+                    }
+                    db
+                } else {
+                    None
+                };
+                let spec = crate::worker::JobSpec { opts, manager_db };
+                if self.worker.as_ref().is_some_and(|w| w.start(id, spec)) {
                     Status::Queued
                 } else {
                     Status::Failed("download worker unavailable or queue full".into())
@@ -557,6 +579,7 @@ impl eframe::App for DownloaderApp {
         egui::Frame::central_panel(ui.style()).show(ui, |ui| {
             self.controls(ui);
             self.settings.net.ui(ui);
+            self.manager.ui(ui);
             ui.separator();
             self.status_bar(ui);
             ui.separator();
@@ -574,6 +597,17 @@ impl eframe::App for DownloaderApp {
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, SETTINGS_KEY, &self.settings);
+        if let Some((path, _)) = &self.shared
+            && self.manager != self.manager_synced
+        {
+            let prefs = self.manager.clone();
+            match crate::net::update_shared(path, |map| prefs.write_python(map)) {
+                Ok(()) => self.manager_synced = prefs,
+                Err(e) => self
+                    .log
+                    .push(format!("Could not save {}: {e}", path.display())),
+            }
+        }
         if let Some((path, synced)) = &mut self.shared
             && *synced != self.settings.net
         {
@@ -638,6 +672,8 @@ mod tests {
             list_pick: None,
             net_cache: None,
             shared: None,
+            manager: crate::net::ManagerPrefs::default(),
+            manager_synced: crate::net::ManagerPrefs::default(),
         }
     }
 

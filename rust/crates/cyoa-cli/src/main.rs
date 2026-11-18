@@ -197,31 +197,11 @@ async fn register_with_manager(
     url: String,
     report: &run::RunReport,
 ) {
-    use cyoa_integrations::cyoa_manager as mgr;
-    let pick = |ext: &str| {
-        report
-            .written_paths
-            .iter()
-            .find(|p| p.extension().is_some_and(|e| e == ext))
-            .cloned()
-    };
-    let (target, is_zip) = match mode {
-        OutputMode::Embed | OutputMode::Both => (pick("json"), false),
-        OutputMode::Zip => (pick("zip"), true),
-    };
-    let Some(target) = target else { return };
+    let embedded = !matches!(mode, OutputMode::Zip);
+    let written = report.written_paths.clone();
     let name = report.stem.clone();
     let _ = tokio::task::spawn_blocking(move || {
-        if is_zip {
-            mgr::add_archive_to_cyoa_manager(&target, &name, &url, &db);
-        } else {
-            let opts = mgr::AddOptions {
-                name: &name,
-                source_url: &url,
-                ..Default::default()
-            };
-            mgr::add_to_cyoa_manager(&target, &opts, &db);
-        }
+        cyoa_integrations::cyoa_manager::register_output(&db, embedded, &written, &name, &url)
     })
     .await;
 }

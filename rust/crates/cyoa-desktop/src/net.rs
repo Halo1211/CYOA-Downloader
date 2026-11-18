@@ -136,12 +136,63 @@ impl NetSettings {
 
     /// Persist to the shared `settings.json`, keeping every other key.
     pub fn save_shared(&self, path: &std::path::Path) -> Result<(), String> {
-        let mut store = cyoa_storage::settings::SettingsStore::new(path);
-        store.load().map_err(|e| e.to_string())?;
-        self.write_python(store.values_mut());
-        store.save().map_err(|e| e.to_string())
+        update_shared(path, |map| self.write_python(map))
+    }
+}
+
+/// Load `settings.json`, apply `f`, save (every other key kept).
+pub fn update_shared(
+    path: &std::path::Path,
+    f: impl FnOnce(&mut serde_json::Map<String, serde_json::Value>),
+) -> Result<(), String> {
+    let mut store = cyoa_storage::settings::SettingsStore::new(path);
+    store.load().map_err(|e| e.to_string())?;
+    f(store.values_mut());
+    store.save().map_err(|e| e.to_string())
+}
+
+/// CYOA Manager registration preferences (Python keys `cyoa_mgr_enabled`,
+/// `cyoa_mgr_db_path`; `None`/missing enabled reads as off).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ManagerPrefs {
+    pub enabled: bool,
+    pub db_path: String,
+}
+
+impl ManagerPrefs {
+    pub fn from_python(map: &serde_json::Map<String, serde_json::Value>) -> Self {
+        Self {
+            enabled: map
+                .get("cyoa_mgr_enabled")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            db_path: map
+                .get("cyoa_mgr_db_path")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_owned(),
+        }
     }
 
+    pub fn write_python(&self, map: &mut serde_json::Map<String, serde_json::Value>) {
+        map.insert("cyoa_mgr_enabled".into(), self.enabled.into());
+        map.insert("cyoa_mgr_db_path".into(), self.db_path.clone().into());
+    }
+
+    pub fn ui(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut self.enabled, "Add finished downloads to CYOA Manager");
+            ui.label("Library DB:");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.db_path)
+                    .hint_text("auto-detect library.sqlite3")
+                    .desired_width(260.0),
+            );
+        });
+    }
+}
+
+impl NetSettings {
     pub fn build(&self) -> Result<NetRuntime, String> {
         let invalid = |e: &dyn std::fmt::Display| format!("Invalid network configuration: {e}");
         let mode = ProxyMode::parse(&self.proxy_mode).map_err(|e| invalid(&e))?;
@@ -314,6 +365,22 @@ mod tests {
         custom.dns_port = 1;
         custom.overlay_python(&map);
         assert_eq!(custom.dns_port, 1);
+    }
+
+    #[test]
+    fn manager_prefs_python_keys() {
+        // Python default is None (unset): off.
+        let map: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_str(r#"{"cyoa_mgr_enabled": null, "cyoa_mgr_db_path": ""}"#).unwrap();
+        assert_eq!(ManagerPrefs::from_python(&map), ManagerPrefs::default());
+        let prefs = ManagerPrefs {
+            enabled: true,
+            db_path: "C:/x/library.sqlite3".into(),
+        };
+        let mut out = serde_json::Map::new();
+        prefs.write_python(&mut out);
+        assert_eq!(ManagerPrefs::from_python(&out), prefs);
+        assert_eq!(out["cyoa_mgr_enabled"], true);
     }
 
     #[test]

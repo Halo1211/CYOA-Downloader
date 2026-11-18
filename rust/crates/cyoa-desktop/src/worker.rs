@@ -97,7 +97,7 @@ impl Control {
 }
 
 pub struct WorkerHandle {
-    jobs: mpsc::Sender<(JobId, RunOptions)>,
+    jobs: mpsc::Sender<(JobId, JobSpec)>,
     events: Receiver<Event>,
     control: Arc<Control>,
     thread: Option<JoinHandle<()>>,
@@ -144,7 +144,8 @@ impl WorkerHandle {
     }
 
     /// Queue a job without blocking. Returns false if the worker is gone or full.
-    pub fn start(&self, job: JobId, opts: RunOptions) -> bool {
+    pub fn start(&self, job: JobId, opts: impl Into<JobSpec>) -> bool {
+        let opts = opts.into();
         // Register the token first so a Cancel issued right away is never lost.
         let _ = self.control.token(job);
         let ok = self.jobs.try_send((job, opts)).is_ok();
@@ -250,11 +251,11 @@ impl Link {
 }
 
 async fn worker_loop(
-    mut jobs: mpsc::Receiver<(JobId, RunOptions)>,
+    mut jobs: mpsc::Receiver<(JobId, JobSpec)>,
     link: Arc<Link>,
     control: Arc<Control>,
 ) {
-    let mut queue: VecDeque<(JobId, RunOptions)> = VecDeque::new();
+    let mut queue: VecDeque<(JobId, JobSpec)> = VecDeque::new();
     let mut running: Option<(JobId, tokio::task::JoinHandle<()>)> = None;
 
     loop {
@@ -336,7 +337,24 @@ async fn worker_loop(
     }
 }
 
-async fn run_job(job: JobId, opts: RunOptions, cancel: CancellationToken, link: Arc<Link>) {
+/// A queued download plus GUI-level post-processing.
+pub struct JobSpec {
+    pub opts: RunOptions,
+    /// Register the result in this CYOA Manager library (Python GUI toggle).
+    pub manager_db: Option<std::path::PathBuf>,
+}
+
+impl From<RunOptions> for JobSpec {
+    fn from(opts: RunOptions) -> Self {
+        Self {
+            opts,
+            manager_db: None,
+        }
+    }
+}
+
+async fn run_job(job: JobId, spec: JobSpec, cancel: CancellationToken, link: Arc<Link>) {
+    let JobSpec { opts, manager_db } = spec;
     link.lifecycle(Event::Started { job }).await;
     // Python GUI: setup_file_logging(outdir) when a download starts (off the UI thread).
     let dir = opts.output_dir.clone();
@@ -367,14 +385,30 @@ async fn run_job(job: JobId, opts: RunOptions, cancel: CancellationToken, link: 
     let result = run_download(&opts, cancel.clone(), Some(ptx)).await;
     let _ = forward.await;
     let result = match result {
-        Ok(report) => JobResult::Done(JobSummary {
-            written: report
-                .written_paths
-                .iter()
-                .map(|p| p.display().to_string())
-                .collect(),
-            failed_assets: report.failed_assets.len(),
-        }),
+        Ok(report) => {
+            if let Some(db) = manager_db {
+                let embedded = !matches!(opts.mode, cyoa_engine::run::OutputMode::Zip);
+                let (written, name, url) = (
+                    report.written_paths.clone(),
+                    report.stem.clone(),
+                    opts.url.clone(),
+                );
+                let _ = tokio::task::spawn_blocking(move || {
+                    cyoa_integrations::cyoa_manager::register_output(
+                        &db, embedded, &written, &name, &url,
+                    )
+                })
+                .await;
+            }
+            JobResult::Done(JobSummary {
+                written: report
+                    .written_paths
+                    .iter()
+                    .map(|p| p.display().to_string())
+                    .collect(),
+                failed_assets: report.failed_assets.len(),
+            })
+        }
         Err(RunError::Cancelled) => JobResult::Cancelled,
         Err(_) if cancel.is_cancelled() => JobResult::Cancelled,
         Err(e) => JobResult::Failed(e.to_string()),
