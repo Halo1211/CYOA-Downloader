@@ -169,3 +169,10 @@ c8705cc docs · e5c1d13 Stage 0 · e8ed523 1a · ffd7866 1a security fixes · ec
   - **Proof:** `bash rust/scripts/e2e_parity.sh` runs Python and Rust `--both` against `rust/fixtures/e2e_site` on a local http.server: embedded JSON, `_original.json`, ZIP contents byte-identical; metadata/failed_images/failed_assets identical except timestamps. Naming fixture `rust/fixtures/output/names.json` (46 URLs, 22 components) all match.
   - Not yet ported: Python's `cyoa_downloader.log` file in output dir, `backup_report.txt` append path, audio copy to output, offline viewer, cyoa-manager registration, `-L` list mode, ICC/website/cyoap-vue modes, proxy/DNS/VPN/Cloudflare flags.
 - **Totals:** 141 tests pass; fmt + clippy clean.
+- **Sol review of output stage → 9 findings, 8 fixed by Claude** (commit caa9990; see SECURITY_REVIEW). Luna could not write any file (create or modify) from this point on.
+- **GUI Batches A–C (`cyoa-desktop`, egui/eframe 0.37 + glow, Claude-implemented):**
+  - `worker.rs`: dedicated thread with a 3-thread Tokio runtime and bounded command and event channels. Progress events are lossy (`try_send`); Started/Finished are always delivered. Queue runs sequentially with a per-job CancellationToken; shutdown is bounded and drains events to avoid deadlock.
+  - `app.rs`: URL validation, output folder with Browse (rfd), Embedded/ZIP/Both, threads/wait (Python defaults 4/60), virtualized queue and log (`show_rows`), 5000-line ring log, at most 2000 events drained per frame, persisted settings, worker waker → `request_repaint`.
+  - Measured (release, this machine): window opens; **0 ms CPU over 5 s idle**; 140.6 MB working set; exe 17.0 MB.
+  - Not yet measured: download through the GUI (needs manual or UI-automation run), 100k-row queue frame time, IME and high-DPI (prototype gate).
+- **Totals:** 152 tests pass; fmt + clippy clean.

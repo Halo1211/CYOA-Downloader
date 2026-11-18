@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "cyoa-desktop"
 version.workspace = true
 edition.workspace = true
@@ -13,6 +13,12 @@ path = "src/main.rs"
 cyoa-engine = { path = "../cyoa-engine" }
 cyoa-integrations = { path = "../cyoa-integrations" }
 cyoa-core = { path = "../cyoa-core" }
+eframe = { version = "0.37.0", default-features = false, features = ["default_fonts", "glow", "persistence"] }
+rfd = "0.18.0"
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros"] }
+tokio-util = "0.7.20"
+serde = { version = "1.0.229", features = ["derive"] }
+url = "2.5.8"
 
 [lints]
 workspace = true
