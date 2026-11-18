@@ -137,6 +137,90 @@ async fn spool(ctx: &FetchCtx, data: Bytes) -> Payload {
     }
 }
 
+fn spool_path(dir: &Path) -> io::Result<PathBuf> {
+    std::fs::create_dir_all(dir)?;
+    loop {
+        let path = dir.join(format!(
+            "{}-{}.bin",
+            std::process::id(),
+            NEXT_SPOOL.fetch_add(1, Ordering::Relaxed)
+        ));
+        if std::fs::symlink_metadata(&path).is_err() {
+            return Ok(path);
+        }
+    }
+}
+
+enum Streamed {
+    Done(Payload),
+    /// Terminal for this asset (cancelled or rejected document).
+    Final(String),
+    /// Counts as the last error of the retry loop, like a failed in-memory read.
+    Failed(String),
+}
+
+/// Stream the body straight to a spool file; only `PREFIX_LEN` bytes stay in memory.
+async fn stream_spooled(
+    ctx: &FetchCtx,
+    response: cyoa_net::client::FetchResponse,
+    dir: &Path,
+    mime: &str,
+    asset_url: &str,
+) -> Streamed {
+    let blocking_dir = dir.to_owned();
+    let path = match tokio::task::spawn_blocking(move || spool_path(&blocking_dir)).await {
+        Ok(Ok(path)) => path,
+        Ok(Err(error)) => return Streamed::Failed(error.to_string()),
+        Err(error) => return Streamed::Failed(error.to_string()),
+    };
+    let len = match ctx
+        .client
+        .download_to(response, &path, ctx.max_bytes, None, &ctx.cancel)
+        .await
+    {
+        Ok(len) => len,
+        Err(cyoa_net::client::FetchError::Cancelled) => {
+            return Streamed::Final("fetch cancelled".to_owned());
+        }
+        Err(error) => return Streamed::Failed(error.to_string()),
+    };
+    let read_path = path.clone();
+    let prefix = match tokio::task::spawn_blocking(move || file_prefix(&read_path)).await {
+        Ok(Ok(prefix)) => prefix,
+        Ok(Err(error)) => {
+            remove_spool(path).await;
+            return Streamed::Failed(error.to_string());
+        }
+        Err(error) => {
+            remove_spool(path).await;
+            return Streamed::Failed(error.to_string());
+        }
+    };
+    if crate::localize::asset_is_error_document(mime, &prefix, true) {
+        remove_spool(path).await;
+        return Streamed::Final(format!(
+            "Content-Type mismatch for asset: {}",
+            if mime.is_empty() { "unknown" } else { mime }
+        ));
+    }
+    ctx.domain.record_success(asset_url);
+    if let Some(cache) = &ctx.cache {
+        let cache = cache.clone();
+        let cache_url = asset_url.to_owned();
+        let cache_path = path.clone();
+        match tokio::task::spawn_blocking(move || cache.put_file(&cache_url, &cache_path)).await {
+            Ok(Ok(_)) => {}
+            Ok(Err(error)) => tracing::warn!("cache write failed for {asset_url}: {error}"),
+            Err(error) => tracing::warn!("cache write task failed for {asset_url}: {error}"),
+        }
+    }
+    Streamed::Done(Payload::File { path, len, prefix })
+}
+
+async fn remove_spool(path: PathBuf) {
+    let _ = tokio::fs::remove_file(path).await;
+}
+
 /// Read up to `PREFIX_LEN` bytes of a file (for tests and diagnostics).
 pub fn file_prefix(path: &Path) -> io::Result<Bytes> {
     let mut buf = Vec::with_capacity(PREFIX_LEN);
@@ -499,6 +583,20 @@ pub async fn fetch_one(ctx: &FetchCtx, asset_path: &str) -> FetchOutcome {
             .map(str::to_owned)
             .or_else(|| guess_mime_from_url(&asset_url).map(str::to_owned))
             .unwrap_or_else(|| "application/octet-stream".to_owned());
+        if let Some(dir) = ctx.spool_dir.clone() {
+            match stream_spooled(ctx, response, &dir, &mime, &asset_url).await {
+                Streamed::Done(payload) => {
+                    return outcome(asset_path, Some(payload), &mime, &asset_url, "");
+                }
+                Streamed::Final(error) => {
+                    return outcome(asset_path, None, "", &asset_url, error);
+                }
+                Streamed::Failed(error) => {
+                    last_error = error;
+                    break;
+                }
+            }
+        }
         let data = match FetchClient::bytes(response, ctx.max_bytes).await {
             Ok(data) => data,
             Err(cyoa_net::client::FetchError::Cancelled) => {
@@ -656,6 +754,58 @@ mod tests {
         let second = fetch_one(&context, "/asset.png").await;
         assert_eq!(second.data.unwrap().read_all().unwrap(), data);
         assert_eq!(server.received_requests().await.expect("requests").len(), 1);
+    }
+
+    fn spool_entries(dir: &Path) -> usize {
+        std::fs::read_dir(dir).map(|d| d.count()).unwrap_or(0)
+    }
+
+    #[tokio::test]
+    async fn spooled_fetch_streams_to_file_and_caches_from_file() {
+        let server = MockServer::start().await;
+        let data: Vec<u8> = (0..200_000u32).map(|i| (i % 251) as u8).collect();
+        route(&server, 200, data.clone(), "image/png").await;
+        let cache_dir = tempfile::tempdir().expect("cache tempdir");
+        let spool = tempfile::tempdir().expect("spool tempdir");
+        let cache = Arc::new(ImageCache::open(cache_dir.path(), 10).expect("cache"));
+        let mut context = ctx(&server, Some(cache.clone()), CancellationToken::new());
+        context.spool_dir = Some(spool.path().to_owned());
+        let first = fetch_one(&context, "/asset.png").await;
+        let payload = first.data.expect("payload");
+        assert!(matches!(payload, Payload::File { .. }));
+        assert_eq!(payload.len(), data.len() as u64);
+        assert_eq!(payload.prefix(), &data[..PREFIX_LEN]);
+        assert_eq!(payload.read_all().unwrap(), data);
+        let url = format!("{}/asset.png", server.uri());
+        assert_eq!(cache.get(&url).expect("cache get"), Some(data));
+    }
+
+    #[tokio::test]
+    async fn spooled_oversize_and_error_documents_leave_no_files() {
+        let server = MockServer::start().await;
+        Mock::given(path("/big.png"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(vec![1u8; 4096]))
+            .mount(&server)
+            .await;
+        Mock::given(path("/err.png"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("Content-Type", "image/png")
+                    .set_body_bytes(b"  <!DOCTYPE html><p>blocked</p>".to_vec()),
+            )
+            .mount(&server)
+            .await;
+        let spool = tempfile::tempdir().expect("spool tempdir");
+        let mut context = ctx(&server, None, CancellationToken::new());
+        context.spool_dir = Some(spool.path().to_owned());
+        context.max_bytes = 1024;
+        let big = fetch_one(&context, "/big.png").await;
+        assert!(big.data.is_none());
+        assert!(!big.error.is_empty());
+        let err = fetch_one(&context, "/err.png").await;
+        assert!(err.data.is_none());
+        assert_eq!(err.error, "Content-Type mismatch for asset: image/png");
+        assert_eq!(spool_entries(spool.path()), 0);
     }
 
     #[tokio::test]

@@ -1,6 +1,6 @@
 //! Port of `storage/cache.py` (content-addressed image cache). Flushing is explicit;
 //! the Python background coalescing writer becomes a caller-owned task (F-008).
-use crate::atomic_io::{AtomicWriteError, atomic_write_bytes, atomic_write_text};
+use crate::atomic_io::{AtomicWriteError, atomic_copy_file, atomic_write_bytes, atomic_write_text};
 use cyoa_core::paths::is_link_or_junction;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -116,6 +116,21 @@ fn read_verified(path: &Path, expected: &str) -> io::Result<Option<Vec<u8>>> {
     Ok((hex(&hash.finalize()) == expected).then_some(bytes))
 }
 
+/// Streamed SHA-256 hex digest of a file.
+fn hash_file(path: &Path) -> io::Result<String> {
+    let mut file = File::open(path)?;
+    let mut hash = Sha256::new();
+    let mut chunk = [0_u8; 64 * 1024];
+    loop {
+        let count = file.read(&mut chunk)?;
+        if count == 0 {
+            break;
+        }
+        hash.update(&chunk[..count]);
+    }
+    Ok(hex(&hash.finalize()))
+}
+
 impl ImageCache {
     /// `root` is the `image_cache` directory (default `~/.cyoa_downloader/image_cache`).
     pub fn open(root: impl AsRef<Path>, limit_mb: u64) -> Result<Self, ImageCacheError> {
@@ -168,14 +183,45 @@ impl ImageCache {
         if !existing {
             atomic_write_bytes(&target, bytes)?;
         }
+        self.record(url, digest)?;
+        Ok(true)
+    }
+
+    /// Like [`put`](Self::put) for a payload already on disk; hashes and copies
+    /// in bounded chunks so the body is never fully loaded into memory.
+    pub fn put_file(&self, url: &str, source: &Path) -> Result<bool, ImageCacheError> {
+        if fs::metadata(source)?.len() < 64 {
+            return Ok(false);
+        }
+        let digest = hash_file(source)?;
+        let target = payload_path(&self.root, &digest);
+        if let Some(folder) = target.parent() {
+            if is_link_or_junction(folder) {
+                return Err(ImageCacheError::LinkedRoot);
+            }
+            fs::create_dir_all(folder)?;
+        }
+        let existing = !is_link_or_junction(&target)
+            && match hash_file(&target) {
+                Ok(found) => found == digest,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => false,
+                Err(error) => return Err(error.into()),
+            };
+        if !existing {
+            atomic_copy_file(source, &target)?;
+        }
+        self.record(url, digest)?;
+        Ok(true)
+    }
+
+    fn record(&self, url: &str, digest: String) -> Result<(), ImageCacheError> {
         {
             let mut state = lock(&self.state);
             state.index.insert(url.to_owned(), digest.clone());
             state.dirty.insert(url.to_owned(), digest);
             state.removed.remove(url);
         }
-        self.evict_to_limit()?;
-        Ok(true)
+        self.evict_to_limit()
     }
 
     /// Return a hit only when the streamed SHA-256 matches; otherwise drop that entry.
@@ -384,6 +430,27 @@ mod tests {
         assert_eq!(reopened.stats().entries, 1);
         assert_eq!(reopened.stats().size_bytes, 128);
         fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn put_file_matches_put_and_skips_small_files() {
+        let root_a = root();
+        let root_b = root();
+        let a = ImageCache::open(&root_a, DEFAULT_CACHE_MAX_MB).expect("open a");
+        let b = ImageCache::open(&root_b, DEFAULT_CACHE_MAX_MB).expect("open b");
+        let data: Vec<u8> = (0..150_000u32).map(|i| (i % 7) as u8).collect();
+        let src = root_b.join("src.bin");
+        fs::write(&src, &data).expect("write src");
+        let small = root_b.join("small.bin");
+        fs::write(&small, [1u8; 10]).expect("write small");
+        assert!(a.put("u", &data).expect("put"));
+        assert!(b.put_file("u", &src).expect("put_file"));
+        assert!(b.put_file("u", &src).expect("put_file existing"));
+        assert!(!b.put_file("s", &small).expect("small put_file"));
+        assert_eq!(b.get("u").expect("get"), Some(data));
+        assert_eq!(lock(&a.state).index, lock(&b.state).index);
+        fs::remove_dir_all(root_a).expect("cleanup a");
+        fs::remove_dir_all(root_b).expect("cleanup b");
     }
 
     #[test]

@@ -62,6 +62,12 @@ struct Args {
     /// Use dedicated cyoap_vue ICC mode and keep folder output.
     #[arg(long)]
     cyoap_vue_folder: bool,
+    /// Start local HTTP server for the output directory after download.
+    #[arg(long)]
+    serve: bool,
+    /// Local server port used with --serve. 0 means auto-pick a fresh port.
+    #[arg(long, default_value_t = 0)]
+    serve_port: u16,
     /// Disable the JS/CSS deep-scan asset pass (default: on).
     #[arg(long)]
     no_deep_scan: bool,
@@ -240,6 +246,67 @@ fn item_mode(args: &Args, mode: &str) -> Result<OutputMode, String> {
     )
 }
 
+/// Python `--serve`: serve the last website folder (or the output folder's
+/// archive root) on 127.0.0.1 until the process is interrupted.
+fn serve_after_download(
+    saved: &serde_json::Map<String, serde_json::Value>,
+    last_preview: Option<&std::path::Path>,
+    output: &std::path::Path,
+    port: u16,
+) {
+    if !saved
+        .get("serve_enabled")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(true)
+    {
+        tracing::info!("Serve preview disabled by toggle — not starting CLI server.");
+        return;
+    }
+    let dir = cyoa_integrations::preview::select_archive_root(last_preview.unwrap_or(output));
+    if !dir.is_dir() {
+        tracing::warn!("Serve skipped: preview folder not found: {}", dir.display());
+        tracing::warn!(
+            "Tip: use --icc-folder or --pure-website-folder when you want to preview immediately after download."
+        );
+        return;
+    }
+    let server = match cyoa_integrations::preview::PreviewServer::start_on(&dir, port) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("error: could not start the local server: {e}");
+            return;
+        }
+    };
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or_default();
+    let clear_url = format!("{}__clear_cache__?cb={stamp}", server.url());
+    tracing::info!("Open {clear_url} to preview with cleared browser storage.");
+    let shown = dir.display().to_string();
+    let shown = shown.strip_prefix(r"\\?\").unwrap_or(&shown);
+    println!("Serving {shown} at {}", server.url());
+    open_browser(&clear_url);
+    // Python `serve_forever()`: run until Ctrl+C ends the process.
+    loop {
+        std::thread::park();
+    }
+}
+
+fn open_browser(url: &str) {
+    #[cfg(windows)]
+    let r = std::process::Command::new("rundll32")
+        .args(["url.dll,FileProtocolHandler", url])
+        .spawn();
+    #[cfg(target_os = "macos")]
+    let r = std::process::Command::new("open").arg(url).spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let r = std::process::Command::new("xdg-open").arg(url).spawn();
+    if let Err(e) = r {
+        tracing::debug!("Could not open the browser: {e}");
+    }
+}
+
 /// ICC / pure website runs (no CYOA Manager registration, like Python).
 fn is_site_mode(mode: OutputMode) -> bool {
     matches!(
@@ -249,7 +316,9 @@ fn is_site_mode(mode: OutputMode) -> bool {
 }
 
 enum Outcome {
-    Ok,
+    /// Success; carries the website folder output, if any (Python
+    /// `_LAST_PREVIEW_FOLDER`).
+    Ok(Option<PathBuf>),
     Failed(String),
     Cancelled,
 }
@@ -305,6 +374,7 @@ async fn run_one(
             if let Some(db) = manager_db.filter(|_| !is_site_mode(mode)) {
                 register_with_manager(db.clone(), mode, url, &report).await;
             }
+            let preview = report.written_paths.iter().find(|p| p.is_dir()).cloned();
             for path in report.written_paths {
                 println!("Saved: {}", path.display());
             }
@@ -314,7 +384,7 @@ async fn run_one(
                     report.failed_assets.len()
                 );
             }
-            Outcome::Ok
+            Outcome::Ok(preview)
         }
         Err(_) if cancel.is_cancelled() => Outcome::Cancelled,
         Err(error) => Outcome::Failed(error.to_string()),
@@ -521,6 +591,7 @@ async fn main() -> ExitCode {
 
     let total = items.len();
     let mut ok = 0usize;
+    let mut last_preview: Option<PathBuf> = None;
     let mut failed: Vec<(String, String)> = Vec::new();
     for (idx, item) in items.iter().enumerate() {
         if cancel.is_cancelled() {
@@ -580,7 +651,10 @@ async fn main() -> ExitCode {
             ..RunOptions::default()
         };
         match run_one(options, &cancel, manager_db.as_ref()).await {
-            Outcome::Ok => ok += 1,
+            Outcome::Ok(preview) => {
+                ok += 1;
+                last_preview = preview;
+            }
             Outcome::Cancelled => break,
             Outcome::Failed(e) => {
                 eprintln!("error: {e}");
@@ -591,6 +665,15 @@ async fn main() -> ExitCode {
 
     if cancel.is_cancelled() {
         return ExitCode::from(130);
+    }
+    // cli.py 929-1270: `--serve` after a single download.
+    if args.serve && !batch_mode && failed.is_empty() {
+        serve_after_download(
+            &saved,
+            last_preview.as_deref(),
+            &args.output,
+            args.serve_port,
+        );
     }
     if batch_mode {
         if let Err(e) = reports::write_failed_url_log(&failed, &args.output) {

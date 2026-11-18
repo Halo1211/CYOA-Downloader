@@ -64,6 +64,27 @@ pub fn atomic_write_bytes(
     Ok(target)
 }
 
+/// Stream `source` into a sibling `.part` file, sync it, then atomically replace the target.
+pub fn atomic_copy_file(
+    source: impl AsRef<Path>,
+    path: impl AsRef<Path>,
+) -> Result<PathBuf, AtomicWriteError> {
+    let target = absolute(path.as_ref())?;
+    let (part, mut file) = temp_path(&target)?;
+    let result = (|| -> io::Result<()> {
+        io::copy(&mut File::open(source.as_ref())?, &mut file)?;
+        file.flush()?;
+        file.sync_all()?;
+        drop(file);
+        fs::rename(&part, &target)
+    })();
+    if let Err(error) = result {
+        let _ = fs::remove_file(&part);
+        return Err(error.into());
+    }
+    Ok(target)
+}
+
 /// Write text as UTF-8. Rust strings cannot contain unpaired surrogates.
 pub fn atomic_write_text(path: impl AsRef<Path>, text: &str) -> Result<PathBuf, AtomicWriteError> {
     atomic_write_bytes(path, text.as_bytes())

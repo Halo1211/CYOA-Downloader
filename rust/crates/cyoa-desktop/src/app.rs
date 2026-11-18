@@ -128,6 +128,33 @@ impl Default for Settings {
     }
 }
 
+/// Open a local preview URL (always `http://127.0.0.1:<port>/`) in the
+/// default browser.
+fn open_in_browser(url: &str) -> std::io::Result<()> {
+    if !url.starts_with("http://127.0.0.1:") {
+        return Err(std::io::Error::other("refusing non-local preview URL"));
+    }
+    #[cfg(windows)]
+    let mut cmd = {
+        let mut c = std::process::Command::new("rundll32");
+        c.args(["url.dll,FileProtocolHandler", url]);
+        c
+    };
+    #[cfg(target_os = "macos")]
+    let mut cmd = {
+        let mut c = std::process::Command::new("open");
+        c.arg(url);
+        c
+    };
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut cmd = {
+        let mut c = std::process::Command::new("xdg-open");
+        c.arg(url);
+        c
+    };
+    cmd.spawn().map(|_| ())
+}
+
 /// Same rule as the CLI/backend: absolute http(s) URL with a host.
 pub fn validate_url(input: &str) -> Result<String, &'static str> {
     let t = input.trim();
@@ -204,6 +231,10 @@ pub struct DownloaderApp {
     /// CYOA Manager toggle, persisted only in settings.json like Python.
     manager: crate::net::ManagerPrefs,
     manager_synced: crate::net::ManagerPrefs,
+    /// Last website folder output (Python `_set_last_preview_folder`).
+    last_preview: Option<PathBuf>,
+    /// Running local preview server (Serve).
+    preview: Option<cyoa_integrations::preview::PreviewServer>,
 }
 
 type ListPick = std::sync::mpsc::Receiver<Option<Result<Vec<BatchItem>, String>>>;
@@ -268,6 +299,8 @@ impl DownloaderApp {
             net_cache: None,
             shared,
             manager_synced: manager.clone(),
+            last_preview: None,
+            preview: None,
             manager,
         }
     }
@@ -317,6 +350,12 @@ impl DownloaderApp {
                 }
             }
             Event::Finished { job, result } => {
+                // Folder website outputs become the Serve target.
+                if let JobResult::Done(s) = &result
+                    && let Some(dir) = s.written.iter().map(PathBuf::from).find(|p| p.is_dir())
+                {
+                    self.last_preview = Some(dir);
+                }
                 let line;
                 if let Some(j) = self.job_mut(job) {
                     j.current.clear();
@@ -597,6 +636,27 @@ impl DownloaderApp {
         });
     }
 
+    fn start_preview(&mut self) {
+        let Some(folder) = self.last_preview.clone() else {
+            return;
+        };
+        match cyoa_integrations::preview::PreviewServer::start(&folder) {
+            Ok(server) => {
+                let url = server.url();
+                self.log
+                    .push(format!("[Server] Serving {} at {url}", folder.display()));
+                if let Err(e) = open_in_browser(&url) {
+                    self.log
+                        .push(format!("[Server] Could not open browser: {e}"));
+                }
+                self.preview = Some(server);
+            }
+            Err(e) => self
+                .log
+                .push(format!("[Server] Could not start preview: {e}")),
+        }
+    }
+
     fn running_job(&self) -> Option<&Job> {
         self.jobs
             .iter()
@@ -626,6 +686,18 @@ impl DownloaderApp {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button("Clear finished").clicked() {
                     self.clear_finished();
+                }
+                if self.preview.is_some() {
+                    if ui.button("Stop serve").clicked() {
+                        self.preview = None;
+                        self.log.push("[Server] Preview stopped.".to_owned());
+                    }
+                } else if ui
+                    .add_enabled(self.last_preview.is_some(), egui::Button::new("Serve"))
+                    .on_hover_text("Serve the last website folder on 127.0.0.1 and open it")
+                    .clicked()
+                {
+                    self.start_preview();
                 }
                 if ui.button("Cancel all").clicked()
                     && let Some(w) = &self.worker
@@ -798,6 +870,8 @@ mod tests {
             shared: None,
             manager: crate::net::ManagerPrefs::default(),
             manager_synced: crate::net::ManagerPrefs::default(),
+            last_preview: None,
+            preview: None,
         }
     }
 
