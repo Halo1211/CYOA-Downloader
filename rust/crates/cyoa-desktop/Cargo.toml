@@ -17,6 +17,8 @@ eframe = { version = "0.37.0", default-features = false, features = ["default_fo
 rfd = "0.18.0"
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros"] }
 tokio-util = "0.7.20"
+cyoa-storage = { path = "../cyoa-storage" }
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
 serde = { version = "1.0.229", features = ["derive"] }
 url = "2.5.8"
 

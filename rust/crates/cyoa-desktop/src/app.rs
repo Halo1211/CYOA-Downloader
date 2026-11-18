@@ -128,6 +128,9 @@ pub struct DownloaderApp {
     list_pick: Option<ListPick>,
     /// Built network objects, reused while the settings stay unchanged.
     net_cache: Option<(crate::net::NetSettings, crate::net::NetRuntime)>,
+    /// Shared Python-format `settings.json` and the network values last
+    /// synced with it (None: no shared file, e.g. headless tests).
+    shared: Option<(PathBuf, crate::net::NetSettings)>,
 }
 
 type ListPick = std::sync::mpsc::Receiver<Option<Result<Vec<BatchItem>, String>>>;
@@ -148,12 +151,19 @@ pub fn batch_item_mode(default: Mode, mode: &str) -> Result<Mode, String> {
 
 impl DownloaderApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        let settings = cc
+        let mut settings: Settings = cc
             .storage
             .and_then(|s| eframe::get_value(s, SETTINGS_KEY))
             .unwrap_or_default();
         let ctx = cc.egui_ctx.clone();
         let mut log = RingLog::new(LOG_CAPACITY);
+        // settings.json (shared with the Python app and the CLI) wins over the
+        // eframe state file for network keys.
+        let shared_path = cyoa_storage::settings::default_path();
+        if let Err(e) = settings.net.load_shared(&shared_path) {
+            log.push(format!("Could not read {}: {e}", shared_path.display()));
+        }
+        let shared = Some((shared_path, settings.net.clone()));
         let worker = match WorkerHandle::spawn(Box::new(move || ctx.request_repaint())) {
             Ok(w) => Some(w),
             Err(e) => {
@@ -173,6 +183,7 @@ impl DownloaderApp {
             folder_pick: None,
             list_pick: None,
             net_cache: None,
+            shared,
         }
     }
 
@@ -563,6 +574,16 @@ impl eframe::App for DownloaderApp {
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, SETTINGS_KEY, &self.settings);
+        if let Some((path, synced)) = &mut self.shared
+            && *synced != self.settings.net
+        {
+            match self.settings.net.save_shared(path) {
+                Ok(()) => *synced = self.settings.net.clone(),
+                Err(e) => self
+                    .log
+                    .push(format!("Could not save {}: {e}", path.display())),
+            }
+        }
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
@@ -616,6 +637,7 @@ mod tests {
             folder_pick: None,
             list_pick: None,
             net_cache: None,
+            shared: None,
         }
     }
 
