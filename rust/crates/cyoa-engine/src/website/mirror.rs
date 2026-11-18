@@ -14,12 +14,41 @@
 //! every request, so it must run inside `tokio::task::spawn_blocking`.
 
 use super::*;
-use cyoa_core::paths::safe_join;
 use cyoa_net::{
     client::{FetchClient, FetchOptions},
     policy::{host_is_internal, ip_is_internal},
 };
-use std::{net::ToSocketAddrs, path::PathBuf};
+use std::{
+    collections::HashMap,
+    net::ToSocketAddrs,
+    path::{Component, Path, PathBuf},
+};
+
+/// Dependency nesting bound for CSS/JS/HTML recursion (Python is bounded by
+/// its interpreter recursion limit: `RecursionError` → request failed).
+pub const MAX_DEPENDENCY_DEPTH: usize = 64;
+/// Per-site request and byte budgets (Python has none; generous safety caps).
+pub const DEFAULT_MAX_REQUESTS: usize = 100_000;
+pub const DEFAULT_MAX_TOTAL_BYTES: u64 = 20 * 1024 * 1024 * 1024;
+
+/// Join an allocated `/`-separated relative path under `root` WITHOUT
+/// re-decoding it (the allocator already sanitized it, like Python's
+/// `_safe_join` result being written verbatim). Rejects traversal components
+/// and existing symlink/junction ancestors.
+pub fn contained_path(root: &Path, rel: &str) -> Option<PathBuf> {
+    let mut out = root.to_path_buf();
+    for part in rel.split('/') {
+        let comps: Vec<Component<'_>> = Path::new(part).components().collect();
+        match comps.as_slice() {
+            [Component::Normal(_)] => out.push(part),
+            _ => return None,
+        }
+        if out.exists() && cyoa_core::paths::is_link_or_junction(&out) {
+            return None;
+        }
+    }
+    (out != root).then_some(out)
+}
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
@@ -55,6 +84,12 @@ pub struct MirrorSink {
     /// `(url, local, kind)` like Python `_success_items`.
     pub success: Vec<(String, String, String)>,
     depth: usize,
+    dep_depth: usize,
+    dns_internal: HashMap<String, bool>,
+    requests: usize,
+    total_bytes: u64,
+    pub max_requests: usize,
+    pub max_total_bytes: u64,
 }
 
 impl MirrorSink {
@@ -67,6 +102,9 @@ impl MirrorSink {
         cancel: CancellationToken,
         max_bytes: u64,
     ) -> Self {
+        let mut alloc = PathAllocator::new(start_url);
+        // Python `__init__`: `_used_local_paths.add(start_html_local)`.
+        alloc.reserve_path("index.html");
         Self {
             root,
             start_url: start_url.to_owned(),
@@ -76,12 +114,18 @@ impl MirrorSink {
             cancel,
             max_bytes,
             custom_viewer_route: false,
-            alloc: PathAllocator::new(start_url),
+            alloc,
             entries: Vec::new(),
             pages: Vec::new(),
             failed: Vec::new(),
             success: Vec::new(),
             depth: 0,
+            dep_depth: 0,
+            dns_internal: HashMap::new(),
+            requests: 0,
+            total_bytes: 0,
+            max_requests: DEFAULT_MAX_REQUESTS,
+            max_total_bytes: DEFAULT_MAX_TOTAL_BYTES,
         }
     }
 
@@ -111,6 +155,11 @@ impl MirrorSink {
 
     /// `_fetch`.
     fn fetch(&mut self, url: &str) -> Option<Fetched> {
+        if self.requests >= self.max_requests || self.total_bytes >= self.max_total_bytes {
+            self.fail(url, "site download budget exhausted");
+            return None;
+        }
+        self.requests += 1;
         let Ok(parsed) = Url::parse(url) else {
             self.fail(url, format!("Could not fetch {url}: invalid URL"));
             return None;
@@ -165,12 +214,15 @@ impl MirrorSink {
             .handle
             .block_on(FetchClient::bytes(response, self.max_bytes))
         {
-            Ok(bytes) => Some(Fetched {
-                bytes: bytes.to_vec(),
-                content_type,
-                charset,
-                final_url,
-            }),
+            Ok(bytes) => {
+                self.total_bytes = self.total_bytes.saturating_add(bytes.len() as u64);
+                Some(Fetched {
+                    bytes: bytes.to_vec(),
+                    content_type,
+                    charset,
+                    final_url,
+                })
+            }
             Err(error) => {
                 self.fail(url, format!("response body failed: {error}"));
                 None
@@ -179,8 +231,8 @@ impl MirrorSink {
     }
 
     fn write(&self, rel: &str, bytes: &[u8]) -> Result<(), String> {
-        let path =
-            safe_join(&self.root.to_string_lossy(), rel, "asset").map_err(|e| e.to_string())?;
+        let path = contained_path(&self.root, rel)
+            .ok_or_else(|| format!("Unsafe output path rejected: {rel:?}"))?;
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
@@ -231,13 +283,18 @@ impl MirrorSink {
         if super::page::is_archive_noise_url(&full) {
             return None;
         }
-        let internal = |host: &str| {
-            host_is_internal(host)
-                || (host, 0)
+        // Resolve each host once per site (blocking resolution stays bounded).
+        let host = crate::localize::py_hostname(py_urlparse(&full).netloc);
+        if !host.is_empty() && !self.dns_internal.contains_key(&host) {
+            let internal = host_is_internal(&host)
+                || (host.as_str(), 0)
                     .to_socket_addrs()
                     .map(|mut a| a.any(|s| ip_is_internal(s.ip())))
-                    .unwrap_or(false)
-        };
+                    .unwrap_or(false);
+            self.dns_internal.insert(host.clone(), internal);
+        }
+        let cache = &self.dns_internal;
+        let internal = |h: &str| cache.get(h).copied().unwrap_or_else(|| host_is_internal(h));
         if crate::fetch_plan::ssrf_block_cross_origin(&full, &self.start_url, false, internal) {
             self.set_entry(&full, Entry::Done(None));
             self.fail(&full, "blocked: cross-origin internal host");
@@ -252,6 +309,11 @@ impl MirrorSink {
                 }
                 None => {}
             }
+        }
+        if self.dep_depth >= MAX_DEPENDENCY_DEPTH {
+            // Python: RecursionError inside `_fetch` → None → "request failed".
+            self.fail(&full, "request failed");
+            return None;
         }
         self.set_entry(&full, Entry::InProgress);
         self.set_entry(&requested_key, Entry::InProgress);
@@ -387,6 +449,7 @@ impl MirrorSink {
             .unwrap_or_else(|| full.clone());
         let (start, base) = (self.start_url.clone(), self.base_url.clone());
         let text = || cyoa_parse::project::try_decode_bytes(&r.bytes, &r.charset);
+        self.dep_depth += 1;
         let written = match kind {
             "css" => {
                 let out = Rewriter {
@@ -408,6 +471,7 @@ impl MirrorSink {
             }
             "html" => {
                 if self.depth >= 16 {
+                    self.dep_depth -= 1;
                     self.fail(&full, "nested HTML document limit reached (16)");
                     self.complete(&[keys_ref.0, keys_ref.1], None);
                     return None;
@@ -427,13 +491,20 @@ impl MirrorSink {
             }
             _ => self.write(&rel, &r.bytes),
         };
+        self.dep_depth -= 1;
         if let Err(error) = written {
             self.fail(&full, format!("response body failed: {error}"));
             self.complete(&[keys_ref.0, keys_ref.1], None);
             return None;
         }
         let ck = normalize_cache_key(&full);
-        for key in [full.as_str(), ck.as_str(), keys_ref.0, keys_ref.1] {
+        for key in [
+            full.as_str(),
+            ck.as_str(),
+            keys_ref.0,
+            keys_ref.1,
+            source_url.as_str(),
+        ] {
             self.set_entry(key, Entry::Done(Some(rel.clone())));
         }
         self.success.push((full, rel.clone(), kind.to_owned()));
@@ -444,12 +515,16 @@ impl MirrorSink {
     /// to `index.html`.
     pub fn mirror_classic(&mut self, html_text: Option<String>) -> Result<(), String> {
         let start = self.start_url.clone();
+        let mut url = start.clone();
         let text = match html_text {
             Some(t) => t,
             None => {
                 let r = self
                     .fetch(&start)
                     .ok_or_else(|| format!("Could not download entry HTML: {start}"))?;
+                // Python localizes against the effective (redirected) URL.
+                url = normalize_remote_url(&r.final_url, Some(&start), &start)
+                    .unwrap_or_else(|| start.clone());
                 cyoa_parse::project::try_decode_bytes(&r.bytes, &r.charset)
             }
         };
@@ -459,10 +534,13 @@ impl MirrorSink {
             base_url: &base,
             sink: self,
         }
-        .localize_html(&start, "index.html", &text)
+        .localize_html(&url, "index.html", &text)
         .map_err(|e| e.to_string())?;
-        self.custom_viewer_route = page.custom_viewer_route;
+        self.custom_viewer_route |= page.custom_viewer_route;
         self.write("index.html", page.html.as_bytes())?;
+        let local = Some("index.html".to_owned());
+        self.set_entry(&url, Entry::Done(local.clone()));
+        self.set_entry(&start, Entry::Done(local));
         Ok(())
     }
 }
@@ -487,7 +565,7 @@ impl AssetSink for MirrorSink {
     }
 
     fn is_file(&self, rel: &str) -> bool {
-        safe_join(&self.root.to_string_lossy(), rel, "asset").is_ok_and(|p| p.is_file())
+        contained_path(&self.root, rel).is_some_and(|p| p.is_file())
     }
 
     fn downloaded_entries(&self) -> Vec<(String, String)> {
@@ -506,10 +584,13 @@ impl AssetSink for MirrorSink {
         self.pages.push((key, local.to_owned()));
     }
 
-    fn page_saved(&mut self, url: &str, local: &str) {
+    fn end_page(&mut self, url: &str) {
         let key = url.split('#').next().unwrap_or("").to_owned();
         self.pages.retain(|(u, _)| *u != key);
-        self.set_entry(url, Entry::Done(Some(local.to_owned())));
+    }
+
+    fn set_custom_viewer_route(&mut self) {
+        self.custom_viewer_route = true;
     }
 
     fn patch_local_audio_scripts(&mut self) {
@@ -520,7 +601,7 @@ impl AssetSink for MirrorSink {
             .filter(|l| l.to_lowercase().ends_with(".js") || l.to_lowercase().ends_with(".mjs"))
             .collect();
         for local in locals {
-            let Ok(path) = safe_join(&self.root.to_string_lossy(), &local, "asset") else {
+            let Some(path) = contained_path(&self.root, &local) else {
                 continue;
             };
             let Ok(text) = std::fs::read_to_string(&path) else {

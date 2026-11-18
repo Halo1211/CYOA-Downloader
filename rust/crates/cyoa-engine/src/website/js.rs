@@ -386,14 +386,15 @@ impl Rewriter<'_> {
                 while let Some(m) = re.find_at(text, at) {
                     let body_start = m.end();
                     let limit = (body_start + 100_000).min(text.len());
-                    let found = text[body_start..].char_indices().find_map(|(k, ch)| {
-                        let idx = body_start + k;
-                        if idx > limit || ch != ']' {
-                            return None;
-                        }
-                        let rest = text[idx + 1..].trim_start();
-                        rest.starts_with(';').then_some(idx)
-                    });
+                    // `.{0,100000}?` bound: never scan past `limit`.
+                    let found = text[body_start..]
+                        .char_indices()
+                        .take_while(|(k, _)| body_start + k <= limit)
+                        .find_map(|(k, ch)| {
+                            let idx = body_start + k;
+                            (ch == ']' && text[idx + 1..].trim_start().starts_with(';'))
+                                .then_some(idx)
+                        });
                     match found {
                         Some(end) => {
                             spans.push((body_start, end));
@@ -451,20 +452,28 @@ impl Rewriter<'_> {
         if chunk_maps_only {
             return;
         }
-        let mut ranges: HashMap<String, (u64, u64)> = HashMap::new();
+        let mut ranges: HashMap<String, (u128, u128)> = HashMap::new();
         if let Some(re) = RANGE.as_ref() {
             for c in re.captures_iter(text) {
-                let Ok(count) = c["count"].parse::<u64>() else {
+                let Ok(count) = c["count"].parse::<u128>() else {
                     continue;
                 };
                 if count == 0 || count > 1000 {
                     continue;
                 }
-                let start = c
-                    .name("start")
-                    .and_then(|m| m.as_str().parse().ok())
-                    .unwrap_or(0);
-                ranges.insert(c["var"].to_owned(), (start, start + count - 1));
+                // Python ints are unbounded; starts beyond u128 are skipped
+                // (documented parity exception) instead of wrapping to 0.
+                let start = match c.name("start") {
+                    None => 0,
+                    Some(m) => match m.as_str().parse::<u128>() {
+                        Ok(v) => v,
+                        Err(_) => continue,
+                    },
+                };
+                let Some(end) = start.checked_add(count - 1) else {
+                    continue;
+                };
+                ranges.insert(c["var"].to_owned(), (start, end));
             }
         }
         let mut seen_numeric = HashSet::new();

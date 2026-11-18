@@ -153,16 +153,42 @@ pub fn normalize_remote_url(url: &str, referrer: Option<&str>, start_url: &str) 
 
 /// `re.sub(r"^(https?):/(?!/)", r"\1://", url, flags=I)`.
 fn repair_scheme(url: &str) -> String {
+    // Byte-wise checks: `url` may start with multibyte characters, so never
+    // slice at an arbitrary byte offset before the ASCII prefix is confirmed.
+    let b = url.as_bytes();
     for scheme in ["https", "http"] {
-        if url.len() > scheme.len() + 2
-            && url[..scheme.len()].eq_ignore_ascii_case(scheme)
-            && url[scheme.len()..].starts_with(":/")
-            && !url[scheme.len()..].starts_with("://")
+        let n = scheme.len();
+        if b.len() > n + 2
+            && b[..n].eq_ignore_ascii_case(scheme.as_bytes())
+            && b[n..].starts_with(b":/")
+            && !b[n..].starts_with(b"://")
         {
-            return format!("{}://{}", &url[..scheme.len()], &url[scheme.len() + 2..]);
+            return format!("{}://{}", &url[..n], &url[n + 2..]);
         }
     }
     url.to_owned()
+}
+
+/// Python `str.casefold()` identity for collision checks: lowercase plus the
+/// common full-folding expansions (ß→ss, ligatures, final sigma, …).
+pub(crate) fn casefold(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '\u{df}' | '\u{1e9e}' => out.push_str("ss"),
+            '\u{3c2}' => out.push('\u{3c3}'),
+            '\u{17f}' => out.push('s'),
+            '\u{130}' => out.push_str("i\u{307}"),
+            '\u{fb00}' => out.push_str("ff"),
+            '\u{fb01}' => out.push_str("fi"),
+            '\u{fb02}' => out.push_str("fl"),
+            '\u{fb03}' => out.push_str("ffi"),
+            '\u{fb04}' => out.push_str("ffl"),
+            '\u{fb05}' | '\u{fb06}' => out.push_str("st"),
+            c => out.extend(c.to_lowercase()),
+        }
+    }
+    out
 }
 
 /// `_kind_from`.
@@ -247,6 +273,11 @@ pub struct PathAllocator {
 }
 
 impl PathAllocator {
+    /// Mark an output path as taken (Python reserves `index.html` in `__init__`).
+    pub fn reserve_path(&mut self, rel: &str) {
+        self.used.insert(casefold(rel));
+    }
+
     pub fn new(start_url: &str) -> Self {
         Self {
             start_url: start_url.to_owned(),
@@ -261,11 +292,11 @@ impl PathAllocator {
         let (root, ext) = (root.to_owned(), ext.to_owned());
         let mut local = candidate.clone();
         let mut counter = 1;
-        while self.used.contains(&local.to_lowercase()) {
+        while self.used.contains(&casefold(&local)) {
             local = format!("{root}_{counter}{ext}");
             counter += 1;
         }
-        self.used.insert(local.to_lowercase());
+        self.used.insert(casefold(&local));
         if local != candidate {
             self.collisions
                 .push((url.to_owned(), candidate, local.clone()));
@@ -435,8 +466,10 @@ pub trait AssetSink {
     }
     /// `_download_html` registers the page being localized.
     fn begin_page(&mut self, _url: &str, _local: &str) {}
-    /// The localized page was written (`_downloaded[url] = local_html`).
-    fn page_saved(&mut self, _url: &str, _local: &str) {}
+    /// `_download_html`'s `finally`: the page is no longer being localized.
+    fn end_page(&mut self, _url: &str) {}
+    /// `self._custom_viewer_route = True` (published before asset downloads).
+    fn set_custom_viewer_route(&mut self) {}
     /// `_patch_local_audio_scripts` (see [`page::patch_local_audio_text`]).
     fn patch_local_audio_scripts(&mut self) {}
 }

@@ -64,6 +64,10 @@ const VOID: &[&str] = &[
     "spacer", "track", "wbr",
 ];
 const PRESERVE_WS: &[&str] = &["pre", "textarea"];
+/// Open-element bound. Deeper documents are rejected (documented parity
+/// exception: bs4 serializes iteratively, while this tree is traversed
+/// recursively and must not overflow the stack on hostile input).
+pub const MAX_NESTING: usize = 512;
 const CDATA_CONTENT: &[&str] = &["script", "style"];
 
 fn multi_valued(tag: &str, attr: &str) -> bool {
@@ -280,6 +284,7 @@ struct Builder {
     preserve_ws: usize,
     current_data: Vec<String>,
     already_closed_empty: Vec<String>,
+    too_deep: bool,
 }
 
 impl Builder {
@@ -296,6 +301,7 @@ impl Builder {
             preserve_ws: 0,
             current_data: Vec::new(),
             already_closed_empty: Vec::new(),
+            too_deep: false,
         }
     }
 
@@ -377,6 +383,10 @@ impl Builder {
             {
                 el.charset_sub = Some(CharsetSub::Content);
             }
+        }
+        if self.stack.len() > MAX_NESTING {
+            self.too_deep = true;
+            return false;
         }
         *self.open_count.entry(name.to_owned()).or_default() += 1;
         if PRESERVE_WS.contains(&name) {
@@ -503,8 +513,11 @@ fn last_char_len(s: &str, end: usize) -> usize {
 
 struct Tokenizer<'p> {
     p: &'p Patterns,
-    raw: String,
+    /// Shared buffer: `clone()` is a refcount bump, not a document copy.
+    raw: std::rc::Rc<str>,
     cdata_elem: Option<String>,
+    /// Cached `</\s*elem\s*>` matcher for the active CDATA element.
+    cdata_re: Option<Regex>,
     b: Builder,
 }
 
@@ -513,10 +526,7 @@ impl Tokenizer<'_> {
         let raw = &self.raw;
         match &self.cdata_elem {
             None => raw[i..].find(['&', '<']).map(|j| j + i),
-            Some(elem) => {
-                let re = Regex::new(&format!(r"(?i)</\s*{}\s*>", regex::escape(elem))).ok()?;
-                re.find_at(raw, i).map(|m| m.start())
-            }
+            Some(_) => self.cdata_re.as_ref()?.find_at(raw, i).map(|m| m.start()),
         }
     }
 
@@ -629,7 +639,7 @@ impl Tokenizer<'_> {
             self.b.handle_data(&d);
             i = n;
         }
-        self.raw = self.raw[i..].to_owned();
+        self.raw = std::rc::Rc::from(&self.raw[i..]);
         Ok(())
     }
 
@@ -675,7 +685,9 @@ impl Tokenizer<'_> {
         let mut k = tm.get(0).map_or(i + 1, |m| m.end());
         let mut attrs: Vec<(String, Option<String>)> = Vec::new();
         while k < endpos {
-            let Some(m) = fmatch_at(&self.p.attrfind, &raw, k) else {
+            // Bounded haystack: an attribute match never extends past `endpos`, and
+            // an unbounded failing search would rescan the rest of the document.
+            let Some(m) = fmatch_at(&self.p.attrfind, &raw[..endpos], k) else {
                 break;
             };
             let name = m.get(1).map_or("", |x| x.as_str());
@@ -715,6 +727,7 @@ impl Tokenizer<'_> {
         } else {
             self.b.handle_starttag(&tag, attrs, true);
             if CDATA_CONTENT.contains(&tag.as_str()) {
+                self.cdata_re = Regex::new(&format!(r"(?i)</\s*{}\s*>", regex::escape(&tag))).ok();
                 self.cdata_elem = Some(tag);
             }
         }
@@ -732,7 +745,7 @@ impl Tokenizer<'_> {
                 self.b.handle_data(&raw[i..gtpos]);
                 return gtpos as isize;
             }
-            let Some(nm) = fmatch_at(&self.p.tagfind, &raw, i + 2) else {
+            let Some(nm) = fmatch_at(&self.p.tagfind, &raw[..gtpos], i + 2) else {
                 if raw[i..].starts_with("</>") {
                     return (i + 3) as isize;
                 }
@@ -753,6 +766,7 @@ impl Tokenizer<'_> {
         }
         self.b.handle_endtag(&elem, true);
         self.cdata_elem = None;
+        self.cdata_re = None;
         gtpos as isize
     }
 
@@ -865,12 +879,18 @@ pub fn parse(markup: &str) -> Result<Element, HtmlError> {
     };
     let mut t = Tokenizer {
         p,
-        raw: markup.to_owned(),
+        raw: std::rc::Rc::from(markup),
         cdata_elem: None,
+        cdata_re: None,
         b: Builder::new(),
     };
     t.goahead(false)?;
     t.goahead(true)?;
+    if t.b.too_deep {
+        return Err(HtmlError::Rejected(format!(
+            "element nesting deeper than {MAX_NESTING} levels"
+        )));
+    }
     Ok(t.b.finish())
 }
 

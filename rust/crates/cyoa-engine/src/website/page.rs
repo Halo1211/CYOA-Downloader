@@ -377,14 +377,28 @@ impl Rewriter<'_> {
         })
     }
 
-    /// `_download_html` + `_localize_html` with the entry text supplied.
+    /// `_download_html` + `_localize_html` with the entry text supplied. The
+    /// caller writes `LocalizedPage::html` and then records the page as
+    /// downloaded (Python sets `_downloaded[url]` only after the write).
     pub fn localize_html(
         &mut self,
         url: &str,
         local_html: &str,
         html_text: &str,
     ) -> Result<LocalizedPage, HtmlError> {
+        // `_download_html` registers the active page and restores it in `finally`.
         self.sink.begin_page(url, local_html);
+        let result = self.localize_html_inner(url, local_html, html_text);
+        self.sink.end_page(url);
+        result
+    }
+
+    fn localize_html_inner(
+        &mut self,
+        url: &str,
+        local_html: &str,
+        html_text: &str,
+    ) -> Result<LocalizedPage, HtmlError> {
         let html_text = decode_inline_document_payload(html_text);
         let mut doc = html::parse(&html_text)?;
 
@@ -439,6 +453,7 @@ impl Rewriter<'_> {
                 || (lower.contains("id=\"bg-music\"") && lower.contains("point-bar")))
         {
             custom_viewer_route = true;
+            self.sink.set_custom_viewer_route();
             if !has_base {
                 page_url = self.base_url.to_owned();
             }
@@ -703,7 +718,6 @@ impl Rewriter<'_> {
         }
 
         let output = html::serialize(&doc);
-        self.sink.page_saved(url, local_html);
         Ok(LocalizedPage {
             html: output,
             custom_viewer_route,

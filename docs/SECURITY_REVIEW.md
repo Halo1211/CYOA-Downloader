@@ -44,3 +44,22 @@ Fixed by Claude:
 - Medium: close waits at most 500 ms, with a bounded drain.
 - Low: the UI is woken only when an event is actually queued.
 - Open: the UI job history grows with user-submitted jobs (virtualized rendering; no pruning yet).
+
+## Session 5 — Sol review of website mirror (W1–W3)
+14 findings. Fixed by Claude (Luna could not write files):
+- **High:** multibyte URL panic in `repair_scheme` (byte-wise prefix checks).
+- **High:** allocated paths were percent-decoded twice at write time (`a%252Fb` vs `a/b` collision). Writes now use `mirror::contained_path`: literal components, traversal rejected, link/junction ancestors rejected.
+- **High:** `index.html` is now reserved like Python `__init__`.
+- **High:** CSS/JS dependency chains are bounded (`MAX_DEPENDENCY_DEPTH` 64, mirrors Python RecursionError → "request failed").
+- **High:** HTML nesting deeper than 512 is rejected (parity exception: bs4 serializes iteratively).
+- **Medium:** site budgets (100k requests, 20 GiB).
+- **Medium:** checked numeric-range arithmetic. Starts beyond u128 are skipped (parity exception).
+- **Medium:** array scan honours its 100 kB window.
+- **Medium:** per-host DNS classification is cached.
+- **Medium:** the entry redirect URL is used as the page URL.
+- **Medium:** the custom-viewer route is published before downloads.
+- **Medium:** the active-page mapping is cleared on every exit; the page is recorded only after its write.
+- **Medium:** casefold collision identity.
+- **Perf bug found while testing:** the tokenizer cloned the whole document per tag, and fancy-regex unbounded searches rescanned the rest of the document. Now linear: 10k nested tags 5.4 s → 8 ms.
+- Open (same as Python): local TOCTOU ancestor swap between containment check and write.
+- `project.json` shared output across origins (Python behaviour).
