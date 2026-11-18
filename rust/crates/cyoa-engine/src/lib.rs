@@ -4,3 +4,4 @@ pub mod embed;
 pub mod fetch;
 pub mod fetch_plan;
 pub mod localize;
+pub mod pipeline;

@@ -10,3 +10,10 @@
 | KI-6 | Network | No single retry budget across connection, body, auth and backend recovery | OPTIMIZATION_ROADMAP |
 | KI-7 | Structure | Global mutable compatibility layer (`compat.py`, `runtime/surface.py`) | audit |
 | KI-8 | Tests | 21 tests are skipped (GUI, Playwright and live). Browser and GUI paths have no automated baseline | ENVIRONMENT.md |
+
+## Session 4 (Rust engine)
+- **KI-R1 memory:** `pipeline::process_images` holds every fetched body (and base64 embeds) in memory; Python can spool to disk. Large projects can exhaust RAM. Fix: file-backed payloads + streaming output sink (Sol High, deferred).
+- **KI-R2 transport retries:** Rust client does no connect-level retries; Python retries 3x inside fetch_response.
+- **KI-R3 error strings:** other-4xx/TLS failure messages differ from requests' wording.
+- **KI-R4 blocking resolver:** `FetchCtx.resolver` (SSRF cross-origin check) is synchronous on runtime threads.
+- **DEFERRED in fetch_one:** gallery-dl, headless browser, cookie session, Discord refresh, MediaWiki File: resolution, VPN guard, yt-dlp.

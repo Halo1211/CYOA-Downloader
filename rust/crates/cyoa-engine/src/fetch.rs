@@ -1,3 +1,4 @@
+use crate::localize::asset_is_error_document;
 use cyoa_net::{
     client::{FetchClient, FetchOptions},
     policy::{host_is_internal, ip_is_internal},
@@ -9,33 +10,6 @@ use std::{collections::HashSet, net::IpAddr, sync::Arc, time::Duration};
 use tokio_util::bytes::Bytes;
 use tokio_util::sync::CancellationToken;
 use url::Url;
-
-/// Return whether the supplied content looks like an HTML or JSON error document.
-pub fn asset_is_error_document(mime: &str, content: &[u8], binary_asset: bool) -> bool {
-    let content_type = mime
-        .split(';')
-        .next()
-        .unwrap_or_default()
-        .trim()
-        .to_ascii_lowercase();
-    if matches!(content_type.as_str(), "text/html" | "application/xhtml+xml")
-        || (binary_asset && content_type == "application/json")
-    {
-        return true;
-    }
-    let prefix = content
-        .iter()
-        .take(512)
-        .copied()
-        .skip_while(u8::is_ascii_whitespace)
-        .map(|byte| byte.to_ascii_lowercase())
-        .collect::<Vec<_>>();
-    [b"<!doctype html".as_slice(), b"<html", b"<head", b"<body"]
-        .iter()
-        .any(|marker| prefix.starts_with(marker))
-        || prefix.starts_with(b"{\"error")
-        || prefix.starts_with(b"{\"errors")
-}
 
 /// Hostname resolver used for the cross-origin private address check.
 pub type AssetResolver = Arc<dyn Fn(&str) -> Vec<IpAddr> + Send + Sync>;
@@ -141,8 +115,13 @@ pub async fn fetch_one(ctx: &FetchCtx, asset_path: &str) -> FetchOutcome {
 
     let fallback_mime = guess_mime_from_url(&asset_url).unwrap_or("image/jpeg");
     if let Some(cache) = &ctx.cache {
-        match cache.get(&asset_url) {
-            Ok(Some(data)) if !asset_is_error_document(fallback_mime, &data, true) => {
+        let cache = cache.clone();
+        let cache_url = asset_url.clone();
+        match tokio::task::spawn_blocking(move || cache.get(&cache_url)).await {
+            Ok(Ok(Some(data)))
+                if data.len() as u64 <= ctx.max_bytes
+                    && !asset_is_error_document(fallback_mime, &data, true) =>
+            {
                 return outcome(
                     asset_path,
                     Some(Bytes::from(data)),
@@ -151,9 +130,13 @@ pub async fn fetch_one(ctx: &FetchCtx, asset_path: &str) -> FetchOutcome {
                     "",
                 );
             }
-            Ok(Some(_)) => tracing::warn!("[CACHE REJECTED] error document: {asset_url}"),
-            Ok(None) => {}
-            Err(error) => tracing::warn!("cache read failed for {asset_url}: {error}"),
+            Ok(Ok(Some(data))) if data.len() as u64 > ctx.max_bytes => {
+                tracing::warn!("[CACHE REJECTED] entry exceeds max_bytes: {asset_url}");
+            }
+            Ok(Ok(Some(_))) => tracing::warn!("[CACHE REJECTED] error document: {asset_url}"),
+            Ok(Ok(None)) => {}
+            Ok(Err(error)) => tracing::warn!("cache read failed for {asset_url}: {error}"),
+            Err(error) => tracing::warn!("cache read task failed for {asset_url}: {error}"),
         }
     }
 
@@ -302,10 +285,15 @@ pub async fn fetch_one(ctx: &FetchCtx, asset_path: &str) -> FetchOutcome {
             );
         }
         ctx.domain.record_success(&asset_url);
-        if let Some(cache) = &ctx.cache
-            && let Err(error) = cache.put(&asset_url, &data)
-        {
-            tracing::warn!("cache write failed for {asset_url}: {error}");
+        if let Some(cache) = &ctx.cache {
+            let cache = cache.clone();
+            let cache_url = asset_url.clone();
+            let cache_data = data.to_vec();
+            match tokio::task::spawn_blocking(move || cache.put(&cache_url, &cache_data)).await {
+                Ok(Ok(_)) => {}
+                Ok(Err(error)) => tracing::warn!("cache write failed for {asset_url}: {error}"),
+                Err(error) => tracing::warn!("cache write task failed for {asset_url}: {error}"),
+            }
         }
         return outcome(asset_path, Some(data), &mime, &asset_url, "");
     }
@@ -317,6 +305,7 @@ pub async fn fetch_one(ctx: &FetchCtx, asset_path: &str) -> FetchOutcome {
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use crate::localize::asset_is_error_document;
     use cyoa_net::{
         client::{ClientConfig, FetchClient},
         policy::DestinationPolicy,
@@ -476,5 +465,26 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
         cancel.cancel();
         assert_eq!(task.await.expect("fetch task").error, "fetch cancelled");
+    }
+
+    #[tokio::test]
+    async fn oversized_cache_entry_is_a_miss_and_fetches_network_body() {
+        let server = MockServer::start().await;
+        route(&server, 200, vec![9; 16], "image/png").await;
+        let cache_dir = tempfile::tempdir().expect("cache tempdir");
+        let cache = Arc::new(ImageCache::open(cache_dir.path(), 1).expect("cache"));
+        let mut context = ctx(&server, Some(cache.clone()), CancellationToken::new());
+        context.max_bytes = 8;
+        let url = format!("{}/asset.png", server.uri());
+        cache.put(&url, &[1; 128]).expect("seed oversized cache");
+        let result = fetch_one(&context, "/asset.png").await;
+        assert!(!result.error.is_empty());
+        assert!(
+            !server
+                .received_requests()
+                .await
+                .expect("requests")
+                .is_empty()
+        );
     }
 }
