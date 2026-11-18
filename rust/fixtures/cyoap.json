@@ -1,0 +1,1129 @@
+{
+ "candidates": [
+  {
+   "base": "https://h.test/cyoa/",
+   "value": "img/a.png",
+   "kind": "images",
+   "out": [
+    "https://h.test/cyoa/dist/images/img/a.png",
+    "https://h.test/cyoa/img/a.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/",
+   "value": "img/a.png",
+   "kind": "media",
+   "out": [
+    "https://h.test/cyoa/img/a.png",
+    "https://h.test/cyoa/dist/audio/img/a.png",
+    "https://h.test/cyoa/dist/media/img/a.png",
+    "https://h.test/cyoa/dist/images/img/a.png",
+    "https://h.test/cyoa/audio/img/a.png",
+    "https://h.test/cyoa/media/img/a.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/",
+   "value": "/abs/b.png",
+   "kind": "images",
+   "out": [
+    "https://h.test/abs/b.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/",
+   "value": "/abs/b.png",
+   "kind": "media",
+   "out": [
+    "https://h.test/abs/b.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/",
+   "value": "//cdn.test/c.png",
+   "kind": "images",
+   "out": [
+    "https://cdn.test/c.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/",
+   "value": "//cdn.test/c.png",
+   "kind": "media",
+   "out": [
+    "https://cdn.test/c.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/",
+   "value": "cdn.test/d.png",
+   "kind": "images",
+   "out": [
+    "https://cdn.test/d.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/",
+   "value": "cdn.test/d.png",
+   "kind": "media",
+   "out": [
+    "https://cdn.test/d.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/",
+   "value": "https://x.test/e.webp",
+   "kind": "images",
+   "out": [
+    "https://x.test/e.webp"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/",
+   "value": "https://x.test/e.webp",
+   "kind": "media",
+   "out": [
+    "https://x.test/e.webp"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/",
+   "value": "dist/images/f.png",
+   "kind": "images",
+   "out": [
+    "https://h.test/cyoa/dist/images/f.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/",
+   "value": "dist/images/f.png",
+   "kind": "media",
+   "out": [
+    "https://h.test/cyoa/dist/images/f.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/",
+   "value": "space name.png",
+   "kind": "images",
+   "out": [
+    "https://h.test/cyoa/dist/images/space name.png",
+    "https://h.test/cyoa/dist/images/space%20name.png",
+    "https://h.test/cyoa/space name.png",
+    "https://h.test/cyoa/space%20name.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/",
+   "value": "space name.png",
+   "kind": "media",
+   "out": [
+    "https://h.test/cyoa/space name.png",
+    "https://h.test/cyoa/space%20name.png",
+    "https://h.test/cyoa/dist/audio/space name.png",
+    "https://h.test/cyoa/dist/audio/space%20name.png",
+    "https://h.test/cyoa/dist/media/space name.png",
+    "https://h.test/cyoa/dist/media/space%20name.png",
+    "https://h.test/cyoa/dist/images/space name.png",
+    "https://h.test/cyoa/dist/images/space%20name.png",
+    "https://h.test/cyoa/audio/space name.png",
+    "https://h.test/cyoa/audio/space%20name.png",
+    "https://h.test/cyoa/media/space name.png",
+    "https://h.test/cyoa/media/space%20name.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/",
+   "value": "ünï/çode.jpg",
+   "kind": "images",
+   "out": [
+    "https://h.test/cyoa/dist/images/ünï/çode.jpg",
+    "https://h.test/cyoa/dist/images/%C3%BCn%C3%AF/%C3%A7ode.jpg",
+    "https://h.test/cyoa/ünï/çode.jpg",
+    "https://h.test/cyoa/%C3%BCn%C3%AF/%C3%A7ode.jpg"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/",
+   "value": "ünï/çode.jpg",
+   "kind": "media",
+   "out": [
+    "https://h.test/cyoa/ünï/çode.jpg",
+    "https://h.test/cyoa/%C3%BCn%C3%AF/%C3%A7ode.jpg",
+    "https://h.test/cyoa/dist/audio/ünï/çode.jpg",
+    "https://h.test/cyoa/dist/audio/%C3%BCn%C3%AF/%C3%A7ode.jpg",
+    "https://h.test/cyoa/dist/media/ünï/çode.jpg",
+    "https://h.test/cyoa/dist/media/%C3%BCn%C3%AF/%C3%A7ode.jpg",
+    "https://h.test/cyoa/dist/images/ünï/çode.jpg",
+    "https://h.test/cyoa/dist/images/%C3%BCn%C3%AF/%C3%A7ode.jpg",
+    "https://h.test/cyoa/audio/ünï/çode.jpg",
+    "https://h.test/cyoa/audio/%C3%BCn%C3%AF/%C3%A7ode.jpg",
+    "https://h.test/cyoa/media/ünï/çode.jpg",
+    "https://h.test/cyoa/media/%C3%BCn%C3%AF/%C3%A7ode.jpg"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/",
+   "value": "a%20b.png",
+   "kind": "images",
+   "out": [
+    "https://h.test/cyoa/dist/images/a%20b.png",
+    "https://h.test/cyoa/dist/images/a%2520b.png",
+    "https://h.test/cyoa/a%20b.png",
+    "https://h.test/cyoa/a%2520b.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/",
+   "value": "a%20b.png",
+   "kind": "media",
+   "out": [
+    "https://h.test/cyoa/a%20b.png",
+    "https://h.test/cyoa/a%2520b.png",
+    "https://h.test/cyoa/dist/audio/a%20b.png",
+    "https://h.test/cyoa/dist/audio/a%2520b.png",
+    "https://h.test/cyoa/dist/media/a%20b.png",
+    "https://h.test/cyoa/dist/media/a%2520b.png",
+    "https://h.test/cyoa/dist/images/a%20b.png",
+    "https://h.test/cyoa/dist/images/a%2520b.png",
+    "https://h.test/cyoa/audio/a%20b.png",
+    "https://h.test/cyoa/audio/a%2520b.png",
+    "https://h.test/cyoa/media/a%20b.png",
+    "https://h.test/cyoa/media/a%2520b.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/",
+   "value": "song.mp3",
+   "kind": "images",
+   "out": [
+    "https://h.test/cyoa/dist/images/song.mp3",
+    "https://h.test/cyoa/song.mp3"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/",
+   "value": "song.mp3",
+   "kind": "media",
+   "out": [
+    "https://h.test/cyoa/song.mp3",
+    "https://h.test/cyoa/dist/audio/song.mp3",
+    "https://h.test/cyoa/dist/media/song.mp3",
+    "https://h.test/cyoa/dist/images/song.mp3",
+    "https://h.test/cyoa/audio/song.mp3",
+    "https://h.test/cyoa/media/song.mp3"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/",
+   "value": "dist/audio/s.ogg",
+   "kind": "images",
+   "out": [
+    "https://h.test/cyoa/dist/audio/s.ogg"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/",
+   "value": "dist/audio/s.ogg",
+   "kind": "media",
+   "out": [
+    "https://h.test/cyoa/dist/audio/s.ogg"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/",
+   "value": "data:image/png;base64,AA",
+   "kind": "images",
+   "out": []
+  },
+  {
+   "base": "https://h.test/cyoa/",
+   "value": "data:image/png;base64,AA",
+   "kind": "media",
+   "out": []
+  },
+  {
+   "base": "https://h.test/cyoa/",
+   "value": "",
+   "kind": "images",
+   "out": []
+  },
+  {
+   "base": "https://h.test/cyoa/",
+   "value": "",
+   "kind": "media",
+   "out": []
+  },
+  {
+   "base": "https://h.test/cyoa/",
+   "value": "  pad.png  ",
+   "kind": "images",
+   "out": [
+    "https://h.test/cyoa/dist/images/pad.png",
+    "https://h.test/cyoa/pad.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/",
+   "value": "  pad.png  ",
+   "kind": "media",
+   "out": [
+    "https://h.test/cyoa/pad.png",
+    "https://h.test/cyoa/dist/audio/pad.png",
+    "https://h.test/cyoa/dist/media/pad.png",
+    "https://h.test/cyoa/dist/images/pad.png",
+    "https://h.test/cyoa/audio/pad.png",
+    "https://h.test/cyoa/media/pad.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/",
+   "value": "q.png?v=1#frag",
+   "kind": "images",
+   "out": [
+    "https://h.test/cyoa/dist/images/q.png?v=1#frag",
+    "https://h.test/cyoa/dist/images/q.png%3Fv%3D1%23frag",
+    "https://h.test/cyoa/q.png?v=1#frag",
+    "https://h.test/cyoa/q.png%3Fv%3D1%23frag"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/",
+   "value": "q.png?v=1#frag",
+   "kind": "media",
+   "out": [
+    "https://h.test/cyoa/q.png?v=1#frag",
+    "https://h.test/cyoa/q.png%3Fv%3D1%23frag",
+    "https://h.test/cyoa/dist/audio/q.png?v=1#frag",
+    "https://h.test/cyoa/dist/audio/q.png%3Fv%3D1%23frag",
+    "https://h.test/cyoa/dist/media/q.png?v=1#frag",
+    "https://h.test/cyoa/dist/media/q.png%3Fv%3D1%23frag",
+    "https://h.test/cyoa/dist/images/q.png?v=1#frag",
+    "https://h.test/cyoa/dist/images/q.png%3Fv%3D1%23frag",
+    "https://h.test/cyoa/audio/q.png?v=1#frag",
+    "https://h.test/cyoa/audio/q.png%3Fv%3D1%23frag",
+    "https://h.test/cyoa/media/q.png?v=1#frag",
+    "https://h.test/cyoa/media/q.png%3Fv%3D1%23frag"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/",
+   "value": "C:\\x\\y.png",
+   "kind": "images",
+   "out": [
+    "https://h.test/cyoa/dist/images/C:\\x\\y.png",
+    "https://h.test/cyoa/dist/images/C:%5Cx%5Cy.png",
+    "C:\\x\\y.png",
+    "C:%5Cx%5Cy.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/",
+   "value": "C:\\x\\y.png",
+   "kind": "media",
+   "out": [
+    "C:\\x\\y.png",
+    "C:%5Cx%5Cy.png",
+    "https://h.test/cyoa/dist/audio/C:\\x\\y.png",
+    "https://h.test/cyoa/dist/audio/C:%5Cx%5Cy.png",
+    "https://h.test/cyoa/dist/media/C:\\x\\y.png",
+    "https://h.test/cyoa/dist/media/C:%5Cx%5Cy.png",
+    "https://h.test/cyoa/dist/images/C:\\x\\y.png",
+    "https://h.test/cyoa/dist/images/C:%5Cx%5Cy.png",
+    "https://h.test/cyoa/audio/C:\\x\\y.png",
+    "https://h.test/cyoa/audio/C:%5Cx%5Cy.png",
+    "https://h.test/cyoa/media/C:\\x\\y.png",
+    "https://h.test/cyoa/media/C:%5Cx%5Cy.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/",
+   "value": "../up.png",
+   "kind": "images",
+   "out": [
+    "https://h.test/cyoa/dist/up.png",
+    "https://h.test/up.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/",
+   "value": "../up.png",
+   "kind": "media",
+   "out": [
+    "https://h.test/up.png",
+    "https://h.test/cyoa/dist/up.png",
+    "https://h.test/cyoa/up.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/index.html",
+   "value": "img/a.png",
+   "kind": "images",
+   "out": [
+    "https://h.test/cyoa/dist/images/img/a.png",
+    "https://h.test/cyoa/img/a.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/index.html",
+   "value": "img/a.png",
+   "kind": "media",
+   "out": [
+    "https://h.test/cyoa/img/a.png",
+    "https://h.test/cyoa/dist/audio/img/a.png",
+    "https://h.test/cyoa/dist/media/img/a.png",
+    "https://h.test/cyoa/dist/images/img/a.png",
+    "https://h.test/cyoa/audio/img/a.png",
+    "https://h.test/cyoa/media/img/a.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/index.html",
+   "value": "/abs/b.png",
+   "kind": "images",
+   "out": [
+    "https://h.test/abs/b.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/index.html",
+   "value": "/abs/b.png",
+   "kind": "media",
+   "out": [
+    "https://h.test/abs/b.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/index.html",
+   "value": "//cdn.test/c.png",
+   "kind": "images",
+   "out": [
+    "https://cdn.test/c.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/index.html",
+   "value": "//cdn.test/c.png",
+   "kind": "media",
+   "out": [
+    "https://cdn.test/c.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/index.html",
+   "value": "cdn.test/d.png",
+   "kind": "images",
+   "out": [
+    "https://cdn.test/d.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/index.html",
+   "value": "cdn.test/d.png",
+   "kind": "media",
+   "out": [
+    "https://cdn.test/d.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/index.html",
+   "value": "https://x.test/e.webp",
+   "kind": "images",
+   "out": [
+    "https://x.test/e.webp"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/index.html",
+   "value": "https://x.test/e.webp",
+   "kind": "media",
+   "out": [
+    "https://x.test/e.webp"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/index.html",
+   "value": "dist/images/f.png",
+   "kind": "images",
+   "out": [
+    "https://h.test/cyoa/dist/images/f.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/index.html",
+   "value": "dist/images/f.png",
+   "kind": "media",
+   "out": [
+    "https://h.test/cyoa/dist/images/f.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/index.html",
+   "value": "space name.png",
+   "kind": "images",
+   "out": [
+    "https://h.test/cyoa/dist/images/space name.png",
+    "https://h.test/cyoa/dist/images/space%20name.png",
+    "https://h.test/cyoa/space name.png",
+    "https://h.test/cyoa/space%20name.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/index.html",
+   "value": "space name.png",
+   "kind": "media",
+   "out": [
+    "https://h.test/cyoa/space name.png",
+    "https://h.test/cyoa/space%20name.png",
+    "https://h.test/cyoa/dist/audio/space name.png",
+    "https://h.test/cyoa/dist/audio/space%20name.png",
+    "https://h.test/cyoa/dist/media/space name.png",
+    "https://h.test/cyoa/dist/media/space%20name.png",
+    "https://h.test/cyoa/dist/images/space name.png",
+    "https://h.test/cyoa/dist/images/space%20name.png",
+    "https://h.test/cyoa/audio/space name.png",
+    "https://h.test/cyoa/audio/space%20name.png",
+    "https://h.test/cyoa/media/space name.png",
+    "https://h.test/cyoa/media/space%20name.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/index.html",
+   "value": "ünï/çode.jpg",
+   "kind": "images",
+   "out": [
+    "https://h.test/cyoa/dist/images/ünï/çode.jpg",
+    "https://h.test/cyoa/dist/images/%C3%BCn%C3%AF/%C3%A7ode.jpg",
+    "https://h.test/cyoa/ünï/çode.jpg",
+    "https://h.test/cyoa/%C3%BCn%C3%AF/%C3%A7ode.jpg"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/index.html",
+   "value": "ünï/çode.jpg",
+   "kind": "media",
+   "out": [
+    "https://h.test/cyoa/ünï/çode.jpg",
+    "https://h.test/cyoa/%C3%BCn%C3%AF/%C3%A7ode.jpg",
+    "https://h.test/cyoa/dist/audio/ünï/çode.jpg",
+    "https://h.test/cyoa/dist/audio/%C3%BCn%C3%AF/%C3%A7ode.jpg",
+    "https://h.test/cyoa/dist/media/ünï/çode.jpg",
+    "https://h.test/cyoa/dist/media/%C3%BCn%C3%AF/%C3%A7ode.jpg",
+    "https://h.test/cyoa/dist/images/ünï/çode.jpg",
+    "https://h.test/cyoa/dist/images/%C3%BCn%C3%AF/%C3%A7ode.jpg",
+    "https://h.test/cyoa/audio/ünï/çode.jpg",
+    "https://h.test/cyoa/audio/%C3%BCn%C3%AF/%C3%A7ode.jpg",
+    "https://h.test/cyoa/media/ünï/çode.jpg",
+    "https://h.test/cyoa/media/%C3%BCn%C3%AF/%C3%A7ode.jpg"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/index.html",
+   "value": "a%20b.png",
+   "kind": "images",
+   "out": [
+    "https://h.test/cyoa/dist/images/a%20b.png",
+    "https://h.test/cyoa/dist/images/a%2520b.png",
+    "https://h.test/cyoa/a%20b.png",
+    "https://h.test/cyoa/a%2520b.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/index.html",
+   "value": "a%20b.png",
+   "kind": "media",
+   "out": [
+    "https://h.test/cyoa/a%20b.png",
+    "https://h.test/cyoa/a%2520b.png",
+    "https://h.test/cyoa/dist/audio/a%20b.png",
+    "https://h.test/cyoa/dist/audio/a%2520b.png",
+    "https://h.test/cyoa/dist/media/a%20b.png",
+    "https://h.test/cyoa/dist/media/a%2520b.png",
+    "https://h.test/cyoa/dist/images/a%20b.png",
+    "https://h.test/cyoa/dist/images/a%2520b.png",
+    "https://h.test/cyoa/audio/a%20b.png",
+    "https://h.test/cyoa/audio/a%2520b.png",
+    "https://h.test/cyoa/media/a%20b.png",
+    "https://h.test/cyoa/media/a%2520b.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/index.html",
+   "value": "song.mp3",
+   "kind": "images",
+   "out": [
+    "https://h.test/cyoa/dist/images/song.mp3",
+    "https://h.test/cyoa/song.mp3"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/index.html",
+   "value": "song.mp3",
+   "kind": "media",
+   "out": [
+    "https://h.test/cyoa/song.mp3",
+    "https://h.test/cyoa/dist/audio/song.mp3",
+    "https://h.test/cyoa/dist/media/song.mp3",
+    "https://h.test/cyoa/dist/images/song.mp3",
+    "https://h.test/cyoa/audio/song.mp3",
+    "https://h.test/cyoa/media/song.mp3"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/index.html",
+   "value": "dist/audio/s.ogg",
+   "kind": "images",
+   "out": [
+    "https://h.test/cyoa/dist/audio/s.ogg"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/index.html",
+   "value": "dist/audio/s.ogg",
+   "kind": "media",
+   "out": [
+    "https://h.test/cyoa/dist/audio/s.ogg"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/index.html",
+   "value": "data:image/png;base64,AA",
+   "kind": "images",
+   "out": []
+  },
+  {
+   "base": "https://h.test/cyoa/index.html",
+   "value": "data:image/png;base64,AA",
+   "kind": "media",
+   "out": []
+  },
+  {
+   "base": "https://h.test/cyoa/index.html",
+   "value": "",
+   "kind": "images",
+   "out": []
+  },
+  {
+   "base": "https://h.test/cyoa/index.html",
+   "value": "",
+   "kind": "media",
+   "out": []
+  },
+  {
+   "base": "https://h.test/cyoa/index.html",
+   "value": "  pad.png  ",
+   "kind": "images",
+   "out": [
+    "https://h.test/cyoa/dist/images/pad.png",
+    "https://h.test/cyoa/pad.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/index.html",
+   "value": "  pad.png  ",
+   "kind": "media",
+   "out": [
+    "https://h.test/cyoa/pad.png",
+    "https://h.test/cyoa/dist/audio/pad.png",
+    "https://h.test/cyoa/dist/media/pad.png",
+    "https://h.test/cyoa/dist/images/pad.png",
+    "https://h.test/cyoa/audio/pad.png",
+    "https://h.test/cyoa/media/pad.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/index.html",
+   "value": "q.png?v=1#frag",
+   "kind": "images",
+   "out": [
+    "https://h.test/cyoa/dist/images/q.png?v=1#frag",
+    "https://h.test/cyoa/dist/images/q.png%3Fv%3D1%23frag",
+    "https://h.test/cyoa/q.png?v=1#frag",
+    "https://h.test/cyoa/q.png%3Fv%3D1%23frag"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/index.html",
+   "value": "q.png?v=1#frag",
+   "kind": "media",
+   "out": [
+    "https://h.test/cyoa/q.png?v=1#frag",
+    "https://h.test/cyoa/q.png%3Fv%3D1%23frag",
+    "https://h.test/cyoa/dist/audio/q.png?v=1#frag",
+    "https://h.test/cyoa/dist/audio/q.png%3Fv%3D1%23frag",
+    "https://h.test/cyoa/dist/media/q.png?v=1#frag",
+    "https://h.test/cyoa/dist/media/q.png%3Fv%3D1%23frag",
+    "https://h.test/cyoa/dist/images/q.png?v=1#frag",
+    "https://h.test/cyoa/dist/images/q.png%3Fv%3D1%23frag",
+    "https://h.test/cyoa/audio/q.png?v=1#frag",
+    "https://h.test/cyoa/audio/q.png%3Fv%3D1%23frag",
+    "https://h.test/cyoa/media/q.png?v=1#frag",
+    "https://h.test/cyoa/media/q.png%3Fv%3D1%23frag"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/index.html",
+   "value": "C:\\x\\y.png",
+   "kind": "images",
+   "out": [
+    "https://h.test/cyoa/dist/images/C:\\x\\y.png",
+    "https://h.test/cyoa/dist/images/C:%5Cx%5Cy.png",
+    "C:\\x\\y.png",
+    "C:%5Cx%5Cy.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/index.html",
+   "value": "C:\\x\\y.png",
+   "kind": "media",
+   "out": [
+    "C:\\x\\y.png",
+    "C:%5Cx%5Cy.png",
+    "https://h.test/cyoa/dist/audio/C:\\x\\y.png",
+    "https://h.test/cyoa/dist/audio/C:%5Cx%5Cy.png",
+    "https://h.test/cyoa/dist/media/C:\\x\\y.png",
+    "https://h.test/cyoa/dist/media/C:%5Cx%5Cy.png",
+    "https://h.test/cyoa/dist/images/C:\\x\\y.png",
+    "https://h.test/cyoa/dist/images/C:%5Cx%5Cy.png",
+    "https://h.test/cyoa/audio/C:\\x\\y.png",
+    "https://h.test/cyoa/audio/C:%5Cx%5Cy.png",
+    "https://h.test/cyoa/media/C:\\x\\y.png",
+    "https://h.test/cyoa/media/C:%5Cx%5Cy.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/index.html",
+   "value": "../up.png",
+   "kind": "images",
+   "out": [
+    "https://h.test/cyoa/dist/up.png",
+    "https://h.test/up.png"
+   ]
+  },
+  {
+   "base": "https://h.test/cyoa/index.html",
+   "value": "../up.png",
+   "kind": "media",
+   "out": [
+    "https://h.test/up.png",
+    "https://h.test/cyoa/dist/up.png",
+    "https://h.test/cyoa/up.png"
+   ]
+  },
+  {
+   "base": "http://h.test:8080/",
+   "value": "img/a.png",
+   "kind": "images",
+   "out": [
+    "http://h.test:8080/dist/images/img/a.png",
+    "http://h.test:8080/img/a.png"
+   ]
+  },
+  {
+   "base": "http://h.test:8080/",
+   "value": "img/a.png",
+   "kind": "media",
+   "out": [
+    "http://h.test:8080/img/a.png",
+    "http://h.test:8080/dist/audio/img/a.png",
+    "http://h.test:8080/dist/media/img/a.png",
+    "http://h.test:8080/dist/images/img/a.png",
+    "http://h.test:8080/audio/img/a.png",
+    "http://h.test:8080/media/img/a.png"
+   ]
+  },
+  {
+   "base": "http://h.test:8080/",
+   "value": "/abs/b.png",
+   "kind": "images",
+   "out": [
+    "http://h.test:8080/abs/b.png"
+   ]
+  },
+  {
+   "base": "http://h.test:8080/",
+   "value": "/abs/b.png",
+   "kind": "media",
+   "out": [
+    "http://h.test:8080/abs/b.png"
+   ]
+  },
+  {
+   "base": "http://h.test:8080/",
+   "value": "//cdn.test/c.png",
+   "kind": "images",
+   "out": [
+    "http://cdn.test/c.png"
+   ]
+  },
+  {
+   "base": "http://h.test:8080/",
+   "value": "//cdn.test/c.png",
+   "kind": "media",
+   "out": [
+    "http://cdn.test/c.png"
+   ]
+  },
+  {
+   "base": "http://h.test:8080/",
+   "value": "cdn.test/d.png",
+   "kind": "images",
+   "out": [
+    "https://cdn.test/d.png"
+   ]
+  },
+  {
+   "base": "http://h.test:8080/",
+   "value": "cdn.test/d.png",
+   "kind": "media",
+   "out": [
+    "https://cdn.test/d.png"
+   ]
+  },
+  {
+   "base": "http://h.test:8080/",
+   "value": "https://x.test/e.webp",
+   "kind": "images",
+   "out": [
+    "https://x.test/e.webp"
+   ]
+  },
+  {
+   "base": "http://h.test:8080/",
+   "value": "https://x.test/e.webp",
+   "kind": "media",
+   "out": [
+    "https://x.test/e.webp"
+   ]
+  },
+  {
+   "base": "http://h.test:8080/",
+   "value": "dist/images/f.png",
+   "kind": "images",
+   "out": [
+    "http://h.test:8080/dist/images/f.png"
+   ]
+  },
+  {
+   "base": "http://h.test:8080/",
+   "value": "dist/images/f.png",
+   "kind": "media",
+   "out": [
+    "http://h.test:8080/dist/images/f.png"
+   ]
+  },
+  {
+   "base": "http://h.test:8080/",
+   "value": "space name.png",
+   "kind": "images",
+   "out": [
+    "http://h.test:8080/dist/images/space name.png",
+    "http://h.test:8080/dist/images/space%20name.png",
+    "http://h.test:8080/space name.png",
+    "http://h.test:8080/space%20name.png"
+   ]
+  },
+  {
+   "base": "http://h.test:8080/",
+   "value": "space name.png",
+   "kind": "media",
+   "out": [
+    "http://h.test:8080/space name.png",
+    "http://h.test:8080/space%20name.png",
+    "http://h.test:8080/dist/audio/space name.png",
+    "http://h.test:8080/dist/audio/space%20name.png",
+    "http://h.test:8080/dist/media/space name.png",
+    "http://h.test:8080/dist/media/space%20name.png",
+    "http://h.test:8080/dist/images/space name.png",
+    "http://h.test:8080/dist/images/space%20name.png",
+    "http://h.test:8080/audio/space name.png",
+    "http://h.test:8080/audio/space%20name.png",
+    "http://h.test:8080/media/space name.png",
+    "http://h.test:8080/media/space%20name.png"
+   ]
+  },
+  {
+   "base": "http://h.test:8080/",
+   "value": "ünï/çode.jpg",
+   "kind": "images",
+   "out": [
+    "http://h.test:8080/dist/images/ünï/çode.jpg",
+    "http://h.test:8080/dist/images/%C3%BCn%C3%AF/%C3%A7ode.jpg",
+    "http://h.test:8080/ünï/çode.jpg",
+    "http://h.test:8080/%C3%BCn%C3%AF/%C3%A7ode.jpg"
+   ]
+  },
+  {
+   "base": "http://h.test:8080/",
+   "value": "ünï/çode.jpg",
+   "kind": "media",
+   "out": [
+    "http://h.test:8080/ünï/çode.jpg",
+    "http://h.test:8080/%C3%BCn%C3%AF/%C3%A7ode.jpg",
+    "http://h.test:8080/dist/audio/ünï/çode.jpg",
+    "http://h.test:8080/dist/audio/%C3%BCn%C3%AF/%C3%A7ode.jpg",
+    "http://h.test:8080/dist/media/ünï/çode.jpg",
+    "http://h.test:8080/dist/media/%C3%BCn%C3%AF/%C3%A7ode.jpg",
+    "http://h.test:8080/dist/images/ünï/çode.jpg",
+    "http://h.test:8080/dist/images/%C3%BCn%C3%AF/%C3%A7ode.jpg",
+    "http://h.test:8080/audio/ünï/çode.jpg",
+    "http://h.test:8080/audio/%C3%BCn%C3%AF/%C3%A7ode.jpg",
+    "http://h.test:8080/media/ünï/çode.jpg",
+    "http://h.test:8080/media/%C3%BCn%C3%AF/%C3%A7ode.jpg"
+   ]
+  },
+  {
+   "base": "http://h.test:8080/",
+   "value": "a%20b.png",
+   "kind": "images",
+   "out": [
+    "http://h.test:8080/dist/images/a%20b.png",
+    "http://h.test:8080/dist/images/a%2520b.png",
+    "http://h.test:8080/a%20b.png",
+    "http://h.test:8080/a%2520b.png"
+   ]
+  },
+  {
+   "base": "http://h.test:8080/",
+   "value": "a%20b.png",
+   "kind": "media",
+   "out": [
+    "http://h.test:8080/a%20b.png",
+    "http://h.test:8080/a%2520b.png",
+    "http://h.test:8080/dist/audio/a%20b.png",
+    "http://h.test:8080/dist/audio/a%2520b.png",
+    "http://h.test:8080/dist/media/a%20b.png",
+    "http://h.test:8080/dist/media/a%2520b.png",
+    "http://h.test:8080/dist/images/a%20b.png",
+    "http://h.test:8080/dist/images/a%2520b.png",
+    "http://h.test:8080/audio/a%20b.png",
+    "http://h.test:8080/audio/a%2520b.png",
+    "http://h.test:8080/media/a%20b.png",
+    "http://h.test:8080/media/a%2520b.png"
+   ]
+  },
+  {
+   "base": "http://h.test:8080/",
+   "value": "song.mp3",
+   "kind": "images",
+   "out": [
+    "http://h.test:8080/dist/images/song.mp3",
+    "http://h.test:8080/song.mp3"
+   ]
+  },
+  {
+   "base": "http://h.test:8080/",
+   "value": "song.mp3",
+   "kind": "media",
+   "out": [
+    "http://h.test:8080/song.mp3",
+    "http://h.test:8080/dist/audio/song.mp3",
+    "http://h.test:8080/dist/media/song.mp3",
+    "http://h.test:8080/dist/images/song.mp3",
+    "http://h.test:8080/audio/song.mp3",
+    "http://h.test:8080/media/song.mp3"
+   ]
+  },
+  {
+   "base": "http://h.test:8080/",
+   "value": "dist/audio/s.ogg",
+   "kind": "images",
+   "out": [
+    "http://h.test:8080/dist/audio/s.ogg"
+   ]
+  },
+  {
+   "base": "http://h.test:8080/",
+   "value": "dist/audio/s.ogg",
+   "kind": "media",
+   "out": [
+    "http://h.test:8080/dist/audio/s.ogg"
+   ]
+  },
+  {
+   "base": "http://h.test:8080/",
+   "value": "data:image/png;base64,AA",
+   "kind": "images",
+   "out": []
+  },
+  {
+   "base": "http://h.test:8080/",
+   "value": "data:image/png;base64,AA",
+   "kind": "media",
+   "out": []
+  },
+  {
+   "base": "http://h.test:8080/",
+   "value": "",
+   "kind": "images",
+   "out": []
+  },
+  {
+   "base": "http://h.test:8080/",
+   "value": "",
+   "kind": "media",
+   "out": []
+  },
+  {
+   "base": "http://h.test:8080/",
+   "value": "  pad.png  ",
+   "kind": "images",
+   "out": [
+    "http://h.test:8080/dist/images/pad.png",
+    "http://h.test:8080/pad.png"
+   ]
+  },
+  {
+   "base": "http://h.test:8080/",
+   "value": "  pad.png  ",
+   "kind": "media",
+   "out": [
+    "http://h.test:8080/pad.png",
+    "http://h.test:8080/dist/audio/pad.png",
+    "http://h.test:8080/dist/media/pad.png",
+    "http://h.test:8080/dist/images/pad.png",
+    "http://h.test:8080/audio/pad.png",
+    "http://h.test:8080/media/pad.png"
+   ]
+  },
+  {
+   "base": "http://h.test:8080/",
+   "value": "q.png?v=1#frag",
+   "kind": "images",
+   "out": [
+    "http://h.test:8080/dist/images/q.png?v=1#frag",
+    "http://h.test:8080/dist/images/q.png%3Fv%3D1%23frag",
+    "http://h.test:8080/q.png?v=1#frag",
+    "http://h.test:8080/q.png%3Fv%3D1%23frag"
+   ]
+  },
+  {
+   "base": "http://h.test:8080/",
+   "value": "q.png?v=1#frag",
+   "kind": "media",
+   "out": [
+    "http://h.test:8080/q.png?v=1#frag",
+    "http://h.test:8080/q.png%3Fv%3D1%23frag",
+    "http://h.test:8080/dist/audio/q.png?v=1#frag",
+    "http://h.test:8080/dist/audio/q.png%3Fv%3D1%23frag",
+    "http://h.test:8080/dist/media/q.png?v=1#frag",
+    "http://h.test:8080/dist/media/q.png%3Fv%3D1%23frag",
+    "http://h.test:8080/dist/images/q.png?v=1#frag",
+    "http://h.test:8080/dist/images/q.png%3Fv%3D1%23frag",
+    "http://h.test:8080/audio/q.png?v=1#frag",
+    "http://h.test:8080/audio/q.png%3Fv%3D1%23frag",
+    "http://h.test:8080/media/q.png?v=1#frag",
+    "http://h.test:8080/media/q.png%3Fv%3D1%23frag"
+   ]
+  },
+  {
+   "base": "http://h.test:8080/",
+   "value": "C:\\x\\y.png",
+   "kind": "images",
+   "out": [
+    "http://h.test:8080/dist/images/C:\\x\\y.png",
+    "http://h.test:8080/dist/images/C:%5Cx%5Cy.png",
+    "C:\\x\\y.png",
+    "C:%5Cx%5Cy.png"
+   ]
+  },
+  {
+   "base": "http://h.test:8080/",
+   "value": "C:\\x\\y.png",
+   "kind": "media",
+   "out": [
+    "C:\\x\\y.png",
+    "C:%5Cx%5Cy.png",
+    "http://h.test:8080/dist/audio/C:\\x\\y.png",
+    "http://h.test:8080/dist/audio/C:%5Cx%5Cy.png",
+    "http://h.test:8080/dist/media/C:\\x\\y.png",
+    "http://h.test:8080/dist/media/C:%5Cx%5Cy.png",
+    "http://h.test:8080/dist/images/C:\\x\\y.png",
+    "http://h.test:8080/dist/images/C:%5Cx%5Cy.png",
+    "http://h.test:8080/audio/C:\\x\\y.png",
+    "http://h.test:8080/audio/C:%5Cx%5Cy.png",
+    "http://h.test:8080/media/C:\\x\\y.png",
+    "http://h.test:8080/media/C:%5Cx%5Cy.png"
+   ]
+  },
+  {
+   "base": "http://h.test:8080/",
+   "value": "../up.png",
+   "kind": "images",
+   "out": [
+    "http://h.test:8080/dist/up.png",
+    "http://h.test:8080/up.png"
+   ]
+  },
+  {
+   "base": "http://h.test:8080/",
+   "value": "../up.png",
+   "kind": "media",
+   "out": [
+    "http://h.test:8080/up.png",
+    "http://h.test:8080/dist/up.png"
+   ]
+  }
+ ],
+ "scans": [
+  {
+   "doc": {
+    "image": "a.png",
+    "imageUrl": "noext",
+    "title": "t",
+    "desc": "see x.png",
+    "bgm": "s.mp3",
+    "video": "v.webm",
+    "data": "data:image/png;base64,AA",
+    "nested": [
+     {
+      "img": "n.webp"
+     },
+     "list.png",
+     3,
+     null
+    ],
+    "deep": {
+     "k": {
+      "image": "  spaced.png  "
+     }
+    },
+    "bad": "http://[bad/x.png",
+    "num": 1.5
+   },
+   "images": [
+    "a.png",
+    "n.webp",
+    "see x.png",
+    "spaced.png"
+   ],
+   "media": [
+    "s.mp3",
+    "v.webm"
+   ]
+  },
+  {
+   "doc": [
+    {
+     "src": "q.gif"
+    },
+    {
+     "x": "y.WAV"
+    }
+   ],
+   "images": [
+    "q.gif"
+   ],
+   "media": [
+    "y.WAV"
+   ]
+  },
+  {
+   "doc": {
+    "image": ""
+   },
+   "images": [],
+   "media": []
+  }
+ ]
+}
