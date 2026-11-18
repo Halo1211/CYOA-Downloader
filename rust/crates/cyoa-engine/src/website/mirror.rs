@@ -92,6 +92,9 @@ pub struct MirrorSink {
     pub max_total_bytes: u64,
     /// Python `self._project_aliases` (relative paths).
     pub project_aliases: Vec<String>,
+    /// Python `self._source_for_local`: local file (relative) -> source URL,
+    /// the referrer used when a file is re-analysed.
+    pub source_for_local: HashMap<String, String>,
 }
 
 impl MirrorSink {
@@ -129,6 +132,7 @@ impl MirrorSink {
             max_requests: DEFAULT_MAX_REQUESTS,
             max_total_bytes: DEFAULT_MAX_TOTAL_BYTES,
             project_aliases: Vec::new(),
+            source_for_local: HashMap::new(),
         }
     }
 
@@ -510,6 +514,7 @@ impl MirrorSink {
         ] {
             self.set_entry(key, Entry::Done(Some(rel.clone())));
         }
+        self.source_for_local.insert(rel.clone(), source_url);
         self.success.push((full, rel.clone(), kind.to_owned()));
         Some(rel)
     }
@@ -542,6 +547,8 @@ impl MirrorSink {
         self.custom_viewer_route |= page.custom_viewer_route;
         self.write("index.html", page.html.as_bytes())?;
         let local = Some("index.html".to_owned());
+        self.source_for_local
+            .insert("index.html".into(), url.clone());
         self.set_entry(&url, Entry::Done(local.clone()));
         self.set_entry(&start, Entry::Done(local));
         Ok(())
@@ -671,6 +678,13 @@ impl MirrorSink {
         });
         let bytes = crate::reports::os_text(&text).into_bytes();
         self.write("project.json", &bytes)?;
+        let project_source = if project_url.is_empty() {
+            self.start_url.clone()
+        } else {
+            project_url.to_owned()
+        };
+        self.source_for_local
+            .insert("project.json".into(), project_source.clone());
         if !project_url.is_empty() {
             self.set_entry(project_url, Entry::Done(Some("project.json".into())));
             let path = py_urlparse(project_url).path;
@@ -679,6 +693,8 @@ impl MirrorSink {
                 let alias = cyoa_core::paths::safe_rel_path(basename, "project");
                 if alias != "project.json" {
                     self.write(&alias, &bytes)?;
+                    self.source_for_local
+                        .insert(alias.clone(), project_source.clone());
                     tracing::info!("  Project alias: {alias}");
                     self.project_aliases.push(alias);
                 }
@@ -693,6 +709,103 @@ impl MirrorSink {
             super::payload::patch_google_fonts_loaders(&self.root);
         }
         Ok(())
+    }
+
+    /// Python `localize_existing_text_assets`: second pass over the saved
+    /// HTML/CSS/JS/JSON so references discovered later point at local files.
+    /// Files are visited top-down in sorted order (`os.walk` on NTFS).
+    pub fn localize_existing_text_assets(&mut self) {
+        const SKIP_FILES: [&str; 4] = [
+            "archive_manifest.json",
+            "download_state.json",
+            "download_history.json",
+            "cyoa_manifest.json",
+        ];
+        let mut stack = vec![String::new()];
+        while let Some(dir_rel) = stack.pop() {
+            let dir = if dir_rel.is_empty() {
+                self.root.clone()
+            } else {
+                match contained_path(&self.root, &dir_rel) {
+                    Some(d) => d,
+                    None => continue,
+                }
+            };
+            let Ok(rd) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            let mut entries: Vec<(String, bool)> = rd
+                .flatten()
+                .filter_map(|e| {
+                    let ft = e.file_type().ok()?;
+                    let name = e.file_name().into_string().ok()?;
+                    (ft.is_dir() || ft.is_file()).then_some((name, ft.is_dir()))
+                })
+                .collect();
+            entries.sort();
+            let join = |name: &str| {
+                if dir_rel.is_empty() {
+                    name.to_owned()
+                } else {
+                    format!("{dir_rel}/{name}")
+                }
+            };
+            let mut subdirs = Vec::new();
+            for (name, is_dir) in &entries {
+                if *is_dir {
+                    if name != "__original_site__" && name != "_audit" {
+                        subdirs.push(join(name));
+                    }
+                    continue;
+                }
+                if SKIP_FILES.contains(&name.as_str()) {
+                    continue;
+                }
+                let ext = py_ext(name);
+                if ![".html", ".css", ".js", ".mjs", ".json"].contains(&ext.as_str()) {
+                    continue;
+                }
+                if self.cancel.is_cancelled() {
+                    return;
+                }
+                let rel = join(name);
+                let Some(path) = contained_path(&self.root, &rel) else {
+                    continue;
+                };
+                let Ok(bytes) = std::fs::read(&path) else {
+                    continue;
+                };
+                let mut text = String::new();
+                for chunk in bytes.utf8_chunks() {
+                    text.push_str(chunk.valid());
+                }
+                let source = self
+                    .source_for_local
+                    .get(&rel)
+                    .cloned()
+                    .unwrap_or_else(|| self.start_url.clone());
+                let (start, base) = (self.start_url.clone(), self.base_url.clone());
+                let mut rw = Rewriter {
+                    start_url: &start,
+                    base_url: &base,
+                    sink: &mut *self,
+                };
+                let updated = match ext.as_str() {
+                    ".css" => rw.process_css(&text, &source, &rel),
+                    ".js" | ".mjs" => rw.process_js(&text, &source, &rel),
+                    ".json" => rw.rewrite_known_downloaded_urls(&text, &source, &rel),
+                    _ => rw.rewrite_direct_urls(&text, &source, &rel),
+                };
+                if updated != text {
+                    match self.write(&rel, updated.as_bytes()) {
+                        Ok(()) => tracing::info!("  Re-analysed: {rel}"),
+                        Err(e) => tracing::warn!("  Failed to analyse {rel}: {e}"),
+                    }
+                }
+            }
+            // Pre-order DFS: first subdirectory is visited next.
+            stack.extend(subdirs.into_iter().rev());
+        }
     }
 
     /// Python `validate_integrity()` over this site folder.
@@ -858,6 +971,64 @@ mod tests {
         );
         // No googleFonts list: no stylesheet.
         assert!(!tmp.path().join("css/offline-google-fonts.css").exists());
+    }
+
+    #[tokio::test]
+    async fn second_pass_localizes_saved_text_assets() {
+        let server = MockServer::start().await;
+        Mock::given(path("/game/img/late.png"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "image/png")
+                    .set_body_bytes(b"LATE".to_vec()),
+            )
+            .mount(&server)
+            .await;
+        let start = format!("{}/game/", server.uri());
+        let tmp = tempfile::tempdir().unwrap();
+        // Saved earlier (e.g. by another stage) with a still-remote reference.
+        std::fs::create_dir_all(tmp.path().join("css")).unwrap();
+        std::fs::write(
+            tmp.path().join("css/late.css"),
+            format!(".a{{background:url(\"{start}img/late.png\")}}"),
+        )
+        .unwrap();
+        std::fs::create_dir_all(tmp.path().join("__original_site__")).unwrap();
+        let untouched = format!(".b{{background:url(\"{start}img/late.png\")}}");
+        std::fs::write(tmp.path().join("__original_site__/old.css"), &untouched).unwrap();
+        let root = tmp.path().to_path_buf();
+        let client = FetchClient::new(ClientConfig {
+            policy: DestinationPolicy {
+                origin: Some(Url::parse(&start).unwrap()),
+                allow_internal: false,
+            },
+            ..ClientConfig::default()
+        })
+        .unwrap();
+        let handle = tokio::runtime::Handle::current();
+        let sink = tokio::task::spawn_blocking(move || {
+            let mut sink = MirrorSink::new(
+                root,
+                &start,
+                &start,
+                client,
+                handle,
+                CancellationToken::new(),
+                1 << 20,
+            );
+            sink.localize_existing_text_assets();
+            sink
+        })
+        .await
+        .unwrap();
+        let (_, local, _) = sink.success.first().unwrap().clone();
+        assert_eq!(std::fs::read(tmp.path().join(&local)).unwrap(), b"LATE");
+        let css = std::fs::read_to_string(tmp.path().join("css/late.css")).unwrap();
+        assert!(!css.contains("http"), "{css}");
+        assert_eq!(
+            std::fs::read_to_string(tmp.path().join("__original_site__/old.css")).unwrap(),
+            untouched
+        );
     }
 
     /// `write_manifest` vs Python (`fixtures/export_website_manifest.py`):

@@ -597,10 +597,74 @@ pub fn validate_integrity(root: &Path) -> Integrity {
     result
 }
 
+/// Orchestrator: append missing/external references to the site's
+/// `backup_report.txt` (text-mode append, CRLF on Windows) when any exist.
+pub fn append_to_backup_report(root: &Path, result: &Integrity) -> std::io::Result<()> {
+    if result.missing.is_empty() && result.external.is_empty() {
+        return Ok(());
+    }
+    let bar = "=".repeat(60);
+    let mut text = format!("\n{bar}\nINTEGRITY CHECK — MISSING LOCAL REFS\n{bar}\n");
+    for m in &result.missing {
+        text.push_str(&format!("  {m}\n"));
+    }
+    if !result.external.is_empty() {
+        text.push_str("\nREACHABLE EXTERNAL DEPENDENCIES\n");
+        for e in &result.external {
+            text.push_str(&format!("  {e}\n"));
+        }
+    }
+    let path = super::mirror::contained_path(root, "backup_report.txt")
+        .ok_or_else(|| std::io::Error::other("unsafe report path"))?;
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
+    std::io::Write::write_all(&mut f, crate::reports::os_text(&text).as_bytes())
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn report_append_matches_python() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../fixtures/integrity_report.json"
+        );
+        let fx: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let list = |k: &str| -> Vec<String> {
+            fx["integrity"][k]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|s| s.as_str().unwrap().to_owned())
+                .collect()
+        };
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join("backup_report.txt"),
+            crate::reports::os_text("HEAD\n"),
+        )
+        .unwrap();
+        let result = Integrity {
+            missing: list("missing"),
+            ok: Vec::new(),
+            external: list("external"),
+        };
+        append_to_backup_report(tmp.path(), &result).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(tmp.path().join("backup_report.txt")).unwrap(),
+            fx["bytes"].as_str().unwrap()
+        );
+        // Nothing to report: file untouched.
+        let empty = tempfile::tempdir().unwrap();
+        append_to_backup_report(empty.path(), &Integrity::default()).unwrap();
+        assert!(!empty.path().join("backup_report.txt").exists());
+    }
 
     #[test]
     fn matches_python_on_fixture_site() {

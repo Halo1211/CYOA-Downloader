@@ -376,10 +376,128 @@ pub fn zip_package(
     }
 }
 
+/// `iccplus._unique_folder`: `base`, else `base_1`, `base_2`, ...
+pub fn unique_folder(base: &Path) -> PathBuf {
+    if fs::symlink_metadata(base).is_err() {
+        return base.to_path_buf();
+    }
+    let mut counter = 1u32;
+    loop {
+        let mut name = base.as_os_str().to_owned();
+        name.push(format!("_{counter}"));
+        let candidate = PathBuf::from(name);
+        if fs::symlink_metadata(&candidate).is_err() {
+            tracing::info!(
+                "Output folder collision: {:?} exists → using {:?}",
+                base.display().to_string(),
+                candidate.display().to_string()
+            );
+            return candidate;
+        }
+        counter += 1;
+    }
+}
+
+/// `core.output.prepare_clean_output_folder`: never delete existing data; a
+/// non-empty folder is moved aside as `<folder>.pre_v46_<timestamp>[_N]`.
+pub fn prepare_clean_output_folder(folder: &Path) -> io::Result<()> {
+    let target = std::path::absolute(folder)?;
+    if fs::symlink_metadata(&target).is_ok() && cyoa_core::paths::is_link_or_junction(&target) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "Output folder must not be a symlink or junction: {}",
+                target.display()
+            ),
+        ));
+    }
+    if target.is_dir() && fs::read_dir(&target)?.next().is_some() {
+        let stamp = crate::reports::local_timestamp()
+            .replace(['-', ':'], "")
+            .replace(' ', "_");
+        let mut backup = PathBuf::from(format!("{}.pre_v46_{stamp}", target.display()));
+        let mut suffix = 1;
+        while fs::symlink_metadata(&backup).is_ok() {
+            backup = PathBuf::from(format!("{}.pre_v46_{stamp}_{suffix}", target.display()));
+            suffix += 1;
+        }
+        fs::rename(&target, &backup)?;
+        tracing::warn!("Existing output folder preserved as: {}", backup.display());
+    } else if target.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("Output path is a file: {}", target.display()),
+        ));
+    }
+    fs::create_dir_all(&target)
+}
+
+/// `package._finalize_site_folder`: in ZIP mode write `<file_name>_site.zip`
+/// into `directory` (no-clobber, unlike Python's overwrite) and delete the
+/// folder; otherwise keep the folder. Returns the ZIP path when created.
+pub fn finalize_site_folder(
+    site_folder: &Path,
+    file_name: &str,
+    zip_output: bool,
+    directory: &Path,
+) -> Result<Option<PathBuf>, OutputError> {
+    if !zip_output {
+        tracing::info!("ICC folder kept: {}", site_folder.display());
+        return Ok(None);
+    }
+    let zip_name = format!("{file_name}_site.zip");
+    tracing::info!("Zipping → {zip_name}");
+    let zip = zip_package(site_folder, &zip_name, directory)?;
+    let _ = fs::remove_dir_all(site_folder);
+    tracing::info!("Folder {} deleted after zipping.", site_folder.display());
+    Ok(Some(zip))
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn site_folder_helpers() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = tmp.path().join("game");
+        assert_eq!(unique_folder(&base), base);
+        fs::create_dir(&base).unwrap();
+        fs::create_dir(tmp.path().join("game_1")).unwrap();
+        assert_eq!(unique_folder(&base), tmp.path().join("game_2"));
+
+        // Non-empty folder is preserved aside, never deleted.
+        fs::write(base.join("keep.txt"), "x").unwrap();
+        prepare_clean_output_folder(&base).unwrap();
+        assert!(base.is_dir() && fs::read_dir(&base).unwrap().next().is_none());
+        let moved: Vec<_> = fs::read_dir(tmp.path())
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().starts_with("game.pre_v46_"))
+            .collect();
+        assert_eq!(moved.len(), 1);
+        assert!(moved[0].path().join("keep.txt").is_file());
+        // A file in the way is an error.
+        let file = tmp.path().join("afile");
+        fs::write(&file, "x").unwrap();
+        assert!(prepare_clean_output_folder(&file).is_err());
+
+        // Folder mode keeps it; ZIP mode zips then deletes.
+        fs::write(base.join("index.html"), "<p>").unwrap();
+        assert_eq!(
+            finalize_site_folder(&base, "game", false, tmp.path()).unwrap(),
+            None
+        );
+        assert!(base.is_dir());
+        let zip = finalize_site_folder(&base, "game", true, tmp.path())
+            .unwrap()
+            .unwrap();
+        assert_eq!(zip, tmp.path().join("game_site.zip"));
+        assert!(!base.exists());
+        let mut archive = zip::ZipArchive::new(File::open(&zip).unwrap()).unwrap();
+        assert!(archive.by_name("index.html").is_ok());
+    }
 
     fn fixture() -> serde_json::Value {
         serde_json::from_str(include_str!("../../../fixtures/output/names.json")).unwrap()

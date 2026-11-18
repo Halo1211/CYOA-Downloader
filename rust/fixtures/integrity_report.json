@@ -1,0 +1,12 @@
+{
+ "integrity": {
+  "missing": [
+   "index.html → a.png",
+   "css\\x.css → b.png"
+  ],
+  "external": [
+   "index.html → https://c/x.js"
+  ]
+ },
+ "bytes": "HEAD\r\n\r\n============================================================\r\nINTEGRITY CHECK — MISSING LOCAL REFS\r\n============================================================\r\n  index.html → a.png\r\n  css\\x.css → b.png\r\n\r\nREACHABLE EXTERNAL DEPENDENCIES\r\n  index.html → https://c/x.js\r\n"
+}
