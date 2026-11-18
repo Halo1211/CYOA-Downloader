@@ -25,6 +25,7 @@ pub mod js;
 pub mod mirror;
 pub mod page;
 pub mod payload;
+pub mod profile;
 pub mod routes;
 
 const STYLE: &[&str] = &[".css"];
