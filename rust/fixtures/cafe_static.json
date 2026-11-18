@@ -1,0 +1,84 @@
+{
+ "record": {
+  "id": "rec123abc",
+  "collectionId": "col9",
+  "collectionName": "games",
+  "title": "Tales & <Trials> \"Quoted\" 'single'",
+  "description": "d",
+  "language": "en",
+  "created": "2024-01-01",
+  "updated": "2024-02-02",
+  "img_or_link": "img",
+  "iframe_url": "",
+  "original_link": "https://x.test/",
+  "cyoa_pages": [
+   "p1.PNG",
+   "folder\\p2.jpg",
+   "p1.PNG",
+   "notes.txt",
+   "missing.webp",
+   "wrong.png",
+   " "
+  ],
+  "cyoa_pages_preview": [
+   "prev1.webp"
+  ],
+  "image": "cover.jpg",
+  "secret_field": "not exported"
+ },
+ "files": {
+  "https://cyoa.cafe/api/files/col9/rec123abc/p1.PNG": {
+   "status": 200,
+   "ct": "image/png",
+   "body": "89504e470d0a1a0a7061676531"
+  },
+  "https://cyoa.cafe/api/files/col9/rec123abc/folder%5Cp2.jpg": {
+   "status": 200,
+   "ct": "image/jpeg; charset=binary",
+   "body": "ffd8ff6a7067"
+  },
+  "https://cyoa.cafe/api/files/col9/rec123abc/missing.webp": {
+   "status": 404,
+   "ct": "text/html",
+   "body": "6e6f7065"
+  },
+  "https://cyoa.cafe/api/files/col9/rec123abc/wrong.png": {
+   "status": 200,
+   "ct": "text/html",
+   "body": "3c68746d6c3e"
+  },
+  "https://cyoa.cafe/api/files/col9/rec123abc/prev1.webp": {
+   "status": 200,
+   "ct": "",
+   "body": "524946462e2e2e2e5745425070726576"
+  },
+  "https://cyoa.cafe/api/files/col9/rec123abc/cover.jpg": {
+   "status": 200,
+   "ct": "image/jpeg",
+   "body": "ffd8ff636f766572"
+  }
+ },
+ "outputs": {
+  "archive_manifest.json": {
+   "text": "{\n  \"format\": 1,\n  \"detected_engine\": \"cyoa_cafe_static\",\n  \"selected_pipeline\": [\n    \"metadata_api\",\n    \"direct_files\",\n    \"offline_gallery\"\n  ],\n  \"source_url\": \"https://cyoa.cafe/game/rec123abc\",\n  \"record_id\": \"rec123abc\",\n  \"downloaded\": [\n    {\n      \"kind\": \"page\",\n      \"source_name\": \"p1.PNG\",\n      \"url\": \"https://cyoa.cafe/api/files/col9/rec123abc/p1.PNG\",\n      \"local\": \"images/pages/0001_p1.png\",\n      \"bytes\": 13,\n      \"content_type\": \"image/png\"\n    },\n    {\n      \"kind\": \"page\",\n      \"source_name\": \"folder\\\\p2.jpg\",\n      \"url\": \"https://cyoa.cafe/api/files/col9/rec123abc/folder%5Cp2.jpg\",\n      \"local\": \"images/pages/0002_p2.jpg\",\n      \"bytes\": 6,\n      \"content_type\": \"image/jpeg\"\n    },\n    {\n      \"kind\": \"cover\",\n      \"source_name\": \"cover.jpg\",\n      \"url\": \"https://cyoa.cafe/api/files/col9/rec123abc/cover.jpg\",\n      \"local\": \"images/cover/0001_cover.jpg\",\n      \"bytes\": 8,\n      \"content_type\": \"image/jpeg\"\n    },\n    {\n      \"kind\": \"preview\",\n      \"source_name\": \"prev1.webp\",\n      \"url\": \"https://cyoa.cafe/api/files/col9/rec123abc/prev1.webp\",\n      \"local\": \"images/previews/0001_prev1.webp\",\n      \"bytes\": 16,\n      \"content_type\": \"\"\n    }\n  ],\n  \"failures\": [\n    {\n      \"kind\": \"page\",\n      \"source_name\": \"missing.webp\",\n      \"error\": \"HTTP 404\"\n    },\n    {\n      \"kind\": \"page\",\n      \"source_name\": \"wrong.png\",\n      \"error\": \"unexpected content type text/html\"\n    }\n  ],\n  \"browser_skipped_reason\": \"all page assets resolved from structured metadata\",\n  \"safe_interactions\": 0\n}"
+  },
+  "cyoa_cafe_metadata.json": {
+   "text": "{\n  \"id\": \"rec123abc\",\n  \"collectionId\": \"col9\",\n  \"collectionName\": \"games\",\n  \"title\": \"Tales & <Trials> \\\"Quoted\\\" 'single'\",\n  \"description\": \"d\",\n  \"language\": \"en\",\n  \"created\": \"2024-01-01\",\n  \"updated\": \"2024-02-02\",\n  \"img_or_link\": \"img\",\n  \"iframe_url\": \"\",\n  \"original_link\": \"https://x.test/\",\n  \"cyoa_pages\": [\n    \"p1.PNG\",\n    \"folder\\\\p2.jpg\",\n    \"p1.PNG\",\n    \"notes.txt\",\n    \"missing.webp\",\n    \"wrong.png\",\n    \" \"\n  ],\n  \"cyoa_pages_preview\": [\n    \"prev1.webp\"\n  ],\n  \"image\": \"cover.jpg\"\n}"
+  },
+  "images/cover/0001_cover.jpg": {
+   "hex": "ffd8ff636f766572"
+  },
+  "images/pages/0001_p1.png": {
+   "hex": "89504e470d0a1a0a7061676531"
+  },
+  "images/pages/0002_p2.jpg": {
+   "hex": "ffd8ff6a7067"
+  },
+  "images/previews/0001_prev1.webp": {
+   "hex": "524946462e2e2e2e5745425070726576"
+  },
+  "index.html": {
+   "text": "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<title>Tales &amp; &lt;Trials&gt; &quot;Quoted&quot; &#x27;single&#x27;</title><style>\n:root{color-scheme:dark}body{margin:0;background:#0b0f16;color:#e5e7eb;font:15px system-ui,sans-serif}\nheader{position:sticky;top:0;z-index:2;padding:12px 18px;background:#111827ee;border-bottom:1px solid #263244}\nh1{font-size:18px;margin:0 0 4px}a{color:#67e8f9}main{max-width:1500px;margin:auto;padding:16px}\n.cover{display:block;max-width:min(460px,100%);max-height:420px;object-fit:contain;margin:0 auto 18px;border-radius:10px}\nfigure{margin:0 0 18px;background:#111827;border:1px solid #263244;border-radius:10px;overflow:hidden}\nfigure img{display:block;width:100%;height:auto}figcaption{padding:8px 12px;color:#94a3b8}\n</style></head><body><header><h1>Tales &amp; &lt;Trials&gt; &quot;Quoted&quot; &#x27;single&#x27;</h1><a href=\"https://cyoa.cafe/game/rec123abc\">Original CYOA.CAFE record</a></header>\n<main><img class=\"cover\" src=\"images/cover/0001_cover.jpg\" alt=\"Cover\"><figure><img src=\"images/pages/0001_p1.png\" loading=\"lazy\" alt=\"Page 1\"><figcaption>Page 1</figcaption></figure>\n<figure><img src=\"images/pages/0002_p2.jpg\" loading=\"lazy\" alt=\"Page 2\"><figcaption>Page 2</figcaption></figure></main></body></html>"
+  }
+ }
+}
