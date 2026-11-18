@@ -14,7 +14,7 @@
 | F-009 history | PARTIAL | Record path byte-identical; background metadata probe pending |
 | F-010 resume | TESTED | Bytes and job keys identical to Python |
 | F-011 checkpoints | TESTED | DB names (`path_for`) and payloads identical to Python; interoperable |
-| F-012 HTTP client | IMPLEMENTED + TESTED (wiremock) | Policy resolver, redirects, caps, cancel; charset decoding pending |
+| F-012 HTTP client | IMPLEMENTED + TESTED (wiremock) | Policy resolver, redirects, caps, cancel; page HTML decoded with `try_decode_bytes` like Python `get_source` (s6, BOM/UTF-16 test; invalid UTF-8 → U+FFFD in both, verified against Python) |
 | F-013 admission | TESTED | 7 async tests (Sol design) |
 | F-014 retry | TESTED | Python-derived schedules (Sol) |
 | F-015 throttle | TESTED | Python window accounting |

@@ -54,7 +54,10 @@ async fn request_text(
     if !response.status.is_success() {
         return Ok(None);
     }
-    Ok(Some(FetchClient::text(response, cap).await?))
+    // Python get_source: try_decode_bytes(response.content) (BOM/UTF-16/
+    // UTF-32 aware), not the response charset and not lossy UTF-8.
+    let bytes = FetchClient::bytes(response, cap).await?;
+    Ok(Some(try_decode_bytes(&bytes, "")))
 }
 
 async fn candidate(
@@ -352,14 +355,39 @@ mod tests {
     async fn script_reference_is_scanned() {
         let s = MockServer::start().await;
         serve(&s, "/index.html", "<script src='/app.js'></script>").await;
-        serve(&s, "/app.js", "const data = '/assets/story.json';").await;
-        serve(&s, "/assets/story.json", project()).await;
+        serve(&s, "/app.js", "const data = '/x9/zz_data.json';").await;
+        serve(&s, "/x9/zz_data.json", project()).await;
         assert!(
             resolve(&s, "/index.html")
                 .await
                 .unwrap()
                 .project_url
-                .ends_with("/assets/story.json")
+                .ends_with("/x9/zz_data.json")
+        );
+    }
+    /// Python `get_source` decodes pages with `try_decode_bytes` (BOMs, UTF-16,
+    /// legacy fallbacks), not as lossy UTF-8.
+    #[tokio::test]
+    async fn page_bytes_are_decoded_like_python() {
+        let s = MockServer::start().await;
+        // UTF-16LE page with BOM (Python decodes it; lossy UTF-8 would not).
+        let mut page = vec![0xff, 0xfe];
+        for unit in "<script src='/app.js'></script>".encode_utf16() {
+            page.extend_from_slice(&unit.to_le_bytes());
+        }
+        Mock::given(method("GET"))
+            .and(path("/index.html"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(page))
+            .mount(&s)
+            .await;
+        serve(&s, "/app.js", "const data = '/x9/zz_data.json';").await;
+        serve(&s, "/x9/zz_data.json", project()).await;
+        assert!(
+            resolve(&s, "/index.html")
+                .await
+                .unwrap()
+                .project_url
+                .ends_with("/x9/zz_data.json")
         );
     }
     #[tokio::test]
