@@ -15,6 +15,14 @@ thiserror = "2.0.21"
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
 sha1 = "0.11.0"
 percent-encoding = "2.3.2"
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync", "time", "fs"] }
+tokio-util = { version = "0.7.20", features = ["rt"] }
+url = "2.5.8"
+tracing = "0.1.44"
+
+[dev-dependencies]
+wiremock = "0.6.5"
+tempfile = "3"
 
 [lints]
 workspace = true

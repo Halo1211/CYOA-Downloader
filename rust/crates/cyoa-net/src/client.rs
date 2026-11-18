@@ -383,6 +383,20 @@ impl FetchClient {
         }
         Ok(String::from_utf8_lossy(&bytes).into_owned())
     }
+
+    /// Bounded response body read, preserving the response cancellation token.
+    pub async fn bytes(mut resp: FetchResponse, max: u64) -> Result<Bytes, E> {
+        resp.size_check(max)?;
+        let mut bytes = Vec::new();
+        while let Some(chunk) = resp.chunk().await? {
+            let len = bytes.len().checked_add(chunk.len()).ok_or(E::TooLarge)?;
+            if len as u64 > max {
+                return Err(E::TooLarge);
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        Ok(Bytes::from(bytes))
+    }
 }
 
 static NEXT: AtomicU64 = AtomicU64::new(0);

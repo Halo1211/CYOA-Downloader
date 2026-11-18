@@ -153,3 +153,11 @@ c8705cc docs · e5c1d13 Stage 0 · e8ed523 1a · ffd7866 1a security fixes · ec
   - Luna's wrong unit expectation for `HTTPS:/` was corrected to the Python value.
 - **Totals:** 106 Rust tests pass; fmt and clippy clean.
 - **Next:** async fetch loop. Cache get, then `asset_is_error_document` rejection, then `cyoa_net::client` GET with headers, retry and byte cap, then cache put, then MIME/extension, tested against a mocked HTTP server. After that: gallery-dl, headless and cookie fallbacks (Sol), then network discovery, outputs, CLI, and an end-to-end test.
+
+## Update — session 4 (2026-11-18)
+
+- **Agent bridge:** Luna `luna_implement` now creates AND modifies files (temp-file test passed, file removed). Luna works directly again; Claude reviews diffs and runs gates.
+- **Batch C1 `cyoa-engine::fetch`** (Luna): `asset_is_error_document`, async `fetch_one` direct-HTTP loop (cache get/put with error-doc rejection, SSRF screen, MediaRetryPolicy 429/5xx backoff, 404/410 permanent, 401/403 auth stop, Content-Type mismatch, cancel-aware sleeps); `FetchClient::bytes` (capped). 8 wiremock tests.
+- **Known gaps (KNOWN_ISSUES):** no transport-level retries inside the Rust client (Python retries connect failures 3x inside fetch_response, Rust stops after one); other-4xx/TLS error strings differ from requests' wording; domain jitter fixed at 0.5; gallery-dl, headless, cookie session, Discord refresh, MediaWiki and VPN guard are DEFERRED.
+- **Totals:** 114 tests pass; fmt and clippy clean.
+- **Next:** C2: bounded-concurrency `process_images` driver (fetch_one over the collected assets, local naming via `localize`, writes, failed list), then E: embed writer/ZIP/reports, then CLI.
