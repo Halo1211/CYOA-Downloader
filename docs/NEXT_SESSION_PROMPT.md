@@ -19,9 +19,9 @@ Resume the CYOA Downloader Python→Rust migration on branch `migration/python-t
 - Tests and parity scripts must set `USERPROFILE`/`HOME` to a temp dir, or they will touch the user's real image cache.
 
 **Next actionable tasks, in order:**
-1. KI-R1: payload spooling. Spill bodies over a threshold to temp files and stream embed output, to bound memory (Sol High). Measure peak working set against BENCHMARKS (98 MB at 300×50 KB).
+1. (done s5) KI-R1 spooling; GUI list import; 100k-row frame time; website W1 path mapping.
 2. GUI: "Import list" (reuse `cyoa_engine::batch`), per-item filename/mode, a manual download test against `rust/fixtures/e2e_site`, a 100k-row frame-time measurement, and history pruning.
-3. Website/ICC mode (`--icc`, `--icc-folder`), then cyoap-vue, then pure website. Start by auditing `download/orchestrator.py` website branch and `_finalize_site_folder`.
+3. Website/ICC mode: continue at W2 in docs/WEBSITE_MODE_PLAN.md (HTML/CSS/JS rewrite, website.py 2427-2673 and 2810-3043), then W3–W5.
 4. Network options: proxy (F-016), DNS (F-017), VPN guard (F-018).
 5. Fallbacks: gallery-dl, yt-dlp audio, browser/CDP, Cloudflare/FlareSolverr (D3), with a Sol review.
 6. Output gaps: `cyoa_downloader.log`, `backup_report.txt` append, audio copy, offline viewer, cyoa-manager registration.

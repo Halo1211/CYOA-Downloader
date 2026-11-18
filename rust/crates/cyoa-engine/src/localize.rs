@@ -38,7 +38,7 @@ fn sha1_hex(s: &str) -> String {
         .collect()
 }
 
-fn unquote(s: &str) -> String {
+pub(crate) fn unquote(s: &str) -> String {
     percent_encoding::percent_decode_str(s)
         .decode_utf8_lossy()
         .into_owned()
@@ -157,7 +157,7 @@ fn sniff_ext(raw: &[u8]) -> &'static str {
     }
 }
 
-fn parse_qsl(q: &str) -> Vec<(String, String)> {
+pub(crate) fn parse_qsl(q: &str) -> Vec<(String, String)> {
     q.split(['&', ';'])
         .filter(|p| !p.is_empty())
         .map(|p| {

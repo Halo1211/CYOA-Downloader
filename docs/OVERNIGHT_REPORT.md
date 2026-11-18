@@ -207,3 +207,10 @@ c8705cc docs · e5c1d13 Stage 0 · e8ed523 1a · ffd7866 1a security fixes · ec
 - New tests:
   - The GUI worker downloads `rust/fixtures/e2e_site` end to end (progress reaches the UI channel, the waker fires, JSON and ZIP are written, the 404 is counted).
   - 100k-row frame time: 0.09 ms release.
+
+**Website/ICC mode started (plan: docs/WEBSITE_MODE_PLAN.md, audit by Luna via luna_review):**
+- Batch W1 `cyoa-engine::website` (Claude) ports `_normalize_remote_url`, `_normalize_cache_key`, `_safe_filename`, `_kind_from`, `_reserve_local_path`/`_allocate_local_path` (sequential collisions, case-insensitive) and `_local_asset_reference`.
+- Fixture `rust/fixtures/website/paths.json` comes from the real `WebsiteDownloader` (`export_website_paths.py`). All 74 cases match.
+- Known approximation: identity uses `to_lowercase`, where Python uses `casefold`.
+- Next: W2, the HTML/CSS/JS reference rewrite with golden fixtures.
+- Totals: 165 tests pass.

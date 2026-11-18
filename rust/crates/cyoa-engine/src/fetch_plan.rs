@@ -109,7 +109,7 @@ fn compose(p: Parts<'_>) -> String {
     out
 }
 
-fn python_urljoin(base: &str, reference: &str) -> String {
+pub(crate) fn python_urljoin(base: &str, reference: &str) -> String {
     // CPython: `if not url: return base` (fragment and all).
     if reference.is_empty() {
         return base.to_owned();
