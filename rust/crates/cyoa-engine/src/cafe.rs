@@ -523,6 +523,15 @@ impl<'a> CafeResolver<'a> {
         } else {
             None
         };
+        // Python: discard a cached target the fresh record contradicts.
+        let cached = match (cached, &authoritative) {
+            (Some(c), Some(a)) if canonicalize_url(&c).unwrap_or_else(|_| c.clone()) != *a => {
+                tracing::info!("Discarding stale CYOA.CAFE resolver cache: {c} (record says {a})");
+                lock().resolver.remove(&n);
+                None
+            }
+            (c, _) => c,
+        };
         if let Some(c) = cached {
             if self.validate(&c) {
                 return Ok(c);
