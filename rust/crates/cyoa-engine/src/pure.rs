@@ -137,7 +137,16 @@ impl PureRun<'_> {
         .await
         .map_err(|e| RunError::OutputStage(format!("website worker failed: {e}")))?;
         check.map_err(RunError::OutputStage)?;
-        let zip = output::finalize_site_folder(&site, &self.stem, self.zip, &self.output_dir)?;
+        let zip = {
+            let (site_b, stem_b, out_b) =
+                (site.clone(), self.stem.clone(), self.output_dir.clone());
+            let zip_b = self.zip;
+            tokio::task::spawn_blocking(move || {
+                output::finalize_site_folder(&site_b, &stem_b, zip_b, &out_b)
+            })
+            .await
+            .map_err(|e| RunError::OutputStage(format!("archive worker failed: {e}")))??
+        };
         if self.custom_fallback {
             tracing::info!("Custom viewer archive fallback complete.");
         } else {

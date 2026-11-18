@@ -106,7 +106,15 @@ async fn static_cafe_record(
         return Ok(None);
     }
     let zip = matches!(opts.mode, OutputMode::IccZip | OutputMode::PureZip);
-    let written = output::finalize_site_folder(&site, &stem, zip, &opts.output_dir)?;
+    let written = {
+        let (site_b, stem_b, out_b) = (site.clone(), stem.clone(), opts.output_dir.clone());
+        let zip_b = zip;
+        tokio::task::spawn_blocking(move || {
+            output::finalize_site_folder(&site_b, &stem_b, zip_b, &out_b)
+        })
+        .await
+        .map_err(|e| RunError::OutputStage(format!("archive worker failed: {e}")))??
+    };
     tracing::info!("CYOA.CAFE static archive complete.");
     Ok(Some(RunReport {
         stem,

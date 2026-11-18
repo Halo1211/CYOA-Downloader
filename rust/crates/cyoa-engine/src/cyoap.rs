@@ -632,9 +632,15 @@ pub async fn try_download_cyoap_vue_site(
             .unwrap_or_default();
         let parent = output_folder.parent().unwrap_or(Path::new("."));
         tracing::info!("Zipping → {name}.zip");
-        crate::output::zip_package(output_folder, &format!("{name}.zip"), parent)
-            .map_err(|e| e.to_string())?;
-        let _ = fs::remove_dir_all(output_folder);
+        let (folder, parent) = (output_folder.to_path_buf(), parent.to_path_buf());
+        tokio::task::spawn_blocking(move || {
+            crate::output::zip_package(&folder, &format!("{name}.zip"), &parent)
+                .map_err(|e| e.to_string())?;
+            let _ = fs::remove_dir_all(&folder);
+            Ok::<(), String>(())
+        })
+        .await
+        .map_err(|e| e.to_string())??;
     } else {
         tracing::info!("ICC folder kept: {}", output_folder.display());
     }
