@@ -225,3 +225,12 @@ c8705cc docs · e5c1d13 Stage 0 · e8ed523 1a · ffd7866 1a security fixes · ec
   - Fixture `website/js.json`: 14 `_process_js` cases, with output and download-call sequence, plus chunk and dynamic-path cases. All match. A mutation check confirmed the test detects differences.
   - Python runs image prefetches in parallel when `max_workers>1`, so its order is nondeterministic there. Rust is sequential, which equals Python with one worker.
   - 169 tests pass.
+- **Concurrent-session incident:** a second Claude Code session edited `cyoa-storage/cache.rs`, `atomic_io.rs` and `cyoa-engine/fetch.rs` (streamed spool + cache-from-file). The owner cancelled it.
+  - Its changes compiled and passed 172 tests, but are unreviewed. They are saved as `git stash@{0}` ("other-session: …") and NOT applied.
+  - Review with `git stash show -p stash@{0}`; apply with `git stash apply stash@{0}`.
+- **W2-HTML step 1** (Claude): `website::html` is a byte-compatible port of `str(BeautifulSoup(x, "html.parser"))` (bs4 4.14.3, CPython 3.12.10 `html.parser`). It covers:
+  - the two-phase feed/close tokenizer with its quirks
+  - the bs4 tree builder (void elements, `already_closed_empty_element`, `_popToTag`, whitespace collapsing)
+  - minimal formatter, sorted and multi-valued attributes, the meta charset→utf-8 rewrite
+  - `html.unescape` and the bs4 entity/charref tables (dumped from Python as data)
+- **Verification:** 48 hand-picked cases plus 2000 seeded differential-fuzz cases (`export_html_fuzz.py`) are all byte-identical. A mutation check passed. 172 tests total.

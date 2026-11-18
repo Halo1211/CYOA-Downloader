@@ -1,0 +1,197 @@
+{
+ "bs4": "4.14.3",
+ "cases": [
+  [
+   "<!DOCTYPE html><html><head><title>T</title></head><body><p>Hi</p></body></html>",
+   "<!DOCTYPE html>\n<html><head><title>T</title></head><body><p>Hi</p></body></html>"
+  ],
+  [
+   "<!doctype html>\n<html lang=en>\n<head>\n<meta charset=utf-8>\n<link rel=stylesheet href=css/a.css>\n</head>\n<body>\n</body>\n</html>\n",
+   "<!DOCTYPE html>\n\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\"/>\n<link href=\"css/a.css\" rel=\"stylesheet\"/>\n</head>\n<body>\n</body>\n</html>\n"
+  ],
+  [
+   "<DIV CLASS='a' Data-X=\"1\">Text</DIV>",
+   "<div class=\"a\" data-x=\"1\">Text</div>"
+  ],
+  [
+   "<img src=a.png alt=\"say &quot;hi&quot; &amp; bye\"><br><hr/><input disabled>",
+   "<img alt='say \"hi\" &amp; bye' src=\"a.png\"/><br/><hr/><input disabled=\"\"/>"
+  ],
+  [
+   "<p>a &amp; b &lt; c &gt; d &copy; &#169; &#xA9; &nbsp;x</p>",
+   "<p>a &amp; b &lt; c &gt; d © © ©  x</p>"
+  ],
+  [
+   "<script>if (a < b && c > d) { x = '</div>'; }</script><style>a>b{c:d}</style>",
+   "<script>if (a < b && c > d) { x = '</div>'; }</script><style>a>b{c:d}</style>"
+  ],
+  [
+   "<!-- comment --><p>x<!--inner--></p>",
+   "<!-- comment --><p>x<!--inner--></p>"
+  ],
+  [
+   "<a href='x?a=1&b=2'>q</a><a href=\"x?a=1&amp;b=2\">r</a>",
+   "<a href=\"x?a=1&amp;b=2\">q</a><a href=\"x?a=1&amp;b=2\">r</a>"
+  ],
+  [
+   "<ul><li>one<li>two</ul>",
+   "<ul><li>one<li>two</li></li></ul>"
+  ],
+  [
+   "<p>one<p>two",
+   "<p>one<p>two</p></p>"
+  ],
+  [
+   "<div><span>unclosed</div>after",
+   "<div><span>unclosed</span></div>after"
+  ],
+  [
+   "<table><tr><td>a<td>b</tr></table>",
+   "<table><tr><td>a<td>b</td></td></tr></table>"
+  ],
+  [
+   "<select><option>a<option selected>b</select>",
+   "<select><option>a<option selected=\"\">b</option></option></select>"
+  ],
+  [
+   "<textarea>  <b>raw?</b> </textarea><pre>\n  x</pre>",
+   "<textarea>  <b>raw?</b> </textarea><pre>\n  x</pre>"
+  ],
+  [
+   "<svg viewBox=\"0 0 1 1\"><path d=\"M0 0\"/><circle r=1></circle></svg>",
+   "<svg viewbox=\"0 0 1 1\"><path d=\"M0 0\"></path><circle r=\"1\"></circle></svg>"
+  ],
+  [
+   "<p title=\"it's\">x</p><p title='say \"q\"'>y</p>",
+   "<p title=\"it's\">x</p><p title='say \"q\"'>y</p>"
+  ],
+  [
+   "<p a=1 a=2>dup</p>",
+   "<p a=\"2\">dup</p>"
+  ],
+  [
+   "text before<html><body>x</body></html>text after",
+   "text before<html><body>x</body></html>text after"
+  ],
+  [
+   "</p>stray close<br></br>",
+   "stray close<br/>"
+  ],
+  [
+   "<p>unicode ü ✓ 😀 &unknown; &amp</p>",
+   "<p>unicode ü ✓ 😀 &amp;unknown &amp;</p>"
+  ],
+  [
+   "<![CDATA[x]]><?php echo 1; ?><p>x</p>",
+   "<![CDATA[x]]><?php echo 1; ?><p>x</p>"
+  ],
+  [
+   "<input value=\"a\nb\"><img src=\"  spaced.png  \">",
+   "<input value=\"a\nb\"/><img src=\"  spaced.png  \"/>"
+  ],
+  [
+   "<noscript><img src=n.png></noscript><template><p>t</p></template>",
+   "<noscript><img src=\"n.png\"/></noscript><template><p>t</p></template>"
+  ],
+  [
+   "<body onload=\"init()\"><div id=x class=\"a  b\"></div></body>",
+   "<body onload=\"init()\"><div class=\"a b\" id=\"x\"></div></body>"
+  ],
+  [
+   "<p>\r\nwindows\r\nlines</p>",
+   "<p>\r\nwindows\r\nlines</p>"
+  ],
+  [
+   "<iframe src=\"f.html\"></iframe><video src=v.mp4 controls autoplay></video><source srcset=\"a.png 1x, b.png 2x\">",
+   "<iframe src=\"f.html\"></iframe><video autoplay=\"\" controls=\"\" src=\"v.mp4\"></video><source srcset=\"a.png 1x, b.png 2x\"/>"
+  ],
+  [
+   "<a href=#top>t</a><base href=\"/root/\"><link rel=preload as=font href=f.woff2 crossorigin>",
+   "<a href=\"#top\">t</a><base href=\"/root/\"/><link as=\"font\" crossorigin=\"\" href=\"f.woff2\" rel=\"preload\"/>"
+  ],
+  [
+   "<html><head></head><body><script type=module src=m.js></script><script>var s=\"<\\/script>\";</script></body></html>",
+   "<html><head></head><body><script src=\"m.js\" type=\"module\"></script><script>var s=\"<\\/script>\";</script></body></html>"
+  ],
+  [
+   "<P><B>bold<I>both</B>italic</I></P>",
+   "<p><b>bold<i>both</i></b>italic</p>"
+  ],
+  [
+   "<meta http-equiv=\"refresh\" content=\"0; url=next.html\"><title>a &amp; b</title>",
+   "<meta content=\"0; url=next.html\" http-equiv=\"refresh\"/><title>a &amp; b</title>"
+  ],
+  [
+   "",
+   ""
+  ],
+  [
+   "plain text only & more",
+   "plain text only &amp; more"
+  ],
+  [
+   "<meta charset=iso-8859-1><meta http-equiv=Content-Type content=\"text/html; charset=windows-1252\"><meta http-equiv=x content=\"charset=q\">",
+   "<meta charset=\"utf-8\"/><meta content=\"text/html; charset=utf-8\" http-equiv=\"Content-Type\"/><meta content=\"charset=q\" http-equiv=\"x\"/>"
+  ],
+  [
+   "<p>&#150; &#0; &#xD800; &#1114112; &#x110000; &#xFDD0; &#127; &#x41 &#65x &#; &#x;</p>",
+   "<p>– � � � � ﷐  A Ax &amp;#; &amp;#x;&lt;/p&gt;</p>"
+  ],
+  [
+   "<!----><p> </p><div>\n\n</div><pre>  </pre><textarea>\t</textarea><span> </span>",
+   "<!-- --><p> </p><div>\n</div><pre>  </pre><textarea>\t</textarea><span> </span>"
+  ],
+  [
+   "<a class=' x  y ' rel='nofollow  noopener' rev=a href=h>a</a><td headers='h1 h2'>c</td><div class=''>e</div><div class>f</div>",
+   "<a class=\"x y\" href=\"h\" rel=\"nofollow noopener\" rev=\"a\">a</a><td headers=\"h1 h2\">c</td><div class=\"\">e</div><div class=\"\">f</div>"
+  ],
+  [
+   "<!foo bar><!><p>x</p></><  p>a<b</p>",
+   "<!--foo bar--><!-- --><p>x</p>&lt;  p&gt;a<b< p=\"\"></b<>"
+  ],
+  [
+   "<a href=x/><br/ ><p  x = \"1\"  y>z</p><P X=1 x=2>w</P>",
+   "<a href=\"x/\"><br/><p x=\"1\" y=\"\">z</p><p x=\"2\">w</p></a>"
+  ],
+  [
+   "<p>&AMP; &Amp; &lt &gt; &quot; &apos; &notin; &notit; &ampx</p>",
+   "<p>&amp; &amp;Amp &lt; &gt; \" ' ∉ &amp;notit &amp;ampx</p>"
+  ],
+  [
+   "<div class=\"x",
+   "&lt;div class=\"x"
+  ],
+  [
+   "<p>x<!-- unterminated",
+   "<p>x&lt;!-- unterminated</p>"
+  ],
+  [
+   "<script>var x = 1;",
+   "<script></script>"
+  ],
+  [
+   "<style>a{}</STYLE ><script>a</script foo>b",
+   "<style>a{}</style><script></script>"
+  ],
+  [
+   "<title>a<b>c</b></title><p>&lt;b&gt;</p>",
+   "<title>a<b>c</b></title><p>&lt;b&gt;</p>"
+  ],
+  [
+   "<rt>r</rt><rp>(</rp><template><b>t &amp; u</b></template>",
+   "<rt>r</rt><rp>(</rp><template><b>t &amp; u</b></template>"
+  ],
+  [
+   "<?xml version=\"1.0\"?><p>x</p><!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0//EN\">",
+   "<?xml version=\"1.0\"?><p>x</p><!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0//EN\">\n"
+  ],
+  [
+   "<![if !IE]><p>x</p><![endif]><![CDATA[a]]b]]>",
+   "<?if !IE?><p>x</p><?endif?><![CDATA[a]]b]]>"
+  ],
+  [
+   "<img src=\"a.png\" alt='x' title=\"y'z\" data-q='\"'><img alt=\"&lt;&gt;\">",
+   "<img alt=\"x\" data-q='\"' src=\"a.png\" title=\"y'z\"/><img alt=\"&lt;&gt;\"/>"
+  ]
+ ]
+}

@@ -17,6 +17,7 @@ use regex::Regex;
 use sha1::{Digest, Sha1};
 use std::{collections::HashSet, sync::LazyLock};
 
+pub mod html;
 pub mod js;
 
 const STYLE: &[&str] = &[".css"];
