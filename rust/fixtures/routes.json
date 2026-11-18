@@ -537,6 +537,18 @@
   {
    "url": "https://story.test/game/ch1?p=2",
    "local": "routes/ch1_9f2b2362/index.html"
+  },
+  {
+   "url": "https://story.test/game/Ch1",
+   "local": "routes/Ch1_4b244dc7/index.html"
+  },
+  {
+   "url": "https://story.test/game/x(1)!*'+,;=@&",
+   "local": "routes/x(1)!_'+,/index.html"
+  },
+  {
+   "url": "https://story.test/game/q?a=(b)!*'&c=d e",
+   "local": "routes/q_63eefe6a/index.html"
   }
  ],
  "links": {
@@ -549,18 +561,24 @@
   "https://story.test/game/ch1": [
    "https://story.test/game/",
    "https://story.test/game/ch2",
+   "https://story.test/game/ch1",
+   "https://story.test/game/x(1)!*'+,;=@&"
+  ],
+  "https://story.test/game/x(1)!*'+,;=@&": [
    "https://story.test/game/ch1"
   ]
  },
  "pages_html": {
   "https://story.test/game/": "<html><head><base href=\"sub/\"></head><body><a href=\"../ch1\">1</a><a href=\"ch2#top\">2</a><a href=\"#local\">f</a><a href=\"/game/ch3?utm_medium=a\">3</a><a href=\"https://evil.test/x\">e</a><a href=\"javascript:void(0)\">j</a><a href=\"mailto:a@b\">m</a><a href=\"/game/login\">l</a><a data-cyoa-local-route=\"1\" href=\"kept\">k</a></body></html>",
-  "https://story.test/game/ch1": "<p><a href=\"/game/\">home</a><a href=\"ch2\">2</a><a href=\"./ch1#x\">self</a></p>"
+  "https://story.test/game/ch1": "<p><a href=\"/game/\">home</a><a href=\"ch2\">2</a><a href=\"./ch1#x\">self</a><a href=\"x(1)!*'+,;=@&\">sp</a></p>",
+  "https://story.test/game/x(1)!*'+,;=@&": "<p><a href=\"ch1\">back</a></p>"
  },
  "response_urls": {
   "https://story.test/game/ch1": "https://story.test/game/ch1/"
  },
  "rewritten": {
   "index.html": "<html><head><base href=\"sub/\"/></head><body><a data-cyoa-local-route=\"1\" href=\"routes/ch1/index.html\">1</a><a href=\"ch2#top\">2</a><a href=\"#local\">f</a><a href=\"/game/ch3?utm_medium=a\">3</a><a href=\"https://evil.test/x\">e</a><a href=\"javascript:void(0)\">j</a><a href=\"mailto:a@b\">m</a><a href=\"/game/login\">l</a><a data-cyoa-local-route=\"1\" href=\"kept\">k</a><script data-cyoa-offline-route-guard=\"\">document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a[data-cyoa-local-route]');if(a){e.preventDefault();e.stopImmediatePropagation();location.href=a.href;}},true);</script></body></html>",
-  "routes/ch1/index.html": "<p><a data-cyoa-local-route=\"1\" href=\"../../index.html\">home</a><a href=\"ch2\">2</a><a data-cyoa-local-route=\"1\" href=\"index.html#x\">self</a></p><script data-cyoa-offline-route-guard=\"\">document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a[data-cyoa-local-route]');if(a){e.preventDefault();e.stopImmediatePropagation();location.href=a.href;}},true);</script>"
+  "routes/ch1/index.html": "<p><a data-cyoa-local-route=\"1\" href=\"../../index.html\">home</a><a href=\"ch2\">2</a><a data-cyoa-local-route=\"1\" href=\"index.html#x\">self</a><a data-cyoa-local-route=\"1\" href=\"../x%281%29%21_%27%2B%2C/index.html\">sp</a></p><script data-cyoa-offline-route-guard=\"\">document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a[data-cyoa-local-route]');if(a){e.preventDefault();e.stopImmediatePropagation();location.href=a.href;}},true);</script>",
+  "routes/x(1)!_'+,/index.html": "<p><a data-cyoa-local-route=\"1\" href=\"../ch1/index.html\">back</a></p><script data-cyoa-offline-route-guard=\"\">document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a[data-cyoa-local-route]');if(a){e.preventDefault();e.stopImmediatePropagation();location.href=a.href;}},true);</script>"
  }
 }

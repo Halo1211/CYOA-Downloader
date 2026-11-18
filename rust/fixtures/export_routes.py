@@ -46,7 +46,9 @@ PAGES_HTML = {
         '<a href="javascript:void(0)">j</a><a href="mailto:a@b">m</a><a href="/game/login">l</a>'
         '<a data-cyoa-local-route="1" href="kept">k</a></body></html>'
     ),
-    "https://story.test/game/ch1": '<p><a href="/game/">home</a><a href="ch2">2</a><a href="./ch1#x">self</a></p>',
+    "https://story.test/game/ch1": '<p><a href="/game/">home</a><a href="ch2">2</a><a href="./ch1#x">self</a>'
+                                   + "<a href=\"x(1)!*'+,;=@&\">sp</a></p>",
+    "https://story.test/game/x(1)!*'+,;=@&": '<p><a href="ch1">back</a></p>',
 }
 
 
@@ -80,7 +82,9 @@ with tempfile.TemporaryDirectory() as out:
     local_paths = []
     for u in ["https://story.test/game/", "https://story.test/game/ch1", "https://story.test/game/ch1?p=2",
               "https://story.test/game/ch%201", "https://story.test/game/ch 1", "https://story.test/game/a/b/",
-              "https://story.test/other/z", "https://story.test/game/CON", "https://story.test/game/ch1?p=2"]:
+              "https://story.test/other/z", "https://story.test/game/CON", "https://story.test/game/ch1?p=2",
+              "https://story.test/game/Ch1", "https://story.test/game/x(1)!*'+,;=@&",
+              "https://story.test/game/q?a=(b)!*'&c=d e"]:
         local_paths.append({"url": u, "local": rel(c._route_local_path(u), out)})
 
     # _links_from + _rewrite_route_links on written pages.
