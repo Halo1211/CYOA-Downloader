@@ -45,27 +45,22 @@ impl From<Mode> for OutputMode {
     }
 }
 
-/// Python setting `archive_strategy` from the shared settings.json:
-/// `Ok(true)` = auto (default), `Ok(false)` = classic, `Err` = not ported.
-fn archive_strategy_auto() -> Result<bool, String> {
+/// Python `ArchivePolicy` from the shared settings.json (`archive_*`);
+/// the browser strategy (CDP) is not ported and is refused.
+fn archive_policy() -> Result<cyoa_engine::icc::ArchivePolicy, String> {
     let mut store =
         cyoa_storage::settings::SettingsStore::new(cyoa_storage::settings::default_path());
-    let strategy = store
+    let policy = store
         .load()
-        .ok()
-        .and_then(|v| {
-            v.get("archive_strategy")
-                .and_then(|s| s.as_str())
-                .map(str::to_lowercase)
-        })
-        .unwrap_or_else(|| "auto".into());
-    match strategy.trim() {
-        "" | "auto" => Ok(true),
-        "classic" => Ok(false),
-        other => Err(format!(
-            "archive strategy '{other}' is not supported by the Rust port yet (use auto or classic)"
-        )),
+        .map(cyoa_engine::icc::ArchivePolicy::from_settings)
+        .unwrap_or_default();
+    if policy.strategy == "browser" {
+        return Err(
+            "archive strategy 'browser' is not supported by the Rust port yet (use auto, classic or smart)"
+                .into(),
+        );
     }
+    Ok(policy)
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -326,7 +321,7 @@ impl DownloaderApp {
         let net = self.net_runtime();
         // ICC jobs follow the shared `archive_strategy` setting.
         let archive = match &mode {
-            Ok(m) if m.is_icc() => archive_strategy_auto().map(Some),
+            Ok(m) if m.is_icc() => archive_policy().map(Some),
             _ => Ok(None),
         };
         let status = match (mode, net, archive) {
@@ -342,7 +337,7 @@ impl DownloaderApp {
                     proxy: net.proxy,
                     dns: net.dns,
                     vpn: net.vpn,
-                    archive_auto: archive_auto.unwrap_or(true),
+                    archive: archive_auto.unwrap_or_default(),
                     ..RunOptions::default()
                 };
                 // Python's ICC branch returns before CYOA Manager registration.

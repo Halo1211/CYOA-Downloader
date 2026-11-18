@@ -97,6 +97,9 @@ pub struct MirrorSink {
     /// Python `self._source_for_local`: local file (relative) -> source URL,
     /// the referrer used when a file is re-analysed.
     pub source_for_local: HashMap<String, String>,
+    /// Python `_entry_source`: (effective URL, raw HTML) of the entry page,
+    /// reused by the route crawl instead of fetching it again.
+    pub entry_source: Option<(String, String)>,
 }
 
 impl MirrorSink {
@@ -136,6 +139,7 @@ impl MirrorSink {
             project_aliases: Vec::new(),
             workers: 4,
             source_for_local: HashMap::new(),
+            entry_source: None,
         }
     }
 
@@ -549,6 +553,7 @@ impl MirrorSink {
         .map_err(|e| e.to_string())?;
         self.custom_viewer_route |= page.custom_viewer_route;
         self.write("index.html", page.html.as_bytes())?;
+        self.entry_source = Some((url.clone(), text));
         let local = Some("index.html".to_owned());
         self.source_for_local
             .insert("index.html".into(), url.clone());
@@ -755,6 +760,155 @@ impl MirrorSink {
             }
         }
     }
+
+    /// Python `download_html_page` (`_download_html` with given text).
+    pub fn download_html_page(&mut self, url: &str, local: &str, html: &str) -> Result<(), String> {
+        let (start, base) = (self.start_url.clone(), self.base_url.clone());
+        let page = Rewriter {
+            start_url: &start,
+            base_url: &base,
+            sink: self,
+        }
+        .localize_html(url, local, html)
+        .map_err(|e| e.to_string())?;
+        self.write(local, page.html.as_bytes())?;
+        self.source_for_local
+            .insert(local.to_owned(), url.to_owned());
+        self.set_entry(url, Entry::Done(Some(local.to_owned())));
+        tracing::info!("  Page: {local}");
+        Ok(())
+    }
+
+    /// `RouteCrawler._fetch_html`: Ok(None) when the fetch failed (the
+    /// headless retry of Smart/Browser is not ported), Err for non-HTML.
+    fn fetch_route_html(&mut self, url: &str) -> Result<Option<(String, String)>, String> {
+        let Some(r) = self.fetch(url) else {
+            return Ok(None);
+        };
+        if !r.content_type.is_empty()
+            && r.content_type != "text/html"
+            && r.content_type != "application/xhtml+xml"
+        {
+            return Err(format!("route response is not HTML ({})", r.content_type));
+        }
+        let text = cyoa_parse::project::try_decode_bytes(&r.bytes, &r.charset);
+        Ok(Some((r.final_url, text)))
+    }
+
+    /// `RouteCrawler.crawl()` (Smart strategy) over this mirror.
+    pub fn crawl_routes(&mut self, max_pages: usize, max_depth: usize) -> RouteCrawl {
+        use super::routes::RouteCrawler;
+        let mut crawler = RouteCrawler::new(&self.start_url);
+        let mut out = RouteCrawl::default();
+        let start = crawler.start_url.clone();
+        let mut queue: std::collections::VecDeque<(String, usize)> =
+            std::collections::VecDeque::new();
+        if crawler.is_allowed(&start) {
+            queue.push_back((start.clone(), 0));
+        }
+        let mut queued: std::collections::HashSet<String> = [start.clone()].into();
+        let mut base_order: Vec<String> = Vec::new();
+        while !queue.is_empty() && out.pages.len() < max_pages {
+            if self.cancel.is_cancelled() {
+                break;
+            }
+            let Some((url, depth)) = queue.pop_front() else {
+                break;
+            };
+            let reuse = if url == start && self.is_file("index.html") {
+                self.entry_source.take()
+            } else {
+                None
+            };
+            let reused = reuse.is_some();
+            let fetched = match reuse {
+                Some(src) => {
+                    crawler.response_urls.insert(url.clone(), src.0.clone());
+                    Ok(Some(src))
+                }
+                None => self.fetch_route_html(&url).map(|r| {
+                    r.map(|(effective, html)| {
+                        crawler.response_urls.insert(url.clone(), effective.clone());
+                        (effective, html)
+                    })
+                }),
+            };
+            let (page_url, html) = match fetched {
+                Ok(Some(v)) => v,
+                Ok(None) => {
+                    out.failed.push((url, "could not fetch route HTML".into()));
+                    continue;
+                }
+                Err(e) => {
+                    out.failed.push((url, e));
+                    continue;
+                }
+            };
+            let local = crawler.route_local_path(&url);
+            if !reused && let Err(e) = self.download_html_page(&page_url, &local, &html) {
+                out.failed.push((url, e));
+                continue;
+            }
+            out.pages.push((url.clone(), local));
+            let links = crawler.links_from(&html, &page_url);
+            let page_key = RouteCrawler::canonicalize(&page_url);
+            let base = crawler
+                .page_link_bases
+                .get(&page_key)
+                .cloned()
+                .unwrap_or_else(|| page_url.clone());
+            for key in [page_key, url.clone()] {
+                if !base_order.contains(&key) {
+                    base_order.push(key);
+                }
+            }
+            crawler.page_link_bases.insert(url.clone(), base);
+            if depth >= max_depth {
+                continue;
+            }
+            for link in links {
+                if queued.insert(link.clone()) {
+                    out.discovered.push(link.clone());
+                    queue.push_back((link, depth + 1));
+                }
+            }
+        }
+        if !queue.is_empty() && out.pages.len() >= max_pages {
+            out.limit_reached = true;
+            out.remaining_queued = queue.len();
+            out.pending = queue.into_iter().map(|(u, _)| u).collect();
+            tracing::warn!(
+                "Archive route limit reached at {max_pages} page(s); {} discovered route(s) remain queued. Increase archive_max_pages to continue.",
+                out.remaining_queued
+            );
+        }
+        if let Err(e) = crawler.rewrite_route_links(&out.pages, &self.root) {
+            tracing::warn!("Could not rewrite route links: {e}");
+        }
+        out.link_bases = base_order
+            .into_iter()
+            .filter_map(|k| crawler.page_link_bases.get(&k).map(|v| (k, v.clone())))
+            .collect();
+        self.entry_source = None;
+        tracing::info!(
+            "Archive route crawl: {} page(s), {} failed",
+            out.pages.len(),
+            out.failed.len()
+        );
+        out
+    }
+}
+
+/// `RouteCrawlResult` (pages/link bases in Python dict insertion order).
+#[derive(Debug, Default)]
+pub struct RouteCrawl {
+    pub pages: Vec<(String, String)>,
+    pub failed: Vec<(String, String)>,
+    pub discovered: Vec<String>,
+    pub limit_reached: bool,
+    pub remaining_queued: usize,
+    pub link_bases: Vec<(String, String)>,
+    pub pending: Vec<String>,
 }
 
 /// Lexical `(root / rel).resolve()` containment for `/`-separated paths:

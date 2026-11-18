@@ -31,7 +31,13 @@ PROJECT = (
 SITE = {
     "game/index.html": b'<!doctype html><html><head><meta charset="utf-8"><title>T</title>'
                        b'<link rel="stylesheet" href="css/app.css"></head><body>'
-                       b'<div id="app"></div><script src="js/app.js"></script></body></html>',
+                       b'<div id="app"></div><script src="js/app.js"></script>'
+                       b'<a href="ch1/">One</a><a href="ch1">One again</a><a href="data.json">Data</a>'
+                       b'<a href="login">Login</a></body></html>',
+    "game/ch1/index.html": b'<html><body><h1>One</h1><a href="../ch2/">Two</a><a href="../">Home</a>'
+                           b'<img src="../img/ui.png"></body></html>',
+    "game/ch2/index.html": b'<html><body><h1>Two</h1><a href="../ch1/#top">Back</a></body></html>',
+    "game/data.json": b'{"k": 1}',
     "game/css/app.css": b"@import url(\"fonts.css\"); .h{background:url(../img/ui.png)}",
     "game/css/fonts.css": b"@font-face{font-family:F;src:url(../fonts/f.woff2) format('woff2')}",
     "game/js/app.js": b'fetch("project.json"); const extra = "img/extra.webp"; import("./lazy-1.js");',
@@ -124,7 +130,8 @@ def main() -> int:
         subprocess.run(["cargo", "build", "-q", "-p", "cyoa-cli", "--offline"], cwd=ROOT / "rust", check=True)
         rust_bin = ROOT / "rust" / "target" / "debug" / "cyoa-downloader"
         ok = True
-        runs = [("auto", "--icc-folder"), ("auto", "--icc"), ("classic", "--icc-folder")]
+        runs = [("auto", "--icc-folder"), ("auto", "--icc"), ("classic", "--icc-folder"),
+                ("smart", "--icc-folder")]
         for strategy, flag in runs:
             # Python reads settings.json `archive_strategy` (default auto);
             # classic also runs the recovery pass and the deep scan.

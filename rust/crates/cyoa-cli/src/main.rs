@@ -415,11 +415,8 @@ async fn main() -> ExitCode {
         cyoa_integrations::cyoa_manager::resolve_db(&lookup("cyoa_mgr_db_path").unwrap_or_default())
     });
     let manager_db = manager_db.flatten();
-    // Python orchestrator: settings `archive_strategy` (default "auto").
-    let archive_strategy = lookup("archive_strategy")
-        .map(|s| s.trim().to_lowercase())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "auto".into());
+    // Python orchestrator: ArchivePolicy from settings (`archive_*`).
+    let archive = cyoa_engine::icc::ArchivePolicy::from_settings(&saved);
     let batch_mode = args.list.is_some();
     let items: Vec<BatchItem> = if let Some(list) = args.list.take() {
         match batch::import_batch_file(&list) {
@@ -475,11 +472,9 @@ async fn main() -> ExitCode {
         }
         let mode = match item_mode(&args, &item.mode).and_then(|m| {
             if matches!(m, OutputMode::IccZip | OutputMode::IccFolder)
-                && !matches!(archive_strategy.as_str(), "auto" | "classic")
+                && archive.strategy == "browser"
             {
-                Err(format!(
-                    "archive strategy '{archive_strategy}' is not supported by the Rust port yet (use auto or classic)"
-                ))
+                Err("archive strategy 'browser' is not supported by the Rust port yet (use auto, classic or smart)".to_owned())
             } else {
                 Ok(m)
             }
@@ -502,7 +497,7 @@ async fn main() -> ExitCode {
             dns: dns.clone(),
             vpn: vpn.clone(),
             deep_scan: !args.no_deep_scan,
-            archive_auto: archive_strategy != "classic",
+            archive: archive.clone(),
             ..RunOptions::default()
         };
         match run_one(options, &cancel, manager_db.as_ref()).await {

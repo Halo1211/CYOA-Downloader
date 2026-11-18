@@ -103,8 +103,8 @@ pub struct RunOptions {
     pub vpn: Option<Arc<cyoa_net::vpn::VpnGuard>>,
     /// ICC deep scan (`--no-deep-scan` turns it off; Python default on).
     pub deep_scan: bool,
-    /// Python setting `archive_strategy`: "auto" (default) or "classic".
-    pub archive_auto: bool,
+    /// Python `ArchivePolicy` from settings (`archive_*`); auto by default.
+    pub archive: crate::icc::ArchivePolicy,
 }
 
 /// Python default for `image_cache_max_mb`.
@@ -125,7 +125,7 @@ impl Default for RunOptions {
             dns: None,
             vpn: None,
             deep_scan: true,
-            archive_auto: true,
+            archive: crate::icc::ArchivePolicy::default(),
         }
     }
 }
@@ -260,7 +260,7 @@ pub async fn run_download(
             output_dir: opts.output_dir.clone(),
             zip: mode == OutputMode::IccZip,
             deep_scan: opts.deep_scan,
-            auto_strategy: opts.archive_auto,
+            policy: opts.archive.clone(),
             workers: opts.workers,
             client: client.clone(),
             ctx,
