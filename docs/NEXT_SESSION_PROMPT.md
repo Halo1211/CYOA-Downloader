@@ -2,41 +2,27 @@
 
 Resume the CYOA Downloader Python→Rust migration on branch `migration/python-to-rust`. Do not repeat audits.
 
-**State (2026-11-18, session 4):**
-- Download engine and CLI MVP work end to end, at byte parity with Python on the fixture site.
-- Verify: `bash rust/scripts/e2e_parity.sh` from the repo root (expects six OK lines).
-- Gates from `rust/`: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --offline -- -D warnings`, `cargo test --workspace --offline` (141 passing at commit 7b4257d or later).
-- See `git log` for the latest verified commit.
-
-**Engine modules (`rust/crates/cyoa-engine/src`):**
-- `fetch`: per-asset fetch.
-- `pipeline`: `process_images`.
-- `discover_net`: static `get_project_source`.
-- `output`: naming, ZIP.
-- `reports`: metadata, failed_assets.
-- `run`: shared backend for CLI and GUI. Use `run::run_download(opts, cancel, progress_tx)`.
-- `cyoa-cli`: clap MVP.
+**Verified state (end of session 4, latest commit `298c571` or later):**
+- From `rust/`: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --offline -- -D warnings` and `cargo test --workspace --offline` all pass (157 tests).
+- From the repo root: `bash rust/scripts/e2e_parity.sh` prints 6 OK lines. Python and Rust `--both` outputs are byte-identical (timestamps excluded).
+- Engine: discovery (static) → fetch (cache, retries, 0.3 s domain interval) → pipeline → output/reports. Shared backend: `cyoa_engine::run::run_download`.
+- CLI: url, filename, -u, -o, -L (txt/csv), -z, -b, -t, -w.
+- GUI (egui, `cyoa-desktop`): single-URL queue, background worker, cancellation, persisted settings.
+- Benchmarks: `docs/BENCHMARKS.md`. Security reviews: `docs/SECURITY_REVIEW.md` (session 4 sections).
 
 **Agent notes:**
-- Luna's `luna_implement` write access is intermittent ("apply_patch failed", "Access is denied"). Long tasks time out and leave partial or garbled files (PowerShell backtick-n escapes, literal `\r\n`, stray `.stage-*` files in the repo root).
-- Never trust agent-reported gate results; rerun them.
-- If Luna's writes fail, Claude implements directly. Pre-fetch crates (`cargo add` + `cargo fetch`) before delegating; agents build `--offline`.
+- Luna and Sol could not write files for most of session 4 ("Failed to write file", "apply_patch failed"). Use `sol_review` / `luna_review` for reviews or code proposals, and let Claude apply edits.
+- Never trust agent-reported gate results.
+- Pre-fetch crates before delegating.
+- Python heredocs mangle ` 
+ 	` escapes in Rust source: use the Write/Edit tools or raw strings.
+- Tests and parity scripts must set `USERPROFILE`/`HOME` to a temp dir, or they will touch the user's real image cache.
 
 **Next actionable tasks, in order:**
-Done this session:
-- Sol reviews of the output stage and GUI worker, with fixes.
-- GUI A–C.
-- Benchmarks.
-- Domain interval and cache parity.
-- Transport retries.
-1. Port `cyoa_downloader_app/importers/batch.py::import_queue_items_from_source` (used by CLI `-L`), with Python fixtures, plus a per-item filename override in `RunOptions`. Then CLI `-L` and a GUI "Import list".
-2. Manual GUI download test against `rust/fixtures/e2e_site`, and a 100k-row queue frame-time measurement.
-3. Remaining parity (see the OVERNIGHT_REPORT "Not yet ported" list and KNOWN_ISSUES KI-R1..R4):
-   - transport retries
-   - payload spooling (memory)
-   - `-L` list mode
-   - output log file
-   - audio copy
-   - website/ICC modes
-   - proxy/DNS
-4. Benchmarks (BENCHMARKS.md), then a release build.
+1. KI-R1: payload spooling. Spill bodies over a threshold to temp files and stream embed output, to bound memory (Sol High). Measure peak working set against BENCHMARKS (98 MB at 300×50 KB).
+2. GUI: "Import list" (reuse `cyoa_engine::batch`), per-item filename/mode, a manual download test against `rust/fixtures/e2e_site`, a 100k-row frame-time measurement, and history pruning.
+3. Website/ICC mode (`--icc`, `--icc-folder`), then cyoap-vue, then pure website. Start by auditing `download/orchestrator.py` website branch and `_finalize_site_folder`.
+4. Network options: proxy (F-016), DNS (F-017), VPN guard (F-018).
+5. Fallbacks: gallery-dl, yt-dlp audio, browser/CDP, Cloudflare/FlareSolverr (D3), with a Sol review.
+6. Output gaps: `cyoa_downloader.log`, `backup_report.txt` append, audio copy, offline viewer, cyoa-manager registration.
+7. Release prep: release build, license notices, distribution dir, user docs.
