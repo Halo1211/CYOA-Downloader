@@ -1,0 +1,295 @@
+{
+ "query": {
+  "example.com|1|4660": {
+   "ok": "123401000001000000000000076578616d706c6503636f6d0000010001"
+  },
+  "example.com|28|4660": {
+   "ok": "123401000001000000000000076578616d706c6503636f6d00001c0001"
+  },
+  "Example.COM.|1|7": {
+   "ok": "000701000001000000000000074578616d706c6503434f4d0000010001"
+  },
+  "bücher.de|1|1": {
+   "ok": "0001010000010000000000000d786e2d2d62636865722d6b76610264650000010001"
+  },
+  "a..b|1|1": {
+   "err": "DNS hostname contains an invalid label"
+  },
+  "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.com|1|1": {
+   "err": "label too long"
+  },
+  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|1|1": {
+   "err": "DNS hostname exceeds the wire-format limit"
+  },
+  "|1|1": {
+   "err": "DNS hostname contains an invalid label"
+  },
+  "localhost|1|65535": {
+   "ok": "ffff01000001000000000000096c6f63616c686f73740000010001"
+  }
+ },
+ "parse": {
+  "a": {
+   "hex": "123481800001000100000000076578616d706c6503636f6d0000010001c00c000100010000003c00045db8d822",
+   "tx": 4660,
+   "qtype": 1,
+   "py": {
+    "ok": "93.184.216.34"
+   }
+  },
+  "aaaa": {
+   "hex": "123481800001000100000000076578616d706c6503636f6d00001c0001c00c001c00010000003c001026062800022000010248189325c81946",
+   "tx": 4660,
+   "qtype": 28,
+   "py": {
+    "ok": "2606:2800:220:1:248:1893:25c8:1946"
+   }
+  },
+  "a_wrong_tx": {
+   "hex": "123481800001000100000000076578616d706c6503636f6d0000010001c00c000100010000003c00045db8d822",
+   "tx": 39321,
+   "qtype": 1,
+   "py": {
+    "ok": null
+   }
+  },
+  "a_no_tx": {
+   "hex": "123481800001000100000000076578616d706c6503636f6d0000010001c00c000100010000003c00045db8d822",
+   "tx": null,
+   "qtype": 1,
+   "py": {
+    "ok": "93.184.216.34"
+   }
+  },
+  "cname_then_a": {
+   "hex": "000181800001000200000000076578616d706c6503636f6d0000010001c00c000500010000003c001305616c696173076578616d706c65036e657400c00c000100010000003c00045db8d822",
+   "tx": 1,
+   "qtype": 1,
+   "py": {
+    "ok": "93.184.216.34"
+   }
+  },
+  "a_asked_aaaa": {
+   "hex": "000181800001000100000000076578616d706c6503636f6d00001c0001c00c000100010000003c00045db8d822",
+   "tx": 1,
+   "qtype": 28,
+   "py": {
+    "ok": null
+   }
+  },
+  "short": {
+   "hex": "123481",
+   "tx": 4660,
+   "qtype": 1,
+   "py": {
+    "ok": null
+   }
+  },
+  "truncated_rdata": {
+   "hex": "000181800001000100000000076578616d706c6503636f6d0000010001c00c000100010000003c00045db8",
+   "tx": 1,
+   "qtype": 1,
+   "py": {
+    "ok": null
+   }
+  },
+  "pointer_loop": {
+   "hex": "000181800001000100000000076578616d706c6503636f6d0000010001c030000100010000003c000400000000c030",
+   "tx": 1,
+   "qtype": 1,
+   "py": {
+    "ok": "0.0.0.0"
+   }
+  },
+  "rcode_nxdomain": {
+   "hex": "000181830001000100000000076578616d706c6503636f6d0000010001c00c000100010000003c00045db8d822",
+   "tx": 1,
+   "qtype": 1,
+   "py": {
+    "ok": null
+   }
+  },
+  "no_answers": {
+   "hex": "000181800001000000000000076578616d706c6503636f6d0000010001",
+   "tx": 1,
+   "qtype": 1,
+   "py": {
+    "ok": null
+   }
+  },
+  "not_response": {
+   "hex": "000101000001000100000000076578616d706c6503636f6d0000010001c00c000100010000003c00045db8d822",
+   "tx": 1,
+   "qtype": 1,
+   "py": {
+    "ok": null
+   }
+  },
+  "bad_rdlen_a": {
+   "hex": "000181800001000100000000076578616d706c6503636f6d0000010001c00c000100010000003c00050000000000",
+   "tx": 1,
+   "qtype": 1,
+   "py": {
+    "ok": null
+   }
+  },
+  "empty": {
+   "hex": "",
+   "tx": null,
+   "qtype": 1,
+   "py": {
+    "ok": null
+   }
+  }
+ },
+ "split": {
+  "1.1.1.1|udp|0": {
+   "ok": [
+    "1.1.1.1",
+    53
+   ]
+  },
+  "1.1.1.1:5353|udp|0": {
+   "ok": [
+    "1.1.1.1",
+    5353
+   ]
+  },
+  "1.1.1.1|dot|0": {
+   "ok": [
+    "1.1.1.1",
+    853
+   ]
+  },
+  "2606:4700::1111|udp|0": {
+   "ok": [
+    "2606:4700::1111",
+    53
+   ]
+  },
+  "[2606:4700::1111]:53|tcp|0": {
+   "ok": [
+    "2606:4700::1111",
+    53
+   ]
+  },
+  "tls://one.one.one.one|dot|0": {
+   "ok": [
+    "one.one.one.one",
+    853
+   ]
+  },
+  "tls://one.one.one.one:8853|dot|0": {
+   "ok": [
+    "one.one.one.one",
+    8853
+   ]
+  },
+  "tcp://8.8.8.8:5353|tcp|0": {
+   "ok": [
+    "8.8.8.8",
+    5353
+   ]
+  },
+  "dns.quad9.net|dot|0": {
+   "ok": [
+    "dns.quad9.net",
+    853
+   ]
+  },
+  "8.8.8.8|udp|99": {
+   "ok": [
+    "8.8.8.8",
+    99
+   ]
+  },
+  " 9.9.9.9 |udp|0": {
+   "ok": [
+    "9.9.9.9",
+    53
+   ]
+  },
+  "|udp|0": {
+   "ok": [
+    "",
+    53
+   ]
+  },
+  "host:99999|udp|0": {
+   "err": "Port out of range 0-65535"
+  }
+ },
+ "infer": {
+  "|None": {
+   "ok": "system"
+  },
+  "https://dns.google/dns-query|None": {
+   "ok": "doh"
+  },
+  "tls://x|None": {
+   "ok": "dot"
+  },
+  "dot://x|None": {
+   "ok": "dot"
+  },
+  "tcp://1.1.1.1|None": {
+   "ok": "tcp"
+  },
+  "1.1.1.1|None": {
+   "ok": "udp"
+  },
+  "1.1.1.1|DoH": {
+   "ok": "doh"
+  },
+  "1.1.1.1|bogus": {
+   "ok": "udp"
+  },
+  "HTTPS://X|": {
+   "ok": "doh"
+  },
+  "  |system": {
+   "ok": "system"
+  }
+ },
+ "validate": {
+  "|system": {
+   "ok": null
+  },
+  "|udp": {
+   "err": "DNS protocol udp requires a resolver endpoint"
+  },
+  "1.1.1.1|udp": {
+   "ok": null
+  },
+  "dns.google|udp": {
+   "err": "UDP/TCP DNS endpoint must be an IPv4 or IPv6 address"
+  },
+  "::1|tcp": {
+   "ok": null
+  },
+  "https://dns.google/dns-query|doh": {
+   "ok": null
+  },
+  "http://dns.google|doh": {
+   "err": "DoH requires a full https:// resolver URL"
+  },
+  "https://|doh": {
+   "err": "DoH requires a full https:// resolver URL"
+  },
+  "https://dns.google:0/q|doh": {
+   "err": "DoH resolver port must be between 1 and 65535"
+  },
+  "1.1.1.1|dot": {
+   "err": "DoT requires a hostname for TLS certificate verification; use one.one.one.one or dns.quad9.net instead of a bare IP"
+  },
+  "one.one.one.one|dot": {
+   "ok": null
+  },
+  "tls://dns.quad9.net:853|dot": {
+   "ok": null
+  },
+  "[::1]:53|udp": {
+   "ok": null
+  }
+ }
+}
