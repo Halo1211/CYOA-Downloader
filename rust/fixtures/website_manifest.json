@@ -1,0 +1,69 @@
+{
+ "state": {
+  "start_url": "https://h.test/game/",
+  "success": [
+   [
+    "https://h.test/game/css/a.css",
+    "css/a.css",
+    "css"
+   ],
+   [
+    "https://h.test/game/img/é.png",
+    "images/é.png",
+    "images"
+   ],
+   [
+    "https://h.test/game/css/a.css",
+    "css/a.css",
+    "css"
+   ],
+   [
+    "https://h.test/game/app.js",
+    "js/app.js",
+    "js"
+   ]
+  ],
+  "failed": [
+   [
+    "https://h.test/game/x.js",
+    "HTTP 404"
+   ],
+   [
+    "https://h.test/game/song.mp3?x=1",
+    "timeout"
+   ],
+   [
+    "https://h.test/game/.hidden",
+    "HTTP 403"
+   ],
+   [
+    "https://h.test/game/f.WOFF2",
+    ""
+   ],
+   [
+    "https://h.test/game/x.js",
+    "HTTP 404"
+   ]
+  ],
+  "aliases": [
+   "data.json"
+  ],
+  "collisions": [
+   [
+    "https://h.test/a/logo.png",
+    "images/logo.png",
+    "images/logo_1.png"
+   ]
+  ]
+ },
+ "cases": [
+  {
+   "project_url": "https://h.test/game/data.json",
+   "bytes": "============================================================\r\n CYOA Backup Report\r\n============================================================\r\nStart URL    : https://h.test/game/\r\nProject URL  : https://h.test/game/data.json\r\nProject Root : project.json\r\nGenerated    : 2026-01-02 03:04:05\r\n\r\nDownloaded   : 3\r\nFailed       : 4\r\n\r\nProject aliases:\r\n  - data.json\r\n\r\nNotes:\r\n  - Engine mode: standard website\r\n  - Project payload written to project.json root.\r\n\r\nDownloaded by kind:\r\n  [css] 1\r\n    ✓ css/a.css\r\n  [images] 1\r\n    ✓ images/é.png\r\n  [js] 1\r\n    ✓ js/app.js\r\n\r\nFailed by kind:\r\n  [assets] 1\r\n    ✗ https://h.test/game/.hidden\r\n  [fonts] 1\r\n    ✗ https://h.test/game/f.WOFF2\r\n  [js] 1\r\n    ✗ https://h.test/game/x.js\r\n  [media] 1\r\n    ✗ https://h.test/game/song.mp3?x=1\r\n\r\nDownloaded files:\r\n  ✓ css/a.css    ← https://h.test/game/css/a.css\r\n  ✓ images/é.png    ← https://h.test/game/img/é.png\r\n  ✓ js/app.js    ← https://h.test/game/app.js\r\n\r\nFailed files:\r\n  ✗ https://h.test/game/x.js    (HTTP 404)\r\n  ✗ https://h.test/game/song.mp3?x=1    (timeout)\r\n  ✗ https://h.test/game/.hidden    (HTTP 403)\r\n  ✗ https://h.test/game/f.WOFF2\r\n\r\n============================================================\r\nPATH COLLISIONS\r\n============================================================\r\nThese files had name conflicts and were renamed.\r\nThe JS/CSS referencing them has been updated accordingly.\r\n\r\nURL      : https://h.test/a/logo.png\r\nWanted   : images/logo.png\r\nSaved as : images/logo_1.png\r\n"
+  },
+  {
+   "project_url": "",
+   "bytes": "============================================================\r\n CYOA Backup Report\r\n============================================================\r\nStart URL    : https://h.test/game/\r\nProject URL  : -\r\nProject Root : -\r\nGenerated    : 2026-01-02 03:04:05\r\n\r\nDownloaded   : 3\r\nFailed       : 4\r\n\r\nNotes:\r\n  - Engine mode: pure website\r\n  - Project discovery was intentionally skipped.\r\n\r\nDownloaded by kind:\r\n  [css] 1\r\n    ✓ css/a.css\r\n  [images] 1\r\n    ✓ images/é.png\r\n  [js] 1\r\n    ✓ js/app.js\r\n\r\nFailed by kind:\r\n  [assets] 1\r\n    ✗ https://h.test/game/.hidden\r\n  [fonts] 1\r\n    ✗ https://h.test/game/f.WOFF2\r\n  [js] 1\r\n    ✗ https://h.test/game/x.js\r\n  [media] 1\r\n    ✗ https://h.test/game/song.mp3?x=1\r\n\r\nDownloaded files:\r\n  ✓ css/a.css    ← https://h.test/game/css/a.css\r\n  ✓ images/é.png    ← https://h.test/game/img/é.png\r\n  ✓ js/app.js    ← https://h.test/game/app.js\r\n\r\nFailed files:\r\n  ✗ https://h.test/game/x.js    (HTTP 404)\r\n  ✗ https://h.test/game/song.mp3?x=1    (timeout)\r\n  ✗ https://h.test/game/.hidden    (HTTP 403)\r\n  ✗ https://h.test/game/f.WOFF2\r\n\r\n============================================================\r\nPATH COLLISIONS\r\n============================================================\r\nThese files had name conflicts and were renamed.\r\nThe JS/CSS referencing them has been updated accordingly.\r\n\r\nURL      : https://h.test/a/logo.png\r\nWanted   : images/logo.png\r\nSaved as : images/logo_1.png\r\n"
+  }
+ ]
+}

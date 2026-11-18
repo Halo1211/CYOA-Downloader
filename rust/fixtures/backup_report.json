@@ -1,0 +1,80 @@
+[
+ {
+  "args": {
+   "start_url": "https://h.test/game/"
+  },
+  "text": "============================================================\n CYOA Backup Report\n============================================================\nStart URL    : https://h.test/game/\nProject URL  : -\nProject Root : -\nGenerated    : 2026-01-02 03:04:05\n\nDownloaded   : 0\nFailed       : 0\n"
+ },
+ {
+  "args": {
+   "start_url": "https://h.test/game/",
+   "project_url": "https://h.test/game/data.json",
+   "project_root": "project.json",
+   "project_aliases": [
+    "data.json",
+    "b.json",
+    "data.json"
+   ],
+   "downloaded": [
+    {
+     "url": "https://h.test/game/css/a.css",
+     "local": "css/a.css",
+     "kind": "css"
+    },
+    {
+     "url": "https://h.test/game/img/é.png",
+     "local": "images/é.png",
+     "kind": "images"
+    }
+   ],
+   "failed": [
+    {
+     "url": "https://h.test/game/x.js",
+     "error": "HTTP 404"
+    },
+    {
+     "url": "https://h.test/game/y.woff2",
+     "error": ""
+    }
+   ],
+   "downloaded_groups": {
+    "images": [
+     "images/é.png",
+     "images/b.png",
+     "images/b.png"
+    ],
+    "css": [
+     "css/a.css"
+    ]
+   },
+   "failed_groups": {
+    "js": [
+     "https://h.test/game/x.js"
+    ],
+    "fonts": [
+     "https://h.test/game/y.woff2"
+    ]
+   },
+   "notes": [
+    "Engine mode: standard website",
+    "Project payload written to project.json root."
+   ]
+  },
+  "text": "============================================================\n CYOA Backup Report\n============================================================\nStart URL    : https://h.test/game/\nProject URL  : https://h.test/game/data.json\nProject Root : project.json\nGenerated    : 2026-01-02 03:04:05\n\nDownloaded   : 2\nFailed       : 2\n\nProject aliases:\n  - b.json\n  - data.json\n\nNotes:\n  - Engine mode: standard website\n  - Project payload written to project.json root.\n\nDownloaded by kind:\n  [css] 1\n    ✓ css/a.css\n  [images] 2\n    ✓ images/b.png\n    ✓ images/é.png\n\nFailed by kind:\n  [fonts] 1\n    ✗ https://h.test/game/y.woff2\n  [js] 1\n    ✗ https://h.test/game/x.js\n\nDownloaded files:\n  ✓ css/a.css    ← https://h.test/game/css/a.css\n  ✓ images/é.png    ← https://h.test/game/img/é.png\n\nFailed files:\n  ✗ https://h.test/game/x.js    (HTTP 404)\n  ✗ https://h.test/game/y.woff2\n"
+ },
+ {
+  "args": {
+   "start_url": "https://h.test/",
+   "notes": [
+    "Engine mode: pure website",
+    "Project discovery was intentionally skipped."
+   ],
+   "failed": [
+    {
+     "url": "https://h.test/z.png"
+    }
+   ]
+  },
+  "text": "============================================================\n CYOA Backup Report\n============================================================\nStart URL    : https://h.test/\nProject URL  : -\nProject Root : -\nGenerated    : 2026-01-02 03:04:05\n\nDownloaded   : 0\nFailed       : 1\n\nNotes:\n  - Engine mode: pure website\n  - Project discovery was intentionally skipped.\n\nFailed files:\n  ✗ https://h.test/z.png\n"
+ }
+]

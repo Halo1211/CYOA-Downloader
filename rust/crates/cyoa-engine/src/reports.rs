@@ -288,10 +288,162 @@ pub fn write_failed_url_log(
     Ok(Some(path))
 }
 
+/// One `downloaded` / `failed` entry (Python dict; missing keys read as "").
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ReportItem {
+    pub url: String,
+    pub local: String,
+    pub kind: String,
+    pub error: String,
+}
+
+/// Arguments of Python `format_backup_report_text` (diagnostics/reports.py).
+#[derive(Clone, Debug, Default)]
+pub struct BackupReport {
+    pub start_url: String,
+    pub project_url: String,
+    pub project_root: String,
+    pub project_aliases: Vec<String>,
+    pub downloaded: Vec<ReportItem>,
+    pub failed: Vec<ReportItem>,
+    /// Python dict; iterated in sorted key order, so a BTreeMap is exact.
+    pub downloaded_groups: std::collections::BTreeMap<String, Vec<String>>,
+    pub failed_groups: std::collections::BTreeMap<String, Vec<String>>,
+    pub notes: Vec<String>,
+}
+
+fn sorted_unique(items: &[String]) -> Vec<String> {
+    let set: std::collections::BTreeSet<&String> = items.iter().collect();
+    set.into_iter().cloned().collect()
+}
+
+/// Python `format_backup_report_text`; `generated` is the local
+/// `%Y-%m-%d %H:%M:%S` timestamp (`local_timestamp()` in production).
+pub fn format_backup_report_text(r: &BackupReport, generated: &str) -> String {
+    let dash = |s: &str| {
+        if s.is_empty() {
+            "-".to_owned()
+        } else {
+            s.to_owned()
+        }
+    };
+    let bar = "=".repeat(60);
+    let mut lines = vec![
+        bar.clone(),
+        " CYOA Backup Report".to_owned(),
+        bar,
+        format!("Start URL    : {}", r.start_url),
+        format!("Project URL  : {}", dash(&r.project_url)),
+        format!("Project Root : {}", dash(&r.project_root)),
+        format!("Generated    : {generated}"),
+        String::new(),
+        format!("Downloaded   : {}", r.downloaded.len()),
+        format!("Failed       : {}", r.failed.len()),
+    ];
+    let aliases = sorted_unique(&r.project_aliases);
+    if !aliases.is_empty() {
+        lines.extend([String::new(), "Project aliases:".to_owned()]);
+        lines.extend(aliases.iter().map(|a| format!("  - {a}")));
+    }
+    if !r.notes.is_empty() {
+        lines.extend([String::new(), "Notes:".to_owned()]);
+        lines.extend(r.notes.iter().map(|n| format!("  - {n}")));
+    }
+    for (title, groups, mark) in [
+        ("Downloaded by kind:", &r.downloaded_groups, '✓'),
+        ("Failed by kind:", &r.failed_groups, '✗'),
+    ] {
+        if groups.is_empty() {
+            continue;
+        }
+        lines.extend([String::new(), title.to_owned()]);
+        for (kind, files) in groups {
+            let files = sorted_unique(files);
+            lines.push(format!("  [{kind}] {}", files.len()));
+            lines.extend(files.iter().map(|f| format!("    {mark} {f}")));
+        }
+    }
+    if !r.downloaded.is_empty() {
+        lines.extend([String::new(), "Downloaded files:".to_owned()]);
+        lines.extend(
+            r.downloaded
+                .iter()
+                .map(|i| format!("  ✓ {}    ← {}", i.local, i.url)),
+        );
+    }
+    if !r.failed.is_empty() {
+        lines.extend([String::new(), "Failed files:".to_owned()]);
+        for i in &r.failed {
+            let suffix = if i.error.is_empty() {
+                String::new()
+            } else {
+                format!("    ({})", i.error)
+            };
+            lines.push(format!("  ✗ {}{suffix}", i.url));
+        }
+    }
+    lines.join("\n") + "\n"
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn backup_report_text_matches_python() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../fixtures/backup_report.json"
+        );
+        let cases: Value = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+        let strs = |v: &Value| -> Vec<String> {
+            v.as_array()
+                .map(|a| a.iter().map(|s| s.as_str().unwrap().to_owned()).collect())
+                .unwrap_or_default()
+        };
+        let items = |v: &Value| -> Vec<ReportItem> {
+            v.as_array()
+                .map(|a| {
+                    a.iter()
+                        .map(|i| {
+                            let g = |k: &str| i[k].as_str().unwrap_or("").to_owned();
+                            ReportItem {
+                                url: g("url"),
+                                local: g("local"),
+                                kind: g("kind"),
+                                error: g("error"),
+                            }
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        let groups = |v: &Value| -> std::collections::BTreeMap<String, Vec<String>> {
+            v.as_object()
+                .map(|o| o.iter().map(|(k, v)| (k.clone(), strs(v))).collect())
+                .unwrap_or_default()
+        };
+        for case in cases.as_array().unwrap() {
+            let a = &case["args"];
+            let s = |k: &str| a[k].as_str().unwrap_or("").to_owned();
+            let report = BackupReport {
+                start_url: s("start_url"),
+                project_url: s("project_url"),
+                project_root: s("project_root"),
+                project_aliases: strs(&a["project_aliases"]),
+                downloaded: items(&a["downloaded"]),
+                failed: items(&a["failed"]),
+                downloaded_groups: groups(&a["downloaded_groups"]),
+                failed_groups: groups(&a["failed_groups"]),
+                notes: strs(&a["notes"]),
+            };
+            assert_eq!(
+                format_backup_report_text(&report, "2026-01-02 03:04:05"),
+                case["text"].as_str().unwrap()
+            );
+        }
+    }
 
     /// Python reference output of `write_asset_failure_summary`
     /// (session 6, Windows; Generated line normalised).

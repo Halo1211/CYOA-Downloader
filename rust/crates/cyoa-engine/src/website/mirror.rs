@@ -90,6 +90,8 @@ pub struct MirrorSink {
     total_bytes: u64,
     pub max_requests: usize,
     pub max_total_bytes: u64,
+    /// Python `self._project_aliases` (relative paths).
+    pub project_aliases: Vec<String>,
 }
 
 impl MirrorSink {
@@ -126,6 +128,7 @@ impl MirrorSink {
             total_bytes: 0,
             max_requests: DEFAULT_MAX_REQUESTS,
             max_total_bytes: DEFAULT_MAX_TOTAL_BYTES,
+            project_aliases: Vec::new(),
         }
     }
 
@@ -545,6 +548,129 @@ impl MirrorSink {
     }
 }
 
+/// `os.path.splitext(p)[1].lower()` (leading dots of the basename ignored).
+fn py_ext(path: &str) -> String {
+    let base = path.rsplit('/').next().unwrap_or("");
+    let stripped = base.trim_start_matches('.');
+    match stripped.rfind('.') {
+        Some(i) => stripped[i..].to_lowercase(),
+        None => String::new(),
+    }
+}
+
+/// `write_manifest`'s failed-item grouping (constants/assets.py sets).
+fn failed_kind(url: &str) -> &'static str {
+    match py_ext(py_urlparse(url).path).as_str() {
+        ".mp3" | ".ogg" | ".wav" | ".m4a" | ".aac" | ".flac" | ".opus" | ".weba" | ".mp4"
+        | ".webm" | ".ogv" | ".mkv" | ".mov" | ".m4v" => "media",
+        ".png" | ".jpg" | ".jpeg" | ".gif" | ".webp" | ".bmp" | ".svg" | ".avif" | ".ico" => {
+            "images"
+        }
+        ".woff" | ".woff2" | ".ttf" | ".otf" | ".eot" => "fonts",
+        ".css" => "css",
+        ".js" | ".mjs" => "js",
+        _ => "assets",
+    }
+}
+
+fn uniq<T: Clone + PartialEq>(items: &[T]) -> Vec<T> {
+    let mut out: Vec<T> = Vec::new();
+    for item in items {
+        if !out.contains(item) {
+            out.push(item.clone());
+        }
+    }
+    out
+}
+
+impl MirrorSink {
+    /// The `backup_report.txt` text of Python `write_manifest(project_url)`.
+    pub fn manifest_text(&self, project_url: &str, generated: &str) -> String {
+        use crate::reports::{BackupReport, ReportItem, format_backup_report_text};
+        let success = uniq(&self.success);
+        let failed = uniq(&self.failed);
+        let mut report = BackupReport {
+            start_url: self.start_url.clone(),
+            ..Default::default()
+        };
+        for (url, local, kind) in &success {
+            report
+                .downloaded_groups
+                .entry(kind.clone())
+                .or_default()
+                .push(local.clone());
+            report.downloaded.push(ReportItem {
+                url: url.clone(),
+                local: local.clone(),
+                kind: kind.clone(),
+                error: String::new(),
+            });
+        }
+        for (url, error) in &failed {
+            report
+                .failed_groups
+                .entry(failed_kind(url).to_owned())
+                .or_default()
+                .push(url.clone());
+            report.failed.push(ReportItem {
+                url: url.clone(),
+                error: error.clone(),
+                ..Default::default()
+            });
+        }
+        if project_url.is_empty() {
+            report.notes = vec![
+                "Engine mode: pure website".into(),
+                "Project discovery was intentionally skipped.".into(),
+            ];
+        } else {
+            report.project_url = project_url.to_owned();
+            report.project_root = "project.json".into();
+            report.project_aliases = self.project_aliases.clone();
+            report.notes = vec![
+                "Engine mode: standard website".into(),
+                "Project payload written to project.json root.".into(),
+            ];
+        }
+        let mut text = format_backup_report_text(&report, generated);
+        let collisions = &self.alloc.collisions;
+        if !collisions.is_empty() {
+            let bar = "=".repeat(60);
+            let mut lines = vec![
+                String::new(),
+                bar.clone(),
+                "PATH COLLISIONS".to_owned(),
+                bar,
+                "These files had name conflicts and were renamed.".to_owned(),
+                "The JS/CSS referencing them has been updated accordingly.".to_owned(),
+                String::new(),
+            ];
+            for (url, wanted, saved) in collisions {
+                lines.push(format!("URL      : {url}"));
+                lines.push(format!("Wanted   : {wanted}"));
+                lines.push(format!("Saved as : {saved}"));
+                lines.push(String::new());
+            }
+            text.push_str(&lines.join("\n"));
+        }
+        text
+    }
+
+    /// Python `write_manifest`: `backup_report.txt` (text mode, so CRLF on
+    /// Windows), overwriting any earlier report.
+    pub fn write_manifest(&self, project_url: &str) -> Result<PathBuf, String> {
+        let text = self.manifest_text(project_url, &crate::reports::local_timestamp());
+        self.write(
+            "backup_report.txt",
+            crate::reports::os_text(&text).as_bytes(),
+        )?;
+        if !self.failed.is_empty() {
+            tracing::info!("  ICC asset failure details are included in backup_report.txt.");
+        }
+        contained_path(&self.root, "backup_report.txt").ok_or_else(|| "unsafe report path".into())
+    }
+}
+
 impl AssetSink for MirrorSink {
     fn download(
         &mut self,
@@ -620,6 +746,50 @@ mod tests {
     use super::*;
     use cyoa_net::{client::ClientConfig, policy::DestinationPolicy};
     use wiremock::{Mock, MockServer, ResponseTemplate, matchers::path};
+
+    /// `write_manifest` vs Python (`fixtures/export_website_manifest.py`):
+    /// same state, pinned timestamp, platform newlines included.
+    #[tokio::test]
+    async fn manifest_matches_python() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../fixtures/website_manifest.json"
+        );
+        let fx: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let st = &fx["state"];
+        let s = |v: &serde_json::Value| v.as_str().unwrap().to_owned();
+        let tmp = tempfile::tempdir().unwrap();
+        let start = s(&st["start_url"]);
+        let mut sink = MirrorSink::new(
+            tmp.path().to_path_buf(),
+            &start,
+            &start,
+            FetchClient::new(ClientConfig::default()).unwrap(),
+            tokio::runtime::Handle::current(),
+            CancellationToken::new(),
+            1 << 20,
+        );
+        for i in st["success"].as_array().unwrap() {
+            sink.success.push((s(&i[0]), s(&i[1]), s(&i[2])));
+        }
+        for i in st["failed"].as_array().unwrap() {
+            sink.failed.push((s(&i[0]), s(&i[1])));
+        }
+        sink.project_aliases = st["aliases"].as_array().unwrap().iter().map(s).collect();
+        for i in st["collisions"].as_array().unwrap() {
+            sink.alloc.collisions.push((s(&i[0]), s(&i[1]), s(&i[2])));
+        }
+        for case in fx["cases"].as_array().unwrap() {
+            let got = crate::reports::os_text(
+                &sink.manifest_text(case["project_url"].as_str().unwrap(), "2026-01-02 03:04:05"),
+            );
+            assert_eq!(got, case["bytes"].as_str().unwrap());
+        }
+        // The real writer lands inside the root.
+        let written = sink.write_manifest("").unwrap();
+        assert!(written.starts_with(tmp.path()) && written.is_file());
+    }
 
     async fn serve(server: &MockServer, p: &str, ct: &str, body: &str) {
         Mock::given(path(p))
