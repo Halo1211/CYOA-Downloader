@@ -403,6 +403,7 @@ mod tests {
         RunOptions {
             url: "http://192.0.2.1/project.json".into(),
             output_dir: std::env::temp_dir(),
+            cache_dir: None,
             ..RunOptions::default()
         }
     }
@@ -413,6 +414,7 @@ mod tests {
         let opts = RunOptions {
             url: "not-a-url".into(),
             output_dir: std::env::temp_dir(),
+            cache_dir: None,
             ..RunOptions::default()
         };
         assert!(w.start(1, opts));

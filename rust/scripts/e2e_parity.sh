@@ -9,9 +9,14 @@ URL="http://127.0.0.1:$PORT/mycyoa/project.json"
 (cd "$ROOT/rust/fixtures/e2e_site" && python -m http.server "$PORT" --bind 127.0.0.1 >/dev/null 2>&1) &
 SERVER=$!
 trap 'kill $SERVER 2>/dev/null; rm -rf "$WORK"' EXIT
+# Isolated profile for the two downloaders only (not cargo): never touch the
+# user's real image cache/settings.
+mkdir -p "$WORK/home"
+HOMEDIR="$WORK/home"; command -v cygpath >/dev/null && HOMEDIR=$(cygpath -w "$HOMEDIR")
+(cd "$ROOT/rust" && cargo build -q -p cyoa-cli --offline)
 sleep 1
-(cd "$ROOT" && python cyoa_downloader.py "$URL" --both -o "$WORK/py" -w 0 >/dev/null 2>&1)
-(cd "$ROOT/rust" && cargo run -q -p cyoa-cli --offline -- "$URL" --both -o "$WORK/rs" -w 0 >/dev/null 2>&1)
+(cd "$ROOT" && USERPROFILE="$HOMEDIR" HOME="$HOMEDIR" python cyoa_downloader.py "$URL" --both -o "$WORK/py" -w 0 >/dev/null 2>&1)
+(cd "$ROOT/rust" && USERPROFILE="$HOMEDIR" HOME="$HOMEDIR" ./target/debug/cyoa-downloader "$URL" --both -o "$WORK/rs" -w 0 >/dev/null 2>&1)
 STEM=mycyoa_project.json
 fail=0
 for f in "$STEM.json" "${STEM}_original.json"; do cmp -s "$WORK/py/$f" "$WORK/rs/$f" && echo "OK   $f" || { echo "DIFF $f"; fail=1; }; done

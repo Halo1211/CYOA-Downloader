@@ -83,6 +83,7 @@ async fn main() -> ExitCode {
         },
         workers: args.workers,
         wait_time: args.wait_time,
+        ..RunOptions::default()
     };
     let cancel = CancellationToken::new();
     let (tx, mut rx) = mpsc::channel::<Progress>(32);

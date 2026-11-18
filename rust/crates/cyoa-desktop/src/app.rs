@@ -236,6 +236,7 @@ impl DownloaderApp {
                     mode: self.settings.mode.into(),
                     workers: self.settings.threads,
                     wait_time: self.settings.wait_time,
+                    ..RunOptions::default()
                 };
                 let sent = self.worker.as_ref().is_some_and(|w| w.start(id, opts));
                 self.jobs.push(Job {

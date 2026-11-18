@@ -176,3 +176,8 @@ c8705cc docs · e5c1d13 Stage 0 · e8ed523 1a · ffd7866 1a security fixes · ec
   - Measured (release, this machine): window opens; **0 ms CPU over 5 s idle**; 140.6 MB working set; exe 17.0 MB.
   - Not yet measured: download through the GUI (needs manual or UI-automation run), 100k-row queue frame time, IME and high-DPI (prototype gate).
 - **Totals:** 152 tests pass; fmt + clippy clean.
+- **Benchmarks** (BENCHMARKS.md). They exposed 2 parity bugs, both fixed:
+  1. Rust lacked Python's 0.3 s per-domain request interval.
+  2. Rust never used the persistent image cache (Python always does: `~/.cyoa_downloader/image_cache`, 2048 MB).
+  - Cache is now wired via `RunOptions.cache_dir/cache_limit_mb`. Tests and `e2e_parity.sh` use an isolated `USERPROFILE`/`HOME`.
+  - Rust↔Python cache interop verified (300/300 hits).

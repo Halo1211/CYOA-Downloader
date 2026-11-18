@@ -26,6 +26,10 @@ use url::Url;
 
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 
+/// Python `runtime/state.py::_domain_min_interval`: minimum spacing between
+/// requests to one host (politeness; also what bounds Python's throughput).
+pub const DOMAIN_MIN_INTERVAL: f64 = 0.3;
+
 /// Exclusively created private work directory, removed on drop (also when the
 /// run future is aborted).
 struct RunTempDir(PathBuf);
@@ -72,7 +76,16 @@ pub struct RunOptions {
     pub mode: OutputMode,
     pub workers: usize,
     pub wait_time: u64,
+    /// Persistent image cache shared with Python (`~/.cyoa_downloader/image_cache`).
+    /// `None` disables caching.
+    pub cache_dir: Option<PathBuf>,
+    /// Python setting `image_cache_max_mb` (default 2048).
+    pub cache_limit_mb: u64,
 }
+
+/// Python default for `image_cache_max_mb`.
+pub const DEFAULT_CACHE_LIMIT_MB: u64 = 2048;
+
 impl Default for RunOptions {
     fn default() -> Self {
         Self {
@@ -81,6 +94,8 @@ impl Default for RunOptions {
             mode: OutputMode::Embed,
             workers: 4,
             wait_time: 60,
+            cache_dir: cyoa_storage::cache::ImageCache::default_root(),
+            cache_limit_mb: DEFAULT_CACHE_LIMIT_MB,
         }
     }
 }
@@ -154,10 +169,21 @@ pub async fn run_download(
             .map(|values| values.map(|v| v.ip()).collect::<Vec<IpAddr>>())
             .unwrap_or_default()
     });
+    // A cache that cannot be opened only disables caching (Python logs and continues).
+    let cache =
+        opts.cache_dir.as_ref().and_then(|dir| {
+            match cyoa_storage::cache::ImageCache::open(dir, opts.cache_limit_mb) {
+                Ok(c) => Some(Arc::new(c)),
+                Err(e) => {
+                    tracing::warn!("image cache disabled: {e}");
+                    None
+                }
+            }
+        });
     let ctx = Arc::new(FetchCtx {
         client: client.clone(),
-        cache: None,
-        domain: Arc::new(DomainThrottle::new(0.0)),
+        cache: cache.clone(),
+        domain: Arc::new(DomainThrottle::new(DOMAIN_MIN_INTERVAL)),
         base_url: source.base_url.clone(),
         image_paths,
         wait_time: opts.wait_time as f64,
@@ -182,6 +208,11 @@ pub async fn run_download(
         progress,
     )
     .await?;
+    if let Some(c) = &cache
+        && let Err(e) = c.flush()
+    {
+        tracing::warn!("image cache index flush failed: {e}");
+    }
     if cancel.is_cancelled() {
         return Err(RunError::Cancelled);
     }

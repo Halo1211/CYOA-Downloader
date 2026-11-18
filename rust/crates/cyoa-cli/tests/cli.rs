@@ -22,6 +22,11 @@ fn temp_dir() -> PathBuf {
 }
 fn cli(args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_cyoa-downloader"))
+        .env(
+            "USERPROFILE",
+            std::env::temp_dir().join("cyoa-cli-test-home"),
+        )
+        .env("HOME", std::env::temp_dir().join("cyoa-cli-test-home"))
         .args(args)
         .output()
         .unwrap()
@@ -45,6 +50,11 @@ fn rejects_output_file() {
     let file = dir.join("not-a-directory");
     fs::write(&file, "file").unwrap();
     let out = Command::new(env!("CARGO_BIN_EXE_cyoa-downloader"))
+        .env(
+            "USERPROFILE",
+            std::env::temp_dir().join("cyoa-cli-test-home"),
+        )
+        .env("HOME", std::env::temp_dir().join("cyoa-cli-test-home"))
         .args(["https://example.com/project.json", "--output"])
         .arg(file)
         .output()
@@ -101,6 +111,11 @@ fn both_mode_embeds_and_zips_without_overwriting() {
     let (url, worker) = mock_server();
     for _ in 0..2 {
         let out = Command::new(env!("CARGO_BIN_EXE_cyoa-downloader"))
+            .env(
+                "USERPROFILE",
+                std::env::temp_dir().join("cyoa-cli-test-home"),
+            )
+            .env("HOME", std::env::temp_dir().join("cyoa-cli-test-home"))
             .args(["--both", "--threads", "2", "--wait", "0", "--output"])
             .arg(&output_dir)
             .arg(&url)
