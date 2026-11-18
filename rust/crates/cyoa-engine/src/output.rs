@@ -226,6 +226,18 @@ pub fn save_embedded_json(
     })?)
 }
 
+/// Publish a copy of an existing file (streamed) without clobbering.
+pub fn save_file_no_clobber(
+    source: &Path,
+    filename: &str,
+    directory: &Path,
+) -> Result<PathBuf, OutputError> {
+    Ok(publish_no_clobber(filename, directory, |mut f| {
+        io::copy(&mut File::open(source)?, &mut f)?;
+        Ok(f)
+    })?)
+}
+
 /// Reject ZIP entry names that could escape an extraction directory.
 fn safe_entry_name(name: &str) -> bool {
     !name.is_empty()

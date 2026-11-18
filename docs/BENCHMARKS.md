@@ -53,3 +53,14 @@ Record for each run: commit, build profile, dataset, concurrency, repetitions (�
 - **Cache interop verified.** Python got 300/300 `[CACHE HIT]` from a cache written by Rust, and warm outputs were byte-identical.
 - **Unexplained one-off:** one Rust warm `--both` run in a profile that had already been written by an earlier cold run took 21.4 s. It could not be reproduced: a clean isolated cold→warm cycle gave a 300-entry index and 0.85–0.88 s warm runs. Kept as an open observation.
 - **Output parity:** embedded JSON was byte-identical to Python in every run (300-image and fixture site).
+
+### Session 5: after payload spooling (KI-R1)
+
+Same 300-image workload, warm cache, `--both`, release build.
+
+| | Before | After |
+|---|---|---|
+| Rust peak working set | 97.9–98.3 MB | **28.2–28.4 MB** |
+| Rust wall time | 0.85–0.88 s | 1.10–1.27 s (spool writes) |
+
+Embedded JSON is still byte-identical to Python. Python peak (cold) was ~60 MB.

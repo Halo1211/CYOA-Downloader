@@ -32,6 +32,9 @@ pub struct ProcessOptions {
     /// Existing website tree whose authored local assets can be reused.
     pub site_folder: Option<PathBuf>,
     pub source_url: String,
+    /// Write the embedded JSON straight to this file instead of `embed_str`,
+    /// so base64 media never has to fit in memory (Python `embedded_file`).
+    pub embed_out: Option<PathBuf>,
 }
 
 impl Default for ProcessOptions {
@@ -45,6 +48,7 @@ impl Default for ProcessOptions {
             report_dir: None,
             site_folder: None,
             source_url: String::new(),
+            embed_out: None,
         }
     }
 }
@@ -75,7 +79,12 @@ pub struct FailedAsset {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProcessResult {
+    /// Embedded JSON when `embed_out` is unset (empty otherwise).
     pub embed_str: String,
+    /// The file holding the embedded JSON when `embed_out` is set.
+    pub embed_file: Option<PathBuf>,
+    /// Embedded output differs from the input (Python `has_edits_embed`).
+    pub embed_changed: bool,
     pub dl_str: String,
     pub resolved_urls: BTreeSet<String>,
     pub failed: Vec<FailedAsset>,
@@ -308,10 +317,44 @@ fn create_safe_parent(root: &Path, relative_parent: &Path) -> std::io::Result<bo
     Ok(true)
 }
 
+/// Streamed comparison of a file with in-memory bytes.
+fn file_equals(path: &Path, expected: &[u8]) -> std::io::Result<bool> {
+    use std::io::Read;
+    if fs::metadata(path)?.len() != expected.len() as u64 {
+        return Ok(false);
+    }
+    let mut file = fs::File::open(path)?;
+    let mut buf = vec![0u8; 1 << 16];
+    let mut offset = 0;
+    loop {
+        let n = file.read(&mut buf)?;
+        if n == 0 {
+            return Ok(offset == expected.len());
+        }
+        if expected.get(offset..offset + n) != Some(&buf[..n]) {
+            return Ok(false);
+        }
+        offset += n;
+    }
+}
+
+/// `io::Write` adapter that feeds a digest (streamed hashing of spooled files).
+struct HashWriter<D>(D);
+
+impl<D: sha1::Digest> std::io::Write for HashWriter<D> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.update(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 fn write_no_clobber(
     root: &Path,
     rel: &str,
-    bytes: &[u8],
+    payload: &crate::fetch::Payload,
     cancel: &tokio_util::sync::CancellationToken,
 ) -> std::io::Result<Option<String>> {
     fs::create_dir_all(root)?;
@@ -346,8 +389,7 @@ fn write_no_clobber(
             .write(true)
             .create_new(true)
             .open(&temp)?;
-        use std::io::Write;
-        file.write_all(bytes)?;
+        payload.copy_to(&mut file)?;
         file.sync_all()?;
         drop(file);
         if cancel.is_cancelled() {
@@ -408,6 +450,8 @@ pub async fn process_images(
     send_progress(&progress, Progress::Started { total });
     if total == 0 {
         return Ok(ProcessResult {
+            embed_file: None,
+            embed_changed: false,
             embed_str: input.to_owned(),
 
             dl_str: input.to_owned(),
@@ -509,7 +553,9 @@ pub async fn process_images(
             path.clone(),
             FetchOutcome {
                 asset_path: path.clone(),
-                data: Some(tokio_util::bytes::Bytes::from_static(SITE_EXISTING)),
+                data: Some(crate::fetch::Payload::Mem(
+                    tokio_util::bytes::Bytes::from_static(SITE_EXISTING),
+                )),
                 mime: if assets.images.contains(path) {
                     "image"
                 } else {
@@ -559,33 +605,51 @@ pub async fn process_images(
                 resolved_urls.insert(crate::fetch_plan::resolve_asset_url(&asset.path, base_url));
             }
         }
-        if data.as_ref() == SITE_EXISTING {
+        if data.is_mem(SITE_EXISTING) {
             if let Some(rel) = skipped.get(&asset.path) {
                 downloads.push((asset.path.clone(), Replacement::Text(rel.clone())));
             }
             continue;
         }
-        let bytes = data.as_ref();
-        if opts.embed && (asset.image || (opts.embed_audio && bytes.len() <= 10 * 1024 * 1024)) {
-            embeds.push((
-                asset.path.clone(),
-                Replacement::Text(format!("data:{};base64,{}", out.mime, encode_base64(bytes))),
-            ));
+        if opts.embed && (asset.image || (opts.embed_audio && data.len() <= 10 * 1024 * 1024)) {
+            // Spooled payloads stream into the output (Python `EmbeddedMedia`).
+            let replacement = match data {
+                crate::fetch::Payload::Mem(bytes) => {
+                    Replacement::Text(format!("data:{};base64,{}", out.mime, encode_base64(bytes)))
+                }
+                crate::fetch::Payload::File { path, .. } => {
+                    Replacement::Media(embed::EmbeddedMedia {
+                        path: path.clone(),
+                        mime: out.mime.clone(),
+                    })
+                }
+            };
+            embeds.push((asset.path.clone(), replacement));
         }
         if opts.download {
             let root = opts
                 .download_dir
                 .as_ref()
                 .ok_or(PipelineError::DownloadDirRequired)?;
-            let rel = asset_rel_path(&out.asset_url, base_url, &out.mime, bytes, asset.image);
-            let hash_bytes = bytes.to_vec();
-            let digest = tokio::task::spawn_blocking(move || {
-                sha1::Sha1::digest(&hash_bytes)
+            let rel = asset_rel_path(
+                &out.asset_url,
+                base_url,
+                &out.mime,
+                data.prefix(),
+                asset.image,
+            );
+            let hash_src = data.clone();
+            let digest = tokio::task::spawn_blocking(move || -> std::io::Result<String> {
+                let mut hasher = HashWriter(sha1::Sha1::new());
+                hash_src.copy_to(&mut hasher)?;
+                Ok(hasher
+                    .0
+                    .finalize()
                     .iter()
                     .map(|byte| format!("{byte:02x}"))
-                    .collect::<String>()
+                    .collect::<String>())
             })
-            .await?;
+            .await??;
             if opts.site_folder.is_none()
                 && asset.image
                 && let Some(existing) = saved_by_digest.get(&digest)
@@ -598,7 +662,7 @@ pub async fn process_images(
             }
             let root = root.clone();
             let rel_for_write = rel.clone();
-            let data = bytes.to_vec();
+            let data = data.clone();
             let cancel = ctx.cancel.clone();
             let written = tokio::task::spawn_blocking(move || {
                 write_no_clobber(&root, &rel_for_write, &data, &cancel)
@@ -669,18 +733,43 @@ pub async fn process_images(
     let image_names = image_fields();
     let aliases = assets.image_field_aliases;
     let mut embed_buf = Vec::new();
+    let mut embed_file = None;
+    let mut embed_changed = false;
     if ctx.cancel.is_cancelled() {
         return Err(PipelineError::Cancelled);
     }
     if opts.embed {
-        embed::project_chunks(
-            input,
-            &embeds,
-            &group,
-            &image_names,
-            &aliases,
-            &mut embed_buf,
-        )?;
+        if let Some(path) = opts.embed_out.clone() {
+            // Blocking: streams spooled media through base64 into the file.
+            let (input_s, group_s, names_s, aliases_s) = (
+                input.to_owned(),
+                group.clone(),
+                image_names.clone(),
+                aliases.clone(),
+            );
+            let embeds_s = std::mem::take(&mut embeds);
+            embed_changed = tokio::task::spawn_blocking(move || -> Result<bool, PipelineError> {
+                let file = fs::File::create(&path)?;
+                let mut w = std::io::BufWriter::with_capacity(1 << 20, file);
+                embed::project_chunks(&input_s, &embeds_s, &group_s, &names_s, &aliases_s, &mut w)?;
+                let file = w.into_inner().map_err(|e| e.into_error())?;
+                file.sync_all()?;
+                drop(file);
+                Ok(!file_equals(&path, input_s.as_bytes())?)
+            })
+            .await??;
+            embed_file = opts.embed_out.clone();
+        } else {
+            embed::project_chunks(
+                input,
+                &embeds,
+                &group,
+                &image_names,
+                &aliases,
+                &mut embed_buf,
+            )?;
+            embed_changed = embed_buf != input.as_bytes();
+        }
     }
     if ctx.cancel.is_cancelled() {
         return Err(PipelineError::Cancelled);
@@ -706,7 +795,11 @@ pub async fn process_images(
         },
     );
     Ok(ProcessResult {
-        embed_str: if opts.embed {
+        embed_file,
+        embed_changed,
+        embed_str: if opts.embed_out.is_some() {
+            String::new()
+        } else if opts.embed {
             String::from_utf8_lossy(&embed_buf).into_owned()
         } else {
             input.to_owned()
@@ -759,6 +852,7 @@ mod tests {
             max_bytes: 2 * 1024 * 1024,
             cancel,
             resolver: Arc::new(|_| vec![IpAddr::V4(Ipv4Addr::LOCALHOST)]),
+            spool_dir: None,
         })
     }
     fn opts() -> ProcessOptions {
@@ -1097,9 +1191,14 @@ mod tests {
         fs::create_dir_all(dir.path().join("images")).unwrap();
         fs::write(dir.path().join("images/a.png"), b"original").unwrap();
         let cancel = CancellationToken::new();
-        let written = write_no_clobber(dir.path(), "images/a.png", b"new", &cancel)
-            .unwrap()
-            .unwrap();
+        let written = write_no_clobber(
+            dir.path(),
+            "images/a.png",
+            &crate::fetch::Payload::Mem(tokio_util::bytes::Bytes::from_static(b"new")),
+            &cancel,
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(written, "images/a_1.png");
         assert_eq!(
             fs::read(dir.path().join("images/a.png")).unwrap(),
@@ -1146,5 +1245,61 @@ mod tests {
         .unwrap();
         assert_eq!(result.failed.len(), 1);
         assert!(!outside.path().join("asset.png").exists());
+    }
+
+    #[tokio::test]
+    async fn spooled_streaming_output_is_identical_to_in_memory() {
+        let server = MockServer::start().await;
+        let mut big = b"\x89PNG\r\n\x1a\n".to_vec();
+        big.extend((0..300_000u32).map(|i| (i % 251) as u8));
+        Mock::given(path("/big.png"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("Content-Type", "image/png")
+                    .set_body_bytes(big),
+            )
+            .mount(&server)
+            .await;
+        let input = format!(r#"{{"rows":[{{"image":"{}/big.png"}}]}}"#, server.uri());
+        let mut options = opts();
+        options.download = true;
+        let mem_dl = tempfile::tempdir().unwrap();
+        options.download_dir = Some(mem_dl.path().to_path_buf());
+        let in_memory = process_images(
+            &input,
+            &server.uri(),
+            context(&server, CancellationToken::new()),
+            &options,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let work = tempfile::tempdir().unwrap();
+        let spool = work.path().join("spool");
+        let mut ctx = Arc::try_unwrap(context(&server, CancellationToken::new()))
+            .ok()
+            .unwrap();
+        ctx.spool_dir = Some(spool.clone());
+        let file_dl = work.path().join("pkg");
+        options.download_dir = Some(file_dl.clone());
+        options.embed_out = Some(work.path().join("embedded.json"));
+        let streamed = process_images(&input, &server.uri(), Arc::new(ctx), &options, None)
+            .await
+            .unwrap();
+
+        assert!(streamed.embed_str.is_empty());
+        assert!(streamed.embed_changed && in_memory.embed_changed);
+        let file = fs::read_to_string(streamed.embed_file.unwrap()).unwrap();
+        assert_eq!(
+            file, in_memory.embed_str,
+            "streamed embed must be byte-identical"
+        );
+        assert_eq!(streamed.dl_str, in_memory.dl_str);
+        assert_eq!(
+            fs::read(file_dl.join("images/big.png")).unwrap(),
+            fs::read(mem_dl.path().join("images/big.png")).unwrap()
+        );
+        assert_eq!(fs::read_dir(&spool).unwrap().count(), 1, "body was spooled");
     }
 }

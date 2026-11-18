@@ -178,6 +178,13 @@ pub async fn run_download(
 
     let temp_guard = RunTempDir::create()?;
     let temp = temp_guard.0.clone();
+    // pkg/ becomes the ZIP; spool/ holds fetched bodies; embedded.json is the
+    // streamed embed output. Keeping them apart keeps spool files out of the ZIP.
+    let pkg = temp.join("pkg");
+    let spool_dir = temp.join("spool");
+    let embed_out = temp.join("embedded.json");
+    std::fs::create_dir(&pkg)?;
+    std::fs::create_dir(&spool_dir)?;
     let mode = opts.mode;
     let embed = matches!(mode, OutputMode::Embed | OutputMode::Both);
     let download = matches!(mode, OutputMode::Zip | OutputMode::Both);
@@ -210,12 +217,14 @@ pub async fn run_download(
         max_bytes: 512 * 1024 * 1024,
         cancel: cancel.clone(),
         resolver,
+        spool_dir: Some(spool_dir),
     });
     let process_opts = ProcessOptions {
         embed,
         download,
         max_workers: opts.workers.clamp(1, 64),
-        download_dir: download.then(|| temp.clone()),
+        download_dir: download.then(|| pkg.clone()),
+        embed_out: embed.then(|| embed_out.clone()),
         source_url: opts.url.clone(),
         report_dir: Some(opts.output_dir.clone()),
         ..Default::default()
@@ -245,6 +254,8 @@ pub async fn run_download(
     let output_dir = opts.output_dir.clone();
     let user_url = opts.url.clone();
     let embed_str = processed.embed_str;
+    let embed_file = processed.embed_file;
+    let embed_changed = processed.embed_changed;
     let dl_str = processed.dl_str;
     let stage_cancel = cancel.clone();
     // Blocking file I/O and compression run off the async runtime. Cancellation is
@@ -260,12 +271,12 @@ pub async fn run_download(
         let mut written = Vec::new();
         if embed {
             check()?;
-            written.push(output::save_embedded_json(
-                &embed_str,
-                &format!("{stem}.json"),
-                &output_dir,
-            )?);
-            if embed_str != source.project_json {
+            let name = format!("{stem}.json");
+            written.push(match &embed_file {
+                Some(file) => output::save_file_no_clobber(file, &name, &output_dir)?,
+                None => output::save_embedded_json(&embed_str, &name, &output_dir)?,
+            });
+            if embed_changed {
                 check()?;
                 written.push(output::save_embedded_json(
                     &source.project_json,
@@ -276,14 +287,14 @@ pub async fn run_download(
         }
         if download {
             if dl_str != source.project_json {
-                output::save_embedded_json(&source.project_json, "project_original.json", &temp)
+                output::save_embedded_json(&source.project_json, "project_original.json", &pkg)
                     .map_err(|e| RunError::OutputStage(format!("original ZIP JSON: {e}")))?;
             }
-            output::save_embedded_json(&dl_str, "project.json", &temp)
+            output::save_embedded_json(&dl_str, "project.json", &pkg)
                 .map_err(|e| RunError::OutputStage(format!("localized ZIP JSON: {e}")))?;
             check()?;
             written.push(output::zip_package(
-                &temp,
+                &pkg,
                 &format!("{stem}.zip"),
                 &output_dir,
             )?);

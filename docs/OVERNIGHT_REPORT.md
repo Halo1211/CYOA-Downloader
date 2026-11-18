@@ -190,3 +190,12 @@ c8705cc docs · e5c1d13 Stage 0 · e8ed523 1a · ffd7866 1a security fixes · ec
   - Unsupported batch modes (website/ICC/pure/cyoap-vue) fail per item with an explicit message; they are never silently downgraded.
   - DEFERRED: .xlsx/.xls, remote/Google Sheets lists.
   - Also fixed a flaky CLI test: Windows accepted sockets inherit non-blocking mode.
+
+## Update — session 5 (2026-11-18)
+
+**KI-R1 fixed (Claude):** payload spooling plus streamed embed output.
+- `fetch::Payload` (Mem/File); `FetchCtx.spool_dir`; `ProcessOptions.embed_out`; `ProcessResult.embed_file/embed_changed`.
+- The run temp dir is split into `pkg/` (ZIP), `spool/` and `embedded.json`.
+- Dedup hashing and asset writes are streamed from the spool files.
+- New test: spooled output is byte-identical to in-memory output. E2E parity 6/6. 300-image JSON is identical to Python.
+- Peak memory: 98 MB → 28 MB.

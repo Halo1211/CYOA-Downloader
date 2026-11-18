@@ -6,7 +6,17 @@ use cyoa_net::{
     throttle::DomainThrottle,
 };
 use cyoa_storage::cache::ImageCache;
-use std::{collections::HashSet, net::IpAddr, sync::Arc, time::Duration};
+use std::{
+    collections::HashSet,
+    io::{self, Read, Write},
+    net::IpAddr,
+    path::{Path, PathBuf},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Duration,
+};
 use tokio_util::bytes::Bytes;
 use tokio_util::sync::CancellationToken;
 use url::Url;
@@ -25,13 +35,122 @@ pub struct FetchCtx {
     pub max_bytes: u64,
     pub cancel: CancellationToken,
     pub resolver: AssetResolver,
+    /// When set, fetched bodies are moved to files here right after download, so
+    /// a run holds at most one body per worker in memory (Python `_spool`).
+    pub spool_dir: Option<PathBuf>,
+}
+
+/// Bytes of a fetched asset: in memory, or spooled to a file owned by the run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Payload {
+    Mem(Bytes),
+    File {
+        path: PathBuf,
+        len: u64,
+        prefix: Bytes,
+    },
+}
+
+/// Leading bytes used for sniffing (error documents, media signatures).
+pub const PREFIX_LEN: usize = 512;
+
+impl Payload {
+    pub fn len(&self) -> u64 {
+        match self {
+            Self::Mem(b) => b.len() as u64,
+            Self::File { len, .. } => *len,
+        }
+    }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+    pub fn prefix(&self) -> &[u8] {
+        match self {
+            Self::Mem(b) => &b[..b.len().min(PREFIX_LEN)],
+            Self::File { prefix, .. } => prefix,
+        }
+    }
+    pub fn is_mem(&self, bytes: &[u8]) -> bool {
+        matches!(self, Self::Mem(b) if b.as_ref() == bytes)
+    }
+    /// Stream the whole payload into `out` (blocking).
+    pub fn copy_to(&self, out: &mut impl Write) -> io::Result<u64> {
+        match self {
+            Self::Mem(b) => {
+                out.write_all(b)?;
+                Ok(b.len() as u64)
+            }
+            Self::File { path, .. } => io::copy(&mut std::fs::File::open(path)?, out),
+        }
+    }
+    /// Whole payload in memory (blocking). Use only for one asset at a time.
+    pub fn read_all(&self) -> io::Result<Vec<u8>> {
+        let mut v = Vec::with_capacity(usize::try_from(self.len()).unwrap_or(0));
+        self.copy_to(&mut v)?;
+        Ok(v)
+    }
+}
+
+static NEXT_SPOOL: AtomicU64 = AtomicU64::new(0);
+
+fn spool_file(dir: &Path, bytes: &[u8]) -> io::Result<PathBuf> {
+    std::fs::create_dir_all(dir)?;
+    loop {
+        let path = dir.join(format!(
+            "{}-{}.bin",
+            std::process::id(),
+            NEXT_SPOOL.fetch_add(1, Ordering::Relaxed)
+        ));
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(mut f) => {
+                f.write_all(bytes)?;
+                return Ok(path);
+            }
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    }
+}
+
+/// Move `data` to the spool dir (if configured); falls back to memory on I/O error.
+async fn spool(ctx: &FetchCtx, data: Bytes) -> Payload {
+    let Some(dir) = ctx.spool_dir.clone() else {
+        return Payload::Mem(data);
+    };
+    let prefix = data.slice(..data.len().min(PREFIX_LEN));
+    let len = data.len() as u64;
+    let body = data.clone();
+    match tokio::task::spawn_blocking(move || spool_file(&dir, &body)).await {
+        Ok(Ok(path)) => Payload::File { path, len, prefix },
+        Ok(Err(e)) => {
+            tracing::warn!("spooling failed, keeping payload in memory: {e}");
+            Payload::Mem(data)
+        }
+        Err(e) => {
+            tracing::warn!("spool task failed, keeping payload in memory: {e}");
+            Payload::Mem(data)
+        }
+    }
+}
+
+/// Read up to `PREFIX_LEN` bytes of a file (for tests and diagnostics).
+pub fn file_prefix(path: &Path) -> io::Result<Bytes> {
+    let mut buf = Vec::with_capacity(PREFIX_LEN);
+    std::fs::File::open(path)?
+        .take(PREFIX_LEN as u64)
+        .read_to_end(&mut buf)?;
+    Ok(Bytes::from(buf))
 }
 
 /// Equivalent fields to Python's five-value `fetch_one` tuple.
 #[derive(Debug, Clone)]
 pub struct FetchOutcome {
     pub asset_path: String,
-    pub data: Option<Bytes>,
+    pub data: Option<Payload>,
     pub mime: String,
     pub asset_url: String,
     pub error: String,
@@ -39,7 +158,7 @@ pub struct FetchOutcome {
 
 fn outcome(
     path: &str,
-    data: Option<Bytes>,
+    data: Option<Payload>,
     mime: &str,
     url: &str,
     error: impl Into<String>,
@@ -122,13 +241,8 @@ pub async fn fetch_one(ctx: &FetchCtx, asset_path: &str) -> FetchOutcome {
                 if data.len() as u64 <= ctx.max_bytes
                     && !asset_is_error_document(fallback_mime, &data, true) =>
             {
-                return outcome(
-                    asset_path,
-                    Some(Bytes::from(data)),
-                    fallback_mime,
-                    &asset_url,
-                    "",
-                );
+                let payload = spool(ctx, Bytes::from(data)).await;
+                return outcome(asset_path, Some(payload), fallback_mime, &asset_url, "");
             }
             Ok(Ok(Some(data))) if data.len() as u64 > ctx.max_bytes => {
                 tracing::warn!("[CACHE REJECTED] entry exceeds max_bytes: {asset_url}");
@@ -314,7 +428,8 @@ pub async fn fetch_one(ctx: &FetchCtx, asset_path: &str) -> FetchOutcome {
                 Err(error) => tracing::warn!("cache write task failed for {asset_url}: {error}"),
             }
         }
-        return outcome(asset_path, Some(data), &mime, &asset_url, "");
+        let payload = spool(ctx, data).await;
+        return outcome(asset_path, Some(payload), &mime, &asset_url, "");
     }
 
     outcome(asset_path, None, "", &asset_url, last_error)
@@ -355,6 +470,7 @@ mod tests {
             max_bytes: 1024 * 1024,
             cancel,
             resolver: Arc::new(|_| vec![IpAddr::V4(Ipv4Addr::LOCALHOST)]),
+            spool_dir: None,
         }
     }
 
@@ -401,10 +517,10 @@ mod tests {
         let cache = Arc::new(ImageCache::open(dir.path(), 1).expect("cache"));
         let context = ctx(&server, Some(cache), CancellationToken::new());
         let first = fetch_one(&context, "/asset.png").await;
-        assert_eq!(first.data.as_deref(), Some(data.as_slice()));
+        assert_eq!(first.data.unwrap().read_all().unwrap(), data);
         assert_eq!(first.mime, "image/png");
         let second = fetch_one(&context, "/asset.png").await;
-        assert_eq!(second.data.as_deref(), Some(data.as_slice()));
+        assert_eq!(second.data.unwrap().read_all().unwrap(), data);
         assert_eq!(server.received_requests().await.expect("requests").len(), 1);
     }
 

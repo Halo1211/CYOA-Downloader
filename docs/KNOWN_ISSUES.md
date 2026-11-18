@@ -12,7 +12,7 @@
 | KI-8 | Tests | 21 tests are skipped (GUI, Playwright and live). Browser and GUI paths have no automated baseline | ENVIRONMENT.md |
 
 ## Session 4 (Rust engine)
-- **KI-R1 memory:** `pipeline::process_images` holds every fetched body (and base64 embeds) in memory; Python can spool to disk. Large projects can exhaust RAM. Fix: file-backed payloads + streaming output sink (Sol High, deferred).
+- **KI-R1 memory:** FIXED (session 5) — bodies are spooled to the run temp dir and the embedded JSON is streamed to a file (`Replacement::Media`). Peak working set at 300×50 KB `--both`: 98 MB → 28 MB (Python: ~60 MB). One body per worker is still held briefly in memory (for the cache write).
 - **KI-R2 transport retries:** FIXED (session 4) — 3 transport retries with urllib3 backoff 0/2/4 s before "fetch_response returned None"; read-phase (mid-body) retries still not ported.
 - **KI-R3 error strings:** other-4xx/TLS failure messages differ from requests' wording.
 - **KI-R4 blocking resolver:** `FetchCtx.resolver` (SSRF cross-origin check) is synchronous on runtime threads.
