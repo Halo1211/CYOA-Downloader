@@ -1,0 +1,65 @@
+{
+ "sep": "\\",
+ "tree": {
+  "index.html": "<!doctype html><html><head>\n<link rel=\"stylesheet\" href=\"css/a.css\">\n<link rel=\"stylesheet\" href=\"css/missing.css\">\n<link rel=\"icon\" href=\"img/favicon.ico\">\n<link rel=\"alternate\" href=\"data/feed.json\">\n<link rel=\"canonical\" href=\"about\">\n<script src=\"js/app.js\"></script>\n<script src=\"https://cdn.example/lib.js\"></script>\n<style>/* url(img/commented.png) */ body{background:url('img/ok.png')} @import \"css/b.css\";</style>\n</head><body>\n<img src=\"img/ok.png?v=1#x\"><img src=\"img/missing.png\"><img src=\"img/OK.PNG\">\n<img srcset=\"img/ok.png 1x, img/two.png 2x\" src=\"data:image/png;base64,AAAA\">\n<div style=\"background:url(&quot;img/bg.png&quot;)\"></div>\n<iframe srcdoc=\"<p>x</p>\" src=\"frame-missing.html\"></iframe>\n<object data=\"media/clip.swf\"></object>\n<svg><use href=\"img/sprite.svg#icon\"></use><image xlink:href=\"img/svgimg.png\"></image></svg>\n<a href=\"sub/page2.html\">p2</a><a href=\"about\">about</a><a href=\"route\" data-cyoa-local-route>r</a>\n<a href=\"mailto:x@y\">m</a><a href=\"#top\">t</a>\n<img src=\"img/caf%C3%A9.png\"><img src=\"/img/ok.png\"><img src=\"//cdn.example/x.png\">\n<video poster=\"img/poster.jpg\"></video>\n</body></html>",
+  "sub/page2.html": "<img src=\"../img/ok.png\"><img src=\"/img/ok.png\"><img src=\"nope.png\"><a href=\"../index.html\">i</a>",
+  "css/a.css": "@import url(\"b.css\");\n/* url(img/commented.png) */\n.x{background:url(../img/ok.png)}\n.y{background:url(\"/img/abs-missing.png\")}\n@font-face{font-family:F;src:url(../fonts/f.woff2) format(\"woff2\"),url(../fonts/f.ttf) format(\"truetype\")}\n@font-face{font-family:G;src:url(../fonts/g.woff2),url(../fonts/g.ttf)}\n",
+  "css/b.css": ".z{background:url(missing2.png)}",
+  "css/orphan.css": ".o{background:url(nothing.png)}",
+  "js/app.js": "import x from \"./mod.js\";\nimport(\"./lazy.js\");\nconst u = new URL(\"../img/ok.png\", import.meta.url);\nel.src = \"img/dyn${n}.png\";\nel.href = 'static/chunks/c.js';\nconst msg = \"see random.js for details\";\n",
+  "js/mod.js": "export default 1;",
+  "static/chunks/c.js": "",
+  "img/ok.png": "png",
+  "img/two.png": "png",
+  "img/café.png": "png",
+  "img/sprite.svg": "<svg/>",
+  "fonts/f.woff2": "font",
+  "__original_site__/old.html": "<img src=\"gone.png\">",
+  "data/feed.json": "{}"
+ },
+ "result": {
+  "missing": [
+   "css\\a.css → ../fonts/g.ttf",
+   "css\\a.css → ../fonts/g.woff2",
+   "css\\a.css → /img/abs-missing.png",
+   "css\\b.css → missing2.png",
+   "index.html → css/missing.css",
+   "index.html → img/OK.PNG",
+   "index.html → img/bg.png",
+   "index.html → img/favicon.ico",
+   "index.html → img/missing.png",
+   "index.html → img/poster.jpg",
+   "index.html → img/svgimg.png",
+   "index.html → media/clip.swf",
+   "index.html → route",
+   "js\\app.js → ./lazy.js",
+   "sub\\page2.html → nope.png"
+  ],
+  "ok": [
+   "css\\a.css → ../fonts/f.woff2",
+   "css\\a.css → ../img/ok.png",
+   "css\\a.css → b.css",
+   "index.html → /img/ok.png",
+   "index.html → css/a.css",
+   "index.html → css/b.css",
+   "index.html → data/feed.json",
+   "index.html → img/caf%C3%A9.png",
+   "index.html → img/ok.png",
+   "index.html → img/ok.png?v=1#x",
+   "index.html → img/sprite.svg#icon",
+   "index.html → img/two.png",
+   "index.html → js/app.js",
+   "index.html → sub/page2.html",
+   "js\\app.js → ../img/ok.png",
+   "js\\app.js → ./mod.js",
+   "js\\app.js → static/chunks/c.js",
+   "sub\\page2.html → ../img/ok.png",
+   "sub\\page2.html → ../index.html",
+   "sub\\page2.html → /img/ok.png"
+  ],
+  "external": [
+   "index.html → //cdn.example/x.png",
+   "index.html → https://cdn.example/lib.js"
+  ]
+ }
+}

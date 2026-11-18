@@ -18,6 +18,7 @@ use sha1::{Digest, Sha1};
 use std::{collections::HashSet, sync::LazyLock};
 
 pub mod html;
+pub mod integrity;
 pub mod js;
 pub mod mirror;
 pub mod page;

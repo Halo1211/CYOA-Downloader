@@ -695,6 +695,11 @@ impl MirrorSink {
         Ok(())
     }
 
+    /// Python `validate_integrity()` over this site folder.
+    pub fn validate_integrity(&self) -> super::integrity::Integrity {
+        super::integrity::validate_integrity(&self.root)
+    }
+
     /// Python `write_manifest`: `backup_report.txt` (text mode, so CRLF on
     /// Windows), overwriting any earlier report.
     pub fn write_manifest(&self, project_url: &str) -> Result<PathBuf, String> {
