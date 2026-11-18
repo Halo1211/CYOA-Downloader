@@ -34,7 +34,9 @@ pub fn build_dns_query_wire(host: &str, qtype: u16, tx_id: u16) -> Result<Vec<u8
     let mut out = Vec::with_capacity(12 + host.len() + 6);
     out.extend_from_slice(&tx_id.to_be_bytes());
     out.extend_from_slice(&[0x01, 0x00, 0, 1, 0, 0, 0, 0, 0, 0]);
-    let trimmed = host.strip_suffix('.').unwrap_or(host);
+    // Python `host.rstrip(".")` strips every trailing dot. Non-ASCII labels use
+    // UTS-46 (`url::Host`) where Python uses IDNA 2003: documented difference.
+    let trimmed = host.trim_end_matches('.');
     // Python encodes every label with the `idna` codec first, then checks for
     // empty/oversized labels. ASCII labels keep their case.
     let mut labels = Vec::new();

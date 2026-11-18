@@ -31,7 +31,11 @@ pub struct CustomResolver {
 
 impl CustomResolver {
     pub fn new(config: DnsConfig, proxy: Option<ProxyConfig>) -> Self {
-        let builder = reqwest::Client::builder();
+        // DoH must stay on HTTPS: no redirects (could downgrade to plaintext or
+        // escape an https-only proxy profile).
+        let builder = reqwest::Client::builder()
+            .https_only(true)
+            .redirect(reqwest::redirect::Policy::none());
         let doh = match proxy {
             Some(proxy) => proxy
                 .apply(builder)
@@ -122,7 +126,7 @@ impl CustomResolver {
                 continue;
             }
             // Like Python: the first matching reply decides (NXDOMAIN -> None now).
-            return parse_dns_address_response(&buf[..n], Some(tx), qtype);
+            return accept(query, &buf[..n], tx, qtype);
         }
     }
 
@@ -141,41 +145,30 @@ impl CustomResolver {
         }
         let mut data = vec![0; len];
         stream.read_exact(&mut data).await.ok()?;
-        parse_dns_address_response(&data, Some(tx), qtype)
+        accept(query, &data, tx, qtype)
     }
 
     async fn dot(&self, query: &[u8], tx: u16, qtype: u16) -> Option<IpAddr> {
         let (host, port) = split_dns_endpoint(&self.config.server, "dot", self.config.port).ok()?;
-        let addr = lookup_host((host.as_str(), port)).await.ok()?.next()?;
-        let stream = TcpStream::connect(addr).await.ok()?;
-        let verifier = rustls_platform_verifier::Verifier::new(std::sync::Arc::new(
-            tokio_rustls::rustls::crypto::aws_lc_rs::default_provider(),
-        ))
-        .ok()?;
-        let tls = tokio_rustls::rustls::ClientConfig::builder()
-            .dangerous()
-            .with_custom_certificate_verifier(std::sync::Arc::new(verifier))
-            .with_no_client_auth();
-        let connector = tokio_rustls::TlsConnector::from(std::sync::Arc::new(tls));
-        let name = tokio_rustls::rustls::pki_types::ServerName::try_from(host).ok()?;
-        let mut stream = connector.connect(name, stream).await.ok()?;
-        stream
-            .write_all(&(query.len() as u16).to_be_bytes())
-            .await
-            .ok()?;
-        stream.write_all(query).await.ok()?;
-        let len = usize::from(stream.read_u16().await.ok()?);
-        if len < 12 {
-            return None;
-        }
-        let mut data = vec![0; len];
-        stream.read_exact(&mut data).await.ok()?;
-        parse_dns_address_response(&data, Some(tx), qtype)
+        let owned = query.to_vec();
+        let limit = Duration::from_secs(u64::from(self.config.timeout.max(1)));
+        let handle = tokio::runtime::Handle::current();
+        // The Windows platform verifier validates chains synchronously (up to
+        // ~10 s for revocation retrieval). Run the exchange on a blocking thread
+        // with its own deadline so async workers and the caller's timeout are not
+        // held hostage; certificate verification itself stays fully enabled.
+        let data = tokio::task::spawn_blocking(move || {
+            handle.block_on(tokio::time::timeout(limit, dot_exchange(host, port, owned)))
+        })
+        .await
+        .ok()?
+        .ok()??;
+        accept(query, &data, tx, qtype)
     }
 
     async fn doh(&self, query: &[u8], tx: u16, qtype: u16) -> Option<IpAddr> {
         let response = self.doh_request(&self.config.server, query).await?;
-        parse_dns_address_response(&response, Some(tx), qtype)
+        accept(query, &response, tx, qtype)
     }
 
     async fn doh_request(&self, url: &str, query: &[u8]) -> Option<Vec<u8>> {
@@ -239,16 +232,68 @@ impl CustomResolver {
     }
 }
 
+/// DNS-over-TLS exchange with platform certificate + hostname verification.
+async fn dot_exchange(host: String, port: u16, query: Vec<u8>) -> Option<Vec<u8>> {
+    let addr = lookup_host((host.as_str(), port)).await.ok()?.next()?;
+    let stream = TcpStream::connect(addr).await.ok()?;
+    let verifier = rustls_platform_verifier::Verifier::new(std::sync::Arc::new(
+        tokio_rustls::rustls::crypto::aws_lc_rs::default_provider(),
+    ))
+    .ok()?;
+    let tls = tokio_rustls::rustls::ClientConfig::builder()
+        .dangerous()
+        .with_custom_certificate_verifier(std::sync::Arc::new(verifier))
+        .with_no_client_auth();
+    let connector = tokio_rustls::TlsConnector::from(std::sync::Arc::new(tls));
+    let name = tokio_rustls::rustls::pki_types::ServerName::try_from(host).ok()?;
+    let mut stream = connector.connect(name, stream).await.ok()?;
+    stream
+        .write_all(&u16::try_from(query.len()).ok()?.to_be_bytes())
+        .await
+        .ok()?;
+    stream.write_all(&query).await.ok()?;
+    let len = usize::from(stream.read_u16().await.ok()?);
+    if len < 12 {
+        return None;
+    }
+    let mut data = vec![0; len];
+    stream.read_exact(&mut data).await.ok()?;
+    Some(data)
+}
+
+/// Accept a reply only if it echoes our question (one question, standard
+/// opcode, same QNAME case-insensitively, same QTYPE/QCLASS) — binds the
+/// answer to the query beyond the 16-bit transaction id (Sol review).
+fn accept(query: &[u8], resp: &[u8], tx: u16, qtype: u16) -> Option<IpAddr> {
+    let qlen = query.len();
+    if qlen < 12 || resp.len() < qlen {
+        return None;
+    }
+    let one_question = resp[4..6] == [0, 1];
+    let standard_query = (resp[2] >> 3) & 0x0f == 0;
+    let same_question = resp[12..qlen].eq_ignore_ascii_case(&query[12..]);
+    if !(one_question && standard_query && same_question) {
+        return None;
+    }
+    parse_dns_address_response(resp, Some(tx), qtype)
+}
+
 /// Lookup failure text mirrors Python's patched getaddrinfo path.
 #[derive(Debug, thiserror::Error)]
 #[error("{0}")]
 pub struct LookupError(pub String);
 
+/// Application deadline for OS lookups (Sol review): the blocking resolver
+/// thread may outlive it, but callers are released on time.
+const SYSTEM_LOOKUP_DEADLINE: Duration = Duration::from_secs(20);
+
 async fn system_lookup(host: &str) -> Result<Vec<IpAddr>, LookupError> {
-    lookup_host((host, 0))
+    let failed = || LookupError(format!("System DNS resolution failed for {host}"));
+    tokio::time::timeout(SYSTEM_LOOKUP_DEADLINE, lookup_host((host, 0)))
         .await
+        .map_err(|_| failed())?
         .map(|xs| xs.map(|x| x.ip()).collect())
-        .map_err(|_| LookupError(format!("System DNS resolution failed for {host}")))
+        .map_err(|_| failed())
 }
 
 /// Unpredictable transaction IDs (anti-spoofing for UDP): std's randomly
@@ -407,13 +452,41 @@ mod tests {
             .unwrap(),
             None,
         );
-        // Exercise HTTP handling through the internal helper; configured DoH validation requires HTTPS.
+        // The DoH client is https-only (Sol review): a plain-HTTP endpoint,
+        // e.g. reached through a downgrade redirect, must never get the query.
         let q = build_dns_query_wire("x.test", 1, 0x1234).unwrap();
-        assert_eq!(
+        assert!(
             doh.doh_request(&format!("{}/dns-query", mock.uri()), &q)
                 .await
-                .unwrap(),
-            answer(&q, false)
+                .is_none()
         );
+        assert!(
+            mock.received_requests()
+                .await
+                .unwrap_or_default()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn accept_binds_answer_to_question() {
+        let q = build_dns_query_wire("x.test", 1, 0x1234).unwrap();
+        let good = answer(&q, false);
+        assert!(accept(&q, &good, 0x1234, 1).is_some());
+        // 0x20 case randomisation in the echoed name is fine.
+        let mut upper = good.clone();
+        upper[13] = upper[13].to_ascii_uppercase();
+        assert!(accept(&q, &upper, 0x1234, 1).is_some());
+        // Different name with the same transaction id is rejected.
+        let other = answer(&build_dns_query_wire("y.test", 1, 0x1234).unwrap(), false);
+        assert!(accept(&q, &other, 0x1234, 1).is_none());
+        // Zero questions / non-standard opcode / truncated are rejected.
+        let mut zero_q = good.clone();
+        zero_q[5] = 0;
+        assert!(accept(&q, &zero_q, 0x1234, 1).is_none());
+        let mut opcode = good.clone();
+        opcode[2] |= 0x10;
+        assert!(accept(&q, &opcode, 0x1234, 1).is_none());
+        assert!(accept(&q, &good[..q.len() - 1], 0x1234, 1).is_none());
     }
 }

@@ -63,3 +63,13 @@ Fixed by Claude:
 - **Perf bug found while testing:** the tokenizer cloned the whole document per tag, and fancy-regex unbounded searches rescanned the rest of the document. Now linear: 10k nested tags 5.4 s → 8 ms.
 - Open (same as Python): local TOCTOU ancestor swap between containment check and write.
 - `project.json` shared output across origins (Python behaviour).
+
+## Session 6 — F-017 custom DNS (Sol review, task 20261118-175757-sol-b4b317dfe8)
+Reviewed commit 1ed0c4f (`cyoa-net` dns.rs, dns_resolve.rs). Findings and resolution:
+- MEDIUM: replies not bound to the question → FIXED: `accept()` requires 1 question, standard opcode, identical QNAME (case-insensitive)/QTYPE/QCLASS. Tests: `accept_binds_answer_to_question`.
+- MEDIUM: DoH allowed HTTPS→HTTP redirect (plaintext query / proxy escape) → FIXED: DoH client `https_only(true)`, redirects disabled. Test asserts plain-HTTP endpoint receives nothing.
+- MEDIUM: Windows platform verifier blocks synchronously beyond deadline → FIXED: DoT exchange runs on a blocking thread with its own timeout; verification unchanged.
+- LOW: system fallback had no app deadline → FIXED: 20 s deadline (OS thread may outlive it).
+- LOW: trailing-dot normalisation → FIXED (strip all, like Python). IDNA: Rust uses UTS-46 for non-ASCII labels, Python IDNA 2003 — DOCUMENTED difference (e.g. `faß.de`).
+- Confirmed OK by Sol: DoT keeps cert+hostname verification; UDP source/ID checks; bounded TCP/DoH/cache; no packet-triggered panic; UDP/TCP/DoT bypass HTTP proxies like Python.
+- OPEN: wiring into `PolicyResolver` must keep the internal-address (SSRF) rejection for custom, cached and fallback answers (DNS-3).
