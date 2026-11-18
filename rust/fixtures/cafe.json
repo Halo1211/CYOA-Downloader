@@ -1,0 +1,250 @@
+[
+ {
+  "name": "metadata_ok",
+  "site": {
+   "https://cyoa.cafe/api/collections/games/records/abc123": {
+    "status": 200,
+    "ct": "application/json",
+    "text": "{\"id\": \"abc123\", \"slug\": \"story\", \"iframe_url\": \"https://creator.cyoa.cafe/story/\", \"cyoa_pages\": []}"
+   },
+   "https://creator.cyoa.cafe/story/": {
+    "status": 200,
+    "ct": "text/html",
+    "text": "<html><head><title>ICC</title></head><body><div id=\"app\"></div><script src=\"js/app.js\"></script></body></html>"
+   }
+  },
+  "results": [
+   {
+    "url": "https://cyoa.cafe/game/abc123",
+    "requests": [
+     "https://cyoa.cafe/api/collections/games/records/abc123",
+     "https://creator.cyoa.cafe/story/"
+    ],
+    "ok": "https://creator.cyoa.cafe/story/"
+   }
+  ]
+ },
+ {
+  "name": "metadata_all_404",
+  "site": {},
+  "results": [
+   {
+    "url": "https://cyoa.cafe/game/zzz999/",
+    "requests": [
+     "https://cyoa.cafe/api/collections/games/records/zzz999",
+     "https://cyoa.cafe/api/collections/games/records?filter=slug%3D%27zzz999%27&perPage=10",
+     "https://cyoa.cafe/api/collections/games/records/zzz999",
+     "https://cyoa.cafe/api/collections/games/records?filter=slug%3D%27zzz999%27&perPage=10",
+     "https://cyoa.cafe/game/zzz999",
+     "https://cyoa.cafe/api/collections/games/records/zzz999",
+     "https://cyoa.cafe/api/collections/games/records?filter=slug%3D%27zzz999%27&perPage=10",
+     "https://cyoa.cafe/game/zzz999"
+    ],
+    "error": "No validated CYOA viewer target found for https://cyoa.cafe/game/zzz999. API/HTML candidates were unavailable."
+   }
+  ]
+ },
+ {
+  "name": "creator_direct",
+  "site": {
+   "https://creator.cyoa.cafe/story/": {
+    "status": 200,
+    "ct": "text/html",
+    "text": "<html><head><title>ICC</title></head><body><div id=\"app\"></div><script src=\"js/app.js\"></script></body></html>"
+   }
+  },
+  "results": [
+   {
+    "url": "https://creator.cyoa.cafe/story/",
+    "requests": [
+     "https://creator.cyoa.cafe/story/"
+    ],
+    "ok": "https://creator.cyoa.cafe/story/"
+   }
+  ]
+ },
+ {
+  "name": "creator_game_route",
+  "site": {
+   "https://creator.cyoa.cafe/story/": {
+    "status": 200,
+    "ct": "text/html",
+    "text": "<html><body><p>Just a blog post</p></body></html>"
+   },
+   "https://creator.cyoa.cafe/story/game/": {
+    "status": 200,
+    "ct": "text/html",
+    "text": "<html><head><title>ICC</title></head><body><div id=\"app\"></div><script src=\"js/app.js\"></script></body></html>"
+   }
+  },
+  "results": [
+   {
+    "url": "https://creator.cyoa.cafe/story",
+    "requests": [
+     "https://creator.cyoa.cafe/story",
+     "https://cyoa.cafe/api/collections/games/records?filter=slug%3D%27story%27&perPage=10",
+     "https://cyoa.cafe/api/collections/games/records?filter=iframe_url~%27story%27&perPage=10",
+     "https://creator.cyoa.cafe/story/game/"
+    ],
+    "ok": "https://creator.cyoa.cafe/story/game/"
+   }
+  ]
+ },
+ {
+  "name": "slug_lookup",
+  "site": {
+   "https://cyoa.cafe/api/collections/games/records?filter=slug%3D%27mygame%27&perPage=10": {
+    "status": 200,
+    "ct": "application/json",
+    "text": "{\"page\": 1, \"perPage\": 10, \"totalItems\": 1, \"items\": [{\"id\": \"q1\", \"slug\": \"mygame\", \"iframe_url\": \"https://other.cyoa.cafe/mygame/\"}]}"
+   },
+   "https://other.cyoa.cafe/mygame/": {
+    "status": 200,
+    "ct": "text/html",
+    "text": "<html><head><title>ICC</title></head><body><div id=\"app\"></div><script src=\"js/app.js\"></script></body></html>"
+   }
+  },
+  "results": [
+   {
+    "url": "https://cyoa.cafe/game/mygame",
+    "requests": [
+     "https://cyoa.cafe/api/collections/games/records/mygame",
+     "https://cyoa.cafe/api/collections/games/records?filter=slug%3D%27mygame%27&perPage=10",
+     "https://other.cyoa.cafe/mygame/"
+    ],
+    "ok": "https://other.cyoa.cafe/mygame/"
+   }
+  ]
+ },
+ {
+  "name": "record_points_offsite",
+  "site": {
+   "https://cyoa.cafe/api/collections/games/records/off1": {
+    "status": 200,
+    "ct": "application/json",
+    "text": "{\"id\": \"off1\", \"iframe_url\": \"http://127.0.0.1:9/evil/\"}"
+   },
+   "https://cyoa.cafe/game/off1": {
+    "status": 200,
+    "ct": "text/html",
+    "text": "<iframe src=\"https://good.cyoa.cafe/x/\"></iframe>"
+   },
+   "https://good.cyoa.cafe/x/": {
+    "status": 200,
+    "ct": "text/html",
+    "text": "<html><head><title>ICC</title></head><body><div id=\"app\"></div><script src=\"js/app.js\"></script></body></html>"
+   }
+  },
+  "results": [
+   {
+    "url": "https://cyoa.cafe/game/off1",
+    "requests": [
+     "https://cyoa.cafe/api/collections/games/records/off1",
+     "https://cyoa.cafe/api/collections/games/records/off1",
+     "https://cyoa.cafe/api/collections/games/records?filter=slug%3D%27off1%27&perPage=10",
+     "https://cyoa.cafe/game/off1",
+     "https://good.cyoa.cafe/x/"
+    ],
+    "ok": "https://good.cyoa.cafe/x/"
+   }
+  ]
+ },
+ {
+  "name": "html_iframe",
+  "site": {
+   "https://cyoa.cafe/game/page1": {
+    "status": 200,
+    "ct": "text/html",
+    "text": "<html><body><iframe src=\"https://ifr.cyoa.cafe/p/\"></iframe></body></html>"
+   },
+   "https://ifr.cyoa.cafe/p/": {
+    "status": 200,
+    "ct": "text/html",
+    "text": "<html><head><title>ICC</title></head><body><div id=\"app\"></div><script src=\"js/app.js\"></script></body></html>"
+   }
+  },
+  "results": [
+   {
+    "url": "https://cyoa.cafe/game/page1",
+    "requests": [
+     "https://cyoa.cafe/api/collections/games/records/page1",
+     "https://cyoa.cafe/api/collections/games/records?filter=slug%3D%27page1%27&perPage=10",
+     "https://cyoa.cafe/api/collections/games/records/page1",
+     "https://cyoa.cafe/api/collections/games/records?filter=slug%3D%27page1%27&perPage=10",
+     "https://cyoa.cafe/game/page1",
+     "https://ifr.cyoa.cafe/p/"
+    ],
+    "ok": "https://ifr.cyoa.cafe/p/"
+   }
+  ]
+ },
+ {
+  "name": "not_cafe",
+  "site": {},
+  "results": [
+   {
+    "url": "https://example.com/story/?a=1#x",
+    "requests": [],
+    "ok": "https://example.com/story/?a=1"
+   }
+  ]
+ },
+ {
+  "name": "twice",
+  "site": {
+   "https://cyoa.cafe/api/collections/games/records/tw1": {
+    "status": 200,
+    "ct": "application/json",
+    "text": "{\"id\": \"tw1\", \"iframe_url\": \"https://tw.cyoa.cafe/s/\"}"
+   },
+   "https://tw.cyoa.cafe/s/": {
+    "status": 200,
+    "ct": "text/html",
+    "text": "<html><head><title>ICC</title></head><body><div id=\"app\"></div><script src=\"js/app.js\"></script></body></html>"
+   }
+  },
+  "results": [
+   {
+    "url": "https://cyoa.cafe/game/tw1",
+    "requests": [
+     "https://cyoa.cafe/api/collections/games/records/tw1",
+     "https://tw.cyoa.cafe/s/"
+    ],
+    "ok": "https://tw.cyoa.cafe/s/"
+   },
+   {
+    "url": "https://cyoa.cafe/game/tw1?x=1#y",
+    "requests": [
+     "https://cyoa.cafe/api/collections/games/records/tw1",
+     "https://tw.cyoa.cafe/s/"
+    ],
+    "ok": "https://tw.cyoa.cafe/s/"
+   }
+  ]
+ },
+ {
+  "name": "static_pages_record",
+  "site": {
+   "https://cyoa.cafe/api/collections/games/records/st1": {
+    "status": 200,
+    "ct": "application/json",
+    "text": "{\"id\": \"st1\", \"collectionId\": \"c1\", \"cyoa_pages\": [\"p1.png\", \"p2.png\"], \"iframe_url\": \"\"}"
+   }
+  },
+  "results": [
+   {
+    "url": "https://cyoa.cafe/game/st1",
+    "requests": [
+     "https://cyoa.cafe/api/collections/games/records/st1",
+     "https://cyoa.cafe/api/collections/games/records/st1",
+     "https://cyoa.cafe/api/collections/games/records?filter=slug%3D%27st1%27&perPage=10",
+     "https://cyoa.cafe/game/st1",
+     "https://cyoa.cafe/api/collections/games/records/st1",
+     "https://cyoa.cafe/api/collections/games/records?filter=slug%3D%27st1%27&perPage=10",
+     "https://cyoa.cafe/game/st1"
+    ],
+    "error": "No validated CYOA viewer target found for https://cyoa.cafe/game/st1. API/HTML candidates were unavailable."
+   }
+  ]
+ }
+]
