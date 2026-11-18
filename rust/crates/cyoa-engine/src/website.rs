@@ -408,6 +408,274 @@ pub fn local_asset_reference(from_file: &str, to_file: &str, source_url: &str) -
     format!("{relative}{anchor}")
 }
 
+// ───────────────────────── W2: text asset rewriting (CSS) ─────────────────────────
+
+/// Downloader state the rewriters need (Python `WebsiteDownloader` methods).
+/// Local paths are relative to the output folder, `/`-separated.
+pub trait AssetSink {
+    /// `_download_asset(url, preferred_kind, referrer_url)`: local path or `None`.
+    fn download(
+        &mut self,
+        url: &str,
+        preferred_kind: &str,
+        referrer: Option<&str>,
+    ) -> Option<String>;
+    /// `_downloaded.get(key)` for completed downloads only.
+    fn downloaded(&self, key: &str) -> Option<String>;
+    /// Whether `rel` exists as a file under the output folder.
+    fn is_file(&self, rel: &str) -> bool;
+}
+
+const FONT_IMG_MEDIA_STYLE_SCRIPT: &[&[&str]] = &[FONT, IMAGE, AUDIO_VIDEO, STYLE, SCRIPT];
+
+/// `_asset_kind_from_path`.
+pub fn asset_kind_from_path(candidate: &str) -> &'static str {
+    let path = py_urlparse(candidate).path.to_lowercase();
+    let ext = splitext(&path).1;
+    if ["project.json", "project.txt", "project.zip"]
+        .iter()
+        .any(|s| path.ends_with(s))
+        || [".json", ".txt", ".zip"].contains(&ext)
+    {
+        "json"
+    } else if FONT.contains(&ext) {
+        "fonts"
+    } else if IMAGE.contains(&ext) {
+        "images"
+    } else if AUDIO_VIDEO.contains(&ext) {
+        "media"
+    } else if STYLE.contains(&ext) {
+        "css"
+    } else if SCRIPT.contains(&ext) {
+        "js"
+    } else {
+        "assets"
+    }
+}
+
+/// `_should_download_from_text`.
+fn should_download_from_text(candidate: &str) -> bool {
+    let c = candidate.trim().trim_matches(['"', '\'']);
+    if c.is_empty()
+        || ["data:", "javascript:", "mailto:", "#"]
+            .iter()
+            .any(|p| c.starts_with(p))
+        || c.contains("w3.org/")
+    {
+        return false;
+    }
+    let path = py_urlparse(c).path.to_lowercase();
+    if ["project.json", "project.txt", "project.zip"]
+        .iter()
+        .any(|s| path.ends_with(s))
+    {
+        return true;
+    }
+    let ext = splitext(&path).1;
+    FONT_IMG_MEDIA_STYLE_SCRIPT
+        .iter()
+        .any(|set| set.contains(&ext))
+        || [".json", ".txt", ".zip"].contains(&ext)
+}
+
+/// Lexical `normpath(join(dirname(owner), relative))`; `None` if it leaves the root.
+fn join_owner(owner_rel: &str, relative: &str) -> Option<String> {
+    let mut parts: Vec<&str> = owner_rel.rsplit_once('/').map_or(Vec::new(), |(d, _)| {
+        d.split('/').filter(|p| !p.is_empty()).collect()
+    });
+    for seg in relative.split(['/', '\\']) {
+        match seg {
+            "" | "." => {}
+            ".." => {
+                parts.pop()?;
+            }
+            s => parts.push(s),
+        }
+    }
+    (!parts.is_empty()).then(|| parts.join("/"))
+}
+
+/// `_existing_local_asset`.
+fn existing_local_asset(sink: &dyn AssetSink, reference: &str, owner_rel: &str) -> bool {
+    let value = reference.trim().trim_matches(['"', '\'']);
+    if value.is_empty() || value.starts_with('/') {
+        return false;
+    }
+    let parsed = py_urlparse(value);
+    if !parsed.scheme.is_empty() || !parsed.netloc.is_empty() {
+        return false;
+    }
+    join_owner(owner_rel, &unquote(parsed.path)).is_some_and(|rel| sink.is_file(&rel))
+}
+
+static CSS_URL_RE: LazyLock<Option<Regex>> = LazyLock::new(|| {
+    Regex::new(r#"(?i)url\(\s*((?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^'"()]+))\s*\)"#).ok()
+});
+static CSS_IMPORT_RE: LazyLock<Option<Regex>> = LazyLock::new(|| {
+    Regex::new(
+        r#"(?i)@import\s+(?:url\(\s*)?((?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^'"()\s;]+))(?:\s*\))?"#,
+    )
+    .ok()
+});
+static CSS_COMMENT_RE: LazyLock<Option<Regex>> =
+    LazyLock::new(|| Regex::new(r"(?s)/\*.*?\*/").ok());
+static QUOTED_INNER_RE: LazyLock<Option<Regex>> = LazyLock::new(|| {
+    Regex::new(
+        r#"(?i)^(?:(?:https?:)?//[^"']+|(?:\./|\.\./|/)?[^"']+\.(?:json|txt|zip|js|mjs|css|png|jpe?g|gif|webp|avif|bmp|svg|ico|mp3|ogg|wav|m4a|aac|opus|woff2?|ttf|otf|eot)(?:[?#][^"']*)?)$"#,
+    )
+    .ok()
+});
+static EMBEDDED_URL_RE: LazyLock<Option<Regex>> =
+    LazyLock::new(|| Regex::new(r#"(?i)https?:/{1,2}[^\s"'<>]+"#).ok());
+
+fn replace_all(
+    re: &LazyLock<Option<Regex>>,
+    text: &str,
+    mut f: impl FnMut(&regex::Captures<'_>) -> String,
+) -> String {
+    match re.as_ref() {
+        Some(re) => re
+            .replace_all(text, |c: &regex::Captures<'_>| f(c))
+            .into_owned(),
+        None => text.to_owned(),
+    }
+}
+
+/// Python `_quoted_asset_re.sub`: `(?<!\\)(["'])(inner)(?<!\\)\1`, where the
+/// body has no quote characters. A scanner, because `regex` has no look-around.
+fn sub_quoted_assets(text: &str, mut f: impl FnMut(char, &str) -> Option<String>) -> String {
+    let b = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let (mut i, mut copied) = (0, 0);
+    while i < b.len() {
+        let q = b[i];
+        if (q == b'"' || q == b'\'')
+            && (i == 0 || b[i - 1] != b'\\')
+            && let Some(off) = b[i + 1..].iter().position(|&c| c == b'"' || c == b'\'')
+        {
+            {
+                let j = i + 1 + off;
+                let inner = &text[i + 1..j];
+                if b[j] == q
+                    && j > i + 1
+                    && b[j - 1] != b'\\'
+                    && QUOTED_INNER_RE
+                        .as_ref()
+                        .is_some_and(|re| re.is_match(inner))
+                {
+                    if let Some(rep) = f(q as char, inner) {
+                        out.push_str(&text[copied..i]);
+                        out.push_str(&rep);
+                        copied = j + 1;
+                    }
+                    i = j + 1;
+                    continue;
+                }
+            }
+        }
+        i += 1;
+    }
+    out.push_str(&text[copied..]);
+    out
+}
+
+/// Rewrites text assets for one site (`WebsiteDownloader` rewrite methods).
+pub struct Rewriter<'a> {
+    pub start_url: &'a str,
+    pub sink: &'a mut dyn AssetSink,
+}
+
+impl Rewriter<'_> {
+    fn downloaded_local(&self, url: &str) -> Option<String> {
+        self.sink
+            .downloaded(url)
+            .or_else(|| self.sink.downloaded(&normalize_cache_key(url)))
+    }
+
+    /// `_rewrite_direct_urls` in CSS context (the JS-only runtime-template and
+    /// dynamic-token passes are ported with the JS rewriter).
+    fn rewrite_direct_urls_css(&mut self, text: &str, referrer: &str, local: &str) -> String {
+        let rewritten = sub_quoted_assets(text, |quote, original| {
+            let original = original.replace("\\/", "/");
+            if original.contains("${") || !should_download_from_text(&original) {
+                return None;
+            }
+            if existing_local_asset(&*self.sink, &original, local) {
+                return None;
+            }
+            let kind = asset_kind_from_path(&original);
+            let target = self.sink.download(&original, kind, Some(referrer))?;
+            Some(format!(
+                "{quote}{}{quote}",
+                local_asset_reference(local, &target, &original)
+            ))
+        });
+        replace_all(&EMBEDDED_URL_RE, &rewritten, |c| {
+            let original = &c[0];
+            normalize_remote_url(original, Some(referrer), self.start_url)
+                .and_then(|n| self.downloaded_local(&n))
+                .map_or_else(
+                    || original.to_owned(),
+                    |target| local_asset_reference(local, &target, original),
+                )
+        })
+    }
+
+    fn rewrite_css_code(&mut self, code: &str, css_url: &str, css_local: &str) -> String {
+        let code = replace_all(&CSS_IMPORT_RE, code, |m| {
+            let raw = m[1].trim().trim_matches(['"', '\'']);
+            if existing_local_asset(&*self.sink, raw, css_local) {
+                return m[0].to_owned();
+            }
+            let Some(full) = normalize_remote_url(raw, Some(css_url), self.start_url) else {
+                return m[0].to_owned();
+            };
+            match self.sink.download(&full, "css", Some(css_url)) {
+                Some(target) => format!(
+                    "@import url(\"{}\")",
+                    local_asset_reference(css_local, &target, raw)
+                ),
+                None => m[0].to_owned(),
+            }
+        });
+        let code = replace_all(&CSS_URL_RE, &code, |m| {
+            let raw = m[1].trim().trim_matches(['"', '\'']);
+            if existing_local_asset(&*self.sink, raw, css_local) {
+                return m[0].to_owned();
+            }
+            let Some(full) = normalize_remote_url(raw, Some(css_url), self.start_url) else {
+                return m[0].to_owned();
+            };
+            let kind = asset_kind_from_path(&full);
+            match self.sink.download(&full, kind, Some(css_url)) {
+                Some(target) => format!(
+                    "url(\"{}\")",
+                    local_asset_reference(css_local, &target, raw)
+                ),
+                None => m[0].to_owned(),
+            }
+        });
+        self.rewrite_direct_urls_css(&code, css_url, css_local)
+    }
+
+    /// `_process_css`: comments are preserved byte-for-byte.
+    pub fn process_css(&mut self, css: &str, css_url: &str, css_local: &str) -> String {
+        let comments: Vec<(usize, usize)> = CSS_COMMENT_RE
+            .as_ref()
+            .map(|re| re.find_iter(css).map(|m| (m.start(), m.end())).collect())
+            .unwrap_or_default();
+        let mut out = String::with_capacity(css.len());
+        let mut cursor = 0;
+        for (start, end) in comments {
+            out.push_str(&self.rewrite_css_code(&css[cursor..start], css_url, css_local));
+            out.push_str(&css[start..end]);
+            cursor = end;
+        }
+        out.push_str(&self.rewrite_css_code(&css[cursor..], css_url, css_local));
+        out
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -480,6 +748,88 @@ mod tests {
                 (got != s(&c[3])).then(|| format!("{c} -> {got}"))
             })
             .collect();
+        assert!(bad.is_empty(), "{}", bad.join("\n"));
+    }
+
+    /// Mirrors the stub `_download_asset` in `export_website_css.py`.
+    struct FixtureSink {
+        start: String,
+        alloc: PathAllocator,
+        files: HashSet<String>,
+        done: std::collections::HashMap<String, String>,
+        calls: Vec<(String, String, Option<String>)>,
+    }
+
+    impl AssetSink for FixtureSink {
+        fn download(&mut self, url: &str, kind: &str, referrer: Option<&str>) -> Option<String> {
+            self.calls
+                .push((url.to_owned(), kind.to_owned(), referrer.map(str::to_owned)));
+            let full = normalize_remote_url(url, referrer, &self.start)?;
+            if full.contains("missing") {
+                return None;
+            }
+            let full = full.split('#').next().unwrap_or("").to_owned();
+            if let Some(l) = self.done.get(&full) {
+                return Some(l.clone());
+            }
+            let local = self.alloc.allocate(&full, "", kind);
+            self.files.insert(local.to_lowercase());
+            self.done.insert(full, local.clone());
+            Some(local)
+        }
+        fn downloaded(&self, key: &str) -> Option<String> {
+            self.done.get(key).cloned()
+        }
+        fn is_file(&self, rel: &str) -> bool {
+            self.files.contains(&rel.to_lowercase())
+        }
+    }
+
+    #[test]
+    fn css_rewrite_matches_python() {
+        let f: Value =
+            serde_json::from_str(include_str!("../../../fixtures/website/css.json")).unwrap();
+        let start = s(&f["start"]).to_owned();
+        let mut bad = Vec::new();
+        for case in f["cases"].as_array().unwrap() {
+            let mut sink = FixtureSink {
+                start: start.clone(),
+                alloc: PathAllocator::new(&start),
+                files: case["existing"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|v| s(v).to_lowercase())
+                    .collect(),
+                done: Default::default(),
+                calls: Vec::new(),
+            };
+            let got = Rewriter {
+                start_url: &start,
+                sink: &mut sink,
+            }
+            .process_css(s(&case["css"]), s(&case["css_url"]), s(&case["css_local"]));
+            let want_calls: Vec<(String, String, Option<String>)> = case["calls"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|c| {
+                    (
+                        s(&c[0]).to_owned(),
+                        s(&c[1]).to_owned(),
+                        c[2].as_str().map(str::to_owned),
+                    )
+                })
+                .collect();
+            if got != s(&case["output"]) || sink.calls != want_calls {
+                bad.push(format!(
+                    "{}:\n  rust={got}\n  py  ={}\n  rcalls={:?}\n  pcalls={want_calls:?}",
+                    s(&case["name"]),
+                    s(&case["output"]),
+                    sink.calls
+                ));
+            }
+        }
         assert!(bad.is_empty(), "{}", bad.join("\n"));
     }
 }

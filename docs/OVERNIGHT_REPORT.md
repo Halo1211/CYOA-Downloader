@@ -214,3 +214,6 @@ c8705cc docs · e5c1d13 Stage 0 · e8ed523 1a · ffd7866 1a security fixes · ec
 - Known approximation: identity uses `to_lowercase`, where Python uses `casefold`.
 - Next: W2, the HTML/CSS/JS reference rewrite with golden fixtures.
 - Totals: 165 tests pass.
+- **W2-CSS** (Claude): `website::Rewriter::process_css`, the `AssetSink` trait, `_rewrite_direct_urls` (CSS context, with a look-around-free scanner for `_quoted_asset_re`), `_existing_local_asset` and `_asset_kind_from_path`.
+  - Fixture `rust/fixtures/website/css.json` (12 cases from the real `_process_css` with a stubbed `_download_asset`).
+  - Output AND download-call sequence match Python.

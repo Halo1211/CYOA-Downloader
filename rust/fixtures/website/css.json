@@ -1,0 +1,236 @@
+{
+ "start": "https://host.example/cyoa/",
+ "cases": [
+  {
+   "name": "a",
+   "css": "body{background:url(img/bg.png)}",
+   "css_url": "https://host.example/cyoa/css/site.css",
+   "css_local": "css/site.css",
+   "existing": [],
+   "output": "body{background:url(\"img/bg.png\")}",
+   "calls": [
+    [
+     "https://host.example/cyoa/css/img/bg.png",
+     "images",
+     "https://host.example/cyoa/css/site.css"
+    ]
+   ]
+  },
+  {
+   "name": "quotes",
+   "css": "a{b:url( 'img/x.png' )} c{d:url(\"//cdn.example/y.webp?v=1#k\")}",
+   "css_url": "https://host.example/cyoa/css/site.css",
+   "css_local": "css/site.css",
+   "existing": [],
+   "output": "a{b:url(\"img/x.png\")} c{d:url(\"../images/y_1d365e2dc4.webp#k\")}",
+   "calls": [
+    [
+     "https://host.example/cyoa/css/img/x.png",
+     "images",
+     "https://host.example/cyoa/css/site.css"
+    ],
+    [
+     "https://cdn.example/y.webp?v=1#k",
+     "images",
+     "https://host.example/cyoa/css/site.css"
+    ]
+   ]
+  },
+  {
+   "name": "import",
+   "css": "@import \"theme.css\";\n@import url(https://fonts.example/f.css) screen;\n@import url('missing.css');",
+   "css_url": "https://host.example/cyoa/css/main.css",
+   "css_local": "css/main.css",
+   "existing": [],
+   "output": "@import url(\"theme.css\");\n@import url(\"f.css\") screen;\n@import url('missing.css');",
+   "calls": [
+    [
+     "https://host.example/cyoa/css/theme.css",
+     "css",
+     "https://host.example/cyoa/css/main.css"
+    ],
+    [
+     "https://fonts.example/f.css",
+     "css",
+     "https://host.example/cyoa/css/main.css"
+    ],
+    [
+     "https://host.example/cyoa/css/missing.css",
+     "css",
+     "https://host.example/cyoa/css/main.css"
+    ],
+    [
+     "https://host.example/cyoa/css/missing.css",
+     "css",
+     "https://host.example/cyoa/css/main.css"
+    ],
+    [
+     "missing.css",
+     "css",
+     "https://host.example/cyoa/css/main.css"
+    ]
+   ]
+  },
+  {
+   "name": "comments",
+   "css": "/* @import is cool; url(nope.png) */ a{x:url(ok.png)} /* \"q.png\" */",
+   "css_url": "https://host.example/cyoa/s.css",
+   "css_local": "s.css",
+   "existing": [],
+   "output": "/* @import is cool; url(nope.png) */ a{x:url(\"ok.png\")} /* \"q.png\" */",
+   "calls": [
+    [
+     "https://host.example/cyoa/ok.png",
+     "images",
+     "https://host.example/cyoa/s.css"
+    ]
+   ]
+  },
+  {
+   "name": "skip",
+   "css": "a{x:url(data:image/png;base64,AA)} b{y:url(#frag)} c{z:url(missing.png)} d{w:url()}",
+   "css_url": "https://host.example/cyoa/s.css",
+   "css_local": "s.css",
+   "existing": [],
+   "output": "a{x:url(data:image/png;base64,AA)} b{y:url(#frag)} c{z:url(missing.png)} d{w:url()}",
+   "calls": [
+    [
+     "https://host.example/cyoa/missing.png",
+     "images",
+     "https://host.example/cyoa/s.css"
+    ]
+   ]
+  },
+  {
+   "name": "existing",
+   "css": "a{x:url(../img/have.png)} b{y:url(\"img/new.png\")}",
+   "css_url": "https://host.example/cyoa/css/s.css",
+   "css_local": "css/s.css",
+   "existing": [
+    "img/have.png"
+   ],
+   "output": "a{x:url(../img/have.png)} b{y:url(\"img/new.png\")}",
+   "calls": [
+    [
+     "https://host.example/cyoa/css/img/new.png",
+     "images",
+     "https://host.example/cyoa/css/s.css"
+    ]
+   ]
+  },
+  {
+   "name": "direct",
+   "css": "a{content:\"fonts/x.woff2\"} b{x:\"https://cdn.example/a.svg\"} c{y:\"plain text\"} d{z:\"\\\"esc.png\\\"\"}",
+   "css_url": "https://host.example/cyoa/s.css",
+   "css_local": "s.css",
+   "existing": [],
+   "output": "a{content:\"fonts/x.woff2\"} b{x:\"images/a.svg\"} c{y:\"plain text\"} d{z:\"\\\"esc.png\\\"\"}",
+   "calls": [
+    [
+     "fonts/x.woff2",
+     "fonts",
+     "https://host.example/cyoa/s.css"
+    ],
+    [
+     "https://cdn.example/a.svg",
+     "images",
+     "https://host.example/cyoa/s.css"
+    ]
+   ]
+  },
+  {
+   "name": "embedded",
+   "css": "a{x:url(img/one.png)} /* see */ b{content:\"label https://host.example/cyoa/img/one.png more\"}",
+   "css_url": "https://host.example/cyoa/s.css",
+   "css_local": "s.css",
+   "existing": [],
+   "output": "a{x:url(\"img/one.png\")} /* see */ b{content:\"label img/one.png more\"}",
+   "calls": [
+    [
+     "https://host.example/cyoa/img/one.png",
+     "images",
+     "https://host.example/cyoa/s.css"
+    ]
+   ]
+  },
+  {
+   "name": "upper",
+   "css": "A{B:URL(Img/Up.PNG)} @IMPORT \"x.CSS\";",
+   "css_url": "https://host.example/cyoa/s.css",
+   "css_local": "s.css",
+   "existing": [],
+   "output": "A{B:url(\"Img/Up.PNG\")} @import url(\"x.CSS\");",
+   "calls": [
+    [
+     "https://host.example/cyoa/x.CSS",
+     "css",
+     "https://host.example/cyoa/s.css"
+    ],
+    [
+     "https://host.example/cyoa/Img/Up.PNG",
+     "images",
+     "https://host.example/cyoa/s.css"
+    ]
+   ]
+  },
+  {
+   "name": "multi",
+   "css": "a{background:url(a.png),url(b.png) , url( \"c.png\" )}",
+   "css_url": "https://host.example/cyoa/deep/er/s.css",
+   "css_local": "deep/er/s.css",
+   "existing": [],
+   "output": "a{background:url(\"a.png\"),url(\"b.png\") , url(\"c.png\")}",
+   "calls": [
+    [
+     "https://host.example/cyoa/deep/er/a.png",
+     "images",
+     "https://host.example/cyoa/deep/er/s.css"
+    ],
+    [
+     "https://host.example/cyoa/deep/er/b.png",
+     "images",
+     "https://host.example/cyoa/deep/er/s.css"
+    ],
+    [
+     "https://host.example/cyoa/deep/er/c.png",
+     "images",
+     "https://host.example/cyoa/deep/er/s.css"
+    ]
+   ]
+  },
+  {
+   "name": "unterminated",
+   "css": "a{x:url(a.png} /* open",
+   "css_url": "https://host.example/cyoa/s.css",
+   "css_local": "s.css",
+   "existing": [],
+   "output": "a{x:url(a.png} /* open",
+   "calls": []
+  },
+  {
+   "name": "cross",
+   "css": "a{x:url(https:/cdn.example/fix.png)} b{y:url(/root.png)} c{z:url(../../up.gif)}",
+   "css_url": "https://host.example/cyoa/css/s.css",
+   "css_local": "css/s.css",
+   "existing": [],
+   "output": "a{x:url(\"../images/fix.png\")} b{y:url(\"../root.png\")} c{z:url(\"../up.gif\")}",
+   "calls": [
+    [
+     "https://cdn.example/fix.png",
+     "images",
+     "https://host.example/cyoa/css/s.css"
+    ],
+    [
+     "https://host.example/root.png",
+     "images",
+     "https://host.example/cyoa/css/s.css"
+    ],
+    [
+     "https://host.example/up.gif",
+     "images",
+     "https://host.example/cyoa/css/s.css"
+    ]
+   ]
+  }
+ ]
+}
