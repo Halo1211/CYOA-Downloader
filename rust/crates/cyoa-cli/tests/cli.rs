@@ -66,19 +66,33 @@ fn rejects_output_file() {
     assert!(String::from_utf8_lossy(&out.stderr).contains("output"));
 }
 
-fn mock_server() -> (String, thread::JoinHandle<()>) {
+/// Mock server thread, stopped explicitly by `join` (no idle timeout: under
+/// a loaded parallel test run the gap between two CLI runs can exceed any
+/// fixed idle window, which made `both_mode_*` flaky).
+struct ServerHandle {
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    thread: thread::JoinHandle<()>,
+}
+
+impl ServerHandle {
+    fn join(self) -> thread::Result<()> {
+        self.stop.store(true, Ordering::Relaxed);
+        self.thread.join()
+    }
+}
+
+fn mock_server() -> (String, ServerHandle) {
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let stop_flag = stop.clone();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let base = format!("http://{}/project.json", listener.local_addr().unwrap());
     listener.set_nonblocking(true).unwrap();
     let worker = thread::spawn(move || {
         let started = Instant::now();
-        let mut last_request = Instant::now();
-        while started.elapsed() < Duration::from_secs(30)
-            && last_request.elapsed() < Duration::from_secs(3)
-        {
+        // Hard cap only as a safety net if a test never joins.
+        while !stop_flag.load(Ordering::Relaxed) && started.elapsed() < Duration::from_secs(120) {
             match listener.accept() {
                 Ok((mut stream, _)) => {
-                    last_request = Instant::now();
                     // Accepted sockets inherit non-blocking mode on Windows; a
                     // WouldBlock read would be misparsed as a request for "/".
                     let _ = stream.set_nonblocking(false);
@@ -108,7 +122,13 @@ fn mock_server() -> (String, thread::JoinHandle<()>) {
             }
         }
     });
-    (base, worker)
+    (
+        base,
+        ServerHandle {
+            stop,
+            thread: worker,
+        },
+    )
 }
 
 #[test]
