@@ -102,5 +102,5 @@ Static review of 4daffc4 (deep_driver.rs, deep_scan.rs, icc.rs, MirrorSink::down
 ## Sol review 2026-11-19 (cafe, cafe_static, cyoap, pure, routes, profile)
 
 Fixed: CYOAP cancellation no longer finishes as success (typed cancel -> RunError::Cancelled, no report/ZIP); CYOAP node list deduplicated and capped (20k), site-asset BFS capped (20k requests).
-Fixed later: cafe stale-cache invalidation (Python parity).
-Open: aggregate byte budgets for CYOAP/static gallery; blocking FS/ZIP work inside async in cyoap/pure/run finalize; profiler reads whole JS before truncating; cafe resolver lacks Python's JSON/CSS-viewer validation branches; route-crawl redirects not re-checked against scope (also in Python); cafe_static creates parent dirs before containment check (junction case).
+Fixed later: cafe stale-cache invalidation (Python parity); route-crawl redirects leaving scope are recorded as failed and not archived (deliberate divergence from Python; the redirect request itself is still made by the client).
+Open: aggregate byte budgets for CYOAP/static gallery; blocking FS/ZIP work inside async in cyoap/pure/run finalize; profiler reads whole JS before truncating; cafe resolver lacks Python's JSON/CSS-viewer validation branches; cafe_static creates parent dirs before containment check (junction case).

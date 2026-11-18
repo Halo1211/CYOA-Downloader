@@ -865,6 +865,14 @@ impl MirrorSink {
                 }),
             };
             let (page_url, html) = match fetched {
+                // Security divergence from Python (Sol review): a redirect
+                // leaving the route scope is not archived or crawled.
+                Ok(Some((effective, _))) if effective != url && !crawler.is_allowed(&effective) => {
+                    tracing::warn!("Route redirect left crawl scope: {url} -> {effective}");
+                    out.failed
+                        .push((url, "redirect outside crawl scope".into()));
+                    continue;
+                }
                 Ok(Some(v)) => v,
                 Ok(None) => {
                     out.failed.push((url, "could not fetch route HTML".into()));
