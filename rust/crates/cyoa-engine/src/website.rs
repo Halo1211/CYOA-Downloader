@@ -19,6 +19,7 @@ use std::{collections::HashSet, sync::LazyLock};
 
 pub mod html;
 pub mod js;
+pub mod page;
 
 const STYLE: &[&str] = &[".css"];
 const SCRIPT: &[&str] = &[".js", ".mjs"];
@@ -427,6 +428,16 @@ pub trait AssetSink {
     fn downloaded(&self, key: &str) -> Option<String>;
     /// Whether `rel` exists as a file under the output folder.
     fn is_file(&self, rel: &str) -> bool;
+    /// Completed downloads `(url, local)` in insertion order (`_downloaded.items()`).
+    fn downloaded_entries(&self) -> Vec<(String, String)> {
+        Vec::new()
+    }
+    /// `_download_html` registers the page being localized.
+    fn begin_page(&mut self, _url: &str, _local: &str) {}
+    /// The localized page was written (`_downloaded[url] = local_html`).
+    fn page_saved(&mut self, _url: &str, _local: &str) {}
+    /// `_patch_local_audio_scripts` (see [`page::patch_local_audio_text`]).
+    fn patch_local_audio_scripts(&mut self) {}
 }
 
 const FONT_IMG_MEDIA_STYLE_SCRIPT: &[&[&str]] = &[FONT, IMAGE, AUDIO_VIDEO, STYLE, SCRIPT];
@@ -695,7 +706,7 @@ pub(crate) mod tests_support {
         start: String,
         alloc: PathAllocator,
         files: HashSet<String>,
-        done: std::collections::HashMap<String, String>,
+        done: Vec<(String, String)>,
         pub(crate) calls: Vec<(String, String, Option<String>)>,
     }
 
@@ -720,16 +731,22 @@ pub(crate) mod tests_support {
                 return None;
             }
             let full = full.split('#').next().unwrap_or("").to_owned();
-            if let Some(l) = self.done.get(&full) {
+            if let Some((_, l)) = self.done.iter().find(|(k, _)| *k == full) {
                 return Some(l.clone());
             }
             let local = self.alloc.allocate(&full, "", kind);
             self.files.insert(local.to_lowercase());
-            self.done.insert(full, local.clone());
+            self.done.push((full, local.clone()));
             Some(local)
         }
         fn downloaded(&self, key: &str) -> Option<String> {
-            self.done.get(key).cloned()
+            self.done
+                .iter()
+                .find(|(k, _)| k == key)
+                .map(|(_, l)| l.clone())
+        }
+        fn downloaded_entries(&self) -> Vec<(String, String)> {
+            self.done.clone()
         }
         fn is_file(&self, rel: &str) -> bool {
             self.files.contains(&rel.to_lowercase())

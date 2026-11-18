@@ -238,6 +238,8 @@ pub struct Element {
     pub children: Vec<Node>,
     /// `<meta charset>` / content-type value is rewritten on output.
     pub charset_sub: Option<CharsetSub>,
+    /// `Tag.decompose()`: skipped by traversal and output.
+    pub removed: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -288,6 +290,7 @@ impl Builder {
                 attrs: Vec::new(),
                 children: Vec::new(),
                 charset_sub: None,
+                removed: false,
             }],
             open_count: HashMap::new(),
             preserve_ws: 0,
@@ -354,6 +357,7 @@ impl Builder {
             attrs: Vec::new(),
             children: Vec::new(),
             charset_sub: None,
+            removed: false,
         };
         for (k, v) in attrs {
             el.set_attr(&k, v);
@@ -435,6 +439,7 @@ impl Builder {
             attrs: Vec::new(),
             children: Vec::new(),
             charset_sub: None,
+            removed: false,
         })
     }
 }
@@ -939,6 +944,7 @@ fn write_children(el: &Element, out: &mut String) {
     let raw_text = CDATA_CONTENT.contains(&el.name.as_str());
     for child in &el.children {
         match child {
+            Node::Element(e) if e.removed => {}
             Node::Element(e) => write_element(e, out),
             Node::Text(kind, s) => match kind {
                 StrKind::Text if raw_text => out.push_str(s),

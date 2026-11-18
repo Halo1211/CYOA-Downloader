@@ -234,3 +234,8 @@ c8705cc docs · e5c1d13 Stage 0 · e8ed523 1a · ffd7866 1a security fixes · ec
   - minimal formatter, sorted and multi-valued attributes, the meta charset→utf-8 rewrite
   - `html.unescape` and the bs4 entity/charref tables (dumped from Python as data)
 - **Verification:** 48 hand-picked cases plus 2000 seeded differential-fuzz cases (`export_html_fuzz.py`) are all byte-identical. A mutation check passed. 172 tests total.
+- **W2-HTML step 2** (Claude): `website::page` ports `_download_html`/`_localize_html`, `_set_attr_local` (srcset, same-origin basename fallback, integrity/crossorigin removal), telemetry/Cloudflare script removal, `<base>`, custom-viewer route, link rel/as rules, lazy attributes, iframe same-origin, svg use/image, `<style>`/`style=` CSS, the dice fallback, `_decode_inline_document_payload`, `_same_origin`, `_is_archive_noise_url` and the audio patch text.
+  - The injected JS blobs are taken verbatim from the Python source via `ast` (fixture `embedded`).
+  - Fixture `website/html_localize.json`: 12 cases. Output HTML, download-call sequence and route flag all match. A mutation check passed.
+  - W2 is complete. Next: W3, the classic static mirror (real fetch through cyoa-net, `_download_asset_impl` with recursive CSS/JS/HTML, containment-checked writes).
+  - 175 tests pass.

@@ -21,7 +21,7 @@ Resume the CYOA Downloader Python→Rust migration on branch `migration/python-t
 **Next actionable tasks, in order:**
 1. (done s5) KI-R1 spooling; GUI list import; 100k-row frame time; website W1 path mapping.
 2. GUI: "Import list" (reuse `cyoa_engine::batch`), per-item filename/mode, a manual download test against `rust/fixtures/e2e_site`, a 100k-row frame-time measurement, and history pruning.
-3. Website/ICC mode: continue at W2 in docs/WEBSITE_MODE_PLAN.md (HTML/CSS/JS rewrite, website.py 2427-2673 and 2810-3043), then W3–W5.
+3. Website/ICC mode: W1+W2 done (paths, CSS, JS, byte-compatible BeautifulSoup HTML, _localize_html). Next W3: classic mirror = `_download_asset_impl` (website.py 1510-1560+) + entry fetch, implementing `website::AssetSink` over cyoa-net with containment-checked writes; then W4 ICC integration/_site.zip.
 4. Network options: proxy (F-016), DNS (F-017), VPN guard (F-018).
 5. Fallbacks: gallery-dl, yt-dlp audio, browser/CDP, Cloudflare/FlareSolverr (D3), with a Sol review.
 6. Output gaps: `cyoa_downloader.log`, `backup_report.txt` append, audio copy, offline viewer, cyoa-manager registration.

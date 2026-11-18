@@ -1,0 +1,431 @@
+{
+ "start": "https://host.example/cyoa/",
+ "cases": [
+  {
+   "name": "basic",
+   "url": "https://host.example/cyoa/",
+   "local": "index.html",
+   "html": "<!DOCTYPE html><html><head><link rel=\"stylesheet\" href=\"css/a.css\" integrity=\"sha-x\" crossorigin><link rel=icon href=/favicon.ico><script src=\"js/app.js\"></script></head><body><img src=\"img/a.png\" srcset=\"img/a.png 1x, img/a@2x.png 2x, data:image/png;base64,AA 3x\"><img src=\"missing.png\"><p style=\"background:url(img/bg.jpg)\">t</p></body></html>",
+   "output": "<!DOCTYPE html>\n<html><head><link href=\"css/a.css\" rel=\"stylesheet\"/><link href=\"favicon.ico\" rel=\"icon\"/><script src=\"js/app.js\"></script></head><body><img src=\"img/a.png\" srcset=\"img/a.png 1x, img/a@2x.png 2x, data:image/png;base64,AA 3x\"/><img src=\"missing.png\"/><p style='background:url(\"img/bg.jpg\")'>t</p></body></html>",
+   "calls": [
+    [
+     "https://host.example/cyoa/css/a.css",
+     "css",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "https://host.example/cyoa/js/app.js",
+     "js",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "https://host.example/cyoa/img/a.png",
+     "images",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "https://host.example/cyoa/missing.png",
+     "images",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "css/a.css",
+     "css",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "https://host.example/favicon.ico",
+     "images",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "js/app.js",
+     "js",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "img/a.png",
+     "images",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "img/a.png",
+     "images",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "img/a@2x.png",
+     "images",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "missing.png",
+     "images",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "https://host.example/cyoa/img/bg.jpg",
+     "images",
+     "https://host.example/cyoa/"
+    ]
+   ],
+   "custom_viewer_route": false
+  },
+  {
+   "name": "base-and-noise",
+   "url": "https://host.example/cyoa/",
+   "local": "index.html",
+   "html": "<html><head><base href=\"https://cdn.example/root/\"><script src=\"https://www.googletagmanager.com/gtm.js\"></script><script data-cf-beacon=\"{}\"></script><link rel=preload as=font href=\"f.woff2\"><link rel=manifest href=site.webmanifest></head><body><video src=v.mp4 poster=p.jpg></video><source srcset=\"s.webp\"></body></html>",
+   "output": "<html><head><link as=\"font\" href=\"fonts/f.woff2\" rel=\"preload\"/><link href=\"assets/site.webmanifest\" rel=\"manifest\"/></head><body><video poster=\"images/p.jpg\" src=\"media/v.mp4\"></video><source srcset=\"images/s.webp\"/></body></html>",
+   "calls": [
+    [
+     "https://www.googletagmanager.com/gtm.js",
+     "js",
+     "https://cdn.example/root/"
+    ],
+    [
+     "https://cdn.example/root/f.woff2",
+     "fonts",
+     "https://cdn.example/root/"
+    ],
+    [
+     "https://cdn.example/root/s.webp",
+     "images",
+     "https://cdn.example/root/"
+    ],
+    [
+     "f.woff2",
+     "fonts",
+     "https://cdn.example/root/"
+    ],
+    [
+     "site.webmanifest",
+     "json",
+     "https://cdn.example/root/"
+    ],
+    [
+     "v.mp4",
+     "media",
+     "https://cdn.example/root/"
+    ],
+    [
+     "p.jpg",
+     "images",
+     "https://cdn.example/root/"
+    ],
+    [
+     "s.webp",
+     "images",
+     "https://cdn.example/root/"
+    ]
+   ],
+   "custom_viewer_route": false
+  },
+  {
+   "name": "lazy-and-misc",
+   "url": "https://host.example/cyoa/",
+   "local": "index.html",
+   "html": "<div data-src=\"img/lazy.png\" data-bg=\"img/bg2.png\"></div><img data-srcset=\"a.png 1x\"><iframe src=\"frame.html\"></iframe><iframe src=\"https://other.example/x.html\"></iframe><iframe data-src=\"same.html\"></iframe><object data=\"o.svg\"></object><embed src=\"e.swf\"><track src=\"t.vtt\"><svg><use href=\"#i\"></use><image xlink:href=\"s.png\"></image></svg><input type=image src=\"btn.png\"><input type=text src=\"no.png\">",
+   "output": "<div data-bg=\"img/bg2.png\" data-src=\"img/lazy.png\"></div><img data-srcset=\"a.png 1x\"/><iframe src=\"frame.html\"></iframe><iframe src=\"https://other.example/x.html\"></iframe><iframe data-src=\"same.html\"></iframe><object data=\"o.svg\"></object><embed src=\"e.swf\"/><track src=\"t.vtt\"/><svg><use href=\"#i\"></use><image xlink:href=\"s.png\"/></svg><input src=\"btn.png\" type=\"image\"/><input src=\"no.png\" type=\"text\"/>",
+   "calls": [
+    [
+     "https://host.example/cyoa/img/lazy.png",
+     "images",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "https://host.example/cyoa/img/bg2.png",
+     "images",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "https://host.example/cyoa/o.svg",
+     "images",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "https://host.example/cyoa/s.png",
+     "images",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "https://host.example/cyoa/btn.png",
+     "images",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "https://host.example/cyoa/no.png",
+     "images",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "img/lazy.png",
+     "",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "img/bg2.png",
+     "images",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "a.png",
+     "images",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "same.html",
+     "",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "t.vtt",
+     "media",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "e.swf",
+     "",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "o.svg",
+     "",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "frame.html",
+     "",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "#i",
+     "images",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "s.png",
+     "images",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "btn.png",
+     "images",
+     "https://host.example/cyoa/"
+    ]
+   ],
+   "custom_viewer_route": false
+  },
+  {
+   "name": "styles",
+   "url": "https://host.example/cyoa/",
+   "local": "index.html",
+   "html": "<style>@import \"theme.css\"; body{background:url(\"img/x.png\")}</style><style>  </style><a style=\"color:red\">n</a><b style=\"x:url(i.gif)\">y</b>",
+   "output": "<style>@import \"theme.css\"; body{background:url(\"img/x.png\")}</style><style> </style><a style=\"color:red\">n</a><b style='x:url(\"i.gif\")'>y</b>",
+   "calls": [
+    [
+     "https://host.example/cyoa/theme.css",
+     "css",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "https://host.example/cyoa/img/x.png",
+     "images",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "https://host.example/cyoa/i.gif",
+     "images",
+     "https://host.example/cyoa/"
+    ]
+   ],
+   "custom_viewer_route": false
+  },
+  {
+   "name": "link-kinds",
+   "url": "https://host.example/cyoa/",
+   "local": "index.html",
+   "html": "<link rel=\"apple-touch-icon\" href=\"t.png\"><link rel=\"modulepreload\" href=\"m.js\"><link rel=prefetch href=data.json><link rel=preload as=style href=s.css><link rel=preload as=image href=pic><link rel=alternate href=feed.xml><link href=/abs/x.css rel=stylesheet><link rel=other href=font.ttf><link rel=other href=lib.mjs><link rel=\"stylesheet\" href=\"https://www.google-analytics.com/a.css\"><link href=\"#x\" rel=stylesheet>",
+   "output": "<link href=\"t.png\" rel=\"apple-touch-icon\"/><link href=\"m.js\" rel=\"modulepreload\"/><link href=\"data.json\" rel=\"prefetch\"/><link as=\"style\" href=\"s.css\" rel=\"preload\"/><link as=\"image\" href=\"pic.png\" rel=\"preload\"/><link href=\"feed.xml\" rel=\"alternate\"/><link href=\"abs/x.css\" rel=\"stylesheet\"/><link href=\"font.ttf\" rel=\"other\"/><link href=\"lib.mjs\" rel=\"other\"/><link href=\"#x\" rel=\"stylesheet\"/>",
+   "calls": [
+    [
+     "https://host.example/cyoa/m.js",
+     "js",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "https://www.google-analytics.com/a.css",
+     "css",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "https://host.example/cyoa/t.png",
+     "images",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "t.png",
+     "images",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "m.js",
+     "js",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "s.css",
+     "css",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "pic",
+     "images",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "https://host.example/abs/x.css",
+     "css",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "font.ttf",
+     "fonts",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "lib.mjs",
+     "js",
+     "https://host.example/cyoa/"
+    ]
+   ],
+   "custom_viewer_route": false
+  },
+  {
+   "name": "dice",
+   "url": "https://host.example/cyoa/",
+   "local": "index.html",
+   "html": "<html><body><button aria-label=\"roll dice AGAIN\">r</button></body></html>",
+   "output": "<html><body><button aria-label=\"roll dice AGAIN\">r</button><script data-cyoa-offline-dice-fallback=\"\">(()=>{\nconst findStatus=()=>document.querySelector('[role=\"status\"][aria-label^=\"Dice results:\"]');\nconst placeholder=s=>/[?\\u2013-]\\s*$/.test((s?.getAttribute('aria-label')||'').trim());\nconst localRoll=(status)=>{\n  if(!status)return;\n  const value=1+Math.floor(Math.random()*6);\n  const children=Array.from(status.children);\n  if(children.length)children[children.length-1].textContent=String(value);\n  const label=status.getAttribute('aria-label')||'Dice results:';\n  status.setAttribute('aria-label',label.replace(/(?:\\?|\\u2013|-|\\d+)\\s*$/,String(value)));\n};\ndocument.addEventListener('click',event=>{\n  const button=event.target.closest&&event.target.closest('button[aria-label=\"Roll dice again\"]');\n  if(!button)return;\n  const status=findStatus(),before=status?.getAttribute('aria-label')||'';\n  setTimeout(()=>{if(status&&(status.getAttribute('aria-label')||'')===before)localRoll(status)},120);\n});\nsetTimeout(()=>{const status=findStatus();if(placeholder(status))localRoll(status)},250);\n})()</script></body></html>",
+   "calls": [],
+   "custom_viewer_route": false
+  },
+  {
+   "name": "dice-no-body",
+   "url": "https://host.example/cyoa/",
+   "local": "index.html",
+   "html": "<button aria-label=\"Roll dice again\">r</button><p>x</p>",
+   "output": "<button aria-label=\"Roll dice again\">r</button><p>x</p><script data-cyoa-offline-dice-fallback=\"\">(()=>{\nconst findStatus=()=>document.querySelector('[role=\"status\"][aria-label^=\"Dice results:\"]');\nconst placeholder=s=>/[?\\u2013-]\\s*$/.test((s?.getAttribute('aria-label')||'').trim());\nconst localRoll=(status)=>{\n  if(!status)return;\n  const value=1+Math.floor(Math.random()*6);\n  const children=Array.from(status.children);\n  if(children.length)children[children.length-1].textContent=String(value);\n  const label=status.getAttribute('aria-label')||'Dice results:';\n  status.setAttribute('aria-label',label.replace(/(?:\\?|\\u2013|-|\\d+)\\s*$/,String(value)));\n};\ndocument.addEventListener('click',event=>{\n  const button=event.target.closest&&event.target.closest('button[aria-label=\"Roll dice again\"]');\n  if(!button)return;\n  const status=findStatus(),before=status?.getAttribute('aria-label')||'';\n  setTimeout(()=>{if(status&&(status.getAttribute('aria-label')||'')===before)localRoll(status)},120);\n});\nsetTimeout(()=>{const status=findStatus();if(placeholder(status))localRoll(status)},250);\n})()</script>",
+   "calls": [],
+   "custom_viewer_route": false
+  },
+  {
+   "name": "inline-b64",
+   "url": "https://host.example/cyoa/",
+   "local": "index.html",
+   "html": "<script>var payload = \"PCFET0NUWVBFIGh0bWw+PGh0bWw+PGJvZHk+PGltZyBzcmM9ImltZy9pbmxpbmUucG5nIj48L2JvZHk+PC9odG1sPg==\"; document.write(atob(payload));</script>",
+   "output": "<!DOCTYPE html>\n<html><body><img src=\"img/inline.png\"/></body></html>",
+   "calls": [
+    [
+     "https://host.example/cyoa/img/inline.png",
+     "images",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "img/inline.png",
+     "images",
+     "https://host.example/cyoa/"
+    ]
+   ],
+   "custom_viewer_route": false
+  },
+  {
+   "name": "custom-viewer",
+   "url": "https://host.example/cyoa/game",
+   "local": "index.html",
+   "html": "<div id=\"cyoa-container\"></div><script>var game_data=1;</script><img src=\"img/c.png\">",
+   "output": "<div id=\"cyoa-container\"></div><script>var game_data=1;</script><img src=\"img/c.png\"/>",
+   "calls": [
+    [
+     "https://host.example/cyoa/img/c.png",
+     "images",
+     "https://host.example/cyoa/game"
+    ],
+    [
+     "img/c.png",
+     "images",
+     "https://host.example/cyoa/game"
+    ]
+   ],
+   "custom_viewer_route": false
+  },
+  {
+   "name": "sub-page",
+   "url": "https://host.example/cyoa/pages/p2.html",
+   "local": "pages/p2.html",
+   "html": "<a href=\"../index.html\">home</a><img src=\"../img/a.png\"><img src=\"pic.png\">",
+   "output": "<a href=\"../index.html\">home</a><img src=\"../img/a.png\"/><img src=\"pic.png\"/>",
+   "calls": [
+    [
+     "https://host.example/cyoa/img/a.png",
+     "images",
+     "https://host.example/cyoa/pages/p2.html"
+    ],
+    [
+     "https://host.example/cyoa/pages/pic.png",
+     "images",
+     "https://host.example/cyoa/pages/p2.html"
+    ],
+    [
+     "../img/a.png",
+     "images",
+     "https://host.example/cyoa/pages/p2.html"
+    ],
+    [
+     "pic.png",
+     "images",
+     "https://host.example/cyoa/pages/p2.html"
+    ]
+   ],
+   "custom_viewer_route": false
+  },
+  {
+   "name": "cloudflare",
+   "url": "https://host.example/cyoa/",
+   "local": "index.html",
+   "html": "<script>window.__CF$cv$params={};var a=document.createElement('iframe');a.src='/cdn-cgi/challenge-platform/x';</script><p>ok</p>",
+   "output": "<p>ok</p>",
+   "calls": [],
+   "custom_viewer_route": false
+  },
+  {
+   "name": "runtime-prefetch",
+   "url": "https://host.example/cyoa/",
+   "local": "index.html",
+   "html": "<script>var imgs=[\"img/r1.png\",\"img/r2.png\"];</script><img src=\"img/r1.png\">",
+   "output": "<script>var imgs=[\"img/r1.png\",\"img/r2.png\"];</script><img src=\"img/r1.png\"/>",
+   "calls": [
+    [
+     "https://host.example/cyoa/img/r1.png",
+     "images",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "https://host.example/cyoa/img/r2.png",
+     "images",
+     "https://host.example/cyoa/"
+    ],
+    [
+     "img/r1.png",
+     "images",
+     "https://host.example/cyoa/"
+    ]
+   ],
+   "custom_viewer_route": false
+  }
+ ],
+ "embedded": {
+  "patch": "\n;(function(){\n  if (window.__cyoaLocalAudioPatch) return;\n  var original = window.playVideo;\n  if (typeof original !== 'function') return;\n  var audio = null, current = '';\n  function isLocal(value) {\n    return typeof value === 'string' &&\n      /^(?:audio|media|music|sounds|bgm)\\//i.test(value) &&\n      /\\.(?:mp3|m4a|ogg|wav|aac|opus|weba)(?:[?#].*)?$/i.test(value);\n  }\n  window.playVideo = function(videoId) {\n    if (!isLocal(videoId)) return original.apply(this, arguments);\n    if (!audio) {\n      audio = document.createElement('audio');\n      audio.loop = true;\n      audio.style.display = 'none';\n      document.body.appendChild(audio);\n    }\n    if (current === videoId && !audio.paused) {\n      audio.pause();\n      return;\n    }\n    if (current !== videoId) {\n      audio.src = videoId;\n      current = videoId;\n    }\n    var iframe = document.getElementById('youtube-video');\n    if (iframe) iframe.src = 'about:blank';\n    var pending = audio.play();\n    if (pending && pending.catch) pending.catch(function(){});\n  };\n  window.__cyoaLocalAudioPatch = true;\n})();\n",
+  "fallback.string": "(()=>{\nconst findStatus=()=>document.querySelector('[role=\"status\"][aria-label^=\"Dice results:\"]');\nconst placeholder=s=>/[?\\u2013-]\\s*$/.test((s?.getAttribute('aria-label')||'').trim());\nconst localRoll=(status)=>{\n  if(!status)return;\n  const value=1+Math.floor(Math.random()*6);\n  const children=Array.from(status.children);\n  if(children.length)children[children.length-1].textContent=String(value);\n  const label=status.getAttribute('aria-label')||'Dice results:';\n  status.setAttribute('aria-label',label.replace(/(?:\\?|\\u2013|-|\\d+)\\s*$/,String(value)));\n};\ndocument.addEventListener('click',event=>{\n  const button=event.target.closest&&event.target.closest('button[aria-label=\"Roll dice again\"]');\n  if(!button)return;\n  const status=findStatus(),before=status?.getAttribute('aria-label')||'';\n  setTimeout(()=>{if(status&&(status.getAttribute('aria-label')||'')===before)localRoll(status)},120);\n});\nsetTimeout(()=>{const status=findStatus();if(placeholder(status))localRoll(status)},250);\n})()"
+ }
+}
