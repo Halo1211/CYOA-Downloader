@@ -1,0 +1,123 @@
+{
+ "site": {
+  "/cy/index.html": {
+   "ct": "text/html",
+   "hex": "3c21646f63747970652068746d6c3e3c68746d6c3e3c686561643e3c6d65746120636861727365743d227574662d38223e3c7469746c653e43594f41503c2f7469746c653e3c6c696e6b2072656c3d227374796c6573686565742220687265663d226373732f6170702e637373223e3c6c696e6b2072656c3d2269636f6e2220687265663d22696d672f6c6f676f2e706e67223e3c2f686561643e3c626f64793e3c6469762069643d22617070223e3c2f6469763e3c736372697074207372633d226a732f6170702e6a73223e3c2f7363726970743e3c696d67207372633d22696d672f6c6f676f2e706e67223e3c2f626f64793e3c2f68746d6c3e"
+  },
+  "/cy/css/app.css": {
+   "ct": "text/css",
+   "hex": "40696d706f72742022622e637373223b2040666f6e742d666163657b666f6e742d66616d696c793a463b7372633a75726c282e2e2f666f6e74732f662e776f666632297d"
+  },
+  "/cy/css/b.css": {
+   "ct": "text/css",
+   "hex": "2e627b6261636b67726f756e643a75726c28272e2e2f696d672f62672e706e6727297d"
+  },
+  "/cy/js/app.js": {
+   "ct": "text/javascript",
+   "hex": "636f6e736f6c652e6c6f67282763796f617027293b"
+  },
+  "/cy/fonts/f.woff2": {
+   "ct": "application/octet-stream",
+   "hex": "774f4632666f6e74"
+  },
+  "/cy/img/logo.png": {
+   "ct": "image/png",
+   "hex": "89504e470d0a1a0a6363636363636363636363636c6f676f"
+  },
+  "/cy/img/bg.png": {
+   "ct": "image/png",
+   "hex": "89504e470d0a1a0a6363636363636363636363636267"
+  },
+  "/cy/dist/platform.json": {
+   "ct": "application/json",
+   "hex": "7b227469746c65223a202254222c2022696d616765223a2022636f7665722e77656270313233222c202264657363223a20227365652065787472612e706e67222c202262676d223a20227468656d652e6d7033227d"
+  },
+  "/cy/dist/nodes/list.json": {
+   "ct": "application/json",
+   "hex": "5b226e312e6a736f6e222c20226e322e6a736f6e222c202220222c20355d"
+  },
+  "/cy/dist/nodes/n1.json": {
+   "ct": "application/json",
+   "hex": "7b2263686f69636573223a205b7b22696d616765223a20227069632e706e67227d2c207b22696d616765223a20222f63792f6162732e706e67227d2c207b22696d616765223a20226d697373696e672e706e67227d5d7d"
+  },
+  "/cy/dist/images/cover.webp": {
+   "ct": "image/webp",
+   "hex": "524946460000000057454250636f766572"
+  },
+  "/cy/dist/images/pic.png": {
+   "ct": "image/png",
+   "hex": "89504e470d0a1a0a636363636363636363636363706963"
+  },
+  "/cy/dist/images/extra.png": {
+   "ct": "image/png",
+   "hex": "89504e470d0a1a0a6363636363636363636363636578747261"
+  },
+  "/cy/abs.png": {
+   "ct": "image/png",
+   "hex": "89504e470d0a1a0a636363636363636363636363616273"
+  },
+  "/cy/dist/audio/theme.mp3": {
+   "ct": "audio/mp3",
+   "hex": "494433617564696f"
+  }
+ },
+ "start_path": "/cy/",
+ "outputs": {
+  "backup_report.txt": {
+   "text": "============================================================\n CYOA Backup Report\n============================================================\nStart URL    : http://HOST/cy/\nProject URL  : http://HOST/cy/dist/platform.json\nProject Root : dist/platform.json\n\nDownloaded   : 14\nFailed       : 4\n\nNotes:\n  - Engine mode: cyoap_vue\n  - Downloaded dist/platform.json and dist/nodes/list.json when available.\n\nDownloaded by kind:\n  [assets] 3\n    ✓ cy/fonts/f.woff2\n    ✓ cy/img/bg.png\n    ✓ cy/img/logo.png\n  [css] 2\n    ✓ cy/css/app.css\n    ✓ cy/css/b.css\n  [html] 1\n    ✓ cy/index.html\n  [images] 3\n    ✓ cy/abs.png\n    ✓ cy/dist/images/cover.webp\n    ✓ cy/dist/images/pic.png\n  [js] 1\n    ✓ cy/js/app.js\n  [json] 3\n    ✓ cy/dist/nodes/list.json\n    ✓ cy/dist/nodes/n1.json\n    ✓ cy/dist/platform.json\n  [media] 1\n    ✓ cy/dist/audio/theme.mp3\n\nFailed by kind:\n  [assets] 1\n    ✗ http://HOST/cy/favicon.ico\n  [images] 2\n    ✗ missing.png\n    ✗ see extra.png\n  [json] 1\n    ✗ http://HOST/cy/dist/nodes/n2.json\n\nDownloaded files:\n  ✓ cy/dist/platform.json    ← http://HOST/cy/dist/platform.json\n  ✓ cy/dist/nodes/list.json    ← http://HOST/cy/dist/nodes/list.json\n  ✓ cy/dist/nodes/n1.json    ← http://HOST/cy/dist/nodes/n1.json\n  ✓ cy/abs.png    ← http://HOST/cy/abs.png\n  ✓ cy/dist/images/cover.webp    ← http://HOST/cy/dist/images/cover.webp\n  ✓ cy/dist/images/pic.png    ← http://HOST/cy/dist/images/pic.png\n  ✓ cy/dist/audio/theme.mp3    ← http://HOST/cy/dist/audio/theme.mp3\n  ✓ cy/index.html    ← http://HOST/cy/\n  ✓ cy/css/app.css    ← http://HOST/cy/css/app.css\n  ✓ cy/img/logo.png    ← http://HOST/cy/img/logo.png\n  ✓ cy/js/app.js    ← http://HOST/cy/js/app.js\n  ✓ cy/css/b.css    ← http://HOST/cy/css/b.css\n  ✓ cy/fonts/f.woff2    ← http://HOST/cy/fonts/f.woff2\n  ✓ cy/img/bg.png    ← http://HOST/cy/img/bg.png\n\nFailed files:\n  ✗ http://HOST/cy/dist/nodes/n2.json    (request failed)\n  ✗ missing.png    (asset not found in candidate cyoap_vue locations)\n  ✗ see extra.png    (asset not found in candidate cyoap_vue locations)\n  ✗ http://HOST/cy/favicon.ico    (request failed)\n\n\n============================================================\nBROKEN CYOAP_VUE ASSET REPORT\n============================================================\nSource    : http://HOST/cy/\nTotal     : 4\n\n[1] json\n  Path : -\n  URL  : http://HOST/cy/dist/nodes/n2.json\n  Err  : request failed\n\n[2] images\n  Path : -\n  URL  : missing.png\n  Err  : asset not found in candidate cyoap_vue locations\n\n[3] images\n  Path : -\n  URL  : see extra.png\n  Err  : asset not found in candidate cyoap_vue locations\n\n[4] assets\n  Path : -\n  URL  : http://HOST/cy/favicon.ico\n  Err  : request failed\n",
+   "crlf": true
+  },
+  "cy/abs.png": {
+   "hex": "89504e470d0a1a0a636363636363636363636363616273"
+  },
+  "cy/css/app.css": {
+   "text": "@import \"b.css\"; @font-face{font-family:F;src:url(../fonts/f.woff2)}",
+   "crlf": false
+  },
+  "cy/css/b.css": {
+   "text": ".b{background:url('../img/bg.png')}",
+   "crlf": false
+  },
+  "cy/dist/audio/theme.mp3": {
+   "text": "ID3audio",
+   "crlf": false
+  },
+  "cy/dist/images/cover.webp": {
+   "text": "RIFF\u0000\u0000\u0000\u0000WEBPcover",
+   "crlf": false
+  },
+  "cy/dist/images/pic.png": {
+   "hex": "89504e470d0a1a0a636363636363636363636363706963"
+  },
+  "cy/dist/nodes/list.json": {
+   "text": "[\"n1.json\", \"n2.json\", \" \", 5]",
+   "crlf": false
+  },
+  "cy/dist/nodes/n1.json": {
+   "text": "{\"choices\": [{\"image\": \"pic.png\"}, {\"image\": \"/cy/abs.png\"}, {\"image\": \"missing.png\"}]}",
+   "crlf": false
+  },
+  "cy/dist/platform.json": {
+   "text": "{\"title\":\"T\",\"image\":\"cover.webp\",\"desc\":\"see extra.png\",\"bgm\":\"theme.mp3\"}",
+   "crlf": false
+  },
+  "cy/fonts/f.woff2": {
+   "text": "wOF2font",
+   "crlf": false
+  },
+  "cy/img/bg.png": {
+   "hex": "89504e470d0a1a0a6363636363636363636363636267"
+  },
+  "cy/img/logo.png": {
+   "hex": "89504e470d0a1a0a6363636363636363636363636c6f676f"
+  },
+  "cy/index.html": {
+   "text": "<!doctype html><html><head><meta charset=\"utf-8\"><title>CYOAP</title><link rel=\"stylesheet\" href=\"css/app.css\"><link rel=\"icon\" href=\"img/logo.png\"></head><body><div id=\"app\"></div><script src=\"js/app.js\"></script><img src=\"img/logo.png\"></body></html>",
+   "crlf": false
+  },
+  "cy/js/app.js": {
+   "text": "console.log('cyoap');",
+   "crlf": false
+  }
+ }
+}
