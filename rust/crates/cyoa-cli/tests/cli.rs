@@ -20,13 +20,19 @@ fn temp_dir() -> PathBuf {
     fs::create_dir_all(&path).unwrap();
     path
 }
+/// Per-test isolated profile (tests run in parallel; a shared home lets runs
+/// race on the image cache and settings.json). Stable within one test thread.
+fn test_home() -> PathBuf {
+    let name = thread::current()
+        .name()
+        .unwrap_or("unnamed")
+        .replace("::", "_");
+    std::env::temp_dir().join(format!("cyoa-cli-test-home-{}-{name}", std::process::id()))
+}
 fn cli(args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_cyoa-downloader"))
-        .env(
-            "USERPROFILE",
-            std::env::temp_dir().join("cyoa-cli-test-home"),
-        )
-        .env("HOME", std::env::temp_dir().join("cyoa-cli-test-home"))
+        .env("USERPROFILE", test_home())
+        .env("HOME", test_home())
         .args(args)
         .output()
         .unwrap()
@@ -50,11 +56,8 @@ fn rejects_output_file() {
     let file = dir.join("not-a-directory");
     fs::write(&file, "file").unwrap();
     let out = Command::new(env!("CARGO_BIN_EXE_cyoa-downloader"))
-        .env(
-            "USERPROFILE",
-            std::env::temp_dir().join("cyoa-cli-test-home"),
-        )
-        .env("HOME", std::env::temp_dir().join("cyoa-cli-test-home"))
+        .env("USERPROFILE", test_home())
+        .env("HOME", test_home())
         .args(["https://example.com/project.json", "--output"])
         .arg(file)
         .output()
@@ -114,11 +117,8 @@ fn both_mode_embeds_and_zips_without_overwriting() {
     let (url, worker) = mock_server();
     for _ in 0..2 {
         let out = Command::new(env!("CARGO_BIN_EXE_cyoa-downloader"))
-            .env(
-                "USERPROFILE",
-                std::env::temp_dir().join("cyoa-cli-test-home"),
-            )
-            .env("HOME", std::env::temp_dir().join("cyoa-cli-test-home"))
+            .env("USERPROFILE", test_home())
+            .env("HOME", test_home())
             .args(["--both", "--threads", "2", "--wait", "0", "--output"])
             .arg(&output_dir)
             .arg(&url)
@@ -155,7 +155,7 @@ fn both_mode_embeds_and_zips_without_overwriting() {
 
 #[test]
 fn list_mode_rejects_missing_file_and_reports_unsupported_modes() {
-    let home = std::env::temp_dir().join("cyoa-cli-test-home");
+    let home = test_home();
     let out = temp_dir();
     let missing = Command::new(env!("CARGO_BIN_EXE_cyoa-downloader"))
         .env("USERPROFILE", &home)
@@ -194,4 +194,55 @@ fn list_mode_rejects_missing_file_and_reports_unsupported_modes() {
     assert!(log.contains(
         "https://a.example/x\tmode 'website_folder' is not supported by the Rust port yet\n"
     ));
+}
+
+#[test]
+fn network_flags_are_persisted_to_settings_like_python() {
+    let home = temp_dir();
+    let out = temp_dir();
+    let settings = home.join(".cyoa_downloader").join("settings.json");
+    let run = |extra: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_cyoa-downloader"))
+            .env("USERPROFILE", &home)
+            .env("HOME", &home)
+            .arg("http://127.0.0.1:9/p/project.json")
+            .arg("-o")
+            .arg(&out)
+            .args(extra)
+            .output()
+            .unwrap()
+    };
+    // Invalid configuration: rejected before anything is saved.
+    let bad = run(&["--vpn-policy", "bogus", "--dns", "1.1.1.1"]);
+    assert_eq!(bad.status.code(), Some(2));
+    assert!(
+        !settings.exists(),
+        "settings written despite invalid config"
+    );
+
+    run(&[
+        "--proxy-mode",
+        "disabled",
+        "--proxy-bypass",
+        "a.test",
+        "--dns",
+        "1.1.1.1",
+        "--dns-port",
+        "5353",
+        "--no-dns-ipv6",
+        "--vpn-policy",
+        "require",
+        "--vpn-interface",
+        "zz-no-such-if",
+    ]);
+    let saved: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&settings).unwrap()).unwrap();
+    assert_eq!(saved["proxy_mode"], "disabled");
+    assert_eq!(saved["proxy_no_proxy"], "a.test");
+    assert_eq!(saved["dns"], "1.1.1.1");
+    assert_eq!(saved["dns_protocol"], "udp");
+    assert_eq!(saved["dns_port"], 5353);
+    assert_eq!(saved["dns_ipv6"], false);
+    assert_eq!(saved["vpn_policy"], "require");
+    assert_eq!(saved["vpn_interface"], "zz-no-such-if");
 }

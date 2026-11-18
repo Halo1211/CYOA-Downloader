@@ -91,6 +91,70 @@ struct Args {
     vpn_interface: Option<String>,
 }
 
+/// Python cli.py (after network validation): the network flags given on the
+/// command line are persisted to settings.json. Returns the keys to update.
+fn network_setting_updates(
+    args: &Args,
+    proxy_mode_eff: &str,
+    dns_cfg: &cyoa_net::dns::DnsConfig,
+) -> Vec<(&'static str, serde_json::Value)> {
+    use serde_json::Value;
+    let s = |v: &str| Value::String(v.to_owned());
+    let mut out = Vec::new();
+    if let Some(v) = &args.proxy {
+        out.push(("proxy", s(v)));
+    }
+    if let Some(v) = &args.proxy_mode {
+        out.push(("proxy_mode", s(v)));
+    }
+    if let Some(v) = &args.proxy_http {
+        out.push(("proxy_http", s(v)));
+    }
+    if let Some(v) = &args.proxy_https {
+        out.push(("proxy_https", s(v)));
+    }
+    if let Some(v) = &args.proxy_bypass {
+        out.push(("proxy_no_proxy", s(v)));
+    }
+    if args.proxy_mode.is_none()
+        && (args.proxy.is_some() || args.proxy_http.is_some() || args.proxy_https.is_some())
+    {
+        out.push(("proxy_mode", s(proxy_mode_eff)));
+    }
+    // --bebasdns rewrites --dns/--dns-protocol before this point in Python.
+    let dns_given = args.dns.is_some() || args.bebasdns.is_some();
+    if dns_given {
+        out.push(("dns", s(&dns_cfg.server)));
+    }
+    if let (Some(v), None) = (&args.dns_protocol, &args.bebasdns) {
+        out.push(("dns_protocol", s(v)));
+    } else if dns_given {
+        out.push(("dns_protocol", s(&dns_cfg.protocol)));
+    }
+    if let Some(v) = args.dns_port {
+        out.push(("dns_port", Value::from(v)));
+    }
+    if let Some(v) = args.dns_timeout {
+        out.push(("dns_timeout", Value::from(v)));
+    }
+    if args.dns_fallback_system || args.no_dns_fallback_system {
+        out.push(("dns_fallback_system", Value::Bool(args.dns_fallback_system)));
+    }
+    if args.dns_ipv6 || args.no_dns_ipv6 {
+        out.push(("dns_ipv6", Value::Bool(args.dns_ipv6)));
+    }
+    if let Some(v) = &args.bebasdns {
+        out.push(("bebasdns_variant", s(v)));
+    }
+    if let Some(v) = &args.vpn_policy {
+        out.push(("vpn_policy", s(v)));
+    }
+    if let Some(v) = &args.vpn_interface {
+        out.push(("vpn_interface", s(v)));
+    }
+    out
+}
+
 fn valid_url(url: &str) -> bool {
     (url.starts_with("http://") || url.starts_with("https://")) && !url.contains(' ')
 }
@@ -194,7 +258,8 @@ async fn main() -> ExitCode {
     cyoa_engine::logfile::init(true);
     cyoa_engine::logfile::setup_file_logging(&args.output);
 
-    // Saved settings are read only; Python's CLI also persists proxy flags (not ported yet).
+    // Saved settings provide defaults; network flags given here are persisted
+    // back after validation (Python cli.py).
     let mut store =
         cyoa_storage::settings::SettingsStore::new(cyoa_storage::settings::default_path());
     let saved = store
@@ -252,6 +317,7 @@ async fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    let net_updates = network_setting_updates(&args, proxy_cfg.mode.as_str(), &dns_cfg);
     let dns = (dns_cfg.protocol != "system" && !dns_cfg.server.is_empty()).then(|| {
         std::sync::Arc::new(cyoa_net::dns_resolve::CustomResolver::new(
             dns_cfg,
@@ -279,6 +345,15 @@ async fn main() -> ExitCode {
     };
     let vpn = (vpn_cfg.policy == cyoa_net::vpn::VpnPolicy::Require)
         .then(|| std::sync::Arc::new(cyoa_net::vpn::VpnGuard::new(vpn_cfg)));
+    if !net_updates.is_empty() {
+        let values = store.values_mut();
+        for (key, value) in net_updates {
+            values.insert(key.to_owned(), value);
+        }
+        if let Err(error) = store.save() {
+            tracing::warn!("Could not save network settings: {error}");
+        }
+    }
 
     let batch_mode = args.list.is_some();
     let items: Vec<BatchItem> = if let Some(list) = args.list.take() {

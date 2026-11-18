@@ -894,8 +894,10 @@ dependencies = [
  "cyoa-engine",
  "cyoa-net",
  "cyoa-storage",
+ "serde_json",
  "tokio",
  "tokio-util",
+ "tracing",
 ]
 
 [[package]]
