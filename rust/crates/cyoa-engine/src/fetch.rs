@@ -212,6 +212,89 @@ async fn cancel_sleep(seconds: f64, cancel: &CancellationToken) -> bool {
     }
 }
 
+/// Image extensions of Python `IMAGE_EXTENSIONS`.
+const IMAGE_EXTENSIONS: &[&str] = &[
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".avif", ".ico",
+];
+
+/// Python `project/mediawiki.py::mediawiki_image_url`: the original-file link
+/// (`.fullImageLink a[href], .fullMedia a[href]`) of a MediaWiki `File:` page.
+pub fn mediawiki_image_url(html: &str, page_url: &str) -> Option<String> {
+    use crate::website::html::{Element, Node};
+    let path = crate::localize::py_urlparse(page_url).path;
+    let decoded = percent_encoding::percent_decode_str(path).decode_utf8_lossy();
+    let lower = decoded.to_lowercase();
+    if !(lower.starts_with("file:") || lower.contains("/file:")) {
+        return None;
+    }
+    let doc = crate::website::html::parse(html).ok()?;
+    fn first(el: &Element, inside: bool) -> Option<String> {
+        for child in &el.children {
+            let Node::Element(e) = child else { continue };
+            if inside
+                && e.name == "a"
+                && let Some(href) = e.attr("href")
+            {
+                return Some(href.to_owned());
+            }
+            let marked = e.attr("class").is_some_and(|c| {
+                c.split_ascii_whitespace()
+                    .any(|x| x == "fullImageLink" || x == "fullMedia")
+            });
+            if let Some(found) = first(e, inside || marked) {
+                return Some(found);
+            }
+        }
+        None
+    }
+    let href = first(&doc, false)?;
+    let candidate = crate::fetch_plan::python_urljoin(page_url, &href);
+    let parsed = crate::localize::py_urlparse(&candidate);
+    if parsed.scheme != "http" && parsed.scheme != "https" {
+        return None;
+    }
+    let ext = cyoa_parse::deep_scan::py_splitext_ext(parsed.path).to_lowercase();
+    IMAGE_EXTENSIONS
+        .contains(&ext.as_str())
+        .then_some(candidate)
+}
+
+/// The linked original of a MediaWiki page: a 200 response over 64 bytes
+/// that is not an error document. Returns (body, mime).
+async fn fetch_linked_original(ctx: &FetchCtx, original: &str) -> Option<(Bytes, String)> {
+    let url = Url::parse(original).ok()?;
+    let response = ctx
+        .client
+        .get(
+            &url,
+            &FetchOptions {
+                return_error_response: true,
+                ..FetchOptions::default()
+            },
+            &ctx.cancel,
+        )
+        .await
+        .ok()?;
+    if response.status.as_u16() != 200 {
+        return None;
+    }
+    let mime = response
+        .headers
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .map(|value| {
+            value
+                .split(';')
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .to_owned()
+        })
+        .unwrap_or_default();
+    let data = FetchClient::bytes(response, ctx.max_bytes).await.ok()?;
+    (data.len() > 64 && !asset_is_error_document(&mime, &data, true)).then_some((data, mime))
+}
+
 /// Fetch a direct HTTP asset with bounded retries, cancellation, cache, and SSRF screening.
 pub async fn fetch_one(ctx: &FetchCtx, asset_path: &str) -> FetchOutcome {
     let asset_url = crate::fetch_plan::resolve_asset_url(asset_path, &ctx.base_url);
@@ -258,7 +341,6 @@ pub async fn fetch_one(ctx: &FetchCtx, asset_path: &str) -> FetchOutcome {
     // DEFERRED(F-XXX): headless browser recovery is not implemented.
     // DEFERRED(F-XXX): browser cookie session retry is not implemented; attempt 2 marks it tried.
     // DEFERRED(F-XXX): Discord attachment URL refresh is not implemented.
-    // DEFERRED(F-XXX): MediaWiki File: page resolution is not implemented.
     let attempts =
         crate::fetch_plan::direct_attempts(ctx.image_paths.contains(asset_path), &asset_url, false)
             as usize;
@@ -396,6 +478,18 @@ pub async fn fetch_one(ctx: &FetchCtx, asset_path: &str) -> FetchOutcome {
             continue;
         }
 
+        let charset = response
+            .headers
+            .get("content-type")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|ct| {
+                ct.split(';')
+                    .skip(1)
+                    .find_map(|p| p.trim().strip_prefix("charset="))
+                    .map(|c| c.trim_matches(['"', '\'']).to_owned())
+            })
+            .unwrap_or_default();
+        let response_url = response.final_url.to_string();
         let mime = response
             .headers
             .get("content-type")
@@ -416,6 +510,36 @@ pub async fn fetch_one(ctx: &FetchCtx, asset_path: &str) -> FetchOutcome {
             }
         };
         if asset_is_error_document(&mime, &data, true) {
+            // image_pipeline.py 801-826: a MediaWiki `File:` description page
+            // resolves to its explicitly linked original file.
+            if mime.contains("html")
+                && let Some(original) = mediawiki_image_url(
+                    &cyoa_parse::project::try_decode_bytes(&data, &charset),
+                    &response_url,
+                )
+                && !crate::fetch_plan::ssrf_block_cross_origin(
+                    &original,
+                    &ctx.base_url,
+                    false,
+                    |host| {
+                        host_is_internal(host)
+                            || (ctx.resolver)(host).iter().copied().any(ip_is_internal)
+                    },
+                )
+                && let Some((linked, linked_mime)) = fetch_linked_original(ctx, &original).await
+            {
+                ctx.domain.record_success(&asset_url);
+                tracing::info!("  [Image page] Resolved original file: {original}");
+                let mime = if linked_mime.is_empty() {
+                    guess_mime_from_url(&original)
+                        .unwrap_or("application/octet-stream")
+                        .to_owned()
+                } else {
+                    linked_mime
+                };
+                let payload = spool(ctx, linked).await;
+                return outcome(asset_path, Some(payload), &mime, &original, "");
+            }
             return outcome(
                 asset_path,
                 None,
@@ -564,6 +688,66 @@ mod tests {
         let result = fetch_one(&ctx(&server, None, CancellationToken::new()), "/asset.png").await;
         assert_eq!(result.error, "HTTP 429: rate limited");
         assert_eq!(server.received_requests().await.expect("requests").len(), 4);
+    }
+
+    #[test]
+    fn mediawiki_image_url_matches_python() {
+        let page = r#"<div class="mw"><a href="/x.png">no</a><div class="fullImageLink" id="file"><a href="//upload.example/a/b/Map%20One.PNG"><img src="thumb.png"></a></div></div>"#;
+        assert_eq!(
+            mediawiki_image_url(page, "https://wiki.example/wiki/File:Map_One.png").as_deref(),
+            Some("https://upload.example/a/b/Map%20One.PNG")
+        );
+        // Percent-encoded `File:` in the path still counts.
+        assert!(mediawiki_image_url(page, "https://wiki.example/wiki/File%3AMap.png").is_some());
+        // Not a File: page / not an image / no link.
+        assert_eq!(
+            mediawiki_image_url(page, "https://wiki.example/wiki/Map"),
+            None
+        );
+        let pdf = r#"<div class="fullMedia"><a href="doc.pdf">pdf</a></div>"#;
+        assert_eq!(
+            mediawiki_image_url(pdf, "https://w.example/File:Doc.pdf"),
+            None
+        );
+        assert_eq!(
+            mediawiki_image_url("<p>x</p>", "https://w.example/File:A.png"),
+            None
+        );
+        let js = r#"<span class="x fullMedia"><a href="javascript:void(0).png">x</a></span>"#;
+        assert_eq!(
+            mediawiki_image_url(js, "https://w.example/File:A.png"),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn mediawiki_file_page_resolves_original() {
+        let server = MockServer::start().await;
+        let html = r#"<html><body><div class="fullImageLink"><a href="/images/orig.png">o</a></div></body></html>"#;
+        Mock::given(path("/wiki/File:Pic.png"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(html, "text/html; charset=utf-8"))
+            .mount(&server)
+            .await;
+        Mock::given(path("/images/orig.png"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("Content-Type", "image/png")
+                    .set_body_bytes(vec![9; 100]),
+            )
+            .mount(&server)
+            .await;
+        let result = fetch_one(
+            &ctx(&server, None, CancellationToken::new()),
+            "/wiki/File:Pic.png",
+        )
+        .await;
+        assert_eq!(result.error, "");
+        assert_eq!(result.mime, "image/png");
+        assert!(
+            result.asset_url.ends_with("/images/orig.png"),
+            "{}",
+            result.asset_url
+        );
     }
 
     #[tokio::test]
