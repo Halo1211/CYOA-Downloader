@@ -169,10 +169,37 @@ fn is_cafe_host(url: &str) -> bool {
 
 /// `crate::cafe::CafeFetch` over the shared client (runs on a blocking
 /// thread; every request blocks on the runtime handle).
-struct ClientCafeFetch {
-    client: FetchClient,
-    handle: tokio::runtime::Handle,
-    cancel: CancellationToken,
+pub(crate) struct ClientCafeFetch {
+    pub(crate) client: FetchClient,
+    pub(crate) handle: tokio::runtime::Handle,
+    pub(crate) cancel: CancellationToken,
+}
+
+impl crate::cafe_static::StaticFetch for ClientCafeFetch {
+    /// Static gallery files: status, content type and raw bytes (512 MiB cap).
+    fn fetch(&self, url: &str) -> Option<crate::cafe_static::StaticFile> {
+        let parsed = Url::parse(url).ok()?;
+        let opts = FetchOptions {
+            return_error_response: true,
+            ..Default::default()
+        };
+        self.handle.block_on(async {
+            let resp = self.client.get(&parsed, &opts, &self.cancel).await.ok()?;
+            let status = resp.status.as_u16();
+            let content_type = resp
+                .headers
+                .get("content-type")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("")
+                .to_owned();
+            let body = FetchClient::bytes(resp, 512 * 1024 * 1024).await.ok()?;
+            Some(crate::cafe_static::StaticFile {
+                status,
+                content_type,
+                body: body.to_vec(),
+            })
+        })
+    }
 }
 
 impl crate::cafe::CafeFetch for ClientCafeFetch {

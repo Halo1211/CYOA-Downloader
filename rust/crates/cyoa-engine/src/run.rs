@@ -62,6 +62,59 @@ impl Drop for RunTempDir {
     }
 }
 
+/// CYOA.CAFE static-page export (`download_cyoa_cafe_static_record`).
+async fn static_cafe_record(
+    opts: &RunOptions,
+    client: &FetchClient,
+    cancel: &CancellationToken,
+) -> Result<Option<RunReport>, RunError> {
+    let (c, h, k, url) = (
+        client.clone(),
+        tokio::runtime::Handle::current(),
+        cancel.clone(),
+        opts.url.clone(),
+    );
+    let stem = output_stem(opts);
+    let site = output::unique_folder(&opts.output_dir.join(&stem));
+    let site_c = site.clone();
+    let workers = opts.workers;
+    let outcome = tokio::task::spawn_blocking(move || -> Result<bool, RunError> {
+        let mut fetch = crate::discover_net::ClientCafeFetch {
+            client: c,
+            handle: h,
+            cancel: k,
+        };
+        let record = crate::cafe::fetch_cyoa_cafe_record(&mut fetch, &url, false);
+        if crate::cafe::classify_cyoa_cafe_record(record.as_ref()) != "static_pages" {
+            return Ok(false);
+        }
+        let Some(record) = record else {
+            return Ok(false);
+        };
+        tracing::info!(
+            "CYOA.CAFE static-page record detected → {}/",
+            site_c.display()
+        );
+        output::prepare_clean_output_folder(&site_c)?;
+        crate::cafe_static::download_static_record(&record, &site_c, &url, workers, &fetch)
+            .map_err(RunError::OutputStage)?;
+        Ok(true)
+    })
+    .await
+    .map_err(|e| RunError::OutputStage(format!("static gallery worker failed: {e}")))??;
+    if !outcome {
+        return Ok(None);
+    }
+    let zip = matches!(opts.mode, OutputMode::IccZip | OutputMode::PureZip);
+    let written = output::finalize_site_folder(&site, &stem, zip, &opts.output_dir)?;
+    tracing::info!("CYOA.CAFE static archive complete.");
+    Ok(Some(RunReport {
+        stem,
+        written_paths: vec![written.unwrap_or(site)],
+        failed_assets: Vec::new(),
+    }))
+}
+
 /// A cache that cannot be opened only disables caching (Python logs and continues).
 fn open_cache(opts: &RunOptions) -> Option<Arc<cyoa_storage::cache::ImageCache>> {
     opts.cache_dir.as_ref().and_then(|dir| {
@@ -247,6 +300,15 @@ pub async fn run_download(
         ..ClientConfig::default()
     })
     .map_err(|e| RunError::OutputDirectory(std::io::Error::other(e.to_string())))?;
+    // CYOA.CAFE static-page records (orchestrator.py 354-372): ICC and Pure
+    // Website export the PocketBase page files directly as an offline gallery.
+    if matches!(
+        opts.mode,
+        OutputMode::IccZip | OutputMode::IccFolder | OutputMode::PureZip | OutputMode::PureFolder
+    ) && let Some(report) = static_cafe_record(opts, &client, &cancel).await?
+    {
+        return Ok(report);
+    }
     // Pure website: no project discovery at all (orchestrator.py 374-424).
     if matches!(opts.mode, OutputMode::PureZip | OutputMode::PureFolder) {
         let temp_guard = RunTempDir::create()?;
