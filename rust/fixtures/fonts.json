@@ -198,6 +198,22 @@
   [
    "https://a.example/f.woff2#x",
    "https://a.example/f.woff2"
+  ],
+  [
+   "/f.eot?v=1",
+   "/f.eot"
+  ],
+  [
+   "https://a.example/f.woff2?n=a*b~c",
+   "https://a.example/f.woff2?n=a%2Ab~c"
+  ],
+  [
+   "HTTPS://a.example",
+   "https://a.example/"
+  ],
+  [
+   "f.woff?x=%7E&y= z",
+   "f.woff?x=~&y=+z"
   ]
  ],
  "is_font_reference": [

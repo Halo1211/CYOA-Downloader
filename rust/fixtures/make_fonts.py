@@ -148,6 +148,10 @@ identity = [
     "http://a.example?x=1#frag",
     "https://a.example/f%20g.woff2?q=a+b&cb",
     "https://a.example/f.woff2#x",
+    "/f.eot?v=1",
+    "https://a.example/f.woff2?n=a*b~c",
+    "HTTPS://a.example",
+    "f.woff?x=%7E&y= z",
 ]
 is_ref = [
     "https://a.example/f.WOFF2",

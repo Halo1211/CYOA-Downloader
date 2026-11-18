@@ -8,6 +8,7 @@ pub mod discover_net;
 pub mod embed;
 pub mod fetch;
 pub mod fetch_plan;
+pub mod fonts;
 pub mod icc;
 pub mod localize;
 pub mod logfile;
