@@ -14,6 +14,7 @@ cyoa-engine = { path = "../cyoa-engine" }
 cyoa-core = { path = "../cyoa-core" }
 cyoa-net = { path = "../cyoa-net" }
 cyoa-storage = { path = "../cyoa-storage" }
+cyoa-integrations = { path = "../cyoa-integrations" }
 clap = { version = "4.6.8", features = ["derive"] }
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "signal"] }
 tokio-util = "0.7.20"

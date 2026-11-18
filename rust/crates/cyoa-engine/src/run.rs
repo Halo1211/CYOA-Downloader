@@ -114,6 +114,8 @@ impl Default for RunOptions {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RunReport {
+    /// Cleaned output name (`file_name` in orchestrator.py).
+    pub stem: String,
     pub written_paths: Vec<PathBuf>,
     pub failed_assets: Vec<FailedAsset>,
 }
@@ -263,6 +265,7 @@ pub async fn run_download(
         Some(n) if !n.is_empty() => output::clean_url_path_component(n),
         _ => output::build_output_name(&opts.url),
     };
+    let report_stem = stem.clone();
     let output_dir = opts.output_dir.clone();
     let user_url = opts.url.clone();
     let embed_str = processed.embed_str;
@@ -326,6 +329,7 @@ pub async fn run_download(
     .map_err(|e| RunError::OutputStage(format!("output worker failed: {e}")))??;
     drop(temp_guard);
     Ok(RunReport {
+        stem: report_stem,
         written_paths,
         failed_assets: processed.failed,
     })

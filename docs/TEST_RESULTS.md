@@ -15,3 +15,11 @@ Fixtures are regenerated from Python with `python rust/fixtures/export_core.py` 
 - Differential fixtures against Python: `fixtures/dns_pure.json` (DNS wire/endpoint/validation, 5 tests), `fixtures/redact.json` (18 log-redaction cases), the report-summary strings in `reports.rs` tests, and the VPN name list (17 names, checked manually against Python).
 - `cargo build --release --workspace --offline`: OK in 1m16s. `cyoa-downloader.exe` is 11.8 MB and `cyoa-desktop.exe` is 17.9 MB. The release CLI `--version`/`--help` work. Not done: a GUI smoke run of the release build and an e2e run against the release binary.
 - Not tested: live Windows VPN interface enumeration (PowerShell run not permitted in this session), DoT against a real server, and DNS/proxy against real networks.
+
+### Session 6 (cont.): settings interop and CYOA Manager
+
+- `cargo test --workspace --offline`: 229 passed, 1 ignored (manual interop test), run twice. fmt and clippy clean. `e2e_parity.sh`: 6 OK.
+- CLI network flags persisted to `settings.json` (`network_flags_are_persisted_to_settings_like_python`); invalid config writes nothing.
+- GUI network panel round-trips Python `_SETTINGS_DEFAULTS` network keys exactly and keeps other keys.
+- CYOA Manager interop: Python `add_to_cyoa_manager` / `add_archive_to_cyoa_manager` wrote a DB for 3 projects; `CYOA_MGR_INTEROP=<dir> cargo test -p cyoa-integrations -- --include-ignored` passed (Rust reports all 3 as duplicates; Rust-written rows equal Python's apart from id/date_added).
+- Fixed a CLI test flake: tests shared one profile dir in parallel; each test now has its own.

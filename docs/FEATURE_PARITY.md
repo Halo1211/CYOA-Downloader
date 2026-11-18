@@ -21,7 +21,7 @@
 | F-020b static project discovery (network) | IMPLEMENTED + TESTED (wiremock) | `discover_net::get_project_source`; catalog/browser/AI/archive paths DEFERRED |
 | F-024 embedded JSON output | TESTED (E2E byte parity) | `rust/scripts/e2e_parity.sh`: embedded JSON and `_original.json` byte-identical; 300-image benchmark byte-identical |
 | F-025 ZIP / Both outputs | TESTED (E2E parity) | ZIP entries byte-identical; no-clobber publishing; entry-name validation (Sol-reviewed) |
-| F-025b reports (`_metadata.json`, `failed_images.txt`, `failed_assets.txt`) | TESTED (E2E, timestamps excluded) | `backup_report.txt` append path and the `cyoa_downloader.log` file are NOT ported |
+| F-025b reports (`_metadata.json`, `failed_images.txt`, `failed_assets.txt`, `backup_report.txt` append, `cyoa_downloader.log`) | TESTED (E2E byte-exact, timestamps excluded; log redaction vs Python fixture) | s6: backup_report append + stale HTML cleanup, CRLF text mode on Windows, rotating log file |
 | F-012b media fetch loop (`fetch_one`) | IMPLEMENTED + TESTED | cache, 429/5xx backoff, 404/410, 401/403, error-doc rejection, 3 transport retries; gallery-dl/headless/cookies/Discord/MediaWiki/VPN DEFERRED |
 | F-015b per-domain 0.3 s interval | TESTED | Matches Python `_domain_min_interval` (benchmark: 300 req ≈ 90 s in both) |
 | F-008b image cache in pipeline | TESTED (interop) | Python reads a Rust-written cache: 300/300 hits |
@@ -98,7 +98,7 @@ Source paths are relative to `cyoa_downloader_app/`.
 | F-035 | Reports (backup_report, failed_*.txt) | various | cyoa-engine | 4 | L | Byte-compatible text |
 | F-036 | Batch import (TXT/CSV/XLSX/XLS/remote CSV) and export | `importers/batch.py`, `gui/queue_import.py` | cyoa-engine | 4 | L+M | calamine |
 | F-037 | Offline viewer registry, injection and modernization | `integrations/offline_viewers/*` | cyoa-integrations | 7 | L+S | 3.7k lines; large |
-| F-038 | CYOA Manager library (SQLite) | `integrations/cyoa_manager.py` | cyoa-integrations | 7 | L | |
+| F-038 | CYOA Manager library (SQLite) | `integrations/cyoa_manager.py` | cyoa-integrations | 7 | L | PARTIAL (s6): `cyoa_integrations::cyoa_manager` add / add_archive / list / find / scan / viewer_pref + CLI `--cyoa-manager` (saved `cyoa_mgr_db_path`, else auto-detect). Interop verified on a Python-written DB: Rust sees Python entries as duplicates and writes identical rows (id/date excluded; ignored test `python_interop`). Diffs: project check streams (shape only, memory bounded) instead of `load_json_summary`; Python accepts NaN/Infinity, Rust rejects; empty LOCALAPPDATA candidates skipped (Python checks a cwd-relative path); ZIP members with ':' rejected; registers the ZIP actually written (no-clobber name) where Python assumes `{name}.zip`. Not yet: `prepare_cyoa_manager_serve_folder` (needs F-037), GUI panel/import |
 | F-039 | Local preview server (Serve) | `gui/app.py:11936+`, `preview_server.py` | cyoa-integrations | 7 | L+S | Fix SEC-2 |
 | F-040 | gallery-dl fallback | `integrations/gallery_dl.py` | cyoa-integrations | 6 | X | |
 | F-041 | itch.io (itch-dl) | `integrations/itch*.py` | cyoa-integrations | 6 | X | |

@@ -892,6 +892,7 @@ dependencies = [
  "clap",
  "cyoa-core",
  "cyoa-engine",
+ "cyoa-integrations",
  "cyoa-net",
  "cyoa-storage",
  "serde_json",
@@ -964,6 +965,16 @@ dependencies = [
  "cyoa-core",
  "cyoa-net",
  "cyoa-storage",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "time",
+ "tracing",
+ "url",
+ "uuid",
+ "zip",
 ]
 
 [[package]]
@@ -4426,6 +4437,7 @@ version = "1.29.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3c14b15dffa2f4bd712103e857140aa04a4f2ff6e955c77d7eb8e53ee02a3b64"
 dependencies = [
+ "getrandom 0.4.3",
  "js-sys",
  "serde_core",
  "wasm-bindgen",

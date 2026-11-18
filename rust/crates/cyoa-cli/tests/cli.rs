@@ -246,3 +246,54 @@ fn network_flags_are_persisted_to_settings_like_python() {
     assert_eq!(saved["vpn_policy"], "require");
     assert_eq!(saved["vpn_interface"], "zz-no-such-if");
 }
+
+#[test]
+fn cyoa_manager_registers_embedded_json_and_zip() {
+    use cyoa_integrations::cyoa_manager::list_projects;
+    let home = test_home();
+    let out = temp_dir();
+    let db = out.join("library.sqlite3");
+    fs::write(&db, b"").unwrap(); // Python requires the configured DB to exist.
+    let settings_dir = home.join(".cyoa_downloader");
+    fs::create_dir_all(&settings_dir).unwrap();
+    fs::write(
+        settings_dir.join("settings.json"),
+        serde_json::json!({ "cyoa_mgr_db_path": db.to_string_lossy() }).to_string(),
+    )
+    .unwrap();
+    for mode in ["--zip", "--both"] {
+        let (url, worker) = mock_server();
+        let run = Command::new(env!("CARGO_BIN_EXE_cyoa-downloader"))
+            .env("USERPROFILE", &home)
+            .env("HOME", &home)
+            .args([mode, "--cyoa-manager", "-w", "0", "--output"])
+            .arg(&out)
+            .arg(&url)
+            .arg("game")
+            .output()
+            .unwrap();
+        worker.join().unwrap();
+        assert!(
+            run.status.success(),
+            "{}",
+            String::from_utf8_lossy(&run.stderr)
+        );
+    }
+    let projects = list_projects(Some(&db));
+    assert_eq!(projects.len(), 2, "{projects:?}");
+    // ZIP: extracted beside the archive; both: the embedded JSON.
+    assert!(projects.iter().all(|p| p.name == "game"));
+    assert!(projects.iter().any(|p| {
+        p.file_path.ends_with("project.json")
+            && std::path::Path::new(&p.file_path)
+                .parent()
+                .unwrap()
+                .ends_with("game_manager")
+    }));
+    assert!(projects.iter().any(|p| p.file_path.ends_with("game.json")));
+    assert!(
+        projects
+            .iter()
+            .all(|p| p.project_json_url.ends_with("/project.json"))
+    );
+}

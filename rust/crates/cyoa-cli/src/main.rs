@@ -41,6 +41,9 @@ struct Args {
     /// Seconds to wait after a 429 response (default: 60)
     #[arg(short = 'w', long = "wait-time", alias = "wait", default_value_t = 60)]
     wait_time: u64,
+    /// Add finished project.json to CYOA Manager when possible.
+    #[arg(long)]
+    cyoa_manager: bool,
     /// Proxy URL, e.g. http://127.0.0.1:7890. Use --proxy-mode disabled to ignore environment proxies.
     #[arg(long)]
     proxy: Option<String>,
@@ -186,7 +189,49 @@ enum Outcome {
     Cancelled,
 }
 
-async fn run_one(options: RunOptions, cancel: &CancellationToken) -> Outcome {
+/// orchestrator.py: embedded JSON (embed/both) or the ZIP (zip) is
+/// registered in the CYOA Manager library.
+async fn register_with_manager(
+    db: PathBuf,
+    mode: OutputMode,
+    url: String,
+    report: &run::RunReport,
+) {
+    use cyoa_integrations::cyoa_manager as mgr;
+    let pick = |ext: &str| {
+        report
+            .written_paths
+            .iter()
+            .find(|p| p.extension().is_some_and(|e| e == ext))
+            .cloned()
+    };
+    let (target, is_zip) = match mode {
+        OutputMode::Embed | OutputMode::Both => (pick("json"), false),
+        OutputMode::Zip => (pick("zip"), true),
+    };
+    let Some(target) = target else { return };
+    let name = report.stem.clone();
+    let _ = tokio::task::spawn_blocking(move || {
+        if is_zip {
+            mgr::add_archive_to_cyoa_manager(&target, &name, &url, &db);
+        } else {
+            let opts = mgr::AddOptions {
+                name: &name,
+                source_url: &url,
+                ..Default::default()
+            };
+            mgr::add_to_cyoa_manager(&target, &opts, &db);
+        }
+    })
+    .await;
+}
+
+async fn run_one(
+    options: RunOptions,
+    cancel: &CancellationToken,
+    manager_db: Option<&PathBuf>,
+) -> Outcome {
+    let (mode, url) = (options.mode, options.url.clone());
     let (tx, mut rx) = mpsc::channel::<Progress>(32);
     let printer = tokio::spawn(async move {
         while let Some(event) = rx.recv().await {
@@ -211,6 +256,9 @@ async fn run_one(options: RunOptions, cancel: &CancellationToken) -> Outcome {
     let _ = printer.await;
     match result {
         Ok(report) => {
+            if let Some(db) = manager_db {
+                register_with_manager(db.clone(), mode, url, &report).await;
+            }
             for path in report.written_paths {
                 println!("Saved: {}", path.display());
             }
@@ -355,6 +403,12 @@ async fn main() -> ExitCode {
         }
     }
 
+    // orchestrator.py: saved `cyoa_mgr_db_path` if it exists, else auto-detect;
+    // silently skipped when no library is found.
+    let manager_db = args.cyoa_manager.then(|| {
+        cyoa_integrations::cyoa_manager::resolve_db(&lookup("cyoa_mgr_db_path").unwrap_or_default())
+    });
+    let manager_db = manager_db.flatten();
     let batch_mode = args.list.is_some();
     let items: Vec<BatchItem> = if let Some(list) = args.list.take() {
         match batch::import_batch_file(&list) {
@@ -428,7 +482,7 @@ async fn main() -> ExitCode {
             vpn: vpn.clone(),
             ..RunOptions::default()
         };
-        match run_one(options, &cancel).await {
+        match run_one(options, &cancel, manager_db.as_ref()).await {
             Outcome::Ok => ok += 1,
             Outcome::Cancelled => break,
             Outcome::Failed(e) => {
