@@ -1,6 +1,7 @@
 pub const CRATE_NAME: &str = "cyoa-engine";
 
 pub mod batch;
+pub mod cafe;
 pub mod discover_net;
 pub mod embed;
 pub mod fetch;
