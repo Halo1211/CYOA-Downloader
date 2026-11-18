@@ -29,6 +29,15 @@ pub struct CustomResolver {
     cache: Mutex<HashMap<(String, u16), Entry>>,
 }
 
+impl std::fmt::Debug for CustomResolver {
+    /// Protocol only: resolver URLs may embed tokens.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CustomResolver")
+            .field("protocol", &self.config.protocol)
+            .finish_non_exhaustive()
+    }
+}
+
 impl CustomResolver {
     pub fn new(config: DnsConfig, proxy: Option<ProxyConfig>) -> Self {
         // DoH must stay on HTTPS: no redirects (could downgrade to plaintext or

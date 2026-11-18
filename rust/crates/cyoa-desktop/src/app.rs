@@ -39,6 +39,9 @@ pub struct Settings {
     pub mode: Mode,
     pub threads: usize,
     pub wait_time: u64,
+    /// Proxy/DNS/VPN (absent in older saved state: defaults).
+    #[serde(default)]
+    pub net: crate::net::NetSettings,
 }
 
 impl Default for Settings {
@@ -50,6 +53,7 @@ impl Default for Settings {
             mode: Mode::Embed,
             threads: DEFAULT_MAX_WORKERS,
             wait_time: DEFAULT_WAIT_TIME,
+            net: crate::net::NetSettings::default(),
         }
     }
 }
@@ -122,6 +126,8 @@ pub struct DownloaderApp {
     worker: Option<WorkerHandle>,
     folder_pick: Option<std::sync::mpsc::Receiver<Option<PathBuf>>>,
     list_pick: Option<ListPick>,
+    /// Built network objects, reused while the settings stay unchanged.
+    net_cache: Option<(crate::net::NetSettings, crate::net::NetRuntime)>,
 }
 
 type ListPick = std::sync::mpsc::Receiver<Option<Result<Vec<BatchItem>, String>>>;
@@ -166,6 +172,7 @@ impl DownloaderApp {
             worker,
             folder_pick: None,
             list_pick: None,
+            net_cache: None,
         }
     }
 
@@ -258,9 +265,10 @@ impl DownloaderApp {
     fn enqueue_one(&mut self, url: String, filename: String, mode: Result<Mode, String>) {
         let id = self.next_id;
         self.next_id += 1;
-        let status = match mode {
-            Err(e) => Status::Failed(e),
-            Ok(mode) => {
+        let net = self.net_runtime();
+        let status = match (mode, net) {
+            (Err(e), _) | (_, Err(e)) => Status::Failed(e),
+            (Ok(mode), Ok(net)) => {
                 let opts = RunOptions {
                     url: url.clone(),
                     output_dir: PathBuf::from(&self.settings.output_dir),
@@ -268,6 +276,9 @@ impl DownloaderApp {
                     workers: self.settings.threads,
                     wait_time: self.settings.wait_time,
                     file_name: (!filename.is_empty()).then_some(filename),
+                    proxy: net.proxy,
+                    dns: net.dns,
+                    vpn: net.vpn,
                     ..RunOptions::default()
                 };
                 if self.worker.as_ref().is_some_and(|w| w.start(id, opts)) {
@@ -332,6 +343,19 @@ impl DownloaderApp {
     }
 
     /// Drop finished jobs from the visible queue (bounded history on demand).
+    /// Validated network objects; rebuilt only when the settings changed so
+    /// jobs share one DNS cache / VPN status cache.
+    fn net_runtime(&mut self) -> Result<crate::net::NetRuntime, String> {
+        if let Some((s, rt)) = &self.net_cache
+            && *s == self.settings.net
+        {
+            return Ok(rt.clone());
+        }
+        let rt = self.settings.net.build()?;
+        self.net_cache = Some((self.settings.net.clone(), rt.clone()));
+        Ok(rt)
+    }
+
     fn clear_finished(&mut self) {
         self.jobs
             .retain(|j| matches!(j.status, Status::Queued | Status::Running { .. }));
@@ -521,6 +545,7 @@ impl eframe::App for DownloaderApp {
         self.poll_list_import();
         egui::Frame::central_panel(ui.style()).show(ui, |ui| {
             self.controls(ui);
+            self.settings.net.ui(ui);
             ui.separator();
             self.status_bar(ui);
             ui.separator();
@@ -590,6 +615,7 @@ mod tests {
             worker: None,
             folder_pick: None,
             list_pick: None,
+            net_cache: None,
         }
     }
 
