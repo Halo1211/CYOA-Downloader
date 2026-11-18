@@ -1,0 +1,172 @@
+[
+ {
+  "sources": [
+   "class Hero extends Entry {\n  constructor(name) {\n    super(name, 'heroes');\n    this.id = 'li_' + group + '_' + name.toLowerCase().replaceAll(' ', '');\n    this.src = `img/${this.id}.webp`;\n  }\n}",
+   "new Hero(\"Big Sword\"); new Hero('a/b c');"
+  ],
+  "steps": [
+   [],
+   [
+    "img/li_heroes_abc.webp",
+    "img/li_heroes_bigsword.webp"
+   ]
+  ],
+  "joined": [
+   "img/li_heroes_abc.webp",
+   "img/li_heroes_bigsword.webp"
+  ]
+ },
+ {
+  "sources": [
+   "new Spell(\"Fire Ball\")",
+   "class Spell extends Entry {\n constructor(n){ super(name, 'spells') }\n}",
+   "id = 'li_' + group + '_' + name.toLowerCase().replaceAll(' ', '');",
+   "src = `img/${this.id}.webp`;"
+  ],
+  "steps": [
+   [],
+   [],
+   [],
+   [
+    "img/li_spells_fireball.webp"
+   ]
+  ],
+  "joined": [
+   "img/li_spells_fireball.webp"
+  ]
+ },
+ {
+  "sources": [
+   "id = 'li_' + group + '_' + name.toLowerCase().replaceAll(' ', '');",
+   "src = `img/${this.id}.webp`;",
+   "class Item extends game.Entry {\n super( name , \"items\" )\n  }",
+   "new ITEM('Potion');new item(\"Elixir  Max\")"
+  ],
+  "steps": [
+   [],
+   [],
+   [],
+   [
+    "img/li_items_elixirmax.webp",
+    "img/li_items_potion.webp"
+   ]
+  ],
+  "joined": [
+   "img/li_items_elixirmax.webp",
+   "img/li_items_potion.webp"
+  ]
+ },
+ {
+  "sources": [
+   "id = 'li_' + group + '_' + name.toLowerCase().replaceAll(' ', '');src = `img/${this.id}.webp`;",
+   "class Q extends Entry {\nsuper(name,'q')\n}",
+   "new Q(\"He said \\\"hi\\\"\"); new Q(\"\"); new Q(\" / \");"
+  ],
+  "steps": [
+   [],
+   [],
+   [
+    "img/li_q_hesaid\\\"hi\\\".webp"
+   ]
+  ],
+  "joined": [
+   "img/li_q_hesaid\\\"hi\\\".webp"
+  ]
+ },
+ {
+  "sources": [
+   "id = 'li_' + group + '_' + name.toLowerCase().replaceAll(' ', '');src = `img/${this.id}.webp`;",
+   "class X extends Base {\nsuper(name,'x')\n}",
+   "new X(\"nope\")"
+  ],
+  "steps": [
+   [],
+   [],
+   []
+  ],
+  "joined": []
+ },
+ {
+  "sources": [
+   "id = 'li_' + group + '_' + name.toLowerCase().replaceAll(' ', '');",
+   "class Y extends Entry {\nsuper(name,'y')\n}",
+   "new Y(\"a\")"
+  ],
+  "steps": [
+   [],
+   [],
+   []
+  ],
+  "joined": []
+ },
+ {
+  "sources": [
+   "id = 'li_' + group + '_' + name.toLowerCase().replaceAll(' ', '');src = `img/${this.id}.webp`;",
+   "class Z extends Entry {\nsuper(name,'one')\n}",
+   "new Z(\"k\")",
+   "class Z extends Entry {\nsuper(name,'two')\n}"
+  ],
+  "steps": [
+   [],
+   [],
+   [
+    "img/li_one_k.webp"
+   ],
+   [
+    "img/li_two_k.webp"
+   ]
+  ],
+  "joined": [
+   "img/li_two_k.webp"
+  ]
+ },
+ {
+  "sources": [
+   "id = 'li_' + group + '_' + name.toLowerCase().replaceAll(' ', '');src = `img/${this.id}.webp`;",
+   "class Straße extends Entry {\nsuper(name,'s')\n}",
+   "new STRASSE(\"no\"); new straße(\"yes\")",
+   "class Iİ extends Entry {\nsuper(name,'i')\n}",
+   "new ii(\"dot\")"
+  ],
+  "steps": [
+   [],
+   [],
+   [
+    "img/li_s_yes.webp"
+   ],
+   [
+    "img/li_s_yes.webp"
+   ],
+   [
+    "img/li_i_dot.webp",
+    "img/li_s_yes.webp"
+   ]
+  ],
+  "joined": [
+   "img/li_i_dot.webp",
+   "img/li_s_yes.webp"
+  ]
+ },
+ {
+  "sources": [
+   "id = 'li_' + group + '_' + name.toLowerCase().replaceAll(' ', '');src = `img/${this.id}.webp`;",
+   "class W extends Entry { super(name,'w') }",
+   "new W(\"x\")"
+  ],
+  "steps": [
+   [],
+   [],
+   []
+  ],
+  "joined": []
+ },
+ {
+  "sources": [
+   "just some text without anything"
+  ],
+  "steps": [
+   []
+  ],
+  "joined": []
+ }
+]
