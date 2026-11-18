@@ -36,3 +36,10 @@ Fixtures are regenerated from Python with `python rust/fixtures/export_core.py` 
 - New Python-generated fixtures: `backup_report.json`, `website_manifest.json`, `project_payload.json`, `integrity.json`, `integrity_report.json` (exporters in `rust/fixtures/export_*.py`). All Rust outputs byte-identical, including CRLF.
 - Rejected: a Luna draft for the same scope (self-reported incomplete, invented report format, no Python in its sandbox).
 - CLI test flake fixed: the mock server stopped after a 3 s idle gap that a loaded parallel run could exceed (commit 5abbfd8 was made while that flake failed once; c85ffaf fixes it, suite then passed 3x under parallel clippy load).
+
+### Session 6 (cont.): deep scan
+
+- `cargo test --workspace --offline`: 245 passed, 2 ignored (manual interop, perf probe); clippy/fmt clean.
+- `scan_file_for_assets`: 1889/1889 cases identical to Python (`rust/fixtures/export_scan_file.py`). Perf probe: 2.1 MB inputs scan in <150 ms (release) after replacing fancy-regex look-behind/back-reference patterns that stalled for minutes.
+- Deep-scan path helpers: 299/299 identical (`rust/fixtures/export_deep_paths.py`).
+- Local models (graded by compiling): mimo-heretic, deepseek-v4-pro-heretic and qwen2.5-coder:7b all failed the non-trivial Rust port task; none adopted.
