@@ -55,7 +55,7 @@ class Quiet(http.server.SimpleHTTPRequestHandler):
 # Documented difference (FEATURE_PARITY F-029): Python's fetch_response returns
 # None for HTTP errors, so its deep-scan report says "HTTP request failed";
 # Rust keeps the real status ("HTTP 404"). Only that text is normalised.
-RUST_STATUS = re.compile(rb"Err  : HTTP [1-5][0-9][0-9]")
+RUST_STATUS = re.compile(rb"Err  : HTTP [1-5][0-9][0-9]$", re.M)
 
 
 def tree(folder: Path, rust: bool = False) -> dict[str, str]:

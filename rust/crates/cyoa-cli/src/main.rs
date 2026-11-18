@@ -35,6 +35,15 @@ struct Args {
     /// Save both embedded JSON and ZIP
     #[arg(short = 'b', long = "both")]
     both: bool,
+    /// ICC Mode (ZIP): download the full ICC viewer + all assets as a ZIP archive.
+    #[arg(long = "icc")]
+    website: bool,
+    /// ICC Mode (Folder): download the full ICC viewer + all assets into a folder.
+    #[arg(long = "icc-folder")]
+    website_folder: bool,
+    /// Disable the JS/CSS deep-scan asset pass (default: on).
+    #[arg(long)]
+    no_deep_scan: bool,
     /// Parallel asset workers (default: 4)
     #[arg(short = 't', long = "threads", alias = "workers", default_value_t = 4)]
     workers: usize,
@@ -167,14 +176,18 @@ fn valid_url(url: &str) -> bool {
 /// silently producing a different output.
 fn item_mode(args: &Args, mode: &str) -> Result<OutputMode, String> {
     match mode {
-        "" | "auto" | "embed" | "zip" | "both" => {}
+        "" | "auto" | "embed" | "zip" | "both" | "website_zip" | "website_folder" => {}
         other => {
             return Err(format!(
                 "mode '{other}' is not supported by the Rust port yet"
             ));
         }
     }
-    Ok(if args.both || mode == "both" {
+    Ok(if args.website || mode == "website_zip" {
+        OutputMode::IccZip
+    } else if args.website_folder || mode == "website_folder" {
+        OutputMode::IccFolder
+    } else if args.both || mode == "both" {
         OutputMode::Both
     } else if args.zip || mode == "zip" {
         OutputMode::Zip
@@ -236,7 +249,10 @@ async fn run_one(
     let _ = printer.await;
     match result {
         Ok(report) => {
-            if let Some(db) = manager_db {
+            // Python's ICC branch returns before CYOA Manager registration.
+            if let Some(db) =
+                manager_db.filter(|_| !matches!(mode, OutputMode::IccZip | OutputMode::IccFolder))
+            {
                 register_with_manager(db.clone(), mode, url, &report).await;
             }
             for path in report.written_paths {
@@ -266,6 +282,16 @@ async fn main() -> ExitCode {
     let mut args = Args::parse();
     if args.workers == 0 {
         eprintln!("error: --threads must be at least 1");
+        return ExitCode::from(2);
+    }
+    // cli.py: parser.error("Choose only one output mode.")
+    if [args.zip, args.both, args.website, args.website_folder]
+        .iter()
+        .filter(|f| **f)
+        .count()
+        > 1
+    {
+        eprintln!("error: Choose only one output mode.");
         return ExitCode::from(2);
     }
     if let Err(error) = std::fs::create_dir_all(&args.output) {
@@ -389,6 +415,11 @@ async fn main() -> ExitCode {
         cyoa_integrations::cyoa_manager::resolve_db(&lookup("cyoa_mgr_db_path").unwrap_or_default())
     });
     let manager_db = manager_db.flatten();
+    // Python orchestrator: settings `archive_strategy` (default "auto").
+    let archive_strategy = lookup("archive_strategy")
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "auto".into());
     let batch_mode = args.list.is_some();
     let items: Vec<BatchItem> = if let Some(list) = args.list.take() {
         match batch::import_batch_file(&list) {
@@ -442,7 +473,17 @@ async fn main() -> ExitCode {
         if batch_mode {
             eprintln!("Batch {}/{total}: {}", idx + 1, item.url);
         }
-        let mode = match item_mode(&args, &item.mode) {
+        let mode = match item_mode(&args, &item.mode).and_then(|m| {
+            if matches!(m, OutputMode::IccZip | OutputMode::IccFolder)
+                && !matches!(archive_strategy.as_str(), "auto" | "classic")
+            {
+                Err(format!(
+                    "archive strategy '{archive_strategy}' is not supported by the Rust port yet (use auto or classic)"
+                ))
+            } else {
+                Ok(m)
+            }
+        }) {
             Ok(m) => m,
             Err(e) => {
                 eprintln!("Failed: {e}");
@@ -460,6 +501,8 @@ async fn main() -> ExitCode {
             proxy: proxy_cfg.clone(),
             dns: dns.clone(),
             vpn: vpn.clone(),
+            deep_scan: !args.no_deep_scan,
+            archive_auto: archive_strategy != "classic",
             ..RunOptions::default()
         };
         match run_one(options, &cancel, manager_db.as_ref()).await {

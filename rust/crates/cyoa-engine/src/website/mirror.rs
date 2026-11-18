@@ -553,6 +553,232 @@ impl MirrorSink {
         self.set_entry(&start, Entry::Done(local));
         Ok(())
     }
+
+    /// Python `WebsiteDownloader.download()`: entry page, missing-script
+    /// repair, the pre-project deep scan (`pre_deep_scan`: Classic with the
+    /// deep-scan toggle on; Auto with project data skips it), Google Fonts
+    /// repair. Must run on a blocking thread (it blocks on `handle`).
+    pub fn download_site(&mut self, pre_deep_scan: bool) -> Result<(), String> {
+        tracing::info!("ICC download started: {}", self.start_url);
+        self.mirror_classic(None)?;
+        self.repair_missing_entry_scripts();
+        tracing::info!("ICC package saved: {}/", self.root.display());
+        if pre_deep_scan {
+            self.pre_project_deep_scan();
+        } else {
+            tracing::info!(
+                "[Auto] Project data is authoritative; skipping redundant pre-project JS/CSS deep scan."
+            );
+        }
+        self.repair_missing_google_fonts();
+        Ok(())
+    }
+
+    /// `repair_missing_entry_scripts`: retry up to 20 local scripts that the
+    /// entry HTML still references but that are absent on disk.
+    fn repair_missing_entry_scripts(&mut self) {
+        let Some(entry) = contained_path(&self.root, "index.html").filter(|p| p.is_file()) else {
+            return;
+        };
+        let Ok(text) = std::fs::read_to_string(&entry) else {
+            return;
+        };
+        let Ok(doc) = html::parse(&text) else { return };
+        let mut refs = Vec::new();
+        let mut scripts = Vec::new();
+        let mut links = Vec::new();
+        collect_tags(&doc, &mut |e| {
+            if e.name == "script" {
+                if let Some(src) = e.attr("src") {
+                    scripts.push(src.to_owned());
+                }
+            } else if e.name == "link"
+                && e.attr("as")
+                    .is_some_and(|a| a.eq_ignore_ascii_case("script"))
+                && let Some(href) = e.attr("href")
+            {
+                links.push(href.to_owned());
+            }
+        });
+        refs.extend(scripts);
+        refs.extend(links);
+        let mut seen = std::collections::HashSet::new();
+        let start = self.start_url.clone();
+        for reference in refs.into_iter().take(20) {
+            let parsed = py_urlparse(&reference);
+            if !parsed.scheme.is_empty() || !parsed.netloc.is_empty() || parsed.path.is_empty() {
+                continue;
+            }
+            let path = parsed.path.to_owned();
+            if !seen.insert(path.clone()) {
+                continue;
+            }
+            let rel = if let Some(abs) = path.strip_prefix('/') {
+                abs.to_owned()
+            } else {
+                path.clone()
+            };
+            // Resolved lexically against the root (entry is at the root).
+            let target = normalize_rel(&rel);
+            if target.as_deref().is_none_or(|t| self.is_file(t)) {
+                continue;
+            }
+            let Some(remote) = normalize_remote_url(&reference, Some(&start), &start) else {
+                continue;
+            };
+            tracing::info!("  Retrying missing entry script: {reference}");
+            let ck = normalize_cache_key(&remote);
+            self.entries.retain(|(k, _)| *k != remote && *k != ck);
+            self.download(&reference, "js", Some(&start));
+        }
+    }
+
+    /// Pre-project deep scan of `WebsiteDownloader.download()` plus
+    /// `_register_deep_scan_results`.
+    fn pre_project_deep_scan(&mut self) {
+        let existing: Vec<(String, String)> = self
+            .downloaded_entries()
+            .into_iter()
+            .filter(|(_, local)| self.is_file(local))
+            .collect();
+        let skip: std::collections::BTreeSet<String> =
+            existing.iter().map(|(u, _)| u.clone()).collect();
+        let mut sources: HashMap<PathBuf, String> = self
+            .source_for_local
+            .iter()
+            .filter_map(|(rel, url)| {
+                let p = contained_path(&self.root, rel)?;
+                Some((std::path::absolute(&p).unwrap_or(p), url.clone()))
+            })
+            .collect();
+        let (root, base, client, cancel, workers) = (
+            self.root.clone(),
+            self.base_url.clone(),
+            self.client.clone(),
+            self.cancel.clone(),
+            4,
+        );
+        let outcome = self.handle.block_on(
+            super::deep_driver::DeepScan {
+                folder: &root,
+                base_url: &base,
+                client: &client,
+                cancel: &cancel,
+                max_workers: workers,
+                skip_urls: &skip,
+                exclude_relative_paths: &[],
+                source_urls: &mut sources,
+            }
+            .run(),
+        );
+        // `_register_deep_scan_results`.
+        for (url, rel) in outcome.downloaded {
+            let Some(full) = normalize_remote_url(&url, Some(&base), &self.start_url) else {
+                continue;
+            };
+            let Ok(local) = cyoa_core::paths::safe_archive_rel_path(&rel, false) else {
+                tracing::warn!("Skipping unsafe deep-scan cache path: {rel}");
+                continue;
+            };
+            if !self.is_file(&local) {
+                continue;
+            }
+            self.alloc.reserve_path(&local);
+            self.set_entry(&full, Entry::Done(Some(local.clone())));
+            let ck = normalize_cache_key(&full);
+            if ck != full {
+                self.set_entry(&ck, Entry::Done(Some(local.clone())));
+            }
+            self.source_for_local
+                .entry(local.clone())
+                .or_insert_with(|| full.clone());
+            let item = (full.clone(), local, kind_from(&full, "", "").to_owned());
+            if !self.success.contains(&item) {
+                self.success.push(item);
+            }
+        }
+    }
+
+    /// `repair_missing_google_fonts`: fetch fonts referenced by saved Google
+    /// Fonts CSS under `external/fonts.googleapis.com`.
+    fn repair_missing_google_fonts(&mut self) {
+        let Some(css_dir) = contained_path(&self.root, "external/fonts.googleapis.com") else {
+            return;
+        };
+        let Ok(rd) = std::fs::read_dir(&css_dir) else {
+            return;
+        };
+        let Ok(re) = regex::Regex::new(
+            r#"(?i)\.\./fonts\.gstatic\.com/([^)'"\s]+\.woff2?)(?:\?[^)'"\s]*)?"#,
+        ) else {
+            return;
+        };
+        let start = self.start_url.clone();
+        for entry in rd.flatten() {
+            let path = entry.path();
+            if !path.extension().is_some_and(|e| e == "css") {
+                continue;
+            }
+            let Ok(bytes) = std::fs::read(&path) else {
+                continue;
+            };
+            let css = String::from_utf8_lossy(&bytes).into_owned();
+            let fonts: std::collections::BTreeSet<String> = re
+                .captures_iter(&css)
+                .filter_map(|c| c.get(1).map(|m| m.as_str().to_owned()))
+                .collect();
+            for font in fonts {
+                let Ok(safe) = cyoa_core::paths::safe_archive_rel_path(&font, true) else {
+                    tracing::warn!("Skipping unsafe font path in saved CSS: {font}");
+                    continue;
+                };
+                let target_rel = format!("external/fonts.gstatic.com/{safe}");
+                if self.is_file(&target_rel) {
+                    continue;
+                }
+                let remote = format!("https://fonts.gstatic.com/{font}");
+                if let Some(saved) = self.download(&remote, "fonts", Some(&start))
+                    && saved != target_rel
+                    && let (Some(src), Some(dst)) = (
+                        contained_path(&self.root, &saved),
+                        contained_path(&self.root, &target_rel),
+                    )
+                {
+                    if let Some(parent) = dst.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    let _ = std::fs::copy(src, dst);
+                }
+            }
+        }
+    }
+}
+
+/// Lexical `(root / rel).resolve()` containment for `/`-separated paths:
+/// `None` when it escapes the root.
+fn normalize_rel(rel: &str) -> Option<String> {
+    let mut parts: Vec<&str> = Vec::new();
+    for p in rel.split('/') {
+        match p {
+            "" | "." => {}
+            ".." => {
+                parts.pop()?;
+            }
+            p => parts.push(p),
+        }
+    }
+    (!parts.is_empty()).then(|| parts.join("/"))
+}
+
+fn collect_tags(el: &html::Element, f: &mut dyn FnMut(&html::Element)) {
+    for child in &el.children {
+        if let html::Node::Element(e) = child
+            && !e.removed
+        {
+            f(e);
+            collect_tags(e, f);
+        }
+    }
 }
 
 /// `os.path.splitext(p)[1].lower()` (leading dots of the basename ignored).

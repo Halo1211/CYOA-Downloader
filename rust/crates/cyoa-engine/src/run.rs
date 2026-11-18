@@ -62,12 +62,24 @@ impl Drop for RunTempDir {
     }
 }
 
+/// orchestrator.py: explicit name, else derived; always cleaned.
+fn output_stem(opts: &RunOptions) -> String {
+    match opts.file_name.as_deref().map(str::trim) {
+        Some(n) if !n.is_empty() => output::clean_url_path_component(n),
+        _ => output::build_output_name(&opts.url),
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum OutputMode {
     #[default]
     Embed,
     Zip,
     Both,
+    /// `--icc`: full viewer website, zipped to `<name>_site.zip`.
+    IccZip,
+    /// `--icc-folder`: full viewer website kept as a folder.
+    IccFolder,
 }
 
 #[derive(Clone)]
@@ -89,6 +101,10 @@ pub struct RunOptions {
     pub dns: Option<Arc<cyoa_net::dns_resolve::CustomResolver>>,
     /// F-018 VPN guard (`require` policy only).
     pub vpn: Option<Arc<cyoa_net::vpn::VpnGuard>>,
+    /// ICC deep scan (`--no-deep-scan` turns it off; Python default on).
+    pub deep_scan: bool,
+    /// Python setting `archive_strategy`: "auto" (default) or "classic".
+    pub archive_auto: bool,
 }
 
 /// Python default for `image_cache_max_mb`.
@@ -108,6 +124,8 @@ impl Default for RunOptions {
             proxy: ProxyConfig::disabled(),
             dns: None,
             vpn: None,
+            deep_scan: true,
+            archive_auto: true,
         }
     }
 }
@@ -233,6 +251,25 @@ pub async fn run_download(
         resolver,
         spool_dir: Some(spool_dir),
     });
+    if matches!(mode, OutputMode::IccZip | OutputMode::IccFolder) {
+        drop(temp_guard);
+        return crate::icc::IccRun {
+            entry_url: &opts.url,
+            source: &source,
+            stem: output_stem(opts),
+            output_dir: opts.output_dir.clone(),
+            zip: mode == OutputMode::IccZip,
+            deep_scan: opts.deep_scan,
+            auto_strategy: opts.archive_auto,
+            workers: opts.workers,
+            client: client.clone(),
+            ctx,
+            cancel: cancel.clone(),
+            progress,
+        }
+        .run()
+        .await;
+    }
     let process_opts = ProcessOptions {
         embed,
         download,
@@ -260,11 +297,7 @@ pub async fn run_download(
         return Err(RunError::Cancelled);
     }
 
-    // orchestrator.py: explicit name, else derived; always cleaned.
-    let stem = match opts.file_name.as_deref().map(str::trim) {
-        Some(n) if !n.is_empty() => output::clean_url_path_component(n),
-        _ => output::build_output_name(&opts.url),
-    };
+    let stem = output_stem(opts);
     let report_stem = stem.clone();
     let output_dir = opts.output_dir.clone();
     let user_url = opts.url.clone();
