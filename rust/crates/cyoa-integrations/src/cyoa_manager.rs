@@ -186,17 +186,22 @@ impl<'de> Visitor<'de> for ProbeVisitor {
         // Duplicate keys: last one wins, like Python json.loads.
         let mut probe = ProjectProbe::default();
         while let Some(key) = map.next_key::<String>()? {
-            let shape: Shape = map.next_value()?;
             match key.as_str() {
-                "rows" => probe.rows_is_list = matches!(shape, Shape::Array),
+                "rows" => probe.rows_is_list = matches!(map.next_value::<Shape>()?, Shape::Array),
                 "version" => {
-                    probe.version = match shape {
+                    probe.version = match map.next_value::<Shape>()? {
                         Shape::Str(s) => Some(s),
                         _ => None,
                     }
                 }
-                "styling" => probe.styling_is_object = matches!(shape, Shape::Object),
-                _ => {}
+                "styling" => {
+                    probe.styling_is_object = matches!(map.next_value::<Shape>()?, Shape::Object)
+                }
+                // Skipped without buffering: a huge top-level data URI must
+                // not be held in memory (Python keeps a 64-char prefix).
+                _ => {
+                    map.next_value::<IgnoredAny>()?;
+                }
             }
         }
         Ok(Some(probe))
@@ -225,9 +230,45 @@ impl<'de> Visitor<'de> for ProbeVisitor {
     }
 }
 
+/// Rejects invalid UTF-8 anywhere in the stream. serde_json skips ignored
+/// strings without validating them; Python decodes the whole file as UTF-8.
+struct Utf8Checked<R> {
+    inner: R,
+    /// Bytes of a code point split across reads (at most 3).
+    carry: Vec<u8>,
+}
+
+impl<R: Read> Read for Utf8Checked<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        let invalid = || std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid UTF-8");
+        if n == 0 {
+            return if self.carry.is_empty() {
+                Ok(0)
+            } else {
+                Err(invalid())
+            };
+        }
+        let mut chunk = std::mem::take(&mut self.carry);
+        chunk.extend_from_slice(&buf[..n]);
+        match std::str::from_utf8(&chunk) {
+            Ok(_) => {}
+            Err(e) if e.error_len().is_none() => {
+                self.carry = chunk[e.valid_up_to()..].to_vec();
+            }
+            Err(_) => return Err(invalid()),
+        }
+        Ok(n)
+    }
+}
+
 fn probe_project(path: &Path) -> Result<Option<ProjectProbe>, String> {
     let file = File::open(path).map_err(|e| e.to_string())?;
-    let mut de = serde_json::Deserializer::from_reader(BufReader::new(file));
+    let checked = Utf8Checked {
+        inner: BufReader::new(file),
+        carry: Vec::new(),
+    };
+    let mut de = serde_json::Deserializer::from_reader(checked);
     let probe = de
         .deserialize_any(ProbeVisitor)
         .map_err(|e| e.to_string())?;
@@ -541,8 +582,7 @@ const MARKER: &str = ".cyoa_source_sha256";
 const MAX_MEMBERS: usize = 20_000;
 const MAX_TOTAL: u64 = 4 * 1024 * 1024 * 1024;
 
-fn sha256_file(path: &Path) -> std::io::Result<String> {
-    let mut file = File::open(path)?;
+fn sha256_reader(file: &mut File) -> std::io::Result<String> {
     let mut hasher = Sha256::new();
     let mut buf = vec![0u8; 1024 * 1024];
     loop {
@@ -562,63 +602,38 @@ fn sha256_file(path: &Path) -> std::io::Result<String> {
 /// A folder from an earlier import of the same ZIP (marker hash matches).
 fn reusable(dir: &Path, hash: &str) -> bool {
     let is_real_dir = fs::symlink_metadata(dir).is_ok_and(|m| m.is_dir());
+    let marker = dir.join(MARKER);
     is_real_dir
-        && fs::read_to_string(dir.join(MARKER)).is_ok_and(|t| t.trim() == hash)
-        && dir.join(MARKER).is_file()
+        && fs::symlink_metadata(&marker).is_ok_and(|m| m.is_file())
+        && fs::read_to_string(&marker).is_ok_and(|t| t.trim() == hash)
 }
 
-/// Python member check: no absolute paths, no "..", no symlinks. Drive
-/// prefixes / colons are rejected too (Windows `resolve` would escape).
-fn safe_member_path(name: &str) -> Option<PathBuf> {
-    let normalized = name.replace('\\', "/");
-    if normalized.starts_with('/') {
-        return None;
-    }
-    let mut rel = PathBuf::new();
-    for part in normalized.split('/') {
-        match part {
-            "" | "." => {}
-            ".." => return None,
-            p if p.contains(':') => return None,
-            p => rel.push(p),
-        }
-    }
-    (!rel.as_os_str().is_empty()).then_some(rel)
-}
-
-fn extract(archive: &Path, dest: &Path) -> Result<(), String> {
-    let mut zip = zip::ZipArchive::new(File::open(archive).map_err(|e| e.to_string())?)
-        .map_err(|e| e.to_string())?;
-    let mut total = 0u64;
-    let mut files = 0usize;
-    for i in 0..zip.len() {
-        let entry = zip.by_index_raw(i).map_err(|e| e.to_string())?;
-        if !entry.is_dir() {
-            files += 1;
-            total = total.saturating_add(entry.size());
-        }
-    }
-    if files > MAX_MEMBERS || total > MAX_TOTAL {
-        return Err("archive exceeds CYOA Manager import limit".into());
-    }
+/// Extract the already validated archive (same handle that was hashed and
+/// checked by `open_validated_zip`, so no reopen race). Member names go
+/// through the same validator; files are created with `create_new` inside
+/// a containment-checked parent, so a pre-planted link is never written through.
+fn extract(zip: &mut zip::ZipArchive<File>, dest: &Path) -> Result<(), String> {
+    let root = dest.canonicalize().map_err(|e| e.to_string())?;
     for i in 0..zip.len() {
         let mut entry = zip.by_index(i).map_err(|e| e.to_string())?;
         if entry.is_dir() {
             continue;
         }
-        let is_link = entry.unix_mode().is_some_and(|m| m & 0o170000 == 0o120000);
         let name = entry.name().map_err(|e| e.to_string())?.into_owned();
-        let rel = match safe_member_path(&name) {
-            Some(r) if !is_link => r,
-            _ => return Err("unsafe archive member".into()),
-        };
-        let target = dest.join(rel);
-        if let Some(parent) = target.parent() {
-            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        let rel = cyoa_core::paths::safe_archive_rel_path(&name, false)
+            .map_err(|_| "unsafe archive member".to_string())?;
+        let mut target = dest.to_path_buf();
+        target.extend(rel.split('/'));
+        let parent = target.parent().ok_or("unsafe archive member")?;
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        if !parent.canonicalize().is_ok_and(|p| p.starts_with(&root)) {
+            return Err("unsafe archive member".into());
         }
-        // Parent directories were created by us from validated components, so
-        // they cannot be pre-existing links inside a freshly created folder.
-        let mut out = File::create(&target).map_err(|e| e.to_string())?;
+        let mut out = File::options()
+            .write(true)
+            .create_new(true)
+            .open(&target)
+            .map_err(|e| e.to_string())?;
         std::io::copy(&mut entry, &mut out).map_err(|e| e.to_string())?;
     }
     Ok(())
@@ -637,9 +652,12 @@ fn find_project_json(root: &Path) -> Option<PathBuf> {
         entries.sort_by_key(|e| e.file_name());
         for e in entries.into_iter().rev() {
             let Ok(ft) = e.file_type() else { continue };
+            // DirEntry::file_type does not follow links: linked dirs/files
+            // and special files (FIFOs) are skipped.
             if ft.is_dir() {
                 stack.push((e.path(), depth + 1));
-            } else if e.file_name() == "project.json"
+            } else if ft.is_file()
+                && e.file_name() == "project.json"
                 && best.as_ref().is_none_or(|(d, _)| depth < *d)
             {
                 best = Some((depth, e.path()));
@@ -668,8 +686,9 @@ pub fn add_archive_to_cyoa_manager(
     if !archive.is_file() || !is_zip {
         return AddOutcome::Failed;
     }
-    let hash = match sha256_file(&archive) {
-        Ok(h) => h,
+    let opened = File::open(&archive).and_then(|mut f| sha256_reader(&mut f).map(|h| (f, h)));
+    let (file, hash) = match opened {
+        Ok(v) => v,
         Err(e) => {
             tracing::error!("CYOA Manager: cannot read ZIP for import: {e}");
             return AddOutcome::Failed;
@@ -690,8 +709,8 @@ pub fn add_archive_to_cyoa_manager(
                 return Err("existing CYOA Manager folder does not match ZIP".into());
             }
         } else {
-            cyoa_storage::archive::validate_zip_path(
-                &archive,
+            let mut zip = cyoa_storage::archive::open_validated_zip(
+                file,
                 cyoa_storage::archive::ArchiveLimits {
                     max_members: MAX_MEMBERS,
                     max_member_size: 1024 * 1024 * 1024,
@@ -703,7 +722,7 @@ pub fn add_archive_to_cyoa_manager(
             .map_err(|e| e.to_string())?;
             fs::create_dir(&dest).map_err(|e| e.to_string())?;
             created = true;
-            extract(&archive, &dest)?;
+            extract(&mut zip, &dest)?;
             fs::write(dest.join(MARKER), &hash).map_err(|e| e.to_string())?;
         }
         let project = find_project_json(&dest).ok_or("project.json missing from archive")?;
@@ -799,6 +818,24 @@ mod tests {
         assert_eq!(listed[1].viewer_preference, "icc2-plus");
         assert_eq!(listed[1].project_json_url, "https://x.test/p/project.json");
         assert!(listed[1].file_path.ends_with("project.json"));
+    }
+
+    #[test]
+    fn probe_rejects_invalid_utf8_anywhere_and_skips_big_fields() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("project.json");
+        fs::write(&p, b"{\"rows\":[\"\xff\"]}").unwrap();
+        assert!(probe_project(&p).is_err());
+        fs::write(&p, b"{\"x\":\"\xe2\x82\"}").unwrap(); // truncated code point
+        assert!(probe_project(&p).is_err());
+        let big = format!(
+            r#"{{"image":"{}","rows":[],"version":"1.0","styling":{{}}}}"#,
+            "é".repeat(200_000)
+        );
+        fs::write(&p, big).unwrap();
+        let probe = probe_project(&p).unwrap().unwrap();
+        assert!(probe.rows_is_list && probe.styling_is_object);
+        assert_eq!(probe.version.as_deref(), Some("1.0"));
     }
 
     #[test]
@@ -950,8 +987,15 @@ mod tests {
         );
         assert!(!tmp.path().join("escape.txt").exists());
         assert!(!tmp.path().join("evil_manager").exists());
-        assert!(safe_member_path("C:/x").is_none());
-        assert!(safe_member_path("a\\..\\b").is_none());
-        assert_eq!(safe_member_path("a\\b").unwrap(), Path::new("a").join("b"));
+        for bad in ["C:/x.txt", "CON", "a\\..\\..\\b.txt", "dot.txt."] {
+            let z = tmp.path().join("bad.zip");
+            write_zip(&z, &[("project.json", r#"{"rows":[]}"#), (bad, "x")]);
+            assert_eq!(
+                add_archive_to_cyoa_manager(&z, "", "", &db),
+                AddOutcome::Failed,
+                "{bad}"
+            );
+            assert!(!tmp.path().join("bad_manager").exists(), "{bad}");
+        }
     }
 }

@@ -73,3 +73,16 @@ Reviewed commit 1ed0c4f (`cyoa-net` dns.rs, dns_resolve.rs). Findings and resolu
 - LOW: trailing-dot normalisation → FIXED (strip all, like Python). IDNA: Rust uses UTS-46 for non-ASCII labels, Python IDNA 2003 — DOCUMENTED difference (e.g. `faß.de`).
 - Confirmed OK by Sol: DoT keeps cert+hostname verification; UDP source/ID checks; bounded TCP/DoH/cache; no packet-triggered panic; UDP/TCP/DoT bypass HTTP proxies like Python.
 - OPEN: wiring into `PolicyResolver` must keep the internal-address (SSRF) rejection for custom, cached and fallback answers (DNS-3).
+
+## Session 6: CYOA Manager integration (Sol task 20261118-211907-sol-0456c946a9)
+
+Read-only review of `cyoa_integrations::cyoa_manager` at 2ec56d7. No SQL injection (bound parameters; column list from a fixed whitelist).
+
+| # | Severity | Finding | Resolution |
+|---|---|---|---|
+| 1 | High (conditional: attacker can write in the output dir) | Extraction could write through a link planted between operations | Fixed: `create_new` files (never opens an existing path or link) and a canonical containment check of each parent. A fully race-free extraction needs handle-relative no-follow I/O; residual race documented (Python has the same window) |
+| 2 | Medium | Validation and extraction reopened the ZIP; extraction skipped reserved names, trailing dots, duplicates, size/ratio checks | Fixed: one handle is hashed, preflighted and validated (`cyoa_storage::archive::open_validated_zip`) and the same `ZipArchive` is extracted; member names go through `safe_archive_rel_path` |
+| 3 | Medium | Reused folder could supply a linked/FIFO `project.json` | Fixed: only regular, non-link files are accepted; the marker must be a regular file. Manifest verification of reused folders not added (Python also trusts the marker) |
+| 4 | Medium | Probe buffered whole top-level strings | Fixed: unrelated keys are skipped with `IgnoredAny`; only `rows`/`version`/`styling` are inspected (test with a 400 KB field) |
+| 5 | Low | Ignored strings skipped UTF-8 validation | Fixed: `Utf8Checked` reader rejects invalid UTF-8 anywhere, including a code point truncated at EOF |
+| – | Parity | `version` digits: Python `isdigit` accepts non-ASCII digits | Kept ASCII-only; documented in FEATURE_PARITY |

@@ -85,7 +85,14 @@ fn too_many(n: u64, max: usize) -> ArchiveError {
     ArchiveError::Validation(format!("Archive contains too many members: {n} > {max}"))
 }
 fn preflight(path: &Path, limits: ArchiveLimits) -> Result<(), ArchiveError> {
-    let meta = match std::fs::metadata(path) {
+    match File::open(path) {
+        Ok(mut f) => preflight_file(&mut f, limits),
+        Err(_) => Ok(()),
+    }
+}
+
+fn preflight_file(f: &mut File, limits: ArchiveLimits) -> Result<(), ArchiveError> {
+    let meta = match f.metadata() {
         Ok(m) => m,
         Err(_) => return Ok(()),
     };
@@ -98,10 +105,6 @@ fn preflight(path: &Path, limits: ArchiveLimits) -> Result<(), ArchiveError> {
             "Archive container exceeds configured size limit".into(),
         ));
     }
-    let mut f = match File::open(path) {
-        Ok(f) => f,
-        Err(_) => return Ok(()),
-    };
     let len = meta.len().min(SEARCH as u64) as usize;
     if f.seek(SeekFrom::End(-(len as i64))).is_err() {
         return Ok(());
@@ -180,6 +183,28 @@ pub fn validate_zip_path(
     let path = path.as_ref();
     preflight(path, limits)?;
     let mut zip = ZipArchive::new(File::open(path)?)?;
+    validate_zip_archive(&mut zip, limits)
+}
+
+/// `validate_zip_path` on an open file; returns the validated archive so the
+/// caller extracts exactly what was checked.
+pub fn open_validated_zip(
+    mut file: File,
+    limits: ArchiveLimits,
+) -> Result<ZipArchive<File>, ArchiveError> {
+    preflight_file(&mut file, limits)?;
+    file.seek(SeekFrom::Start(0))?;
+    let mut zip = ZipArchive::new(file)?;
+    validate_zip_archive(&mut zip, limits)?;
+    Ok(zip)
+}
+
+/// Member checks of `validate_zip_path` on an already opened archive, so a
+/// caller can validate and extract the same handle (no reopen race).
+pub fn validate_zip_archive<R: std::io::Read + std::io::Seek>(
+    zip: &mut ZipArchive<R>,
+    limits: ArchiveLimits,
+) -> Result<ArchiveSummary, ArchiveError> {
     if zip.len() > limits.max_members {
         return Err(too_many(zip.len() as u64, limits.max_members));
     }
