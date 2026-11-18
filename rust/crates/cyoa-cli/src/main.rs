@@ -562,7 +562,9 @@ async fn main() -> ExitCode {
             vpn: vpn.clone(),
             deep_scan: !args.no_deep_scan,
             fonts: args.fonts,
-            analyse_fonts: args.analyse_fonts,
+            // cli.py: show_font_analysis = -a or -f; analysis_only = -a without -f.
+            analyse_fonts: args.analyse_fonts || args.fonts,
+            analysis_only: args.analyse_fonts && !args.fonts,
             // cli.py: engine per row (cyoap_vue* rows) or from the flags.
             engine: if item.mode.starts_with("cyoap_vue")
                 || args.cyoap_vue_website

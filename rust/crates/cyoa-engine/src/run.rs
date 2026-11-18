@@ -230,8 +230,11 @@ pub struct RunOptions {
     pub engine: Engine,
     /// `--fonts`: download fonts into the output and rewrite project URLs.
     pub fonts: bool,
-    /// `--analyse-fonts`: log the font report (analysis only unless `fonts`).
+    /// Python `show_font_analysis`: log the font report.
     pub analyse_fonts: bool,
+    /// Python `analysis_only` (CLI `--analyse-fonts` without `--fonts`):
+    /// stop after the font report.
+    pub analysis_only: bool,
 }
 
 /// Python default for `image_cache_max_mb`.
@@ -256,6 +259,7 @@ impl Default for RunOptions {
             engine: Engine::Standard,
             fonts: false,
             analyse_fonts: false,
+            analysis_only: false,
         }
     }
 }
@@ -459,14 +463,14 @@ pub async fn run_download(
     };
 
     // orchestrator.py 628-635: font analysis on the project + viewer HTML.
-    let viewer_html = if opts.fonts || opts.analyse_fonts {
+    let viewer_html = if opts.fonts || opts.analyse_fonts || opts.analysis_only {
         discover_net::fetch_page_text(&client, &opts.url, &cancel)
             .await
             .unwrap_or_default()
     } else {
         String::new()
     };
-    if opts.fonts || opts.analyse_fonts {
+    if opts.analyse_fonts || opts.analysis_only {
         crate::fonts::analyse_fonts_with_client(
             &client,
             &cancel,
@@ -475,7 +479,7 @@ pub async fn run_download(
             &viewer_html,
         )
         .await;
-        if !opts.fonts {
+        if opts.analysis_only {
             tracing::info!("Analysis-only mode complete; no download output written.");
             return Ok(RunReport {
                 stem: output_stem(opts),

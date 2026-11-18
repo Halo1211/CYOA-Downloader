@@ -100,6 +100,16 @@ pub struct Settings {
     /// Proxy/DNS/VPN (absent in older saved state: defaults).
     #[serde(default)]
     pub net: crate::net::NetSettings,
+    /// Python GUI "Fonts" checkbox (default on).
+    #[serde(default = "default_true")]
+    pub fonts: bool,
+    /// Python GUI "Font analysis" checkbox.
+    #[serde(default)]
+    pub analyse_fonts: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for Settings {
@@ -112,6 +122,8 @@ impl Default for Settings {
             threads: DEFAULT_MAX_WORKERS,
             wait_time: DEFAULT_WAIT_TIME,
             net: crate::net::NetSettings::default(),
+            fonts: true,
+            analyse_fonts: false,
         }
     }
 }
@@ -370,6 +382,8 @@ impl DownloaderApp {
                     vpn: net.vpn,
                     archive: archive_auto.unwrap_or_default(),
                     engine: mode.engine(),
+                    fonts: self.settings.fonts,
+                    analyse_fonts: self.settings.analyse_fonts,
                     ..RunOptions::default()
                 };
                 // Python's ICC branch returns before CYOA Manager registration.
@@ -560,6 +574,26 @@ impl DownloaderApp {
             ui.add(egui::DragValue::new(&mut self.settings.threads).range(1..=64));
             ui.label("Wait (s):");
             ui.add(egui::DragValue::new(&mut self.settings.wait_time).range(0..=3600));
+            ui.separator();
+            if ui.checkbox(&mut self.settings.fonts, "Fonts").changed() {
+                let state = if self.settings.fonts {
+                    "enabled"
+                } else {
+                    "disabled"
+                };
+                self.log.push(format!("[Feature] Font download: {state}"));
+            }
+            if ui
+                .checkbox(&mut self.settings.analyse_fonts, "Font analysis")
+                .changed()
+            {
+                let state = if self.settings.analyse_fonts {
+                    "enabled"
+                } else {
+                    "disabled"
+                };
+                self.log.push(format!("[Feature] Font analysis: {state}"));
+            }
         });
     }
 
