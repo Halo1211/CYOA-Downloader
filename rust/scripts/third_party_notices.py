@@ -3,9 +3,16 @@
 Lists every crate in the normal (non-dev, non-build) dependency graph of the
 workspace binaries for the host target, with its declared SPDX license.
 Run from the repo root: python rust/scripts/third_party_notices.py
+
+With `--bundle DIR`, also copies every crate's license/notice files into
+DIR/<crate>-<version>/ (plus font licenses shipped inside crates, e.g. the egui
+default fonts' OFL/UFL texts). Crates that ship no license file get a
+MISSING_LICENSE_FILE.txt stub with their SPDX expression and repository; the
+script lists them so the release checklist can supply the canonical texts.
 """
 
 import json
+import shutil
 import subprocess
 import sys
 from collections import Counter
@@ -61,9 +68,66 @@ lines = [
     "|---|---|---|",
     *[f"| {n} | {v} | {lic} |" for n, v, lic in rows],
     "",
+    # Kept in the generator so regeneration never drops it.
+    "## Release obligations (reviewed by Claude, session 6, not legal advice)",
+    "- **MPL-2.0** (`cssparser`, `cssparser-macros`, `dtoa-short`, `selectors`): file-level "
+    "copyleft. The binaries may be distributed under any terms. Unmodified, so no source "
+    "changes need to be published. Include the MPL-2.0 text and a link to the upstream source.",
+    "- **`epaint_default_fonts`** (bundled into `cyoa-desktop.exe`): the fonts are under "
+    "OFL-1.1 and the Ubuntu Font Licence 1.0. Include both licence texts in the distribution "
+    "(`--bundle` copies them from the crate's `fonts/` folder).",
+    "- **`self_cell`**: dual-licensed \"Apache-2.0 OR GPL-2.0-only\"; use it under Apache-2.0.",
+    "- Everything else uses permissive licences (MIT, Apache-2.0, BSD, ISC, Zlib, Unicode-3.0, "
+    "Unlicense, CC0, BSL-1.0). Keep their copyright notices in the distribution's license bundle.",
+    "- Build the bundle with `python rust/scripts/third_party_notices.py --bundle <dist>/LICENSES`. "
+    "Crates whose package ships no license file get a `MISSING_LICENSE_FILE.txt` stub (session 6: "
+    "accesskit, alloc-stdlib, ecolor, eframe, egui, egui-winit, egui_glow, emath, epaint, profiling, "
+    "selectors); add the canonical texts for those by hand before publishing (selectors: MPL-2.0, "
+    "same text as cssparser's LICENSE).",
+    "",
 ]
 out = ROOT / "docs" / "THIRD_PARTY_NOTICES.md"
 out.write_text("\n".join(lines), encoding="utf-8")
 print(f"wrote {out} ({len(rows)} crates)", file=sys.stderr)
 for lic, n in counts.most_common():
     print(f"{n:4d}  {lic}", file=sys.stderr)
+
+LICENSE_PREFIXES = ("LICENSE", "LICENCE", "COPYING", "NOTICE", "COPYRIGHT", "UNLICENSE")
+
+
+def license_files(crate_dir: Path) -> list[Path]:
+    found = [f for f in crate_dir.iterdir()
+             if f.is_file() and f.name.upper().startswith(LICENSE_PREFIXES)]
+    fonts = crate_dir / "fonts"
+    if fonts.is_dir():  # font licenses (OFL/UFL/...) ship next to the fonts
+        found += [f for f in fonts.iterdir() if f.is_file() and f.suffix.lower() == ".txt"]
+    return sorted(found)
+
+
+if "--bundle" in sys.argv:
+    dest = Path(sys.argv[sys.argv.index("--bundle") + 1]).resolve()
+    if dest.exists():
+        sys.exit(f"refusing to overwrite existing {dest}")
+    dest.mkdir(parents=True)
+    stubs = []
+    for pid in sorted(seen - members, key=lambda p: (pkgs[p]["name"], pkgs[p]["version"])):
+        pkg = pkgs[pid]
+        out = dest / f"{pkg['name']}-{pkg['version']}"
+        out.mkdir()
+        files = license_files(Path(pkg["manifest_path"]).parent)
+        for f in files:
+            rel = f.relative_to(Path(pkg["manifest_path"]).parent)
+            target = out / str(rel).replace("\\", "_").replace("/", "_")
+            shutil.copyfile(f, target)
+        if not files:
+            stubs.append(pkg["name"])
+            (out / "MISSING_LICENSE_FILE.txt").write_text(
+                f"{pkg['name']} {pkg['version']}\n"
+                f"License: {pkg.get('license') or 'UNKNOWN'}\n"
+                f"Repository: {pkg.get('repository') or 'n/a'}\n"
+                "The crate package ships no license file; include the canonical "
+                "SPDX text(s) for the license above.\n",
+                encoding="utf-8",
+            )
+    print(f"bundled licenses for {len(seen - members)} crates into {dest}", file=sys.stderr)
+    print(f"{len(stubs)} crates without a license file: {', '.join(stubs)}", file=sys.stderr)

@@ -343,7 +343,7 @@ Crates: 295
 
 ## Release obligations (reviewed by Claude, session 6, not legal advice)
 - **MPL-2.0** (`cssparser`, `cssparser-macros`, `dtoa-short`, `selectors`): file-level copyleft. The binaries may be distributed under any terms. Unmodified, so no source changes need to be published. Include the MPL-2.0 text and a link to the upstream source.
-- **`epaint_default_fonts`** (bundled into `cyoa-desktop.exe`): the fonts are under OFL-1.1 and the Ubuntu Font Licence 1.0. Include both licence texts in the distribution.
+- **`epaint_default_fonts`** (bundled into `cyoa-desktop.exe`): the fonts are under OFL-1.1 and the Ubuntu Font Licence 1.0. Include both licence texts in the distribution (`--bundle` copies them from the crate's `fonts/` folder).
 - **`self_cell`**: dual-licensed "Apache-2.0 OR GPL-2.0-only"; use it under Apache-2.0.
 - Everything else uses permissive licences (MIT, Apache-2.0, BSD, ISC, Zlib, Unicode-3.0, Unlicense, CC0, BSL-1.0). Keep their copyright notices in the distribution's license bundle.
-- TODO before publishing: collect the full license texts from the crate sources into a `LICENSES/` folder in the distribution. A tool such as cargo-about (not installed) can do this.
+- Build the bundle with `python rust/scripts/third_party_notices.py --bundle <dist>/LICENSES`. Crates whose package ships no license file get a `MISSING_LICENSE_FILE.txt` stub (session 6: accesskit, alloc-stdlib, ecolor, eframe, egui, egui-winit, egui_glow, emath, epaint, profiling, selectors); add the canonical texts for those by hand before publishing (selectors: MPL-2.0, same text as cssparser's LICENSE).
