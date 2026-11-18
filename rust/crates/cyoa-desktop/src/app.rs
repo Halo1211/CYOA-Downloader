@@ -21,6 +21,16 @@ pub enum Mode {
     Embed,
     Zip,
     Both,
+    /// ICC website as `<name>_site.zip` (Python "ICC ZIP").
+    IccZip,
+    /// ICC website kept as a folder (Python "ICC Folder").
+    IccFolder,
+}
+
+impl Mode {
+    pub fn is_icc(self) -> bool {
+        matches!(self, Mode::IccZip | Mode::IccFolder)
+    }
 }
 
 impl From<Mode> for OutputMode {
@@ -29,7 +39,32 @@ impl From<Mode> for OutputMode {
             Mode::Embed => OutputMode::Embed,
             Mode::Zip => OutputMode::Zip,
             Mode::Both => OutputMode::Both,
+            Mode::IccZip => OutputMode::IccZip,
+            Mode::IccFolder => OutputMode::IccFolder,
         }
+    }
+}
+
+/// Python setting `archive_strategy` from the shared settings.json:
+/// `Ok(true)` = auto (default), `Ok(false)` = classic, `Err` = not ported.
+fn archive_strategy_auto() -> Result<bool, String> {
+    let mut store =
+        cyoa_storage::settings::SettingsStore::new(cyoa_storage::settings::default_path());
+    let strategy = store
+        .load()
+        .ok()
+        .and_then(|v| {
+            v.get("archive_strategy")
+                .and_then(|s| s.as_str())
+                .map(str::to_lowercase)
+        })
+        .unwrap_or_else(|| "auto".into());
+    match strategy.trim() {
+        "" | "auto" => Ok(true),
+        "classic" => Ok(false),
+        other => Err(format!(
+            "archive strategy '{other}' is not supported by the Rust port yet (use auto or classic)"
+        )),
     }
 }
 
@@ -138,14 +173,17 @@ pub struct DownloaderApp {
 
 type ListPick = std::sync::mpsc::Receiver<Option<Result<Vec<BatchItem>, String>>>;
 
-/// Batch row mode: empty/"auto" uses the GUI default; website/ICC/pure/cyoap-vue
-/// modes are not ported yet and are refused instead of silently downgraded.
+/// Batch row mode: empty/"auto" uses the GUI default; pure-website and
+/// cyoap-vue modes are not ported yet and are refused instead of silently
+/// downgraded.
 pub fn batch_item_mode(default: Mode, mode: &str) -> Result<Mode, String> {
     match mode {
         "" | "auto" => Ok(default),
         "embed" => Ok(Mode::Embed),
         "zip" => Ok(Mode::Zip),
         "both" => Ok(Mode::Both),
+        "website_zip" => Ok(Mode::IccZip),
+        "website_folder" => Ok(Mode::IccFolder),
         other => Err(format!(
             "mode '{other}' is not supported by the Rust port yet"
         )),
@@ -286,9 +324,14 @@ impl DownloaderApp {
         let id = self.next_id;
         self.next_id += 1;
         let net = self.net_runtime();
-        let status = match (mode, net) {
-            (Err(e), _) | (_, Err(e)) => Status::Failed(e),
-            (Ok(mode), Ok(net)) => {
+        // ICC jobs follow the shared `archive_strategy` setting.
+        let archive = match &mode {
+            Ok(m) if m.is_icc() => archive_strategy_auto().map(Some),
+            _ => Ok(None),
+        };
+        let status = match (mode, net, archive) {
+            (Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => Status::Failed(e),
+            (Ok(mode), Ok(net), Ok(archive_auto)) => {
                 let opts = RunOptions {
                     url: url.clone(),
                     output_dir: PathBuf::from(&self.settings.output_dir),
@@ -299,9 +342,11 @@ impl DownloaderApp {
                     proxy: net.proxy,
                     dns: net.dns,
                     vpn: net.vpn,
+                    archive_auto: archive_auto.unwrap_or(true),
                     ..RunOptions::default()
                 };
-                let manager_db = if self.manager.enabled {
+                // Python's ICC branch returns before CYOA Manager registration.
+                let manager_db = if self.manager.enabled && !mode.is_icc() {
                     let db = cyoa_integrations::cyoa_manager::resolve_db(&self.manager.db_path);
                     if db.is_none() {
                         self.log.push(
@@ -465,6 +510,12 @@ impl DownloaderApp {
             ui.radio_value(&mut self.settings.mode, Mode::Embed, "Embedded JSON");
             ui.radio_value(&mut self.settings.mode, Mode::Zip, "ZIP");
             ui.radio_value(&mut self.settings.mode, Mode::Both, "Both");
+            ui.radio_value(&mut self.settings.mode, Mode::IccZip, "ICC website (ZIP)");
+            ui.radio_value(
+                &mut self.settings.mode,
+                Mode::IccFolder,
+                "ICC website (folder)",
+            );
             ui.separator();
             ui.label("Threads:");
             ui.add(egui::DragValue::new(&mut self.settings.threads).range(1..=64));
@@ -722,7 +773,15 @@ mod tests {
         assert_eq!(batch_item_mode(Mode::Zip, ""), Ok(Mode::Zip));
         assert_eq!(batch_item_mode(Mode::Zip, "auto"), Ok(Mode::Zip));
         assert_eq!(batch_item_mode(Mode::Zip, "both"), Ok(Mode::Both));
-        assert!(batch_item_mode(Mode::Embed, "website_folder").is_err());
+        assert_eq!(
+            batch_item_mode(Mode::Embed, "website_folder"),
+            Ok(Mode::IccFolder)
+        );
+        assert_eq!(
+            batch_item_mode(Mode::Embed, "website_zip"),
+            Ok(Mode::IccZip)
+        );
+        assert!(batch_item_mode(Mode::Embed, "pure_website_folder").is_err());
     }
 
     #[test]
