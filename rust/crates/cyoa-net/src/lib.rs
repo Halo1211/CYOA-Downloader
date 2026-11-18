@@ -4,5 +4,6 @@ pub mod admission;
 pub mod client;
 pub mod headers;
 pub mod policy;
+pub mod proxy;
 pub mod retry;
 pub mod throttle;

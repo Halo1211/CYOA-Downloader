@@ -98,7 +98,7 @@ pub struct ClientConfig {
     pub read_timeout: Duration,
     pub total_timeout: Option<Duration>,
     pub max_redirects: usize,
-    pub proxy: Option<String>,
+    pub proxy: crate::proxy::ProxyConfig,
 }
 
 impl Default for ClientConfig {
@@ -110,7 +110,7 @@ impl Default for ClientConfig {
             read_timeout: Duration::from_secs(20),
             total_timeout: None,
             max_redirects: 10,
-            proxy: None,
+            proxy: crate::proxy::ProxyConfig::disabled(),
         }
     }
 }
@@ -203,14 +203,11 @@ impl FetchClient {
             .read_timeout(cfg.read_timeout)
             .user_agent(DEFAULT_USER_AGENT)
             .cookie_store(true)
-            .no_proxy()
             .retry(reqwest::retry::never());
         if let Some(t) = cfg.total_timeout {
             builder = builder.timeout(t);
         }
-        if let Some(proxy) = &cfg.proxy {
-            builder = builder.proxy(reqwest::Proxy::all(proxy)?);
-        }
+        builder = cfg.proxy.apply(builder)?;
         Ok(Self {
             http: builder.build()?,
             cfg,
