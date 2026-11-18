@@ -1,0 +1,272 @@
+[
+ {
+  "name": "static",
+  "start_url": "https://site.test/story/",
+  "files": {
+   "index.html": "<html><body><img src='a.png'><p>Hello</p></body></html>"
+  },
+  "profile": {
+   "detected_engine": "static_or_scannable",
+   "effective_strategy": "classic",
+   "reason": "static scanners can enumerate the entry assets without browser interaction",
+   "signals": {
+    "script_count": 0,
+    "module_script_count": 0,
+    "lazy_attribute_count": 0,
+    "same_story_route_count": 0,
+    "framework_root": false,
+    "next_asset_markers": 0,
+    "canvas_count": 0,
+    "bundle_signals": {
+     "fetch": 0,
+     "intersection_observer": 0,
+     "dynamic_import": 0,
+     "new_image": 0,
+     "scanned_chars": 0
+    },
+    "runtime_score": 0,
+    "inline_interactivity": false,
+    "safe_control_count": 0
+   }
+  }
+ },
+ {
+  "name": "routes",
+  "start_url": "https://site.test/story/index.html",
+  "files": {
+   "index.html": "<a href='ch1/'>1</a><a href='ch2?x=1'>2</a><a href='ch2?x=1'>dup</a><a href='#top'>t</a><a href='https://other.test/x'>o</a><a href='/elsewhere/'>e</a><a href='mailto:a@b'>m</a><a href='./'>self</a>"
+  },
+  "profile": {
+   "detected_engine": "static_or_scannable",
+   "effective_strategy": "classic",
+   "reason": "static scanners can enumerate the entry assets without browser interaction",
+   "signals": {
+    "script_count": 0,
+    "module_script_count": 0,
+    "lazy_attribute_count": 0,
+    "same_story_route_count": 0,
+    "framework_root": false,
+    "next_asset_markers": 0,
+    "canvas_count": 0,
+    "bundle_signals": {
+     "fetch": 0,
+     "intersection_observer": 0,
+     "dynamic_import": 0,
+     "new_image": 0,
+     "scanned_chars": 0
+    },
+    "runtime_score": 0,
+    "inline_interactivity": false,
+    "safe_control_count": 0
+   }
+  }
+ },
+ {
+  "name": "spa_runtime",
+  "start_url": "https://site.test/",
+  "files": {
+   "index.html": "<div id='app'></div><script src='js/app.js'></script><script type='module' src='m.js'></script><canvas></canvas><img data-src='x.png'><img loading='lazy' src='y.png'>",
+   "js/app.js": "fetch('a'); fetch ('b'); new IntersectionObserver(cb); import('./x.js'); new Image();",
+   "m.js": "import ( 'y' ); new  Image ( )"
+  },
+  "profile": {
+   "detected_engine": "javascript_runtime",
+   "effective_strategy": "browser",
+   "reason": "runtime-only framework signals exceed the safe threshold",
+   "signals": {
+    "script_count": 2,
+    "module_script_count": 1,
+    "lazy_attribute_count": 2,
+    "same_story_route_count": 0,
+    "framework_root": true,
+    "next_asset_markers": 0,
+    "canvas_count": 1,
+    "bundle_signals": {
+     "fetch": 2,
+     "intersection_observer": 1,
+     "dynamic_import": 2,
+     "new_image": 2,
+     "scanned_chars": 115
+    },
+    "runtime_score": 6,
+    "inline_interactivity": false,
+    "safe_control_count": 0
+   }
+  }
+ },
+ {
+  "name": "routes_and_runtime",
+  "start_url": "https://site.test/app",
+  "files": {
+   "index.html": "<div id='root'></div><script src='/_next/static/app.js'></script><a href='page/2'>2</a>"
+  },
+  "profile": {
+   "detected_engine": "javascript_runtime",
+   "effective_strategy": "browser",
+   "reason": "runtime-only framework signals exceed the safe threshold",
+   "signals": {
+    "script_count": 1,
+    "module_script_count": 0,
+    "lazy_attribute_count": 0,
+    "same_story_route_count": 0,
+    "framework_root": true,
+    "next_asset_markers": 1,
+    "canvas_count": 0,
+    "bundle_signals": {
+     "fetch": 0,
+     "intersection_observer": 0,
+     "dynamic_import": 0,
+     "new_image": 0,
+     "scanned_chars": 0
+    },
+    "runtime_score": 3,
+    "inline_interactivity": false,
+    "safe_control_count": 0
+   }
+  }
+ },
+ {
+  "name": "interactive",
+  "start_url": "https://site.test/s/",
+  "files": {
+   "index.html": "<script src='a.js'></script><button>Load more</button><div role='button'>Next</div><summary>Expand</summary><form><button>Continue</button></form><button>Log in</button><script>el.innerHTML = x; btn.addEventListener('click', f);</script>"
+  },
+  "profile": {
+   "detected_engine": "javascript_runtime",
+   "effective_strategy": "browser",
+   "reason": "runtime-only framework signals exceed the safe threshold",
+   "signals": {
+    "script_count": 1,
+    "module_script_count": 0,
+    "lazy_attribute_count": 0,
+    "same_story_route_count": 0,
+    "framework_root": false,
+    "next_asset_markers": 0,
+    "canvas_count": 0,
+    "bundle_signals": {
+     "fetch": 0,
+     "intersection_observer": 0,
+     "dynamic_import": 0,
+     "new_image": 0,
+     "scanned_chars": 0
+    },
+    "runtime_score": 4,
+    "inline_interactivity": true,
+    "safe_control_count": 3
+   }
+  }
+ },
+ {
+  "name": "inline_only",
+  "start_url": "https://site.test/s/",
+  "files": {
+   "index.html": "<script>document.createElement('div'); x.onclick = f;</script>"
+  },
+  "profile": {
+   "detected_engine": "javascript_runtime",
+   "effective_strategy": "browser",
+   "reason": "runtime-only framework signals exceed the safe threshold",
+   "signals": {
+    "script_count": 0,
+    "module_script_count": 0,
+    "lazy_attribute_count": 0,
+    "same_story_route_count": 0,
+    "framework_root": false,
+    "next_asset_markers": 0,
+    "canvas_count": 0,
+    "bundle_signals": {
+     "fetch": 0,
+     "intersection_observer": 0,
+     "dynamic_import": 0,
+     "new_image": 0,
+     "scanned_chars": 0
+    },
+    "runtime_score": 2,
+    "inline_interactivity": true,
+    "safe_control_count": 0
+   }
+  }
+ },
+ {
+  "name": "local_project",
+  "start_url": "https://site.test/v/",
+  "files": {
+   "index.html": "<p>viewer</p>",
+   "project.json": "{\"rows\": [{\"id\": \"r\", \"objects\": []}]}"
+  },
+  "profile": {
+   "detected_engine": "project_json",
+   "effective_strategy": "classic",
+   "reason": "structured project data already enumerates the authoritative assets",
+   "signals": {
+    "source_url": "https://site.test/v/",
+    "project_url": "",
+    "browser_needed": false
+   }
+  }
+ },
+ {
+  "name": "not_a_project",
+  "start_url": "https://site.test/v/",
+  "files": {
+   "index.html": "<a href='more/'>m</a>",
+   "project.json": "{\"hello\": 1}"
+  },
+  "profile": {
+   "detected_engine": "multi_route_html",
+   "effective_strategy": "smart",
+   "reason": "same-story document routes were discovered",
+   "signals": {
+    "script_count": 0,
+    "module_script_count": 0,
+    "lazy_attribute_count": 0,
+    "same_story_route_count": 1,
+    "framework_root": false,
+    "next_asset_markers": 0,
+    "canvas_count": 0,
+    "bundle_signals": {
+     "fetch": 0,
+     "intersection_observer": 0,
+     "dynamic_import": 0,
+     "new_image": 0,
+     "scanned_chars": 0
+    },
+    "runtime_score": 0,
+    "inline_interactivity": false,
+    "safe_control_count": 0
+   }
+  }
+ },
+ {
+  "name": "unicode_and_nested",
+  "start_url": "https://site.test/cerita/",
+  "files": {
+   "index.html": "<html><body><button> Muat  lagi </button><a href='bab/1'>1</a><a href='bab/1#x'>1b</a></body></html>",
+   "deep/x/y.js": "fetch(url)fetch(url)fetch(url)"
+  },
+  "profile": {
+   "detected_engine": "multi_route_html",
+   "effective_strategy": "smart",
+   "reason": "same-story document routes were discovered",
+   "signals": {
+    "script_count": 0,
+    "module_script_count": 0,
+    "lazy_attribute_count": 0,
+    "same_story_route_count": 1,
+    "framework_root": false,
+    "next_asset_markers": 0,
+    "canvas_count": 0,
+    "bundle_signals": {
+     "fetch": 3,
+     "intersection_observer": 0,
+     "dynamic_import": 0,
+     "new_image": 0,
+     "scanned_chars": 30
+    },
+    "runtime_score": 1,
+    "inline_interactivity": false,
+    "safe_control_count": 1
+   }
+  }
+ }
+]
