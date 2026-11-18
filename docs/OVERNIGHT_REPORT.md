@@ -199,3 +199,11 @@ c8705cc docs · e5c1d13 Stage 0 · e8ed523 1a · ffd7866 1a security fixes · ec
 - Dedup hashing and asset writes are streamed from the spool files.
 - New test: spooled output is byte-identical to in-memory output. E2E parity 6/6. 300-image JSON is identical to Python.
 - Peak memory: 98 MB → 28 MB.
+
+**GUI batch D (Claude):**
+- "Import list…": .txt/.csv through `cyoa_engine::batch`, with the dialog and parsing on their own thread.
+- Per-item filename and mode. Empty or "auto" uses the GUI default; unsupported modes fail visibly.
+- "Clear finished" bounds the queue history.
+- New tests:
+  - The GUI worker downloads `rust/fixtures/e2e_site` end to end (progress reaches the UI channel, the waker fires, JSON and ZIP are written, the 404 is counted).
+  - 100k-row frame time: 0.09 ms release.

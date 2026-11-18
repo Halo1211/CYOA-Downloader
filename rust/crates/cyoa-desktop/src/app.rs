@@ -2,7 +2,10 @@
 //! happens in [`crate::worker`].
 
 use crate::worker::{Event, JobId, JobResult, WorkerHandle};
-use cyoa_engine::run::{OutputMode, RunOptions};
+use cyoa_engine::{
+    batch::{self, BatchItem},
+    run::{OutputMode, RunOptions},
+};
 use eframe::egui;
 use std::{collections::VecDeque, path::PathBuf, time::Duration};
 
@@ -118,6 +121,23 @@ pub struct DownloaderApp {
     log: RingLog,
     worker: Option<WorkerHandle>,
     folder_pick: Option<std::sync::mpsc::Receiver<Option<PathBuf>>>,
+    list_pick: Option<ListPick>,
+}
+
+type ListPick = std::sync::mpsc::Receiver<Option<Result<Vec<BatchItem>, String>>>;
+
+/// Batch row mode: empty/"auto" uses the GUI default; website/ICC/pure/cyoap-vue
+/// modes are not ported yet and are refused instead of silently downgraded.
+pub fn batch_item_mode(default: Mode, mode: &str) -> Result<Mode, String> {
+    match mode {
+        "" | "auto" => Ok(default),
+        "embed" => Ok(Mode::Embed),
+        "zip" => Ok(Mode::Zip),
+        "both" => Ok(Mode::Both),
+        other => Err(format!(
+            "mode '{other}' is not supported by the Rust port yet"
+        )),
+    }
 }
 
 impl DownloaderApp {
@@ -145,6 +165,7 @@ impl DownloaderApp {
             log,
             worker,
             folder_pick: None,
+            list_pick: None,
         }
     }
 
@@ -228,30 +249,93 @@ impl DownloaderApp {
             Err(e) => self.url_error = Some(e),
             Ok(url) => {
                 self.url_error = None;
-                let id = self.next_id;
-                self.next_id += 1;
-                let opts = RunOptions {
-                    url: url.clone(),
-                    output_dir: PathBuf::from(&self.settings.output_dir),
-                    mode: self.settings.mode.into(),
-                    workers: self.settings.threads,
-                    wait_time: self.settings.wait_time,
-                    ..RunOptions::default()
-                };
-                let sent = self.worker.as_ref().is_some_and(|w| w.start(id, opts));
-                self.jobs.push(Job {
-                    id,
-                    url,
-                    status: if sent {
-                        Status::Queued
-                    } else {
-                        Status::Failed("download worker unavailable".into())
-                    },
-                    current: String::new(),
-                });
+                self.enqueue_one(url, String::new(), Ok(self.settings.mode));
                 self.url_input.clear();
             }
         }
+    }
+
+    fn enqueue_one(&mut self, url: String, filename: String, mode: Result<Mode, String>) {
+        let id = self.next_id;
+        self.next_id += 1;
+        let status = match mode {
+            Err(e) => Status::Failed(e),
+            Ok(mode) => {
+                let opts = RunOptions {
+                    url: url.clone(),
+                    output_dir: PathBuf::from(&self.settings.output_dir),
+                    mode: mode.into(),
+                    workers: self.settings.threads,
+                    wait_time: self.settings.wait_time,
+                    file_name: (!filename.is_empty()).then_some(filename),
+                    ..RunOptions::default()
+                };
+                if self.worker.as_ref().is_some_and(|w| w.start(id, opts)) {
+                    Status::Queued
+                } else {
+                    Status::Failed("download worker unavailable or queue full".into())
+                }
+            }
+        };
+        self.jobs.push(Job {
+            id,
+            url,
+            status,
+            current: String::new(),
+        });
+    }
+
+    fn poll_list_import(&mut self) {
+        let Some(rx) = &self.list_pick else { return };
+        match rx.try_recv() {
+            Ok(Some(Ok(items))) => {
+                self.list_pick = None;
+                let n = items.len();
+                for item in items {
+                    let mode = batch_item_mode(self.settings.mode, &item.mode);
+                    self.enqueue_one(item.url, item.filename, mode);
+                }
+                self.log.push(format!("Imported {n} item(s) from list."));
+            }
+            Ok(Some(Err(e))) => {
+                self.list_pick = None;
+                self.log.push(format!("List import failed: {e}"));
+            }
+            Ok(None) | Err(std::sync::mpsc::TryRecvError::Disconnected) => self.list_pick = None,
+            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+        }
+    }
+
+    fn start_list_import(&mut self, ctx: &egui::Context) {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let ctx = ctx.clone();
+        let spawned = std::thread::Builder::new()
+            .name("list-import".into())
+            .spawn(move || {
+                // Dialog and file parsing both stay off the UI thread.
+                let picked = rfd::FileDialog::new()
+                    .add_filter("Batch list", &["txt", "csv"])
+                    .pick_file();
+                let result = picked.map(|path| match batch::import_batch_file(&path) {
+                    Ok(items) if items.is_empty() => {
+                        Err("No valid URLs found in batch file.".to_owned())
+                    }
+                    Ok(items) => Ok(items),
+                    Err(e) => Err(e.to_string()),
+                });
+                let _ = tx.send(result);
+                ctx.request_repaint();
+            });
+        if spawned.is_ok() {
+            self.list_pick = Some(rx);
+        }
+    }
+
+    /// Drop finished jobs from the visible queue (bounded history on demand).
+    fn clear_finished(&mut self) {
+        self.jobs
+            .retain(|j| matches!(j.status, Status::Queued | Status::Running { .. }));
+        self.selected = None;
     }
 
     fn controls(&mut self, ui: &mut egui::Ui) {
@@ -265,6 +349,15 @@ impl DownloaderApp {
             let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
             if ui.button("Add to queue").clicked() || enter {
                 self.enqueue();
+            }
+            if ui
+                .add_enabled(self.list_pick.is_none(), egui::Button::new("Import list…"))
+                .on_hover_text(
+                    ".txt (url | filename | mode) or .csv with url/filename/mode columns",
+                )
+                .clicked()
+            {
+                self.start_list_import(ui.ctx());
             }
         });
         if let Some(e) = self.url_error {
@@ -350,6 +443,9 @@ impl DownloaderApp {
                 ui.label("Idle");
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button("Clear finished").clicked() {
+                    self.clear_finished();
+                }
                 if ui.button("Cancel all").clicked()
                     && let Some(w) = &self.worker
                 {
@@ -422,6 +518,7 @@ impl DownloaderApp {
 impl eframe::App for DownloaderApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.drain_events();
+        self.poll_list_import();
         egui::Frame::central_panel(ui.style()).show(ui, |ui| {
             self.controls(ui);
             ui.separator();
@@ -464,6 +561,81 @@ mod tests {
         assert!(validate_url("ftp://a.example/").is_err());
         assert!(validate_url("example.com").is_err());
         assert!(validate_url("http://").is_err());
+    }
+
+    fn headless_app(jobs: usize, log_lines: usize) -> DownloaderApp {
+        let mut log = RingLog::new(LOG_CAPACITY);
+        for i in 0..log_lines {
+            log.push(format!("log line {i}"));
+        }
+        DownloaderApp {
+            settings: Settings::default(),
+            url_input: String::new(),
+            url_error: None,
+            jobs: (0..jobs as JobId)
+                .map(|id| Job {
+                    id,
+                    url: format!("https://example.com/cyoa/{id}/"),
+                    status: if id % 3 == 0 {
+                        Status::Running { done: 5, total: 10 }
+                    } else {
+                        Status::Queued
+                    },
+                    current: String::new(),
+                })
+                .collect(),
+            selected: None,
+            next_id: jobs as JobId,
+            log,
+            worker: None,
+            folder_pick: None,
+            list_pick: None,
+        }
+    }
+
+    /// Frame cost with a 100k-row queue and a full log (virtualized rows).
+    /// Prints the measured time; run with `--release --nocapture` for numbers.
+    #[test]
+    fn hundred_thousand_row_queue_frame_time() {
+        let mut app = headless_app(100_000, LOG_CAPACITY);
+        let ctx = egui::Context::default();
+        let input = || egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1000.0, 700.0),
+            )),
+            ..Default::default()
+        };
+        let mut frame = |app: &mut DownloaderApp| {
+            let mut out = ctx.run_ui(input(), |ui| {
+                app.controls(ui);
+                app.status_bar(ui);
+                app.queue(ui);
+                app.log_view(ui);
+            });
+            // No GPU here: tessellate (part of real frame cost) and discard textures.
+            let _ = ctx.tessellate(std::mem::take(&mut out.shapes), out.pixels_per_point);
+            out.textures_delta.clear();
+        };
+        for _ in 0..3 {
+            frame(&mut app); // warm-up (layout caches, fonts)
+        }
+        let n = 30;
+        let start = std::time::Instant::now();
+        for _ in 0..n {
+            frame(&mut app);
+        }
+        let per_frame = start.elapsed() / n;
+        println!("100k-row queue + 5000-line log: {per_frame:?} per frame");
+        assert!(per_frame < std::time::Duration::from_millis(250), "{per_frame:?}");
+    }
+
+    #[test]
+    fn batch_modes_follow_default_or_are_refused() {
+        assert_eq!(batch_item_mode(Mode::Zip, ""), Ok(Mode::Zip));
+        assert_eq!(batch_item_mode(Mode::Zip, "auto"), Ok(Mode::Zip));
+        assert_eq!(batch_item_mode(Mode::Zip, "both"), Ok(Mode::Both));
+        assert!(batch_item_mode(Mode::Embed, "website_folder").is_err());
     }
 
     #[test]

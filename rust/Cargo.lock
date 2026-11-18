@@ -902,6 +902,7 @@ dependencies = [
  "eframe",
  "rfd",
  "serde",
+ "tempfile",
  "tokio",
  "tokio-util",
  "url",

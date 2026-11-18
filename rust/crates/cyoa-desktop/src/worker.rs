@@ -466,4 +466,102 @@ mod tests {
         assert!(w.thread.is_none(), "worker thread joined");
         assert!(t.elapsed() < Duration::from_secs(6));
     }
+
+    /// Minimal static file server for `rust/fixtures/e2e_site` (one thread).
+    fn serve_fixture_site() -> std::net::SocketAddr {
+        use std::io::{Read, Write};
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/e2e_site");
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+                let mut req = [0u8; 4096];
+                let n = stream.read(&mut req).unwrap_or(0);
+                let line = String::from_utf8_lossy(&req[..n]).into_owned();
+                let path = line.split_whitespace().nth(1).unwrap_or("/");
+                let file = root.join(path.trim_start_matches('/'));
+                let (status, body) = match std::fs::read(&file) {
+                    Ok(b) if !path.contains("..") => ("200 OK", b),
+                    _ => ("404 Not Found", b"not found".to_vec()),
+                };
+                let ctype = if path.ends_with(".json") {
+                    "application/json"
+                } else if path.ends_with(".png") {
+                    "image/png"
+                } else if path.ends_with(".jpg") {
+                    "image/jpeg"
+                } else {
+                    "text/plain"
+                };
+                let head = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(head.as_bytes());
+                let _ = stream.write_all(&body);
+            }
+        });
+        addr
+    }
+
+    #[test]
+    fn gui_worker_downloads_fixture_project_end_to_end() {
+        let addr = serve_fixture_site();
+        let out = tempfile::tempdir().unwrap();
+        let progress = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let wake = progress.clone();
+        let mut w = WorkerHandle::spawn(Box::new(move || {
+            wake.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }))
+        .unwrap();
+        let opts = RunOptions {
+            url: format!("http://{addr}/mycyoa/project.json"),
+            output_dir: out.path().to_path_buf(),
+            mode: cyoa_engine::run::OutputMode::Both,
+            wait_time: 0,
+            cache_dir: None,
+            ..RunOptions::default()
+        };
+        assert!(w.start(7, opts));
+        let mut saw_progress = false;
+        let mut result = None;
+        let end = Instant::now() + Duration::from_secs(60);
+        while result.is_none() && Instant::now() < end {
+            while let Some(ev) = w.try_recv() {
+                match ev {
+                    Event::Progress { job: 7, .. } => saw_progress = true,
+                    Event::Finished { job: 7, result: r } => result = Some(r),
+                    _ => {}
+                }
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        match result {
+            Some(JobResult::Done(s)) => {
+                assert_eq!(s.failed_assets, 1, "img/missing.png is a 404");
+                assert!(
+                    s.written
+                        .iter()
+                        .any(|p| p.ends_with("mycyoa_project.json.json"))
+                );
+                assert!(
+                    s.written
+                        .iter()
+                        .any(|p| p.ends_with("mycyoa_project.json.zip"))
+                );
+            }
+            other => panic!("unexpected result: {other:?}"),
+        }
+        assert!(saw_progress, "progress events reached the UI channel");
+        assert!(
+            progress.load(std::sync::atomic::Ordering::Relaxed) > 0,
+            "UI was woken"
+        );
+        let embedded =
+            std::fs::read_to_string(out.path().join("mycyoa_project.json.json")).unwrap();
+        assert!(embedded.contains("data:image/png;base64,"));
+        w.shutdown(Duration::from_secs(3));
+    }
 }

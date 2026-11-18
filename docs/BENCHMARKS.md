@@ -64,3 +64,14 @@ Same 300-image workload, warm cache, `--both`, release build.
 | Rust wall time | 0.85–0.88 s | 1.10–1.27 s (spool writes) |
 
 Embedded JSON is still byte-identical to Python. Python peak (cold) was ~60 MB.
+
+### GUI frame cost (session 5, headless)
+
+**Method:** `cargo test -p cyoa-desktop --release hundred_thousand -- --nocapture`. It runs an `egui::Context` frame with the controls, status bar, a **100,000-row queue** and a **5,000-line log**, then tessellates. GPU upload and present are excluded.
+
+| Build | Per frame |
+|---|---|
+| Release | 0.090 ms |
+| Debug | 0.87 ms |
+
+Rows are virtualized (`show_rows`), so cost does not grow with queue length. Not yet measured: IME/Unicode input and high-DPI rendering (prototype gate).
