@@ -17,4 +17,5 @@ pub mod pipeline;
 pub mod pure;
 pub mod reports;
 pub mod run;
+pub mod verify;
 pub mod website;

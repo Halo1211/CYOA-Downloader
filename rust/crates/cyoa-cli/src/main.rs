@@ -62,6 +62,12 @@ struct Args {
     /// Use dedicated cyoap_vue ICC mode and keep folder output.
     #[arg(long)]
     cyoap_vue_folder: bool,
+    /// Validate a previously downloaded output FOLDER (read-only integrity check) and exit.
+    #[arg(long, value_name = "FOLDER")]
+    verify: Option<PathBuf>,
+    /// With --verify: write a cyoa_manifest.json checksum sidecar into the folder, then exit.
+    #[arg(long)]
+    write_manifest: bool,
     /// Start local HTTP server for the output directory after download.
     #[arg(long)]
     serve: bool,
@@ -400,6 +406,20 @@ async fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
     let mut args = Args::parse();
+    // cli.py 477-489: --verify [--write-manifest] runs before anything else.
+    if let Some(folder) = &args.verify {
+        let (ok, text) = if args.write_manifest {
+            cyoa_engine::verify::write_package_manifest(folder)
+        } else {
+            cyoa_engine::verify::verify_output_package(folder)
+        };
+        println!("{text}");
+        return if ok {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::FAILURE
+        };
+    }
     if args.workers == 0 {
         eprintln!("error: --threads must be at least 1");
         return ExitCode::from(2);

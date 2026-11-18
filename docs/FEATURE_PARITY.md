@@ -94,7 +94,7 @@ Source paths are relative to `cyoa_downloader_app/`.
 | F-031 | Audio recovery and reports (yt-dlp) | `download/audio_download.py`, `audio_reports.py` | cyoa-integrations | 6 | L/X | |
 | F-032 | Image conversion and processing | `download/image_pipeline.py` | cyoa-engine | 4 | L | |
 | F-033 | Retry assets/images/audio | `download/website_recovery.py` | cyoa-engine | 5 | L | |
-| F-034 | Verify package and write manifest | `download/package.py` | cyoa-engine | 4 | L | |
+| F-034 | Verify package and write manifest | `download/package.py` | cyoa-engine | 4 | L | DONE (s6): `cyoa_engine::verify` (Luna; reviewed by Claude) + CLI `--verify FOLDER [--write-manifest]`. Identical to Python on `fixtures/verify.json` (9 packages: manifest tamper/bad entries, refs case/unsafe/missing, external deps vs optional icons, zero-byte cap, failure-log counts). Cross-tool check: Python- and Rust-written `cyoa_manifest.json` identical (timestamp aside) and each verifies under the other CLI with identical reports. Diff: `project.json failed to parse: {e}` uses serde's error text |
 | F-035 | Reports (backup_report, failed_*.txt) | various | cyoa-engine | 4 | L | Byte-compatible text |
 | F-036 | Batch import (TXT/CSV/XLSX/XLS/remote CSV) and export | `importers/batch.py`, `gui/queue_import.py` | cyoa-engine | 4 | L+M | calamine |
 | F-037 | Offline viewer registry, injection and modernization | `integrations/offline_viewers/*` | cyoa-integrations | 7 | L+S | 3.7k lines; large |
