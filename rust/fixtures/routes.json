@@ -1,0 +1,566 @@
+{
+ "cases": [
+  {
+   "start": "https://Story.Test/game/",
+   "scope": "/game/",
+   "canonical_start": "https://story.test/game/",
+   "urls": [
+    {
+     "url": "https://story.test/game/",
+     "canonical": "https://story.test/game/",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/index.html",
+     "canonical": "https://story.test/game/index.html",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/ch1",
+     "canonical": "https://story.test/game/ch1",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/ch1/",
+     "canonical": "https://story.test/game/ch1/",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/ch1?utm_source=x&page=2&ref=y&fbclid=z",
+     "canonical": "https://story.test/game/ch1?page=2",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/ch%201",
+     "canonical": "https://story.test/game/ch%201",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/./x",
+     "canonical": "https://story.test/game/x",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/a/../b",
+     "canonical": "https://story.test/game/b",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/other/",
+     "canonical": "https://story.test/other/",
+     "allowed": false
+    },
+    {
+     "url": "https://story.test/game/api/data",
+     "canonical": "https://story.test/game/api/data",
+     "allowed": false
+    },
+    {
+     "url": "https://story.test/game/login",
+     "canonical": "https://story.test/game/login",
+     "allowed": false
+    },
+    {
+     "url": "https://story.test/game/Login/",
+     "canonical": "https://story.test/game/Login/",
+     "allowed": false
+    },
+    {
+     "url": "https://evil.test/game/x",
+     "canonical": "https://evil.test/game/x",
+     "allowed": false
+    },
+    {
+     "url": "http://story.test/game/x",
+     "canonical": "http://story.test/game/x",
+     "allowed": false
+    },
+    {
+     "url": "https://story.test/game/x#frag",
+     "canonical": "https://story.test/game/x",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/x?returnTo=/a&b=1",
+     "canonical": "https://story.test/game/x?b=1",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/gamex/y",
+     "canonical": "https://story.test/gamex/y",
+     "allowed": false
+    },
+    {
+     "url": "https://story.test/game/%2e%2e/secret",
+     "canonical": "https://story.test/game/%2e%2e/secret",
+     "allowed": false
+    },
+    {
+     "url": "https://STORY.test:443/game/y",
+     "canonical": "https://story.test/game/y",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/ü/ä",
+     "canonical": "https://story.test/game/ü/ä",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/CON",
+     "canonical": "https://story.test/game/CON",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/a;p=1",
+     "canonical": "https://story.test/game/a;p=1",
+     "allowed": true
+    }
+   ],
+   "scope_for": {
+    "": "/",
+    "/": "/",
+    "/a": "/a/",
+    "/a/": "/a/",
+    "/a/b.html": "/a/",
+    "//a//b/": "/a/b/"
+   }
+  },
+  {
+   "start": "https://story.test/game/index.html",
+   "scope": "/game/",
+   "canonical_start": "https://story.test/game/index.html",
+   "urls": [
+    {
+     "url": "https://story.test/game/",
+     "canonical": "https://story.test/game/",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/index.html",
+     "canonical": "https://story.test/game/index.html",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/ch1",
+     "canonical": "https://story.test/game/ch1",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/ch1/",
+     "canonical": "https://story.test/game/ch1/",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/ch1?utm_source=x&page=2&ref=y&fbclid=z",
+     "canonical": "https://story.test/game/ch1?page=2",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/ch%201",
+     "canonical": "https://story.test/game/ch%201",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/./x",
+     "canonical": "https://story.test/game/x",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/a/../b",
+     "canonical": "https://story.test/game/b",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/other/",
+     "canonical": "https://story.test/other/",
+     "allowed": false
+    },
+    {
+     "url": "https://story.test/game/api/data",
+     "canonical": "https://story.test/game/api/data",
+     "allowed": false
+    },
+    {
+     "url": "https://story.test/game/login",
+     "canonical": "https://story.test/game/login",
+     "allowed": false
+    },
+    {
+     "url": "https://story.test/game/Login/",
+     "canonical": "https://story.test/game/Login/",
+     "allowed": false
+    },
+    {
+     "url": "https://evil.test/game/x",
+     "canonical": "https://evil.test/game/x",
+     "allowed": false
+    },
+    {
+     "url": "http://story.test/game/x",
+     "canonical": "http://story.test/game/x",
+     "allowed": false
+    },
+    {
+     "url": "https://story.test/game/x#frag",
+     "canonical": "https://story.test/game/x",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/x?returnTo=/a&b=1",
+     "canonical": "https://story.test/game/x?b=1",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/gamex/y",
+     "canonical": "https://story.test/gamex/y",
+     "allowed": false
+    },
+    {
+     "url": "https://story.test/game/%2e%2e/secret",
+     "canonical": "https://story.test/game/%2e%2e/secret",
+     "allowed": false
+    },
+    {
+     "url": "https://STORY.test:443/game/y",
+     "canonical": "https://story.test/game/y",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/ü/ä",
+     "canonical": "https://story.test/game/ü/ä",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/CON",
+     "canonical": "https://story.test/game/CON",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/a;p=1",
+     "canonical": "https://story.test/game/a;p=1",
+     "allowed": true
+    }
+   ],
+   "scope_for": {
+    "": "/",
+    "/": "/",
+    "/a": "/a/",
+    "/a/": "/a/",
+    "/a/b.html": "/a/",
+    "//a//b/": "/a/b/"
+   }
+  },
+  {
+   "start": "https://story.test/game",
+   "scope": "/game/",
+   "canonical_start": "https://story.test/game",
+   "urls": [
+    {
+     "url": "https://story.test/game/",
+     "canonical": "https://story.test/game/",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/index.html",
+     "canonical": "https://story.test/game/index.html",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/ch1",
+     "canonical": "https://story.test/game/ch1",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/ch1/",
+     "canonical": "https://story.test/game/ch1/",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/ch1?utm_source=x&page=2&ref=y&fbclid=z",
+     "canonical": "https://story.test/game/ch1?page=2",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/ch%201",
+     "canonical": "https://story.test/game/ch%201",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/./x",
+     "canonical": "https://story.test/game/x",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/a/../b",
+     "canonical": "https://story.test/game/b",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/other/",
+     "canonical": "https://story.test/other/",
+     "allowed": false
+    },
+    {
+     "url": "https://story.test/game/api/data",
+     "canonical": "https://story.test/game/api/data",
+     "allowed": false
+    },
+    {
+     "url": "https://story.test/game/login",
+     "canonical": "https://story.test/game/login",
+     "allowed": false
+    },
+    {
+     "url": "https://story.test/game/Login/",
+     "canonical": "https://story.test/game/Login/",
+     "allowed": false
+    },
+    {
+     "url": "https://evil.test/game/x",
+     "canonical": "https://evil.test/game/x",
+     "allowed": false
+    },
+    {
+     "url": "http://story.test/game/x",
+     "canonical": "http://story.test/game/x",
+     "allowed": false
+    },
+    {
+     "url": "https://story.test/game/x#frag",
+     "canonical": "https://story.test/game/x",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/x?returnTo=/a&b=1",
+     "canonical": "https://story.test/game/x?b=1",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/gamex/y",
+     "canonical": "https://story.test/gamex/y",
+     "allowed": false
+    },
+    {
+     "url": "https://story.test/game/%2e%2e/secret",
+     "canonical": "https://story.test/game/%2e%2e/secret",
+     "allowed": false
+    },
+    {
+     "url": "https://STORY.test:443/game/y",
+     "canonical": "https://story.test/game/y",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/ü/ä",
+     "canonical": "https://story.test/game/ü/ä",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/CON",
+     "canonical": "https://story.test/game/CON",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/a;p=1",
+     "canonical": "https://story.test/game/a;p=1",
+     "allowed": true
+    }
+   ],
+   "scope_for": {
+    "": "/",
+    "/": "/",
+    "/a": "/a/",
+    "/a/": "/a/",
+    "/a/b.html": "/a/",
+    "//a//b/": "/a/b/"
+   }
+  },
+  {
+   "start": "https://story.test/",
+   "scope": "/",
+   "canonical_start": "https://story.test/",
+   "urls": [
+    {
+     "url": "https://story.test/game/",
+     "canonical": "https://story.test/game/",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/index.html",
+     "canonical": "https://story.test/game/index.html",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/ch1",
+     "canonical": "https://story.test/game/ch1",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/ch1/",
+     "canonical": "https://story.test/game/ch1/",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/ch1?utm_source=x&page=2&ref=y&fbclid=z",
+     "canonical": "https://story.test/game/ch1?page=2",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/ch%201",
+     "canonical": "https://story.test/game/ch%201",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/./x",
+     "canonical": "https://story.test/game/x",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/a/../b",
+     "canonical": "https://story.test/game/b",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/other/",
+     "canonical": "https://story.test/other/",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/api/data",
+     "canonical": "https://story.test/game/api/data",
+     "allowed": false
+    },
+    {
+     "url": "https://story.test/game/login",
+     "canonical": "https://story.test/game/login",
+     "allowed": false
+    },
+    {
+     "url": "https://story.test/game/Login/",
+     "canonical": "https://story.test/game/Login/",
+     "allowed": false
+    },
+    {
+     "url": "https://evil.test/game/x",
+     "canonical": "https://evil.test/game/x",
+     "allowed": false
+    },
+    {
+     "url": "http://story.test/game/x",
+     "canonical": "http://story.test/game/x",
+     "allowed": false
+    },
+    {
+     "url": "https://story.test/game/x#frag",
+     "canonical": "https://story.test/game/x",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/x?returnTo=/a&b=1",
+     "canonical": "https://story.test/game/x?b=1",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/gamex/y",
+     "canonical": "https://story.test/gamex/y",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/%2e%2e/secret",
+     "canonical": "https://story.test/game/%2e%2e/secret",
+     "allowed": false
+    },
+    {
+     "url": "https://STORY.test:443/game/y",
+     "canonical": "https://story.test/game/y",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/ü/ä",
+     "canonical": "https://story.test/game/ü/ä",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/CON",
+     "canonical": "https://story.test/game/CON",
+     "allowed": true
+    },
+    {
+     "url": "https://story.test/game/a;p=1",
+     "canonical": "https://story.test/game/a;p=1",
+     "allowed": true
+    }
+   ],
+   "scope_for": {
+    "": "/",
+    "/": "/",
+    "/a": "/a/",
+    "/a/": "/a/",
+    "/a/b.html": "/a/",
+    "//a//b/": "/a/b/"
+   }
+  }
+ ],
+ "local_paths": [
+  {
+   "url": "https://story.test/game/",
+   "local": "index.html"
+  },
+  {
+   "url": "https://story.test/game/ch1",
+   "local": "routes/ch1/index.html"
+  },
+  {
+   "url": "https://story.test/game/ch1?p=2",
+   "local": "routes/ch1_9f2b2362/index.html"
+  },
+  {
+   "url": "https://story.test/game/ch%201",
+   "local": "routes/ch 1/index.html"
+  },
+  {
+   "url": "https://story.test/game/ch 1",
+   "local": "routes/ch 1_da39a3ee/index.html"
+  },
+  {
+   "url": "https://story.test/game/a/b/",
+   "local": "routes/a/b/index.html"
+  },
+  {
+   "url": "https://story.test/other/z",
+   "local": "routes/other/z/index.html"
+  },
+  {
+   "url": "https://story.test/game/CON",
+   "local": "routes/_CON/index.html"
+  },
+  {
+   "url": "https://story.test/game/ch1?p=2",
+   "local": "routes/ch1_9f2b2362/index.html"
+  }
+ ],
+ "links": {
+  "https://story.test/game/": [
+   "https://story.test/game/ch1",
+   "https://story.test/game/sub/ch2",
+   "https://story.test/game/ch3",
+   "https://story.test/game/sub/kept"
+  ],
+  "https://story.test/game/ch1": [
+   "https://story.test/game/",
+   "https://story.test/game/ch2",
+   "https://story.test/game/ch1"
+  ]
+ },
+ "pages_html": {
+  "https://story.test/game/": "<html><head><base href=\"sub/\"></head><body><a href=\"../ch1\">1</a><a href=\"ch2#top\">2</a><a href=\"#local\">f</a><a href=\"/game/ch3?utm_medium=a\">3</a><a href=\"https://evil.test/x\">e</a><a href=\"javascript:void(0)\">j</a><a href=\"mailto:a@b\">m</a><a href=\"/game/login\">l</a><a data-cyoa-local-route=\"1\" href=\"kept\">k</a></body></html>",
+  "https://story.test/game/ch1": "<p><a href=\"/game/\">home</a><a href=\"ch2\">2</a><a href=\"./ch1#x\">self</a></p>"
+ },
+ "response_urls": {
+  "https://story.test/game/ch1": "https://story.test/game/ch1/"
+ },
+ "rewritten": {
+  "index.html": "<html><head><base href=\"sub/\"/></head><body><a data-cyoa-local-route=\"1\" href=\"routes/ch1/index.html\">1</a><a href=\"ch2#top\">2</a><a href=\"#local\">f</a><a href=\"/game/ch3?utm_medium=a\">3</a><a href=\"https://evil.test/x\">e</a><a href=\"javascript:void(0)\">j</a><a href=\"mailto:a@b\">m</a><a href=\"/game/login\">l</a><a data-cyoa-local-route=\"1\" href=\"kept\">k</a><script data-cyoa-offline-route-guard=\"\">document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a[data-cyoa-local-route]');if(a){e.preventDefault();e.stopImmediatePropagation();location.href=a.href;}},true);</script></body></html>",
+  "routes/ch1/index.html": "<p><a data-cyoa-local-route=\"1\" href=\"../../index.html\">home</a><a href=\"ch2\">2</a><a data-cyoa-local-route=\"1\" href=\"index.html#x\">self</a></p><script data-cyoa-offline-route-guard=\"\">document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a[data-cyoa-local-route]');if(a){e.preventDefault();e.stopImmediatePropagation();location.href=a.href;}},true);</script>"
+ }
+}
