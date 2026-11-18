@@ -49,6 +49,7 @@ pub fn resolve_cli(
     ProxyConfig::new(mode, &proxy, &http, &https, &bypass)
 }
 
+/// Proxy configuration errors (messages match Python ValueError text).
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum ProxyError {
     #[error("Unknown proxy mode")]
