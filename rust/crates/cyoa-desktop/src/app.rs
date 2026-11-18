@@ -606,7 +606,7 @@ mod tests {
             )),
             ..Default::default()
         };
-        let mut frame = |app: &mut DownloaderApp| {
+        let frame = |app: &mut DownloaderApp| {
             let mut out = ctx.run_ui(input(), |ui| {
                 app.controls(ui);
                 app.status_bar(ui);
