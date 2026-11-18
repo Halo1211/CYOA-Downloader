@@ -152,10 +152,18 @@ fn bundle_signals(root: &Path) -> Value {
         if scanned >= 3 * 1024 * 1024 {
             break;
         }
-        let Ok(bytes) = fs::read(path) else {
+        let remain = (3 * 1024 * 1024 - scanned).min(1024 * 1024);
+        // Bounded read like Python `read(limit)`: `remain` chars need at most
+        // 4 bytes each in UTF-8.
+        let mut bytes = Vec::new();
+        let Ok(f) = fs::File::open(path) else {
             continue;
         };
-        let remain = (3 * 1024 * 1024 - scanned).min(1024 * 1024);
+        if std::io::Read::read_to_end(&mut std::io::Read::take(f, (remain as u64) * 4), &mut bytes)
+            .is_err()
+        {
+            continue;
+        }
         let text = String::from_utf8_lossy(&bytes);
         // Rust lossy replacement differs from Python errors=ignore; remove replacement characters.
         let cleaned = text
