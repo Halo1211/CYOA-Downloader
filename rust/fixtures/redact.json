@@ -1,0 +1,74 @@
+[
+ {
+  "in": "plain message, nothing secret",
+  "out": "plain message, nothing secret"
+ },
+ {
+  "in": "Authorization: Bearer abc.def-ghi_123",
+  "out": "Authorization: __REDACTED__ __REDACTED__"
+ },
+ {
+  "in": "header authorization=Basic dXNlcjpwYXNz",
+  "out": "header authorization=__REDACTED__ dXNlcjpwYXNz"
+ },
+ {
+  "in": "GET https://x.test/a.png?key=SECRET123&size=2",
+  "out": "GET https://x.test/a.png?key=__REDACTED__&size=2"
+ },
+ {
+  "in": "https://x.test/?access_token=tok&sig=zzz#frag",
+  "out": "https://x.test/?access_token=__REDACTED__&sig=__REDACTED__#frag"
+ },
+ {
+  "in": "proxy http://bob:hunter2@10.0.0.1:8080 failed",
+  "out": "proxy http://bob:__REDACTED__@10.0.0.1:8080 failed"
+ },
+ {
+  "in": "socks5h://u:p@h:1080",
+  "out": "socks5h://u:__REDACTED__@h:1080"
+ },
+ {
+  "in": "api_key=ABCDEF ok",
+  "out": "api_key=__REDACTED__ ok"
+ },
+ {
+  "in": "my-api-key: 'quoted value' here",
+  "out": "my-api-key: __REDACTED__ here"
+ },
+ {
+  "in": "{\"discord_bot_token\": \"xyz.abc\", \"name\": \"n\"}",
+  "out": "{\"discord_bot_token\": \"__REDACTED__\", \"name\": \"n\"}"
+ },
+ {
+  "in": "password = s3cr3t, user = bob",
+  "out": "password = __REDACTED__, user = bob"
+ },
+ {
+  "in": "cookie:session=abc; other",
+  "out": "cookie:__REDACTED__ other"
+ },
+ {
+  "in": "x_TOKEN_y=1",
+  "out": "x_TOKEN_y=__REDACTED__"
+ },
+ {
+  "in": "tokens are fine",
+  "out": "tokens are fine"
+ },
+ {
+  "in": "token",
+  "out": "token"
+ },
+ {
+  "in": "credential:'a b'",
+  "out": "credential:__REDACTED__"
+ },
+ {
+  "in": "Résumé token=ünïcode end",
+  "out": "Résumé token=__REDACTED__ end"
+ },
+ {
+  "in": "url https://x/?token=a&key=b&sig=c",
+  "out": "url https://x/?token=__REDACTED__&key=__REDACTED__&sig=__REDACTED__"
+ }
+]

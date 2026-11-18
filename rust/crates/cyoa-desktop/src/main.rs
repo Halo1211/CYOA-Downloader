@@ -5,6 +5,8 @@ mod net;
 mod worker;
 
 fn main() -> eframe::Result {
+    // File log only; the GUI shows its own log view.
+    cyoa_engine::logfile::init(false);
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title("CYOA Downloader")

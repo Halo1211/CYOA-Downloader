@@ -190,6 +190,9 @@ async fn main() -> ExitCode {
         );
         return ExitCode::from(2);
     }
+    // Python cli.py: console log handler + setup_file_logging(output_dir).
+    cyoa_engine::logfile::init(true);
+    cyoa_engine::logfile::setup_file_logging(&args.output);
 
     // Saved settings are read only; Python's CLI also persists proxy flags (not ported yet).
     let mut store =

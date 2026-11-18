@@ -338,6 +338,10 @@ async fn worker_loop(
 
 async fn run_job(job: JobId, opts: RunOptions, cancel: CancellationToken, link: Arc<Link>) {
     link.lifecycle(Event::Started { job }).await;
+    // Python GUI: setup_file_logging(outdir) when a download starts (off the UI thread).
+    let dir = opts.output_dir.clone();
+    let _ =
+        tokio::task::spawn_blocking(move || cyoa_engine::logfile::setup_file_logging(&dir)).await;
 
     let (ptx, mut prx) = mpsc::channel::<Progress>(64);
     let fwd = link.clone();
