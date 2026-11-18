@@ -87,6 +87,8 @@ pub struct RunOptions {
     /// F-016 proxy profile for this run.
     pub proxy: ProxyConfig,
     pub dns: Option<Arc<cyoa_net::dns_resolve::CustomResolver>>,
+    /// F-018 VPN guard (`require` policy only).
+    pub vpn: Option<Arc<cyoa_net::vpn::VpnGuard>>,
 }
 
 /// Python default for `image_cache_max_mb`.
@@ -105,6 +107,7 @@ impl Default for RunOptions {
             file_name: None,
             proxy: ProxyConfig::disabled(),
             dns: None,
+            vpn: None,
         }
     }
 }
@@ -170,6 +173,7 @@ pub async fn run_download(
         budget: RequestBudget::new(16, 8),
         proxy: opts.proxy.clone(),
         dns: opts.dns.clone(),
+        vpn: opts.vpn.clone(),
         ..ClientConfig::default()
     })
     .map_err(|e| RunError::OutputDirectory(std::io::Error::other(e.to_string())))?;

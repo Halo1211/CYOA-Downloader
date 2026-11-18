@@ -9,3 +9,4 @@ pub mod policy;
 pub mod proxy;
 pub mod retry;
 pub mod throttle;
+pub mod vpn;

@@ -316,6 +316,16 @@ pub async fn fetch_one(ctx: &FetchCtx, asset_path: &str) -> FetchOutcome {
             Err(cyoa_net::client::FetchError::Cancelled) => {
                 return outcome(asset_path, None, "", &asset_url, "fetch cancelled");
             }
+            Err(cyoa_net::client::FetchError::VpnBlocked) => {
+                // Python image_pipeline: immediate failure, no retry.
+                return outcome(
+                    asset_path,
+                    None,
+                    "",
+                    &asset_url,
+                    "VPN guard blocked asset request: required interface not detected",
+                );
+            }
             Err(cyoa_net::client::FetchError::Http(_)) => {
                 last_error = "fetch_response returned None".to_owned();
                 ctx.domain.record_failure(&asset_url, || 0.5);

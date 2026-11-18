@@ -83,6 +83,12 @@ struct Args {
     /// Use a BebasDNS DoH variant.
     #[arg(long, value_parser = ["default", "security", "unfiltered", "family"])]
     bebasdns: Option<String>,
+    /// VPN policy. require blocks downloads unless a VPN-like interface is active.
+    #[arg(long, value_parser = ["system", "require"])]
+    vpn_policy: Option<String>,
+    /// Optional interface name/description substring for --vpn-policy require.
+    #[arg(long)]
+    vpn_interface: Option<String>,
 }
 
 fn valid_url(url: &str) -> bool {
@@ -250,6 +256,27 @@ async fn main() -> ExitCode {
         ))
     });
 
+    let vpn_cfg = match cyoa_net::vpn::VpnConfig::new(
+        &args
+            .vpn_policy
+            .clone()
+            .or_else(|| lookup("vpn_policy"))
+            .unwrap_or_else(|| "system".to_owned()),
+        &args
+            .vpn_interface
+            .clone()
+            .or_else(|| lookup("vpn_interface"))
+            .unwrap_or_default(),
+    ) {
+        Ok(cfg) => cfg,
+        Err(error) => {
+            eprintln!("error: Invalid network configuration: {error}");
+            return ExitCode::from(2);
+        }
+    };
+    let vpn = (vpn_cfg.policy == cyoa_net::vpn::VpnPolicy::Require)
+        .then(|| std::sync::Arc::new(cyoa_net::vpn::VpnGuard::new(vpn_cfg)));
+
     let batch_mode = args.list.is_some();
     let items: Vec<BatchItem> = if let Some(list) = args.list.take() {
         match batch::import_batch_file(&list) {
@@ -320,6 +347,7 @@ async fn main() -> ExitCode {
             file_name: (!item.filename.is_empty()).then(|| item.filename.clone()),
             proxy: proxy_cfg.clone(),
             dns: dns.clone(),
+            vpn: vpn.clone(),
             ..RunOptions::default()
         };
         match run_one(options, &cancel).await {

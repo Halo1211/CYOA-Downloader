@@ -44,6 +44,8 @@ pub enum FetchError {
     Http(#[source] reqwest::Error),
     #[error("file or deadline operation failed")]
     Io(#[from] io::Error),
+    #[error("VPN guard blocked request: required interface not detected")]
+    VpnBlocked,
 }
 use FetchError as E;
 
@@ -100,6 +102,8 @@ pub struct ClientConfig {
     pub max_redirects: usize,
     pub proxy: crate::proxy::ProxyConfig,
     pub dns: Option<Arc<crate::dns_resolve::CustomResolver>>,
+    /// F-018: fail-closed VPN requirement checked before every request.
+    pub vpn: Option<Arc<crate::vpn::VpnGuard>>,
 }
 
 impl Default for ClientConfig {
@@ -113,6 +117,7 @@ impl Default for ClientConfig {
             max_redirects: 10,
             proxy: crate::proxy::ProxyConfig::disabled(),
             dns: None,
+            vpn: None,
         }
     }
 }
@@ -249,6 +254,11 @@ impl FetchClient {
             .and_then(|t| Instant::now().checked_add(t));
         check(cancel, end)?;
         self.cfg.policy.check(url)?;
+        if let Some(vpn) = &self.cfg.vpn
+            && !vpn.satisfied_async().await
+        {
+            return Err(E::VpnBlocked);
+        }
         let mut headers = HeaderMap::new();
         for (k, v) in get_headers_for_url(url.as_str()) {
             let k = HeaderName::from_bytes(k.as_bytes()).map_err(|_| PolicyError::InvalidUrl)?;
@@ -621,6 +631,54 @@ mod tests {
             "unexpected resolver chain: {chain}"
         );
         responder.await.unwrap();
+    }
+
+    fn vpn_guard(rows: Vec<crate::vpn::NetInterface>) -> Arc<crate::vpn::VpnGuard> {
+        Arc::new(crate::vpn::VpnGuard::with_enumerator(
+            crate::vpn::VpnConfig::new("require", "").unwrap(),
+            Box::new(move || rows.clone()),
+        ))
+    }
+
+    #[tokio::test]
+    async fn vpn_guard_blocks_before_network_and_allows_when_up() {
+        let server = MockServer::start().await;
+        Mock::given(path("/x"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("ok"))
+            .mount(&server)
+            .await;
+        let cfg = |vpn| ClientConfig {
+            policy: DestinationPolicy {
+                origin: None,
+                allow_internal: true,
+            },
+            vpn: Some(vpn),
+            ..ClientConfig::default()
+        };
+        let blocked = FetchClient::new(cfg(vpn_guard(vec![crate::vpn::NetInterface {
+            name: "Wi-Fi".into(),
+            description: "Intel(R) Wi-Fi 6".into(),
+            up: true,
+        }])))
+        .unwrap();
+        assert!(matches!(
+            get(&blocked, &format!("{}/x", server.uri())).await,
+            Err(E::VpnBlocked)
+        ));
+        assert!(
+            server
+                .received_requests()
+                .await
+                .unwrap_or_default()
+                .is_empty()
+        );
+        let allowed = FetchClient::new(cfg(vpn_guard(vec![crate::vpn::NetInterface {
+            name: "wg0".into(),
+            description: "WireGuard Tunnel".into(),
+            up: true,
+        }])))
+        .unwrap();
+        assert!(get(&allowed, &format!("{}/x", server.uri())).await.is_ok());
     }
 
     #[tokio::test]
