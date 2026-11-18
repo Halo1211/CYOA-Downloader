@@ -191,7 +191,7 @@ fn cache_put(key: &str, value: &str) {
         },
     );
 }
-fn record_fetch(f: &mut dyn CafeFetch, url: &str, refresh: bool) -> Option<Value> {
+pub fn fetch_cyoa_cafe_record(f: &mut dyn CafeFetch, url: &str, refresh: bool) -> Option<Value> {
     let id = record_id(url);
     if id.is_empty() {
         return None;
@@ -512,7 +512,7 @@ impl<'a> CafeResolver<'a> {
         }
         let cached = cache_get(&n);
         let authoritative = if host == "cyoa.cafe" {
-            record_fetch(self.fetcher, &n, cached.is_some()).and_then(|v| {
+            fetch_cyoa_cafe_record(self.fetcher, &n, cached.is_some()).and_then(|v| {
                 FIELDS.iter().find_map(|f| {
                     v.get(*f)
                         .and_then(Value::as_str)
