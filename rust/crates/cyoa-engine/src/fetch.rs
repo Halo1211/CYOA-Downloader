@@ -169,15 +169,34 @@ pub async fn fetch_one(ctx: &FetchCtx, asset_path: &str) -> FetchOutcome {
             Ok(url) => url,
             Err(error) => return outcome(asset_path, None, "", &asset_url, error.to_string()),
         };
-        let response = caller_status_retry_scope(ctx.client.get(
-            &url,
-            &FetchOptions {
-                return_error_response: true,
-                ..FetchOptions::default()
-            },
-            &ctx.cancel,
-        ))
-        .await;
+        // Python `fetch_response` retries connect/pre-header failures inside the
+        // transport (urllib3 Retry, 3 attempts, backoff 0/2/4 s) before returning
+        // None; only then does this loop see "fetch_response returned None".
+        let mut transport = cyoa_net::retry::TransportRetryBudget::default();
+        let response = loop {
+            let r = caller_status_retry_scope(ctx.client.get(
+                &url,
+                &FetchOptions {
+                    return_error_response: true,
+                    ..FetchOptions::default()
+                },
+                &ctx.cancel,
+            ))
+            .await;
+            match r {
+                Err(cyoa_net::client::FetchError::Http(ref e)) if !e.is_status() => match transport
+                    .next_backoff()
+                {
+                    Some(delay) => {
+                        if delay > 0.0 && !cancel_sleep(delay, &ctx.cancel).await {
+                            return outcome(asset_path, None, "", &asset_url, "fetch cancelled");
+                        }
+                    }
+                    None => break r,
+                },
+                other => break other,
+            }
+        };
         let response = match response {
             Ok(response) => response,
             Err(cyoa_net::client::FetchError::Cancelled) => {
@@ -486,5 +505,39 @@ mod tests {
                 .expect("requests")
                 .is_empty()
         );
+    }
+
+    #[tokio::test]
+    async fn transport_failures_retry_three_times_then_exhaust() {
+        // Accepts and immediately drops connections: a pre-header transport failure.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let accepts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = accepts.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                drop(stream);
+            }
+        });
+        let server = MockServer::start().await;
+        let mut context = ctx(&server, None, CancellationToken::new());
+        context.base_url = format!("http://{addr}/");
+        context.client = FetchClient::new(ClientConfig {
+            policy: DestinationPolicy {
+                origin: Some(Url::parse(&context.base_url).unwrap()),
+                allow_internal: false,
+            },
+            ..ClientConfig::default()
+        })
+        .unwrap();
+        let started = std::time::Instant::now();
+        let result = fetch_one(&context, "a.png").await;
+        assert_eq!(result.error, "fetch_response returned None");
+        // 1 initial + 3 transport retries (Python urllib3 Retry); then the media
+        // loop stops instead of multiplying attempts.
+        assert_eq!(accepts.load(std::sync::atomic::Ordering::SeqCst), 4);
+        // Backoff 0 + 2 + 4 seconds.
+        assert!(started.elapsed() >= std::time::Duration::from_secs(6));
     }
 }

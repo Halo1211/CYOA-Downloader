@@ -11,12 +11,10 @@ path = "src/main.rs"
 
 [dependencies]
 cyoa-engine = { path = "../cyoa-engine" }
-cyoa-integrations = { path = "../cyoa-integrations" }
 cyoa-core = { path = "../cyoa-core" }
 clap = { version = "4.6.8", features = ["derive"] }
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "signal"] }
 tokio-util = "0.7.20"
-anyhow = "1.0.104"
 
 [lints]
 workspace = true

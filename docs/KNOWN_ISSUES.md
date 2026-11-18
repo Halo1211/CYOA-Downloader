@@ -13,7 +13,7 @@
 
 ## Session 4 (Rust engine)
 - **KI-R1 memory:** `pipeline::process_images` holds every fetched body (and base64 embeds) in memory; Python can spool to disk. Large projects can exhaust RAM. Fix: file-backed payloads + streaming output sink (Sol High, deferred).
-- **KI-R2 transport retries:** Rust client does no connect-level retries; Python retries 3x inside fetch_response.
+- **KI-R2 transport retries:** FIXED (session 4) — 3 transport retries with urllib3 backoff 0/2/4 s before "fetch_response returned None"; read-phase (mid-body) retries still not ported.
 - **KI-R3 error strings:** other-4xx/TLS failure messages differ from requests' wording.
 - **KI-R4 blocking resolver:** `FetchCtx.resolver` (SSRF cross-origin check) is synchronous on runtime threads.
 - **DEFERRED in fetch_one:** gallery-dl, headless browser, cookie session, Discord refresh, MediaWiki File: resolution, VPN guard, yt-dlp.

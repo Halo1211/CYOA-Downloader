@@ -143,12 +143,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "anyhow"
-version = "1.0.104"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
-
-[[package]]
 name = "apple-native-keyring-store"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -859,11 +853,9 @@ checksum = "f27ae1dd37df86211c42e150270f82743308803d90a6f6e6651cd730d5e1732f"
 name = "cyoa-cli"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "clap",
  "cyoa-core",
  "cyoa-engine",
- "cyoa-integrations",
  "tokio",
  "tokio-util",
 ]
@@ -886,7 +878,6 @@ version = "0.1.0"
 dependencies = [
  "cyoa-core",
  "cyoa-engine",
- "cyoa-integrations",
  "eframe",
  "rfd",
  "serde",
