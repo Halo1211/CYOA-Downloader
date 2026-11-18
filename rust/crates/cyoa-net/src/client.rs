@@ -99,6 +99,7 @@ pub struct ClientConfig {
     pub total_timeout: Option<Duration>,
     pub max_redirects: usize,
     pub proxy: crate::proxy::ProxyConfig,
+    pub dns: Option<Arc<crate::dns_resolve::CustomResolver>>,
 }
 
 impl Default for ClientConfig {
@@ -111,6 +112,7 @@ impl Default for ClientConfig {
             total_timeout: None,
             max_redirects: 10,
             proxy: crate::proxy::ProxyConfig::disabled(),
+            dns: None,
         }
     }
 }
@@ -132,14 +134,28 @@ impl Default for FetchOptions {
     }
 }
 
-struct PolicyResolver(DestinationPolicy);
+struct PolicyResolver(
+    DestinationPolicy,
+    Option<Arc<crate::dns_resolve::CustomResolver>>,
+);
 
 impl Resolve for PolicyResolver {
     fn resolve(&self, name: Name) -> Resolving {
         let policy = self.0.clone();
+        let custom_dns = self.1.clone();
         Box::pin(async move {
             let host = name.as_str();
-            let addrs: Vec<SocketAddr> = tokio::net::lookup_host((host, 0)).await?.collect();
+            let addrs: Vec<SocketAddr> = if let Some(resolver) = custom_dns {
+                resolver
+                    .lookup(host)
+                    .await
+                    .map_err(|e| io::Error::other(e.to_string()))?
+                    .into_iter()
+                    .map(|ip| SocketAddr::new(ip, 0))
+                    .collect()
+            } else {
+                tokio::net::lookup_host((host, 0)).await?.collect()
+            };
             let exempt = policy.allow_internal
                 || policy
                     .origin
@@ -198,7 +214,10 @@ impl FetchClient {
     pub fn new(cfg: ClientConfig) -> Result<Self, E> {
         let mut builder = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
-            .dns_resolver(Arc::new(PolicyResolver(cfg.policy.clone())))
+            .dns_resolver(Arc::new(PolicyResolver(
+                cfg.policy.clone(),
+                cfg.dns.clone(),
+            )))
             .connect_timeout(cfg.connect_timeout)
             .read_timeout(cfg.read_timeout)
             .user_agent(DEFAULT_USER_AGENT)
@@ -555,6 +574,53 @@ mod tests {
             get(&client(&s, false, 10), &s.uri()).await,
             Err(E::Policy(_))
         ));
+    }
+
+    #[tokio::test]
+    async fn custom_dns_internal_answer_is_rejected() {
+        use tokio::net::UdpSocket;
+        let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let dns_addr = socket.local_addr().unwrap();
+        let responder = tokio::spawn(async move {
+            let mut query = [0u8; 512];
+            let (len, peer) = socket.recv_from(&mut query).await.unwrap();
+            let q = &query[..len];
+            let mut response = q[..len].to_vec();
+            response[2] = 0x81;
+            response[3] = 0x80;
+            response[6] = 0;
+            response[7] = 1;
+            response.extend_from_slice(&[0xc0, 0x0c, 0, 1, 0, 1, 0, 0, 0, 30, 0, 4, 127, 0, 0, 1]);
+            socket.send_to(&response, peer).await.unwrap();
+        });
+        let resolver = Arc::new(crate::dns_resolve::CustomResolver::new(
+            crate::dns::DnsConfig::new(dns_addr.to_string(), Some("udp"), 0, 2, false, false)
+                .unwrap(),
+            None,
+        ));
+        let client = FetchClient::new(ClientConfig {
+            policy: DestinationPolicy {
+                origin: None,
+                allow_internal: false,
+            },
+            dns: Some(resolver),
+            ..ClientConfig::default()
+        })
+        .unwrap();
+        let result = get(&client, "http://ssrf-check.invalid/").await;
+        assert!(matches!(result, Err(E::Http(_))));
+        let error = result.err().unwrap();
+        let mut source = std::error::Error::source(&error);
+        let mut chain = String::new();
+        while let Some(cause) = source {
+            chain.push_str(&cause.to_string());
+            source = cause.source();
+        }
+        assert!(
+            chain.contains("cross-origin internal destination blocked"),
+            "unexpected resolver chain: {chain}"
+        );
+        responder.await.unwrap();
     }
 
     #[tokio::test]

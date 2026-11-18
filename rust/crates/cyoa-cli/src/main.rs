@@ -56,6 +56,33 @@ struct Args {
     /// Comma-separated hosts that bypass a manual proxy.
     #[arg(long)]
     proxy_bypass: Option<String>,
+    /// Custom DNS endpoint, e.g. 1.1.1.1 or an HTTPS resolver URL.
+    #[arg(long)]
+    dns: Option<String>,
+    /// DNS transport: system, udp, tcp, doh, or dot.
+    #[arg(long, value_parser = ["system", "udp", "tcp", "doh", "dot"])]
+    dns_protocol: Option<String>,
+    /// Custom DNS port (0 selects the protocol default).
+    #[arg(long)]
+    dns_port: Option<u16>,
+    /// Custom DNS query timeout in seconds (1-60).
+    #[arg(long)]
+    dns_timeout: Option<u8>,
+    /// Fall back to system DNS when custom resolution fails.
+    #[arg(long, conflicts_with = "no_dns_fallback_system")]
+    dns_fallback_system: bool,
+    /// Disable system DNS fallback.
+    #[arg(long)]
+    no_dns_fallback_system: bool,
+    /// Query AAAA records through the selected resolver.
+    #[arg(long, conflicts_with = "no_dns_ipv6")]
+    dns_ipv6: bool,
+    /// Disable AAAA DNS queries.
+    #[arg(long)]
+    no_dns_ipv6: bool,
+    /// Use a BebasDNS DoH variant.
+    #[arg(long, value_parser = ["default", "security", "unfiltered", "family"])]
+    bebasdns: Option<String>,
 }
 
 fn valid_url(url: &str) -> bool {
@@ -182,6 +209,46 @@ async fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    let saved_bool = |key: &str| saved.get(key).and_then(|v| v.as_bool());
+    let saved_int = |key: &str| saved.get(key).and_then(|v| v.as_i64());
+    let dns_cfg = match cyoa_net::dns::resolve_cli(
+        &cyoa_net::dns::DnsArgs {
+            server: args.dns.as_deref(),
+            protocol: args.dns_protocol.as_deref(),
+            port: args.dns_port,
+            timeout: args.dns_timeout,
+            fallback_system: if args.no_dns_fallback_system {
+                Some(false)
+            } else if args.dns_fallback_system {
+                Some(true)
+            } else {
+                None
+            },
+            ipv6: if args.no_dns_ipv6 {
+                Some(false)
+            } else if args.dns_ipv6 {
+                Some(true)
+            } else {
+                None
+            },
+            bebasdns: args.bebasdns.as_deref(),
+        },
+        &lookup,
+        &saved_bool,
+        &saved_int,
+    ) {
+        Ok(cfg) => cfg,
+        Err(error) => {
+            eprintln!("error: Invalid network configuration: {error}");
+            return ExitCode::from(2);
+        }
+    };
+    let dns = (dns_cfg.protocol != "system" && !dns_cfg.server.is_empty()).then(|| {
+        std::sync::Arc::new(cyoa_net::dns_resolve::CustomResolver::new(
+            dns_cfg,
+            Some(proxy_cfg.clone()),
+        ))
+    });
 
     let batch_mode = args.list.is_some();
     let items: Vec<BatchItem> = if let Some(list) = args.list.take() {
@@ -252,6 +319,7 @@ async fn main() -> ExitCode {
             wait_time: args.wait_time,
             file_name: (!item.filename.is_empty()).then(|| item.filename.clone()),
             proxy: proxy_cfg.clone(),
+            dns: dns.clone(),
             ..RunOptions::default()
         };
         match run_one(options, &cancel).await {

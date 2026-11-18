@@ -263,6 +263,66 @@ pub struct DnsConfig {
     pub fallback_system: bool,
     pub ipv6: bool,
 }
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct DnsArgs<'a> {
+    pub server: Option<&'a str>,
+    pub protocol: Option<&'a str>,
+    pub port: Option<u16>,
+    pub timeout: Option<u8>,
+    pub fallback_system: Option<bool>,
+    pub ipv6: Option<bool>,
+    pub bebasdns: Option<&'a str>,
+}
+
+pub fn resolve_cli(
+    args: &DnsArgs<'_>,
+    saved: &dyn Fn(&str) -> Option<String>,
+    saved_bool: &dyn Fn(&str) -> Option<bool>,
+    saved_int: &dyn Fn(&str) -> Option<i64>,
+) -> Result<DnsConfig, DnsError> {
+    let variant = match args.bebasdns {
+        Some("default") => Some("https://dns.bebasid.com/dns-query"),
+        Some("security") => Some("https://security.dns.bebasid.com/dns-query"),
+        Some("unfiltered") => Some("https://unfiltered.dns.bebasid.com/dns-query"),
+        Some("family") => Some("https://family.dns.bebasid.com/dns-query"),
+        _ => None,
+    };
+    let server = variant
+        .map(str::to_owned)
+        .or_else(|| args.server.map(str::to_owned))
+        .or_else(|| saved("dns"))
+        .unwrap_or_default();
+    let protocol = if variant.is_some() {
+        Some("doh".to_owned())
+    } else if args.server.is_some() && args.protocol.is_none() {
+        Some(infer_dns_protocol(&server, None))
+    } else {
+        args.protocol
+            .map(str::to_owned)
+            .or_else(|| saved("dns_protocol"))
+            .or_else(|| Some("system".to_owned()))
+    };
+    let port = args
+        .port
+        .map(i64::from)
+        .or_else(|| saved_int("dns_port"))
+        .unwrap_or(0)
+        .clamp(0, 65535) as u16;
+    let timeout = args
+        .timeout
+        .map(i64::from)
+        .or_else(|| saved_int("dns_timeout"))
+        .unwrap_or(5)
+        .clamp(1, 60) as u32;
+    let fallback = args
+        .fallback_system
+        .or_else(|| saved_bool("dns_fallback_system"))
+        .unwrap_or(true);
+    let ipv6 = args.ipv6.or_else(|| saved_bool("dns_ipv6")).unwrap_or(true);
+    DnsConfig::new(server, protocol.as_deref(), port, timeout, fallback, ipv6)
+}
+
 impl DnsConfig {
     pub fn new(
         server: impl Into<String>,
@@ -401,5 +461,91 @@ mod tests {
             validate_dns_configuration("1.1.1.1", "dot"),
             Err(DnsError::DotIpEndpoint)
         );
+    }
+
+    #[test]
+    fn cli_resolution_rules() {
+        let saved = |key: &str| match key {
+            "dns" => Some("1.1.1.1".to_owned()),
+            "dns_protocol" => Some("system".to_owned()),
+            _ => None,
+        };
+        let saved_bool = |key: &str| match key {
+            "dns_fallback_system" => Some(false),
+            "dns_ipv6" => Some(false),
+            _ => None,
+        };
+        let saved_int = |key: &str| match key {
+            "dns_port" => Some(5353),
+            "dns_timeout" => Some(9),
+            _ => None,
+        };
+        let c = resolve_cli(&DnsArgs::default(), &saved, &saved_bool, &saved_int).unwrap();
+        assert_eq!(
+            (c.server.as_str(), c.protocol.as_str(), c.port, c.timeout),
+            ("1.1.1.1", "system", 5353, 9)
+        );
+        assert!(!c.fallback_system && !c.ipv6);
+
+        let c = resolve_cli(
+            &DnsArgs {
+                server: Some("tcp://1.1.1.1"),
+                ..Default::default()
+            },
+            &saved,
+            &saved_bool,
+            &saved_int,
+        )
+        .unwrap();
+        assert_eq!(c.protocol, "tcp");
+        let c = resolve_cli(
+            &DnsArgs {
+                server: Some("https://resolver.test/dns-query"),
+                protocol: Some("doh"),
+                port: Some(443),
+                timeout: Some(3),
+                fallback_system: Some(true),
+                ipv6: Some(true),
+                ..Default::default()
+            },
+            &saved,
+            &saved_bool,
+            &saved_int,
+        )
+        .unwrap();
+        assert_eq!((c.protocol.as_str(), c.port, c.timeout), ("doh", 443, 3));
+        assert!(c.fallback_system && c.ipv6);
+        for (variant, server) in [
+            ("default", "https://dns.bebasid.com/dns-query"),
+            ("security", "https://security.dns.bebasid.com/dns-query"),
+            ("unfiltered", "https://unfiltered.dns.bebasid.com/dns-query"),
+            ("family", "https://family.dns.bebasid.com/dns-query"),
+        ] {
+            let c = resolve_cli(
+                &DnsArgs {
+                    bebasdns: Some(variant),
+                    ..Default::default()
+                },
+                &saved,
+                &saved_bool,
+                &saved_int,
+            )
+            .unwrap();
+            assert_eq!(c.server, server);
+            assert_eq!(c.protocol, "doh");
+        }
+        assert!(matches!(
+            resolve_cli(
+                &DnsArgs {
+                    server: Some("invalid"),
+                    protocol: Some("doh"),
+                    ..Default::default()
+                },
+                &saved,
+                &saved_bool,
+                &saved_int
+            ),
+            Err(DnsError::InvalidDoh)
+        ));
     }
 }

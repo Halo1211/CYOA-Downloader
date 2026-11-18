@@ -70,7 +70,7 @@ pub enum OutputMode {
     Both,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct RunOptions {
     pub url: String,
     pub output_dir: PathBuf,
@@ -86,6 +86,7 @@ pub struct RunOptions {
     pub file_name: Option<String>,
     /// F-016 proxy profile for this run.
     pub proxy: ProxyConfig,
+    pub dns: Option<Arc<cyoa_net::dns_resolve::CustomResolver>>,
 }
 
 /// Python default for `image_cache_max_mb`.
@@ -103,6 +104,7 @@ impl Default for RunOptions {
             cache_limit_mb: DEFAULT_CACHE_LIMIT_MB,
             file_name: None,
             proxy: ProxyConfig::disabled(),
+            dns: None,
         }
     }
 }
@@ -167,6 +169,7 @@ pub async fn run_download(
         },
         budget: RequestBudget::new(16, 8),
         proxy: opts.proxy.clone(),
+        dns: opts.dns.clone(),
         ..ClientConfig::default()
     })
     .map_err(|e| RunError::OutputDirectory(std::io::Error::other(e.to_string())))?;
