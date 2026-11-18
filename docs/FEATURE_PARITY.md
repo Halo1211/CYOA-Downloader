@@ -27,6 +27,11 @@
 | F-008b image cache in pipeline | TESTED (interop) | Python reads a Rust-written cache: 300/300 hits |
 | CLI MVP (url,-u,-o,-z,-b,-t,-w) | TESTED | `-L` list mode, website/ICC/cyoap-vue modes, proxy/DNS/VPN/Cloudflare flags NOT ported |
 | GUI (egui) A–C | IMPLEMENTED + TESTED (worker unit tests, launch smoke) | Download via GUI not yet exercised manually; Python GUI features beyond the single-URL queue NOT ported |
+| Website W1 path mapping | TESTED | 74 Python fixture cases match: URL normalization, kind detection, local path allocation, local references (casefold identity, `index.html` reserved) |
+| Website W2-CSS rewrite | TESTED | 12 cases: output and download-call sequence match Python (@import, url(), quoted/embedded URLs) |
+| Website W2-JS rewrite | TESTED | 14 `_process_js` cases plus chunk-map/dynamic-path cases match; Rust prefetch is sequential (= Python with 1 worker; Python parallel order is nondeterministic) |
+| Website W2-HTML (BeautifulSoup html.parser) | TESTED | 48 cases + 2000 seeded fuzz cases byte-identical; `_localize_html` 12 cases identical. Parity exception: nesting >512 rejected |
+| Website W3a classic mirror | PARTIAL | `rust/scripts/website_parity.sh`: file list, 14 files, failed list byte-identical vs Python `_download_html`. Not ported: checkpoint/304, browser transport, VPN guard, deep scan, `repair_missing_entry_scripts`, ICC project integration, `_site.zip`, CLI `--icc` |
 | F-020 project parse | PARTIAL | `parse.py` text functions: 18 inputs × 5 functions identical; archive-bytes extraction pending |
 | Policy (SEC-1/SEC-6) | TESTED | 43 host classes plus 8 SSRF decisions identical to CPython 3.12 |
 | Headers | TESTED | 15 URLs; headers and key order identical |
