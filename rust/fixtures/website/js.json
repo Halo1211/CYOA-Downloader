@@ -1,0 +1,497 @@
+{
+ "start": "https://host.example/cyoa/",
+ "cases": [
+  {
+   "name": "plain",
+   "js": "var a=\"img/a.png\"; fetch(\"data/project.json\"); x('//cdn.example/l.js')",
+   "js_url": "https://host.example/cyoa/js/game.js",
+   "js_local": "js/game.js",
+   "existing": [],
+   "output": "var a=\"img/a.png\"; fetch(\"data/project.json\"); x('l.js')",
+   "calls": [
+    [
+     "https://host.example/cyoa/data/project.json",
+     "json",
+     "https://host.example/cyoa/js/game.js"
+    ],
+    [
+     "https://cdn.example/l.js",
+     "js",
+     "https://host.example/cyoa/js/game.js"
+    ],
+    [
+     "https://host.example/cyoa/img/a.png",
+     "images",
+     "https://host.example/cyoa/js/game.js"
+    ],
+    [
+     "//cdn.example/l.js",
+     "js",
+     "https://host.example/cyoa/js/game.js"
+    ]
+   ]
+  },
+  {
+   "name": "dynamic-loader",
+   "js": "basePath = new URL('../', document.currentScript.src); load(basePath + 'css/x.css'); load(basePath + \"img/y.png\")",
+   "js_url": "https://host.example/cyoa/js/core.js",
+   "js_local": "js/core.js",
+   "existing": [],
+   "output": "basePath = new URL('../', document.currentScript.src); load(basePath + 'css/x.css'); load(basePath + \"img/y.png\")",
+   "calls": [
+    [
+     "https://host.example/cyoa/css/x.css",
+     "css",
+     "https://host.example/cyoa/js/core.js"
+    ],
+    [
+     "https://host.example/cyoa/img/y.png",
+     "images",
+     "https://host.example/cyoa/js/core.js"
+    ]
+   ]
+  },
+  {
+   "name": "webpack-public",
+   "js": "__webpack_public_path__ = \"/\"; a(\"js/chunk.js\"); b(\"css/c.css\"); c(\"i.png\")",
+   "js_url": "https://host.example/cyoa/js/boot.js",
+   "js_local": "js/boot.js",
+   "existing": [],
+   "output": "__webpack_public_path__ = \"/\"; a(\"js/chunk.js\"); b(\"css/c.css\"); c(\"i.png\")",
+   "calls": [
+    [
+     "https://host.example/cyoa/js/js/chunk.js",
+     "js",
+     "https://host.example/cyoa/js/boot.js"
+    ],
+    [
+     "https://host.example/cyoa/js/css/c.css",
+     "css",
+     "https://host.example/cyoa/js/boot.js"
+    ]
+   ]
+  },
+  {
+   "name": "app-bundle",
+   "js": "n.p=\"/\";var u=\"https://cdn.example/big.png\";var m=n.p+\"js/\"+e+\".\"+{\"1\":\"aaaa1111\",\"2\":\"bbbb2222\"}[e]+\".js\";",
+   "js_url": "https://host.example/cyoa/js/app.12345678.js",
+   "js_local": "js/app.12345678.js",
+   "existing": [],
+   "output": "n.p=\"/\";var u=\"https://cdn.example/big.png\";var m=n.p+\"js/\"+e+\".\"+{\"1\":\"aaaa1111\",\"2\":\"bbbb2222\"}[e]+\".js\";",
+   "calls": [
+    [
+     "https://host.example/js/1.aaaa1111.js",
+     "js",
+     "https://host.example/cyoa/js/app.12345678.js"
+    ],
+    [
+     "https://host.example/js/2.bbbb2222.js",
+     "js",
+     "https://host.example/cyoa/js/app.12345678.js"
+    ]
+   ]
+  },
+  {
+   "name": "chunkmap2",
+   "js": "x=\"js/\"+({}[e]||e)+\".\"+{\"10\":\"cafe0000\"}[e]+\".js\"",
+   "js_url": "https://host.example/cyoa/js/runtime.js",
+   "js_local": "js/runtime.js",
+   "existing": [],
+   "output": "x=\"js/\"+({}[e]||e)+\".\"+{\"10\":\"cafe0000\"}[e]+\".js\"",
+   "calls": [
+    [
+     "https://host.example/cyoa/js/js/10.cafe0000.js",
+     "js",
+     "https://host.example/cyoa/js/runtime.js"
+    ]
+   ]
+  },
+  {
+   "name": "preload-array",
+   "js": "var urls=[\"a.png\",\"b.png\",\"sub/c.png\"];for(i in urls){img.src=\"images/\"+urls[i];}",
+   "js_url": "https://host.example/cyoa/js/pre.js",
+   "js_local": "js/pre.js",
+   "existing": [],
+   "output": "var urls=[\"a.png\",\"b.png\",\"sub/c.png\"];for(i in urls){img.src=\"images/\"+urls[i];}",
+   "calls": [
+    [
+     "https://host.example/cyoa/images/a.png",
+     "images",
+     "https://host.example/cyoa/js/pre.js"
+    ],
+    [
+     "https://host.example/cyoa/images/b.png",
+     "images",
+     "https://host.example/cyoa/js/pre.js"
+    ],
+    [
+     "https://host.example/cyoa/sub/c.png",
+     "images",
+     "https://host.example/cyoa/js/pre.js"
+    ],
+    [
+     "a.png",
+     "images",
+     "https://host.example/cyoa/js/pre.js"
+    ],
+    [
+     "b.png",
+     "images",
+     "https://host.example/cyoa/js/pre.js"
+    ]
+   ]
+  },
+  {
+   "name": "module-relative",
+   "js": "import x from \"./mod.js\"; import(\"../lazy.mjs\"); new URL(\"./w.wasm\", import.meta.url); var s=\"css/site.css\";",
+   "js_url": "https://host.example/cyoa/js/entry.mjs",
+   "js_local": "js/entry.mjs",
+   "existing": [],
+   "output": "import x from \"./mod.js\"; import(\"../lazy.mjs\"); new URL(\"./w.wasm\", import.meta.url); var s=\"css/site.css\";",
+   "calls": [
+    [
+     "https://host.example/cyoa/js/mod.js",
+     "js",
+     "https://host.example/cyoa/js/entry.mjs"
+    ],
+    [
+     "https://host.example/cyoa/lazy.mjs",
+     "js",
+     "https://host.example/cyoa/js/entry.mjs"
+    ],
+    [
+     "https://host.example/cyoa/js/w.wasm",
+     "assets",
+     "https://host.example/cyoa/js/entry.mjs"
+    ],
+    [
+     "https://host.example/cyoa/css/site.css",
+     "css",
+     "https://host.example/cyoa/js/entry.mjs"
+    ]
+   ]
+  },
+  {
+   "name": "random-range",
+   "js": "r = Math.floor(Math.random() * 3) + 1; el.src = \"comics/\" + r + \".png\";",
+   "js_url": "https://host.example/cyoa/js/rnd.js",
+   "js_local": "js/rnd.js",
+   "existing": [],
+   "output": "r = Math.floor(Math.random() * 3) + 1; el.src = \"comics/\" + r + \".png\";",
+   "calls": [
+    [
+     "https://host.example/cyoa/js/comics/1.png",
+     "images",
+     "https://host.example/cyoa/js/rnd.js"
+    ],
+    [
+     "https://host.example/cyoa/js/comics/2.png",
+     "images",
+     "https://host.example/cyoa/js/rnd.js"
+    ],
+    [
+     "https://host.example/cyoa/js/comics/3.png",
+     "images",
+     "https://host.example/cyoa/js/rnd.js"
+    ]
+   ]
+  },
+  {
+   "name": "template",
+   "js": "const cards=[{slug:\"alpha\"},{slug:'beta'}]; html=`<img src=\"pics/${c.slug}.webp\">`",
+   "js_url": "https://host.example/cyoa/js/tpl.js",
+   "js_local": "js/tpl.js",
+   "existing": [],
+   "output": "const cards=[{slug:\"alpha\"},{slug:'beta'}]; html=`<img src=\"pics/${c.slug}.webp\">`",
+   "calls": [
+    [
+     "https://host.example/cyoa/js/pics/alpha.webp",
+     "images",
+     "https://host.example/cyoa/js/tpl.js"
+    ],
+    [
+     "https://host.example/cyoa/js/pics/beta.webp",
+     "images",
+     "https://host.example/cyoa/js/tpl.js"
+    ]
+   ]
+  },
+  {
+   "name": "dynamic-tokens",
+   "js": "const imgBase=\"images/\"; const imageList=[\"x.jpg\",\"y.jpg\"]; var other=\"z.jpg\";",
+   "js_url": "https://host.example/cyoa/js/dyn.js",
+   "js_local": "js/dyn.js",
+   "existing": [],
+   "output": "const imgBase=\"images/\"; const imageList=[\"x.jpg\",\"y.jpg\"]; var other=\"z.jpg\";",
+   "calls": [
+    [
+     "https://host.example/cyoa/x.jpg",
+     "images",
+     "https://host.example/cyoa/js/dyn.js"
+    ],
+    [
+     "https://host.example/cyoa/y.jpg",
+     "images",
+     "https://host.example/cyoa/js/dyn.js"
+    ],
+    [
+     "https://host.example/cyoa/z.jpg",
+     "images",
+     "https://host.example/cyoa/js/dyn.js"
+    ]
+   ]
+  },
+  {
+   "name": "escaped",
+   "js": "a=\"\\\"esc.png\\\"\"; b=\"img\\/slash.png\"; c=\"${v}.png\"; d=\"w3.org/x.svg\"",
+   "js_url": "https://host.example/cyoa/js/e.js",
+   "js_local": "js/e.js",
+   "existing": [],
+   "output": "a=\"\\\"esc.png\\\"\"; b=\"img/slash.png\"; c=\"${v}.png\"; d=\"w3.org/x.svg\"",
+   "calls": [
+    [
+     "https://host.example/cyoa/w3.org/x.svg",
+     "images",
+     "https://host.example/cyoa/js/e.js"
+    ],
+    [
+     "img/slash.png",
+     "images",
+     "https://host.example/cyoa/js/e.js"
+    ]
+   ]
+  },
+  {
+   "name": "vercel",
+   "js": "s.src=\"https://vercel.live/_next-live/feedback/feedback.js\";t=\"img/t.png\"",
+   "js_url": "https://host.example/cyoa/js/v.js",
+   "js_local": "js/v.js",
+   "existing": [],
+   "output": "s.src=\"data:text/javascript,\";t=\"img/t.png\"",
+   "calls": [
+    [
+     "https://host.example/cyoa/img/t.png",
+     "images",
+     "https://host.example/cyoa/js/v.js"
+    ]
+   ]
+  },
+  {
+   "name": "existing",
+   "js": "a=\"../img/have.png\"; b=\"img/new.png\"; c=\"missing/x.png\"",
+   "js_url": "https://host.example/cyoa/js/ex.js",
+   "js_local": "js/ex.js",
+   "existing": [
+    "img/have.png"
+   ],
+   "output": "a=\"../img/have.png\"; b=\"img/new.png\"; c=\"missing/x.png\"",
+   "calls": [
+    [
+     "https://host.example/img/have.png",
+     "images",
+     "https://host.example/cyoa/js/ex.js"
+    ],
+    [
+     "https://host.example/cyoa/img/new.png",
+     "images",
+     "https://host.example/cyoa/js/ex.js"
+    ],
+    [
+     "https://host.example/cyoa/missing/x.png",
+     "images",
+     "https://host.example/cyoa/js/ex.js"
+    ],
+    [
+     "missing/x.png",
+     "images",
+     "https://host.example/cyoa/js/ex.js"
+    ]
+   ]
+  },
+  {
+   "name": "embedded",
+   "js": "var p=\"https://host.example/cyoa/img/one.png\"; var q=\"see https://host.example/cyoa/img/one.png now\"",
+   "js_url": "https://host.example/cyoa/js/emb.js",
+   "js_local": "js/emb.js",
+   "existing": [],
+   "output": "var p=\"../img/one.png\"; var q=\"see ../img/one.png now\"",
+   "calls": [
+    [
+     "https://host.example/cyoa/img/one.png",
+     "images",
+     "https://host.example/cyoa/js/emb.js"
+    ],
+    [
+     "https://host.example/cyoa/img/one.png",
+     "images",
+     "https://host.example/cyoa/js/emb.js"
+    ]
+   ]
+  }
+ ],
+ "chunks": [
+  [
+   "var a=\"img/a.png\"; fetch(\"data/project.json\"); x('//cdn.example/l.js')",
+   []
+  ],
+  [
+   "basePath = new URL('../', document.currentScript.src); load(basePath + 'css/x.css'); load(basePath + \"img/y.png\")",
+   []
+  ],
+  [
+   "__webpack_public_path__ = \"/\"; a(\"js/chunk.js\"); b(\"css/c.css\"); c(\"i.png\")",
+   []
+  ],
+  [
+   "n.p=\"/\";var u=\"https://cdn.example/big.png\";var m=n.p+\"js/\"+e+\".\"+{\"1\":\"aaaa1111\",\"2\":\"bbbb2222\"}[e]+\".js\";",
+   [
+    "/js/1.aaaa1111.js",
+    "/js/2.bbbb2222.js"
+   ]
+  ],
+  [
+   "x=\"js/\"+({}[e]||e)+\".\"+{\"10\":\"cafe0000\"}[e]+\".js\"",
+   [
+    "js/10.cafe0000.js"
+   ]
+  ],
+  [
+   "var urls=[\"a.png\",\"b.png\",\"sub/c.png\"];for(i in urls){img.src=\"images/\"+urls[i];}",
+   []
+  ],
+  [
+   "import x from \"./mod.js\"; import(\"../lazy.mjs\"); new URL(\"./w.wasm\", import.meta.url); var s=\"css/site.css\";",
+   []
+  ],
+  [
+   "r = Math.floor(Math.random() * 3) + 1; el.src = \"comics/\" + r + \".png\";",
+   []
+  ],
+  [
+   "const cards=[{slug:\"alpha\"},{slug:'beta'}]; html=`<img src=\"pics/${c.slug}.webp\">`",
+   []
+  ],
+  [
+   "const imgBase=\"images/\"; const imageList=[\"x.jpg\",\"y.jpg\"]; var other=\"z.jpg\";",
+   []
+  ],
+  [
+   "a=\"\\\"esc.png\\\"\"; b=\"img\\/slash.png\"; c=\"${v}.png\"; d=\"w3.org/x.svg\"",
+   []
+  ],
+  [
+   "s.src=\"https://vercel.live/_next-live/feedback/feedback.js\";t=\"img/t.png\"",
+   []
+  ],
+  [
+   "a=\"../img/have.png\"; b=\"img/new.png\"; c=\"missing/x.png\"",
+   []
+  ],
+  [
+   "var p=\"https://host.example/cyoa/img/one.png\"; var q=\"see https://host.example/cyoa/img/one.png now\"",
+   []
+  ],
+  [
+   "a.p=\"/static/\";x=\"js/\"+e+\".\"+{\"a\":\"1\",\"b\":\"2\"}[e]+\".js\"",
+   [
+    "/static/js/a.1.js",
+    "/static/js/b.2.js"
+   ]
+  ],
+  [
+   "x='css/'+e+''+{\"3\":\"ffff\"}[e]+'.css'",
+   [
+    "css/3.ffff.css"
+   ]
+  ]
+ ],
+ "dynamic": [
+  [
+   "var a=\"img/a.png\"; fetch(\"data/project.json\"); x('//cdn.example/l.js')",
+   {}
+  ],
+  [
+   "basePath = new URL('../', document.currentScript.src); load(basePath + 'css/x.css'); load(basePath + \"img/y.png\")",
+   {}
+  ],
+  [
+   "__webpack_public_path__ = \"/\"; a(\"js/chunk.js\"); b(\"css/c.css\"); c(\"i.png\")",
+   {}
+  ],
+  [
+   "n.p=\"/\";var u=\"https://cdn.example/big.png\";var m=n.p+\"js/\"+e+\".\"+{\"1\":\"aaaa1111\",\"2\":\"bbbb2222\"}[e]+\".js\";",
+   {}
+  ],
+  [
+   "x=\"js/\"+({}[e]||e)+\".\"+{\"10\":\"cafe0000\"}[e]+\".js\"",
+   {}
+  ],
+  [
+   "var urls=[\"a.png\",\"b.png\",\"sub/c.png\"];for(i in urls){img.src=\"images/\"+urls[i];}",
+   {}
+  ],
+  [
+   "import x from \"./mod.js\"; import(\"../lazy.mjs\"); new URL(\"./w.wasm\", import.meta.url); var s=\"css/site.css\";",
+   {}
+  ],
+  [
+   "r = Math.floor(Math.random() * 3) + 1; el.src = \"comics/\" + r + \".png\";",
+   {}
+  ],
+  [
+   "const cards=[{slug:\"alpha\"},{slug:'beta'}]; html=`<img src=\"pics/${c.slug}.webp\">`",
+   {}
+  ],
+  [
+   "const imgBase=\"images/\"; const imageList=[\"x.jpg\",\"y.jpg\"]; var other=\"z.jpg\";",
+   {
+    "x.jpg": [
+     "images/x.jpg"
+    ],
+    "y.jpg": [
+     "images/y.jpg"
+    ]
+   }
+  ],
+  [
+   "a=\"\\\"esc.png\\\"\"; b=\"img\\/slash.png\"; c=\"${v}.png\"; d=\"w3.org/x.svg\"",
+   {}
+  ],
+  [
+   "s.src=\"https://vercel.live/_next-live/feedback/feedback.js\";t=\"img/t.png\"",
+   {}
+  ],
+  [
+   "a=\"../img/have.png\"; b=\"img/new.png\"; c=\"missing/x.png\"",
+   {}
+  ],
+  [
+   "var p=\"https://host.example/cyoa/img/one.png\"; var q=\"see https://host.example/cyoa/img/one.png now\"",
+   {}
+  ],
+  [
+   "setup.WK_IMG_DIR = \"images/07_Weakness/\"; var meta={img: \"boss.png\"}",
+   {
+    "boss.png": [
+     "images/07_Weakness/boss.png"
+    ]
+   }
+  ],
+  [
+   "src=&quot;images/06_Anomalies/&#39; + row.img + x; {\"img\":\"ghost.webp\"}",
+   {
+    "ghost.webp": [
+     "images/06_Anomalies/ghost.webp"
+    ]
+   }
+  ],
+  [
+   "let assetDir=\"assets/\"; let assetFiles=[\"one.png\",\"assets/two.png\"];",
+   {
+    "one.png": [
+     "assets/one.png"
+    ]
+   }
+  ]
+ ]
+}

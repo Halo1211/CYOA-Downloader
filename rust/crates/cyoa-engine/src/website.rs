@@ -17,6 +17,8 @@ use regex::Regex;
 use sha1::{Digest, Sha1};
 use std::{collections::HashSet, sync::LazyLock};
 
+pub mod js;
+
 const STYLE: &[&str] = &[".css"];
 const SCRIPT: &[&str] = &[".js", ".mjs"];
 const FONT: &[&str] = &[".woff", ".woff2", ".ttf", ".otf", ".eot"];
@@ -582,6 +584,8 @@ fn sub_quoted_assets(text: &str, mut f: impl FnMut(char, &str) -> Option<String>
 /// Rewrites text assets for one site (`WebsiteDownloader` rewrite methods).
 pub struct Rewriter<'a> {
     pub start_url: &'a str,
+    /// Document base (`WebsiteDownloader.base_url`) used for runtime JS paths.
+    pub base_url: &'a str,
     pub sink: &'a mut dyn AssetSink,
 }
 
@@ -610,7 +614,12 @@ impl Rewriter<'_> {
                 local_asset_reference(local, &target, &original)
             ))
         });
-        replace_all(&EMBEDDED_URL_RE, &rewritten, |c| {
+        self.rewrite_embedded_known(&rewritten, referrer, local)
+    }
+
+    /// Embedded `https://…` tokens are localized only when already downloaded.
+    fn rewrite_embedded_known(&self, text: &str, referrer: &str, local: &str) -> String {
+        replace_all(&EMBEDDED_URL_RE, text, |c| {
             let original = &c[0];
             normalize_remote_url(original, Some(referrer), self.start_url)
                 .and_then(|n| self.downloaded_local(&n))
@@ -676,9 +685,61 @@ impl Rewriter<'_> {
     }
 }
 
+/// Deterministic sink mirroring the stub `_download_asset` in the fixture exporters.
+#[cfg(test)]
+pub(crate) mod tests_support {
+    use super::*;
+
+    pub(crate) struct FixtureSink {
+        start: String,
+        alloc: PathAllocator,
+        files: HashSet<String>,
+        done: std::collections::HashMap<String, String>,
+        pub(crate) calls: Vec<(String, String, Option<String>)>,
+    }
+
+    impl FixtureSink {
+        pub(crate) fn new<'a>(start: &str, existing: impl Iterator<Item = &'a str>) -> Self {
+            Self {
+                start: start.to_owned(),
+                alloc: PathAllocator::new(start),
+                files: existing.map(str::to_lowercase).collect(),
+                done: Default::default(),
+                calls: Vec::new(),
+            }
+        }
+    }
+
+    impl AssetSink for FixtureSink {
+        fn download(&mut self, url: &str, kind: &str, referrer: Option<&str>) -> Option<String> {
+            self.calls
+                .push((url.to_owned(), kind.to_owned(), referrer.map(str::to_owned)));
+            let full = normalize_remote_url(url, referrer, &self.start)?;
+            if full.contains("missing") {
+                return None;
+            }
+            let full = full.split('#').next().unwrap_or("").to_owned();
+            if let Some(l) = self.done.get(&full) {
+                return Some(l.clone());
+            }
+            let local = self.alloc.allocate(&full, "", kind);
+            self.files.insert(local.to_lowercase());
+            self.done.insert(full, local.clone());
+            Some(local)
+        }
+        fn downloaded(&self, key: &str) -> Option<String> {
+            self.done.get(key).cloned()
+        }
+        fn is_file(&self, rel: &str) -> bool {
+            self.files.contains(&rel.to_lowercase())
+        }
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
+    use super::tests_support::FixtureSink;
     use super::*;
     use serde_json::Value;
 
@@ -751,40 +812,6 @@ mod tests {
         assert!(bad.is_empty(), "{}", bad.join("\n"));
     }
 
-    /// Mirrors the stub `_download_asset` in `export_website_css.py`.
-    struct FixtureSink {
-        start: String,
-        alloc: PathAllocator,
-        files: HashSet<String>,
-        done: std::collections::HashMap<String, String>,
-        calls: Vec<(String, String, Option<String>)>,
-    }
-
-    impl AssetSink for FixtureSink {
-        fn download(&mut self, url: &str, kind: &str, referrer: Option<&str>) -> Option<String> {
-            self.calls
-                .push((url.to_owned(), kind.to_owned(), referrer.map(str::to_owned)));
-            let full = normalize_remote_url(url, referrer, &self.start)?;
-            if full.contains("missing") {
-                return None;
-            }
-            let full = full.split('#').next().unwrap_or("").to_owned();
-            if let Some(l) = self.done.get(&full) {
-                return Some(l.clone());
-            }
-            let local = self.alloc.allocate(&full, "", kind);
-            self.files.insert(local.to_lowercase());
-            self.done.insert(full, local.clone());
-            Some(local)
-        }
-        fn downloaded(&self, key: &str) -> Option<String> {
-            self.done.get(key).cloned()
-        }
-        fn is_file(&self, rel: &str) -> bool {
-            self.files.contains(&rel.to_lowercase())
-        }
-    }
-
     #[test]
     fn css_rewrite_matches_python() {
         let f: Value =
@@ -792,20 +819,11 @@ mod tests {
         let start = s(&f["start"]).to_owned();
         let mut bad = Vec::new();
         for case in f["cases"].as_array().unwrap() {
-            let mut sink = FixtureSink {
-                start: start.clone(),
-                alloc: PathAllocator::new(&start),
-                files: case["existing"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .map(|v| s(v).to_lowercase())
-                    .collect(),
-                done: Default::default(),
-                calls: Vec::new(),
-            };
+            let mut sink =
+                FixtureSink::new(&start, case["existing"].as_array().unwrap().iter().map(s));
             let got = Rewriter {
                 start_url: &start,
+                base_url: &start,
                 sink: &mut sink,
             }
             .process_css(s(&case["css"]), s(&case["css_url"]), s(&case["css_local"]));

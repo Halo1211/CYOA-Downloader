@@ -217,3 +217,11 @@ c8705cc docs · e5c1d13 Stage 0 · e8ed523 1a · ffd7866 1a security fixes · ec
 - **W2-CSS** (Claude): `website::Rewriter::process_css`, the `AssetSink` trait, `_rewrite_direct_urls` (CSS context, with a look-around-free scanner for `_quoted_asset_re`), `_existing_local_asset` and `_asset_kind_from_path`.
   - Fixture `rust/fixtures/website/css.json` (12 cases from the real `_process_css` with a stubbed `_download_asset`).
   - Output AND download-call sequence match Python.
+- **W2-JS** (Claude): `website::js` ports the following:
+  - `_process_js` (dynamic-loader guard, app-bundle guard, vercel stub)
+  - `_download_runtime_template_assets` (direct arrays with priority ordering, module-relative paths, indexed preload prefixes, chunk maps, numeric random ranges, `${obj.prop}` templates)
+  - `_rewrite_known_downloaded_urls`, JS-context `_rewrite_direct_urls`, `_infer_runtime_chunk_paths`, `asset_scan._infer_dynamic_asset_paths`
+  - Uses `fancy-regex` 0.11 (already in the local cache; added offline) for back-reference patterns.
+  - Fixture `website/js.json`: 14 `_process_js` cases, with output and download-call sequence, plus chunk and dynamic-path cases. All match. A mutation check confirmed the test detects differences.
+  - Python runs image prefetches in parallel when `max_workers>1`, so its order is nondeterministic there. Rust is sequential, which equals Python with one worker.
+  - 169 tests pass.
