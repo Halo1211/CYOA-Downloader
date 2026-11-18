@@ -1340,6 +1340,259 @@ pub fn viewer_route_asset_fallback(url: &str, base_url: &str) -> Option<String> 
     Some(urlunparse(&p))
 }
 
+static ENTRY_ID_FACTORY_RE: LazyLock<Option<Regex>> = LazyLock::new(|| {
+    re(
+        r#"(?i)['\"]li_['\"]\s*\+\s*group\s*\+\s*['\"]_['\"]\s*\+\s*name\.toLowerCase\(\)\.replaceAll\(\s*['\"] ['\"]\s*,\s*['\"]['\"]\s*\)"#,
+    )
+});
+static ENTRY_IMAGE_TEMPLATE_RE: LazyLock<Option<Regex>> =
+    LazyLock::new(|| re(r"(?i)img/\$\{[A-Za-z_$][\w$]*\.id\}\.webp"));
+static ENTRY_ID_PREFIX_RE: LazyLock<Option<Regex>> = LazyLock::new(|| re(r#"(?i)['"]li_['"]"#));
+static ENTRY_CLASS_RE: LazyLock<Option<Regex>> = LazyLock::new(|| {
+    re(
+        r"(?is)class\s+(?P<name>[A-Za-z_$][\w$]*)\s+extends\s+(?:[A-Za-z_$][\w$]*\.)?Entry\s*\{(?P<body>.*?)\n\s*\}",
+    )
+});
+static ENTRY_GROUP_RE: LazyLock<Option<Regex>> =
+    LazyLock::new(|| re(r#"(?i)super\(\s*name\s*,\s*['"](?P<group>[A-Za-z0-9_-]+)['"]"#));
+static ENTRY_NEW_RE: LazyLock<Option<Regex>> = LazyLock::new(|| re(r"(?i)new"));
+static ENTRY_CONSTRUCTOR_RE: LazyLock<Option<Regex>> = LazyLock::new(|| {
+    re(
+        r#"(?i)^new\s+(?P<class>[A-Za-z_$][\w$]*)\s*\(\s*(?:"(?P<double>(?:\\.|[^"\\])*)"|'(?P<single>(?:\\.|[^'\\])*)')"#,
+    )
+});
+
+fn entry_class_key(value: &str) -> String {
+    value
+        .chars()
+        .map(|c| {
+            if matches!(c, '\u{0130}' | '\u{0131}') {
+                return "i".to_owned();
+            }
+            c.to_lowercase().collect()
+        })
+        .collect()
+}
+
+fn entry_casefold_contains(text: &str, needle: &str) -> bool {
+    let mut folded = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '\u{017f}' => folded.push('s'),
+            '\u{00df}' | '\u{1e9e}' => folded.push_str("ss"),
+            _ => folded.extend(c.to_lowercase()),
+        }
+    }
+    folded.contains(needle)
+}
+
+/// Incremental index of generated Entry image paths.
+#[derive(Default)]
+pub struct GeneratedEntryImageIndex {
+    factory: bool,
+    template: bool,
+    groups: std::collections::BTreeMap<String, String>,
+    names: std::collections::BTreeMap<String, BTreeSet<String>>,
+    cached_paths: Option<BTreeSet<String>>,
+}
+
+impl GeneratedEntryImageIndex {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn add_source(&mut self, text: &str, known_only: bool) {
+        let mut changed = false;
+        if !self.factory
+            && text.contains('_')
+            && ENTRY_ID_FACTORY_RE
+                .as_ref()
+                .is_some_and(|r| r.is_match(text))
+        {
+            self.factory = true;
+            changed = true;
+        }
+        if !self.template
+            && text.contains('$')
+            && ENTRY_IMAGE_TEMPLATE_RE
+                .as_ref()
+                .is_some_and(|r| r.is_match(text))
+        {
+            self.template = true;
+            changed = true;
+        }
+        if text.contains('(') && (text.contains('\'') || text.contains('"')) {
+            if (known_only || entry_casefold_contains(text, "class"))
+                && let Some(class_re) = ENTRY_CLASS_RE.as_ref()
+            {
+                for class_match in class_re.captures_iter(text) {
+                    let Some(body) = class_match.name("body") else {
+                        continue;
+                    };
+                    let Some(group_re) = ENTRY_GROUP_RE.as_ref() else {
+                        continue;
+                    };
+                    let Some(group) = group_re
+                        .captures(body.as_str())
+                        .and_then(|c| c.name("group"))
+                    else {
+                        continue;
+                    };
+                    let Some(class_name) = class_match.name("name") else {
+                        continue;
+                    };
+                    let (key, value) = (class_name.as_str().to_owned(), group.as_str().to_owned());
+                    if self.groups.get(&key) != Some(&value) {
+                        self.groups.insert(key, value);
+                        changed = true;
+                    }
+                }
+            }
+            if known_only || entry_casefold_contains(text, "new") {
+                let known = if known_only {
+                    Some(
+                        self.groups
+                            .keys()
+                            .map(|k| entry_class_key(k))
+                            .collect::<BTreeSet<_>>(),
+                    )
+                } else {
+                    None
+                };
+                if let (Some(new_re), Some(constructor_re)) =
+                    (ENTRY_NEW_RE.as_ref(), ENTRY_CONSTRUCTOR_RE.as_ref())
+                {
+                    let mut pos = 0;
+                    while let Some(found) = new_re.find_at(text, pos) {
+                        let start = found.start();
+                        if let Some(caps) = constructor_re.captures(&text[start..])
+                            && let Some(class) = caps.name("class")
+                        {
+                            let key = entry_class_key(class.as_str());
+                            if known.as_ref().is_none_or(|set| set.contains(&key)) {
+                                let raw = caps
+                                    .name("double")
+                                    .or_else(|| caps.name("single"))
+                                    .map_or("", |m| m.as_str());
+                                let name = raw.to_lowercase().replace([' ', '/'], "");
+                                if !name.is_empty()
+                                    && self.names.entry(key).or_default().insert(name)
+                                {
+                                    changed = true;
+                                }
+                            }
+                        }
+                        let Some(next) = text[start..].chars().next().map(|c| start + c.len_utf8())
+                        else {
+                            break;
+                        };
+                        pos = next;
+                    }
+                }
+            }
+        }
+        if changed {
+            self.cached_paths = None;
+        }
+    }
+
+    pub fn paths(&mut self) -> BTreeSet<String> {
+        if let Some(paths) = &self.cached_paths {
+            return paths.clone();
+        }
+        let paths = if self.factory && self.template {
+            self.groups
+                .iter()
+                .flat_map(|(class, group)| {
+                    self.names
+                        .get(&entry_class_key(class))
+                        .into_iter()
+                        .flat_map(move |names| {
+                            names
+                                .iter()
+                                .map(move |name| format!("img/li_{group}_{name}.webp"))
+                        })
+                })
+                .collect()
+        } else {
+            BTreeSet::new()
+        };
+        self.cached_paths = Some(paths.clone());
+        paths
+    }
+}
+
+pub fn infer_generated_entry_images(sources: &[&str]) -> BTreeSet<String> {
+    if !sources
+        .iter()
+        .any(|t| t.contains('_') && ENTRY_ID_PREFIX_RE.as_ref().is_some_and(|r| r.is_match(t)))
+        || !sources.iter().any(|t| {
+            t.contains('$')
+                && ENTRY_IMAGE_TEMPLATE_RE
+                    .as_ref()
+                    .is_some_and(|r| r.is_match(t))
+        })
+    {
+        return BTreeSet::new();
+    }
+    let combined = sources.join("\n");
+    if !ENTRY_ID_FACTORY_RE
+        .as_ref()
+        .is_some_and(|r| r.is_match(&combined))
+    {
+        return BTreeSet::new();
+    }
+    let mut index = GeneratedEntryImageIndex::new();
+    index.factory = true;
+    index.template = true;
+    index.add_source(&combined, true);
+    index.paths()
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod entry_images_tests {
+    use super::*;
+
+    #[test]
+    fn entry_images_match_python() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../fixtures/entry_images.json"
+        );
+        let fixture: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        for case in fixture.as_array().unwrap() {
+            let sources: Vec<&str> = case["sources"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap())
+                .collect();
+            let steps = case["steps"].as_array().unwrap();
+            let mut index = GeneratedEntryImageIndex::new();
+            for (source, expected) in sources.iter().zip(steps) {
+                index.add_source(source, false);
+                let got: Vec<String> = index.paths().into_iter().collect();
+                let want: Vec<String> = expected
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|v| v.as_str().unwrap().to_owned())
+                    .collect();
+                assert_eq!(got, want);
+            }
+            let joined: Vec<String> = infer_generated_entry_images(&sources).into_iter().collect();
+            let want: Vec<String> = case["joined"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap().to_owned())
+                .collect();
+            assert_eq!(joined, want);
+        }
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod path_tests {
