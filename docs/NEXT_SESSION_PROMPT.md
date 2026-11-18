@@ -2,6 +2,8 @@
 
 Resume the CYOA Downloader Python→Rust migration on branch `migration/python-to-rust`. Do not repeat audits.
 
+**Session 6 update:** latest commit `05d58da`; 219 tests pass; e2e is byte-exact. Done this session: proxy, DNS, VPN (engine, CLI and GUI), the report-summary parity, and the log file. See MIGRATION_PROGRESS.md at the top.
+
 **Verified state (end of session 4, latest commit `298c571` or later):**
 - From `rust/`: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --offline -- -D warnings` and `cargo test --workspace --offline` all pass (157 tests).
 - From the repo root: `bash rust/scripts/e2e_parity.sh` prints 6 OK lines. Python and Rust `--both` outputs are byte-identical (timestamps excluded).

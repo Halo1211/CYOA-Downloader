@@ -1,5 +1,13 @@
 # Migration progress (primary state document)
 
+**Session 6 (2026-11-18), latest commit `05d58da`:** 219 Rust tests pass; fmt and clippy (-D warnings) are clean; `e2e_parity.sh` reports 6 OK lines (now byte-exact, and it fails when a file is missing).
+- F-016 proxy: core, CLI, GUI. Redaction and validation checked against Python.
+- F-017 custom DNS: UDP/TCP/DoT/DoH, a cache, and fallback. Wired into `PolicyResolver` with the SSRF check kept. CLI and GUI done. Python differential fixture. Sol review findings fixed.
+- F-018 VPN guard: enforced at the fetch boundary. CLI and GUI done. Name matching matches Python. Not tested: live Windows enumeration.
+- Reports: `write_asset_failure_summary` parity, CRLF `.txt` on Windows, and `cyoa_downloader.log` (rotation and redaction).
+- Infrastructure: in hybrid-team `bridge.py`, subprocess stdin is DEVNULL (fixes 30-minute hangs). EOL-only false positives are ignored. Luna's isolated mode is verified.
+- Owner action: the `active.json` recovery marker blocks Codex tasks (see NEXT_SESSION_PROMPT).
+
 **Current phase (session 4, 2026-11-18):**
 - Rust download engine, CLI MVP and GUI (A–C) work end to end.
 - Output is byte-identical to Python on the fixture site (`bash rust/scripts/e2e_parity.sh`) and on a 300-image benchmark.
