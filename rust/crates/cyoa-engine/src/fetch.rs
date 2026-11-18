@@ -303,12 +303,18 @@ const IMAGE_EXTENSIONS: &[&str] = &[
 
 /// Python `project/mediawiki.py::mediawiki_image_url`: the original-file link
 /// (`.fullImageLink a[href], .fullMedia a[href]`) of a MediaWiki `File:` page.
+/// Python `re.search(r"(?:^|/)File:", unquote(urlparse(url).path), re.I)`.
+fn is_mediawiki_file_page(url: &str) -> bool {
+    let path = crate::localize::py_urlparse(url).path;
+    let lower = percent_encoding::percent_decode_str(path)
+        .decode_utf8_lossy()
+        .to_lowercase();
+    lower.starts_with("file:") || lower.contains("/file:")
+}
+
 pub fn mediawiki_image_url(html: &str, page_url: &str) -> Option<String> {
     use crate::website::html::{Element, Node};
-    let path = crate::localize::py_urlparse(page_url).path;
-    let decoded = percent_encoding::percent_decode_str(path).decode_utf8_lossy();
-    let lower = decoded.to_lowercase();
-    if !(lower.starts_with("file:") || lower.contains("/file:")) {
+    if !is_mediawiki_file_page(page_url) {
         return None;
     }
     let doc = crate::website::html::parse(html).ok()?;
@@ -583,7 +589,10 @@ pub async fn fetch_one(ctx: &FetchCtx, asset_path: &str) -> FetchOutcome {
             .map(str::to_owned)
             .or_else(|| guess_mime_from_url(&asset_url).map(str::to_owned))
             .unwrap_or_else(|| "application/octet-stream".to_owned());
-        if let Some(dir) = ctx.spool_dir.clone() {
+        // A MediaWiki `File:` HTML page is read in memory (bounded by
+        // max_bytes) so it can be resolved below; spooling would reject it.
+        let mediawiki_page = mime.contains("html") && is_mediawiki_file_page(&response_url);
+        if let Some(dir) = ctx.spool_dir.clone().filter(|_| !mediawiki_page) {
             match stream_spooled(ctx, response, &dir, &mime, &asset_url).await {
                 Streamed::Done(payload) => {
                     return outcome(asset_path, Some(payload), &mime, &asset_url, "");
@@ -893,6 +902,13 @@ mod tests {
         .await;
         assert_eq!(result.error, "");
         assert_eq!(result.mime, "image/png");
+        // Same through the spooled (streaming) path used by real runs.
+        let spool = tempfile::tempdir().unwrap();
+        let mut spooled = ctx(&server, None, CancellationToken::new());
+        spooled.spool_dir = Some(spool.path().to_path_buf());
+        let streamed = fetch_one(&spooled, "/wiki/File:Pic.png").await;
+        assert_eq!(streamed.error, "");
+        assert!(streamed.asset_url.ends_with("/images/orig.png"));
         assert!(
             result.asset_url.ends_with("/images/orig.png"),
             "{}",

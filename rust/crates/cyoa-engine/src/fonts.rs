@@ -142,7 +142,16 @@ fn form_encode(s: &str) -> String {
     out
 }
 
+/// Safety caps (Python has none; far above real CYOAs): distinct font
+/// references, bytes per font, bytes per run.
+pub const MAX_FONT_REFS: usize = 500;
+pub const MAX_FONT_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_FONT_TOTAL_BYTES: usize = 512 * 1024 * 1024;
+
 fn ordered_add(out: &mut Vec<(String, String)>, url: String, desc: &str) {
+    if out.len() >= MAX_FONT_REFS {
+        return;
+    }
     if !url.trim().is_empty() && !out.iter().any(|(u, _)| u == url.trim()) {
         out.push((url.trim().to_owned(), desc.to_owned()));
     }
@@ -436,8 +445,13 @@ pub fn download_fonts_into_folder(
     }
     let mut used = HashSet::new();
     let mut mapping = HashMap::new();
+    let mut total = 0usize;
     for (identity, aliases) in groups {
         let url = &aliases[0];
+        if total > MAX_FONT_TOTAL_BYTES {
+            tracing::warn!("Font download budget reached; remaining fonts keep their URLs.");
+            break;
+        }
         let Some(response) = f.bytes(url) else {
             tracing::error!("  Font failed: {url} — request failed");
             continue;
@@ -450,6 +464,7 @@ pub fn download_fonts_into_folder(
             tracing::error!("  Font failed: {url} — empty font response");
             continue;
         }
+        total += response.body.len();
         let parsed = crate::localize::py_urlparse(url);
         let remote = parsed.path.rsplit('/').next().unwrap_or("");
         let raw = if remote.is_empty() {

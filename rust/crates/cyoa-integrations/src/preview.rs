@@ -32,7 +32,7 @@ impl PreviewServer {
         let flag = Arc::clone(&stop);
         let handle = thread::Builder::new()
             .name("cyoa-preview".into())
-            .spawn(move || accept_loop(listener, root, flag))?;
+            .spawn(move || accept_loop(listener, root, flag, port))?;
         Ok(Self {
             port,
             stop,
@@ -98,7 +98,7 @@ pub fn select_archive_root(output_dir: &Path) -> PathBuf {
     }
 }
 
-fn accept_loop(listener: TcpListener, root: PathBuf, stop: Arc<AtomicBool>) {
+fn accept_loop(listener: TcpListener, root: PathBuf, stop: Arc<AtomicBool>, port: u16) {
     let slots = Arc::new(std::sync::Mutex::new(0usize));
     while !stop.load(Ordering::Acquire) {
         match listener.accept() {
@@ -125,7 +125,7 @@ fn accept_loop(listener: TcpListener, root: PathBuf, stop: Arc<AtomicBool>) {
                     .name("cyoa-preview-client".into())
                     .spawn(move || {
                         let _guard = SlotGuard(slots2);
-                        if let Err(e) = handle(stream, &root) {
+                        if let Err(e) = handle(stream, &root, port) {
                             tracing::debug!("preview request failed: {e}");
                         }
                     });
@@ -148,16 +148,27 @@ impl Drop for SlotGuard {
     }
 }
 
-fn handle(mut stream: TcpStream, root: &Path) -> io::Result<()> {
+/// Absolute time allowed for the request head (slowloris guard).
+const HEADER_DEADLINE: Duration = Duration::from_secs(10);
+/// Per-write timeout for response bodies (stalled readers free their slot).
+const WRITE_TIMEOUT: Duration = Duration::from_secs(30);
+
+fn handle(mut stream: TcpStream, root: &Path, port: u16) -> io::Result<()> {
     // Accepted sockets inherit the listener's non-blocking mode on Windows.
     stream.set_nonblocking(false)?;
-    stream.set_read_timeout(Some(Duration::from_secs(10)))?;
+    stream.set_write_timeout(Some(WRITE_TIMEOUT))?;
+    let deadline = std::time::Instant::now() + HEADER_DEADLINE;
     let mut request = Vec::new();
     let mut buf = [0u8; 1024];
     loop {
         if request.len() >= 16 * 1024 {
             return respond(stream, 400, "Bad Request", "text/plain", b"", false, &[]);
         }
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            return respond(stream, 400, "Bad Request", "text/plain", b"", false, &[]);
+        }
+        stream.set_read_timeout(Some(remaining))?;
         let cap = (16 * 1024 - request.len()).min(buf.len());
         let n = match stream.read(&mut buf[..cap]) {
             Ok(n) => n,
@@ -189,6 +200,18 @@ fn handle(mut stream: TcpStream, root: &Path) -> io::Result<()> {
         Some(s) => s,
         None => return respond(stream, 400, "Bad Request", "text/plain", b"", false, &[]),
     };
+    // DNS-rebinding guard (security divergence from Python): the request
+    // authority must be this server, given exactly once.
+    let hosts: Vec<&str> = lines
+        .clone()
+        .filter_map(|l| l.split_once(':'))
+        .filter(|(k, _)| k.trim().eq_ignore_ascii_case("host"))
+        .map(|(_, v)| v.trim())
+        .collect();
+    let allowed = [format!("127.0.0.1:{port}"), format!("localhost:{port}")];
+    if hosts.len() != 1 || !allowed.iter().any(|a| a.eq_ignore_ascii_case(hosts[0])) {
+        return respond(stream, 400, "Bad Request", "text/plain", b"", false, &[]);
+    }
     let mut pieces = first.split_whitespace();
     let method = pieces.next().unwrap_or("");
     let target = pieces.next().unwrap_or("");
@@ -424,6 +447,16 @@ mod tests {
     use super::*;
     fn get(server: &PreviewServer, request: &str) -> (String, Vec<u8>) {
         let mut s = TcpStream::connect(("127.0.0.1", server.port())).expect("connect");
+        // Tests write bare request lines; add the valid authority.
+        let request = if request.contains("Host:") {
+            request.to_owned()
+        } else {
+            request.replacen(
+                "\r\n",
+                &format!("\r\nHost: 127.0.0.1:{}\r\n", server.port()),
+                1,
+            )
+        };
         s.write_all(request.as_bytes()).expect("request");
         s.set_read_timeout(Some(Duration::from_secs(2)))
             .expect("timeout");
@@ -449,7 +482,7 @@ mod tests {
         std::fs::write(d.path().join("index.html"), "home").expect("write");
         std::fs::create_dir(d.path().join("sub")).expect("mkdir");
         std::fs::write(d.path().join("sub/a.JSON"), "{}").expect("write");
-        let (h, b) = get(&s, "GET / HTTP/1.1\r\nHost: x\r\n\r\n");
+        let (h, b) = get(&s, "GET / HTTP/1.1\r\n\r\n");
         assert!(
             h.contains("200 OK")
                 && h.contains("Cache-Control: no-store")
@@ -481,13 +514,42 @@ mod tests {
     }
 
     #[test]
+    fn rejects_foreign_missing_and_duplicate_host() {
+        let (d, s) = server();
+        std::fs::write(d.path().join("index.html"), "x").expect("write");
+        let p = s.port();
+        for req in [
+            "GET / HTTP/1.1\r\nHost: evil.example\r\n\r\n".to_owned(),
+            format!("GET / HTTP/1.1\r\nHost: evil.example:{p}\r\n\r\n"),
+            "GET / HTTP/1.1\r\nHost: 127.0.0.1:1\r\n\r\n".to_owned(),
+            format!("GET / HTTP/1.1\r\nHost: 127.0.0.1:{p}\r\nHost: 127.0.0.1:{p}\r\n\r\n"),
+            "GET / HTTP/1.0\r\n\r\n".to_owned(),
+        ] {
+            let mut c = TcpStream::connect(("127.0.0.1", p)).expect("connect");
+            c.write_all(req.as_bytes()).expect("write");
+            let mut out = Vec::new();
+            let _ = c.read_to_end(&mut out);
+            assert!(
+                String::from_utf8_lossy(&out).starts_with("HTTP/1.1 400"),
+                "{req:?}"
+            );
+        }
+        let (h, _) = get(
+            &s,
+            &format!("GET / HTTP/1.1\r\nHost: LOCALHOST:{p}\r\n\r\n"),
+        );
+        assert!(h.contains("200 OK"));
+    }
+
+    #[test]
     fn slow_client_is_served() {
         // The request arrives after accept(): the socket must be blocking.
         let (d, s) = server();
         std::fs::write(d.path().join("index.html"), "<p>hi</p>").expect("write");
         let mut c = TcpStream::connect(("127.0.0.1", s.port())).expect("connect");
         thread::sleep(Duration::from_millis(150));
-        c.write_all(b"GET / HTTP/1.1\r\n\r\n").expect("write");
+        c.write_all(format!("GET / HTTP/1.1\r\nHost: 127.0.0.1:{}\r\n\r\n", s.port()).as_bytes())
+            .expect("write");
         let mut out = Vec::new();
         let _ = c.read_to_end(&mut out);
         let text = String::from_utf8_lossy(&out);

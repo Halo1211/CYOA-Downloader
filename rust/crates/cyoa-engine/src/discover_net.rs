@@ -221,10 +221,23 @@ impl crate::fonts::FontFetch for ClientCafeFetch {
             .filter(|r| r.status == 200)
             .map(|r| r.text)
     }
+    /// Font bodies are capped at `MAX_FONT_BYTES` while reading.
     fn bytes(&mut self, url: &str) -> Option<crate::fonts::FontResponse> {
-        crate::cafe_static::StaticFetch::fetch(self, url).map(|r| crate::fonts::FontResponse {
-            status: r.status,
-            body: r.body,
+        let parsed = Url::parse(url).ok()?;
+        let opts = FetchOptions {
+            return_error_response: true,
+            ..Default::default()
+        };
+        self.handle.block_on(async {
+            let resp = self.client.get(&parsed, &opts, &self.cancel).await.ok()?;
+            let status = resp.status.as_u16();
+            let body = FetchClient::bytes(resp, crate::fonts::MAX_FONT_BYTES)
+                .await
+                .ok()?;
+            Some(crate::fonts::FontResponse {
+                status,
+                body: body.to_vec(),
+            })
         })
     }
 }

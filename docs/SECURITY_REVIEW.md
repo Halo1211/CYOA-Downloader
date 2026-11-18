@@ -106,3 +106,8 @@ Fixed later: cafe stale-cache invalidation (Python parity); route-crawl redirect
 Open: aggregate byte budgets for CYOAP/static gallery; small per-file writes in cyoap still run on the async worker (ZIP/finalize moved to spawn_blocking); cafe resolver lacks Python's JSON/CSS-viewer validation branches; cafe_static creates parent dirs before containment check (junction case).
 
 SEC-2 (2026-11-19): fixed in the Rust preview server (`cyoa_integrations::preview`): per-request canonical containment, no listing, no wildcard CORS, header-injection-safe redirects. Tests: traversal (raw/encoded), symlink escape, CRLF in path, drive syntax, slow client.
+
+## Sol review 2026-11-19 (preview server, fonts, MediaWiki)
+
+Fixed: preview Host validation (127.0.0.1/localhost:<port>, exactly once; DNS-rebinding guard, divergence from Python), 10 s absolute request-head deadline and 30 s write timeout (slot exhaustion); fonts capped at 500 references, 64 MiB per font (enforced while reading), 512 MiB per run; MediaWiki resolution now also runs on the spooled (streaming) path used by real runs (was unreachable there; regression test added and mutation-checked).
+Open: preview shutdown does not abort in-flight client threads (bounded by the timeouts above); no runtime test for Windows device names (CON/NUL) in preview paths; slowloris test not automated (10 s deadline).
