@@ -1,0 +1,229 @@
+{
+ "cases": [
+  {
+   "name": "direct_and_css_urls",
+   "project": "{\"a\":\"https://cdn.example/f/Regular.woff2?v=3\",\"css\":\"url(fonts/b.ttf) url('x.png')\",\"e\":\"https:\\/\\/cdn.example\\/esc.otf\"}",
+   "base": "https://site.example/game/",
+   "html": "",
+   "sources": {},
+   "binaries": {
+    "https://cdn.example/f/Regular.woff2?v=3": "AAAA",
+    "https://cdn.example/esc.otf": "BBBB",
+    "https://site.example/game/fonts/b.ttf": "CCCC"
+   },
+   "expected": {
+    "found": [
+     [
+      "https://cdn.example/f/Regular.woff2?v=3",
+      "project.json direct URL"
+     ],
+     [
+      "https://cdn.example/esc.otf",
+      "project.json direct URL"
+     ],
+     [
+      "https://site.example/game/fonts/b.ttf",
+      "project.json CSS url()"
+     ]
+    ],
+    "rewritten": "{\"a\":\"fonts/Regular.woff2\",\"css\":\"url(fonts/b.ttf) url('x.png')\",\"e\":\"fonts/esc.otf\"}",
+    "files": {
+     "fonts/Regular.woff2": "aaaa",
+     "fonts/b.ttf": "cccc",
+     "fonts/esc.otf": "bbbb"
+    }
+   }
+  },
+  {
+   "name": "icc_plus_google_custom",
+   "project": "{\"styling\": {\"googleFonts\": [\"Open Sans\", {\"family\": \"Roboto Slab\"}, \"\"], \"customFonts\": [\"css/my.css\", {\"href\": \"https://other.example/f.css\"}], \"customCSS\": \"@font-face{src:url('https://cdn.example/c.woff')} @import url(https://fonts.googleapis.com/css?family=Lato);\"}}",
+   "base": "https://site.example/game/index.html",
+   "html": "",
+   "sources": {
+    "https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&display=swap": "@font-face{src:url(https://fonts.gstatic.com/s/opensans/v1/os.woff2) format('woff2')}",
+    "https://fonts.googleapis.com/css2?family=Roboto+Slab:wght@400;600;700&display=swap": "@font-face{src:url('https://fonts.gstatic.com/s/robotoslab/v2/rs.woff2')}",
+    "https://fonts.googleapis.com/css?family=Lato": "@font-face{src:url(https://fonts.gstatic.com/s/lato/v3/lato.ttf)}",
+    "https://site.example/game/css/my.css": "@font-face{src:url(../fonts/mine.woff2)}",
+    "https://other.example/f.css": "@font-face{src:url(\"o.eot\")}"
+   },
+   "binaries": {
+    "https://fonts.gstatic.com/s/opensans/v1/os.woff2": "0101",
+    "https://fonts.gstatic.com/s/robotoslab/v2/rs.woff2": 404,
+    "https://fonts.gstatic.com/s/lato/v3/lato.ttf": "0303",
+    "https://site.example/game/fonts/mine.woff2": "0404",
+    "https://other.example/o.eot": "",
+    "https://cdn.example/c.woff": "0606"
+   },
+   "expected": {
+    "found": [
+     [
+      "https://cdn.example/c.woff",
+      "project.json direct URL"
+     ],
+     [
+      "https://other.example/o.eot",
+      "ICC Plus customCSS url()"
+     ],
+     [
+      "https://fonts.gstatic.com/s/opensans/v1/os.woff2",
+      "Google Fonts (https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&display=swap)"
+     ],
+     [
+      "https://fonts.gstatic.com/s/robotoslab/v2/rs.woff2",
+      "Google Fonts (https://fonts.googleapis.com/css2?family=Roboto+Slab:wght@400;600;700&display=swap)"
+     ]
+    ],
+    "rewritten": "{\"styling\": {\"googleFonts\": [\"Open Sans\", {\"family\": \"Roboto Slab\"}, \"\"], \"customFonts\": [\"css/my.css\", {\"href\": \"https://other.example/f.css\"}], \"customCSS\": \"@font-face{src:url('fonts/c.woff')} @import url(https://fonts.googleapis.com/css?family=Lato);\"}}",
+    "files": {
+     "fonts/c.woff": "0606",
+     "fonts/os.woff2": "0101"
+    }
+   }
+  },
+  {
+   "name": "viewer_html_and_collisions",
+   "project": "{\"x\":\"https://a.example/one/Font.woff2\",\"y\":\"https://b.example/two/Font.woff2\",\"z\":\"https://a.example/one/Font.woff2?cb=9\",\"w\":\"https://c.example/Font.woff2\"}",
+   "base": "https://site.example/",
+   "html": "<html><head><link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/css?family=Inter\"><link rel=\"Stylesheet preload\" href=\"/local/l.woff\"><style>@font-face{src:url(\"s.ttf\")}</style></head></html>",
+   "sources": {
+    "https://fonts.googleapis.com/css?family=Inter": "@font-face{src:url(https://fonts.gstatic.com/inter.woff2)}"
+   },
+   "binaries": {
+    "https://a.example/one/Font.woff2": "1111",
+    "https://b.example/two/Font.woff2": "2222",
+    "https://c.example/Font.woff2": "1111",
+    "https://site.example/local/l.woff": "3333",
+    "https://site.example/s.ttf": "4444",
+    "https://fonts.gstatic.com/inter.woff2": "5555"
+   },
+   "existing": {
+    "Font.woff2": "1111",
+    "s.ttf": "9999"
+   },
+   "expected": {
+    "found": [
+     [
+      "https://a.example/one/Font.woff2",
+      "project.json direct URL"
+     ],
+     [
+      "https://b.example/two/Font.woff2",
+      "project.json direct URL"
+     ],
+     [
+      "https://a.example/one/Font.woff2?cb=9",
+      "project.json direct URL"
+     ],
+     [
+      "https://c.example/Font.woff2",
+      "project.json direct URL"
+     ],
+     [
+      "https://site.example/local/l.woff",
+      "index.html <link>"
+     ],
+     [
+      "https://site.example/s.ttf",
+      "index.html inline <style>"
+     ],
+     [
+      "https://fonts.gstatic.com/inter.woff2",
+      "Google Fonts (https://fonts.googleapis.com/css?family=Inter)"
+     ]
+    ],
+    "rewritten": "{\"x\":\"fonts/Font.woff2\",\"y\":\"fonts/Font_1.woff2\",\"z\":\"fonts/Font.woff2\",\"w\":\"fonts/Font.woff2\"}",
+    "files": {
+     "fonts/Font.woff2": "1111",
+     "fonts/Font_1.woff2": "2222",
+     "fonts/inter.woff2": "5555",
+     "fonts/l.woff": "3333",
+     "fonts/s.ttf": "9999",
+     "fonts/s_1.ttf": "4444"
+    }
+   }
+  },
+  {
+   "name": "nothing",
+   "project": "{\"rows\":[]}",
+   "base": "https://site.example/",
+   "html": "",
+   "sources": {},
+   "binaries": {},
+   "expected": {
+    "found": [],
+    "rewritten": "{\"rows\":[]}",
+    "files": {}
+   }
+  },
+  {
+   "name": "nameless_url",
+   "project": "{\"a\":\"https://cdn.example/.woff2\",\"b\":\"not json url(https://cdn.example/dir/)\"}",
+   "base": "https://site.example/",
+   "html": "",
+   "sources": {},
+   "binaries": {
+    "https://cdn.example/.woff2": "7777"
+   },
+   "expected": {
+    "found": [
+     [
+      "https://cdn.example/.woff2",
+      "project.json direct URL"
+     ]
+    ],
+    "rewritten": "{\"a\":\"fonts/woff2\",\"b\":\"not json url(https://cdn.example/dir/)\"}",
+    "files": {
+     "fonts/woff2": "7777"
+    }
+   }
+  }
+ ],
+ "identity": [
+  [
+   "https://A.example/x/f.woff2?v=1&b=2",
+   "https://a.example/x/f.woff2?b=2"
+  ],
+  [
+   "https://a.example/f.woff2?ts=1&_=2&T=3",
+   "https://a.example/f.woff2"
+  ],
+  [
+   "http://a.example?x=1#frag",
+   "http://a.example/?x=1"
+  ],
+  [
+   "https://a.example/f%20g.woff2?q=a+b&cb",
+   "https://a.example/f%20g.woff2?q=a+b"
+  ],
+  [
+   "https://a.example/f.woff2#x",
+   "https://a.example/f.woff2"
+  ]
+ ],
+ "is_font_reference": [
+  [
+   "https://a.example/f.WOFF2",
+   true
+  ],
+  [
+   "https://a.example/f.woff2?x=1",
+   true
+  ],
+  [
+   "data:font/woff2;base64,AAA.woff2",
+   false
+  ],
+  [
+   "/f.eot",
+   true
+  ],
+  [
+   "https://a.example/f.svg",
+   false
+  ],
+  [
+   "https://a.example/f.woff2/",
+   false
+  ]
+ ]
+}
