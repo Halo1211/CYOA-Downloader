@@ -23,8 +23,14 @@ Resume the CYOA Downloader Python→Rust migration on branch `migration/python-t
 - If Luna's writes fail, Claude implements directly. Pre-fetch crates (`cargo add` + `cargo fetch`) before delegating; agents build `--offline`.
 
 **Next actionable tasks, in order:**
-1. Sol security review of `run.rs`, `output.rs`, `reports.rs` and `cyoa-cli` (ZIP writer, output paths, metadata write overwrite).
-2. GUI Batch A–C in `cyoa-desktop` (egui/eframe, decision D1). Run `run_download` on a Tokio runtime thread and pass progress over the bounded channel, with a cancel button.
+Done this session:
+- Sol reviews of the output stage and GUI worker, with fixes.
+- GUI A–C.
+- Benchmarks.
+- Domain interval and cache parity.
+- Transport retries.
+1. Port `cyoa_downloader_app/importers/batch.py::import_queue_items_from_source` (used by CLI `-L`), with Python fixtures, plus a per-item filename override in `RunOptions`. Then CLI `-L` and a GUI "Import list".
+2. Manual GUI download test against `rust/fixtures/e2e_site`, and a 100k-row queue frame-time measurement.
 3. Remaining parity (see the OVERNIGHT_REPORT "Not yet ported" list and KNOWN_ISSUES KI-R1..R4):
    - transport retries
    - payload spooling (memory)

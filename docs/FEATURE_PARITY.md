@@ -18,6 +18,15 @@
 | F-013 admission | TESTED | 7 async tests (Sol design) |
 | F-014 retry | TESTED | Python-derived schedules (Sol) |
 | F-015 throttle | TESTED | Python window accounting |
+| F-020b static project discovery (network) | IMPLEMENTED + TESTED (wiremock) | `discover_net::get_project_source`; catalog/browser/AI/archive paths DEFERRED |
+| F-024 embedded JSON output | TESTED (E2E byte parity) | `rust/scripts/e2e_parity.sh`: embedded JSON and `_original.json` byte-identical; 300-image benchmark byte-identical |
+| F-025 ZIP / Both outputs | TESTED (E2E parity) | ZIP entries byte-identical; no-clobber publishing; entry-name validation (Sol-reviewed) |
+| F-025b reports (`_metadata.json`, `failed_images.txt`, `failed_assets.txt`) | TESTED (E2E, timestamps excluded) | `backup_report.txt` append path and the `cyoa_downloader.log` file are NOT ported |
+| F-012b media fetch loop (`fetch_one`) | IMPLEMENTED + TESTED | cache, 429/5xx backoff, 404/410, 401/403, error-doc rejection, 3 transport retries; gallery-dl/headless/cookies/Discord/MediaWiki/VPN DEFERRED |
+| F-015b per-domain 0.3 s interval | TESTED | Matches Python `_domain_min_interval` (benchmark: 300 req ≈ 90 s in both) |
+| F-008b image cache in pipeline | TESTED (interop) | Python reads a Rust-written cache: 300/300 hits |
+| CLI MVP (url,-u,-o,-z,-b,-t,-w) | TESTED | `-L` list mode, website/ICC/cyoap-vue modes, proxy/DNS/VPN/Cloudflare flags NOT ported |
+| GUI (egui) A–C | IMPLEMENTED + TESTED (worker unit tests, launch smoke) | Download via GUI not yet exercised manually; Python GUI features beyond the single-URL queue NOT ported |
 | F-020 project parse | PARTIAL | `parse.py` text functions: 18 inputs × 5 functions identical; archive-bytes extraction pending |
 | Policy (SEC-1/SEC-6) | TESTED | 43 host classes plus 8 SSRF decisions identical to CPython 3.12 |
 | Headers | TESTED | 15 URLs; headers and key order identical |

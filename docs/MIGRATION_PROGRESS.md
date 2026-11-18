@@ -1,5 +1,23 @@
 # Migration progress (primary state document)
 
+**Current phase (session 4, 2026-11-18):**
+- Rust download engine, CLI MVP and GUI (A–C) work end to end.
+- Output is byte-identical to Python on the fixture site (`bash rust/scripts/e2e_parity.sh`) and on a 300-image benchmark.
+- 154 Rust tests pass; fmt and clippy clean.
+- See `docs/NEXT_SESSION_PROMPT.md` for the exact next tasks, and `OVERNIGHT_REPORT.md` "session 4" for details.
+
+**Not complete (honest scope):**
+- Website/ICC/cyoap-vue/archive modes
+- browser, Cloudflare and cookie fallbacks
+- gallery-dl and yt-dlp
+- proxy, DNS and VPN
+- `-L` batch import
+- payload spooling (memory)
+- the Python GUI's extra features
+- release packaging
+
+---
+
 **Current phase (06:00):**
 - Stages 1–2 complete.
 - Stage 3 core complete: admission, retry, throttle, policy, headers and the HTTP client. Still open: proxy, DNS, VPN, Cloudflare, response metadata.
