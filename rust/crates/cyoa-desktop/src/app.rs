@@ -29,14 +29,31 @@ pub enum Mode {
     PureZip,
     /// Pure website kept as a folder.
     PureFolder,
+    /// Dedicated cyoap_vue ICC mode, ZIP (Python "CYOAP Vue ZIP").
+    CyoapZip,
+    /// Dedicated cyoap_vue ICC mode, folder.
+    CyoapFolder,
 }
 
 impl Mode {
     pub fn is_icc(self) -> bool {
         matches!(
             self,
-            Mode::IccZip | Mode::IccFolder | Mode::PureZip | Mode::PureFolder
+            Mode::IccZip
+                | Mode::IccFolder
+                | Mode::PureZip
+                | Mode::PureFolder
+                | Mode::CyoapZip
+                | Mode::CyoapFolder
         )
+    }
+
+    /// Python `engine_mode` for this GUI mode.
+    pub fn engine(self) -> cyoa_engine::run::Engine {
+        match self {
+            Mode::CyoapZip | Mode::CyoapFolder => cyoa_engine::run::Engine::CyoapVue,
+            _ => cyoa_engine::run::Engine::Standard,
+        }
     }
 }
 
@@ -50,6 +67,8 @@ impl From<Mode> for OutputMode {
             Mode::IccFolder => OutputMode::IccFolder,
             Mode::PureZip => OutputMode::PureZip,
             Mode::PureFolder => OutputMode::PureFolder,
+            Mode::CyoapZip => OutputMode::IccZip,
+            Mode::CyoapFolder => OutputMode::IccFolder,
         }
     }
 }
@@ -177,9 +196,8 @@ pub struct DownloaderApp {
 
 type ListPick = std::sync::mpsc::Receiver<Option<Result<Vec<BatchItem>, String>>>;
 
-/// Batch row mode: empty/"auto" uses the GUI default; pure-website and
-/// cyoap-vue modes are not ported yet and are refused instead of silently
-/// downgraded.
+/// Batch row mode: empty/"auto" uses the GUI default; unknown modes are
+/// refused instead of silently downgraded.
 pub fn batch_item_mode(default: Mode, mode: &str) -> Result<Mode, String> {
     match mode {
         "" | "auto" => Ok(default),
@@ -190,6 +208,8 @@ pub fn batch_item_mode(default: Mode, mode: &str) -> Result<Mode, String> {
         "pure_website" | "pure_website_zip" => Ok(Mode::PureZip),
         "pure_website_folder" => Ok(Mode::PureFolder),
         "website_folder" => Ok(Mode::IccFolder),
+        "cyoap_vue" | "cyoap_vue_zip" => Ok(Mode::CyoapZip),
+        "cyoap_vue_folder" => Ok(Mode::CyoapFolder),
         other => Err(format!(
             "mode '{other}' is not supported by the Rust port yet"
         )),
@@ -349,6 +369,7 @@ impl DownloaderApp {
                     dns: net.dns,
                     vpn: net.vpn,
                     archive: archive_auto.unwrap_or_default(),
+                    engine: mode.engine(),
                     ..RunOptions::default()
                 };
                 // Python's ICC branch returns before CYOA Manager registration.
@@ -527,6 +548,12 @@ impl DownloaderApp {
                 &mut self.settings.mode,
                 Mode::PureFolder,
                 "Pure website (folder)",
+            );
+            ui.radio_value(&mut self.settings.mode, Mode::CyoapZip, "CYOAP Vue (ZIP)");
+            ui.radio_value(
+                &mut self.settings.mode,
+                Mode::CyoapFolder,
+                "CYOAP Vue (folder)",
             );
             ui.separator();
             ui.label("Threads:");
@@ -797,7 +824,11 @@ mod tests {
             batch_item_mode(Mode::Embed, "pure_website_folder"),
             Ok(Mode::PureFolder)
         );
-        assert!(batch_item_mode(Mode::Embed, "cyoap_vue_folder").is_err());
+        assert_eq!(
+            batch_item_mode(Mode::Embed, "cyoap_vue_folder"),
+            Ok(Mode::CyoapFolder)
+        );
+        assert!(batch_item_mode(Mode::Embed, "bogus").is_err());
     }
 
     #[test]
