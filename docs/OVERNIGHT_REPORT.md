@@ -239,3 +239,9 @@ c8705cc docs · e5c1d13 Stage 0 · e8ed523 1a · ffd7866 1a security fixes · ec
   - Fixture `website/html_localize.json`: 12 cases. Output HTML, download-call sequence and route flag all match. A mutation check passed.
   - W2 is complete. Next: W3, the classic static mirror (real fetch through cyoa-net, `_download_asset_impl` with recursive CSS/JS/HTML, containment-checked writes).
   - 175 tests pass.
+- **W3a classic mirror** (Luna drafted `mirror.rs` via `luna_review` because `luna_implement` failed twice to create files under `src/website/`; Claude fixed and integrated it):
+  - `website::mirror::MirrorSink` implements AssetSink over cyoa-net, running blocking on a Tokio handle. It ports `_download_asset_impl` (telemetry skip, SSRF block, in-progress guard, cached failures, root and /assets/ fallbacks, content-type mismatch, recursive css/js/html, depth 16) and `_fetch`.
+  - `examples/mirror_classic.rs`.
+  - **Proof:** `bash rust/scripts/website_parity.sh` runs Python `_download_html` against Rust `mirror_classic` on `rust/fixtures/site_mirror` (local http.server). The file list, all 14 files and the failed list are byte-identical.
+  - DEFERRED: checkpoint/304, browser transport, VPN guard, parallel prefetch, deep scan, `repair_missing_entry_scripts`, ICC project integration, `_site.zip`.
+  - 176 tests pass.

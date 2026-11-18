@@ -19,6 +19,7 @@ use std::{collections::HashSet, sync::LazyLock};
 
 pub mod html;
 pub mod js;
+pub mod mirror;
 pub mod page;
 
 const STYLE: &[&str] = &[".css"];
