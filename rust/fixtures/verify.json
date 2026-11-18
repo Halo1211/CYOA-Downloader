@@ -1,0 +1,160 @@
+{
+ "cases": [
+  {
+   "name": "good_icc",
+   "tree": {
+    "project.json": "7b22726f7773223a205b7b226964223a20227231222c20227469746c65223a2022526f77222c2022696d616765223a2022696d616765732f6865726f2e706e67222c20226f626a65637473223a205b7b226964223a20226f222c2022696d616765223a20222e2f696d616765732f6f626a2e706e673f763d32227d2c207b226964223a202275222c2022696d616765223a202268747470733a2f2f63646e2e6578616d706c652f782e706e67227d2c207b226964223a202264222c2022696d616765223a2022646174613a696d6167652f706e673b6261736536342c41414141227d5d7d5d2c20227374796c696e67223a207b226261636b67726f756e64496d616765223a202262672e706e67227d7d",
+    "index.html": "3c21646f63747970652068746d6c3e3c68746d6c3e3c686561643e3c6c696e6b2072656c3d227374796c6573686565742220687265663d226373732f6170702e637373223e3c736372697074207372633d226a732f6170702e6a73223e3c2f7363726970743e3c2f686561643e3c626f64793e3c696d67207372633d22696d616765732f6865726f2e706e67223e3c2f626f64793e3c2f68746d6c3e",
+    "css/app.css": "2e617b6261636b67726f756e643a75726c282e2e2f696d616765732f62672e706e67297d",
+    "js/app.js": "6665746368282270726f6a6563742e6a736f6e2229",
+    "images/hero.png": "89504e470d0a1a0a707070707070707070707070707070707070707070707070",
+    "images/obj.png": "89504e470d0a1a0a707070707070707070707070707070707070707070707070",
+    "images/bg.png": "89504e470d0a1a0a707070707070707070707070707070707070707070707070",
+    "bg.png": "89504e470d0a1a0a707070707070707070707070707070707070707070707070"
+   },
+   "manifest": true,
+   "expected": {
+    "manifest_ok": true,
+    "manifest_msg": "OK  wrote cyoa_manifest.json with 8 file checksum(s)",
+    "manifest_text": "{\n  \"app_version\": \"1.1.5\",\n  \"created_utc\": \"CREATED\",\n  \"file_count\": 8,\n  \"files\": {\n    \"bg.png\": {\n      \"sha256\": \"269636cd7ca8a53119baf278f4380674210b0da0811fe55316b8449d242ff9c3\",\n      \"size\": 32\n    },\n    \"css/app.css\": {\n      \"sha256\": \"41ab90c4797c6f06dcdd23c782fea9f746fd8a1b49cc360188bc130d7b46ef6c\",\n      \"size\": 36\n    },\n    \"images/bg.png\": {\n      \"sha256\": \"269636cd7ca8a53119baf278f4380674210b0da0811fe55316b8449d242ff9c3\",\n      \"size\": 32\n    },\n    \"images/hero.png\": {\n      \"sha256\": \"269636cd7ca8a53119baf278f4380674210b0da0811fe55316b8449d242ff9c3\",\n      \"size\": 32\n    },\n    \"images/obj.png\": {\n      \"sha256\": \"269636cd7ca8a53119baf278f4380674210b0da0811fe55316b8449d242ff9c3\",\n      \"size\": 32\n    },\n    \"index.html\": {\n      \"sha256\": \"4cf1bec408321b89e29b1249d2e578b4b7d4e30c9b3f87f019021cd0887bde2d\",\n      \"size\": 156\n    },\n    \"js/app.js\": {\n      \"sha256\": \"b2fea9955c5df68550156ade5f95d490686bdf26247f8e52f79c673c22f5349c\",\n      \"size\": 21\n    },\n    \"project.json\": {\n      \"sha256\": \"2c837d59925eb30cb174425568bea6c51634ddf3d6e3df244c18fb2e45a8f67e\",\n      \"size\": 272\n    }\n  },\n  \"manifest_version\": 1\n}",
+    "verify_ok": true,
+    "report": "CYOA Downloader v1.1.5 package verification\n========================================================\nFolder: FOLDER\nOK    project.json parses + looks like a project\nOK    manifest found (8 recorded checksum(s), created CREATED)\nOK    all 8 checksummed file(s) intact\nOK    all 7 local asset reference(s) resolve\nFiles scanned: 9 | asset references checked: 7\n--------------------------------------------------------\n--------------------------------------------------------\nResult: PASS — package looks intact"
+   }
+  },
+  {
+   "name": "broken_refs",
+   "tree": {
+    "project.json": "7b22726f7773223a205b7b226964223a202272222c2022696d616765223a2022696d616765732f4865726f2e504e47227d2c207b226964223a20226d222c2022696d616765223a2022696d616765732f6d697373696e672e706e67227d2c207b226964223a202262222c2022696d616765223a2022736f6c6f2e706e67227d2c207b226964223a202278222c2022696d616765223a20222e2e2f6573636170652e706e67227d2c207b226964223a202277222c2022696d616765223a20226f746865722f736f6c6f2e706e67227d5d7d",
+    "index.html": "3c68746d6c3e3c686561643e3c6c696e6b2072656c3d2269636f6e2220687265663d2268747470733a2f2f736974652e6578616d706c652f66617669636f6e2e69636f223e3c736372697074207372633d2268747470733a2f2f63646e2e6578616d706c652f6c69622e6a73223e3c2f7363726970743e3c6c696e6b2072656c3d227374796c6573686565742220687265663d226373732f676f6e652e637373223e3c2f686561643e3c626f64793e3c2f626f64793e3c2f68746d6c3e",
+    "images/hero.png": "89504e470d0a1a0a707070707070707070707070707070707070707070707070",
+    "deep/solo.png": "89504e470d0a1a0a707070707070707070707070707070707070707070707070",
+    "empty.png": "",
+    "failed_assets.txt": "",
+    "failed_images.txt": "23204661696c65640a68747470733a2f2f612e6578616d706c652f312e706e670a68747470733a2f2f612e6578616d706c652f312e706e670a68747470733a2f2f612e6578616d706c652f322e706e672e0a",
+    "failed_urls.txt": "3d3d3d3d3d3d3d3d3d3d3d3d0a546f74616c20202020203a20330a"
+   },
+   "expected": {
+    "verify_ok": false,
+    "report": "CYOA Downloader v1.1.5 package verification\n========================================================\nFolder: FOLDER\nOK    project.json parses + looks like a project\nFiles scanned: 8 | asset references checked: 8\n--------------------------------------------------------\nISSUES (7):\n  ✗ zero-byte asset: empty.png\n  ✗ unsafe local asset reference: ../escape.png  (referenced by project.json)\n  ✗ asset reference case mismatch: images/Hero.PNG  (referenced by project.json)\n  ✗ external dependency remains: index.html → https://cdn.example/lib.js\n  ✗ missing asset: other/solo.png  (referenced by project.json)\n  ✗ missing asset: images/missing.png  (referenced by project.json)\n  ✗ missing asset: css/gone.css  (referenced by index.html)\nNOTES (4):\n  • no cyoa_manifest.json sidecar — run with --write-manifest to enable checksum verification\n  • optional external icon remains: index.html → https://site.example/favicon.ico\n  • failed_images.txt lists 2 prior failure(s) from the original download\n  • failed_urls.txt lists 3 prior failure(s) from the original download\n--------------------------------------------------------\nResult: FAIL — 7 blocking issue(s)"
+   }
+  },
+  {
+   "name": "manifest_tampered",
+   "tree": {
+    "project.json": "7b22726f7773223a205b7b226964223a20227231222c20227469746c65223a2022526f77222c2022696d616765223a2022696d616765732f6865726f2e706e67222c20226f626a65637473223a205b7b226964223a20226f222c2022696d616765223a20222e2f696d616765732f6f626a2e706e673f763d32227d2c207b226964223a202275222c2022696d616765223a202268747470733a2f2f63646e2e6578616d706c652f782e706e67227d2c207b226964223a202264222c2022696d616765223a2022646174613a696d6167652f706e673b6261736536342c41414141227d5d7d5d2c20227374796c696e67223a207b226261636b67726f756e64496d616765223a202262672e706e67227d7d",
+    "images/hero.png": "89504e470d0a1a0a707070707070707070707070707070707070707070707070",
+    "images/obj.png": "89504e470d0a1a0a707070707070707070707070707070707070707070707070",
+    "bg.png": "89504e470d0a1a0a707070707070707070707070707070707070707070707070",
+    "nested/cyoa_manifest.json": "7b7d"
+   },
+   "manifest": true,
+   "after": {
+    "images/hero.png": "89504e476368616e676564",
+    "bg.png": null,
+    "added.txt": "6e6577"
+   },
+   "expected": {
+    "manifest_ok": true,
+    "manifest_msg": "OK  wrote cyoa_manifest.json with 5 file checksum(s)",
+    "manifest_text": "{\n  \"app_version\": \"1.1.5\",\n  \"created_utc\": \"CREATED\",\n  \"file_count\": 5,\n  \"files\": {\n    \"bg.png\": {\n      \"sha256\": \"269636cd7ca8a53119baf278f4380674210b0da0811fe55316b8449d242ff9c3\",\n      \"size\": 32\n    },\n    \"images/hero.png\": {\n      \"sha256\": \"269636cd7ca8a53119baf278f4380674210b0da0811fe55316b8449d242ff9c3\",\n      \"size\": 32\n    },\n    \"images/obj.png\": {\n      \"sha256\": \"269636cd7ca8a53119baf278f4380674210b0da0811fe55316b8449d242ff9c3\",\n      \"size\": 32\n    },\n    \"nested/cyoa_manifest.json\": {\n      \"sha256\": \"44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a\",\n      \"size\": 2\n    },\n    \"project.json\": {\n      \"sha256\": \"2c837d59925eb30cb174425568bea6c51634ddf3d6e3df244c18fb2e45a8f67e\",\n      \"size\": 272\n    }\n  },\n  \"manifest_version\": 1\n}",
+    "verify_ok": false,
+    "report": "CYOA Downloader v1.1.5 package verification\n========================================================\nFolder: FOLDER\nOK    project.json parses + looks like a project\nOK    manifest found (5 recorded checksum(s), created CREATED)\nFiles scanned: 6 | asset references checked: 3\n--------------------------------------------------------\nISSUES (4):\n  ✗ checksum mismatch (corrupt/modified): images/hero.png\n  ✗ size mismatch (corrupt/modified): images/hero.png\n  ✗ file in manifest but missing on disk: bg.png\n  ✗ missing asset: bg.png  (referenced by project.json)\nNOTES (1):\n  • 1 file(s) on disk not in manifest (added after manifest was written)\n--------------------------------------------------------\nResult: FAIL — 4 blocking issue(s)"
+   }
+  },
+  {
+   "name": "manifest_bad_entries",
+   "tree": {
+    "a.txt": "616161",
+    "b.txt": "626262"
+   },
+   "raw_manifest": "{\"manifest_version\": 2, \"file_count\": 9, \"created_utc\": \"2020-01-01T00:00:00Z\", \"files\": {\"a.txt\": {\"sha256\": \"0000000000000000000000000000000000000000000000000000000000000000\", \"size\": 3}, \"b.txt\": {\"sha256\": \"nothex\", \"size\": 3}, \"./c.txt\": {\"sha256\": \"0000000000000000000000000000000000000000000000000000000000000000\", \"size\": 1}, \"../d.txt\": {\"sha256\": \"0000000000000000000000000000000000000000000000000000000000000000\", \"size\": 1}, \"e.txt\": \"string entry\", \"a\\\\b.txt\": {\"sha256\": \"0000000000000000000000000000000000000000000000000000000000000000\", \"size\": 1}, \"f.txt\": {\"sha256\": \"0000000000000000000000000000000000000000000000000000000000000000\", \"size\": true}}}",
+   "expected": {
+    "verify_ok": false,
+    "report": "CYOA Downloader v1.1.5 package verification\n========================================================\nFolder: FOLDER\nOK    manifest found (9 recorded checksum(s), created CREATED)\nOK    all 0 local asset reference(s) resolve\nFiles scanned: 3 | asset references checked: 0\n--------------------------------------------------------\nISSUES (9):\n  ✗ unsupported or missing manifest_version\n  ✗ manifest file_count mismatch: declared 9, actual 7\n  ✗ unsafe path in manifest: ./c.txt\n  ✗ unsafe path in manifest: ../d.txt\n  ✗ invalid manifest checksum: b.txt\n  ✗ checksum mismatch (corrupt/modified): a.txt\n  ✗ file in manifest but missing on disk: a/b.txt\n  ✗ file in manifest but missing on disk: e.txt\n  ✗ file in manifest but missing on disk: f.txt\nNOTES (1):\n  • no project.json at root (expected for pure-website modes)\n--------------------------------------------------------\nResult: FAIL — 9 blocking issue(s)"
+   }
+  },
+  {
+   "name": "pure_no_project_bad_manifest",
+   "tree": {
+    "index.html": "3c68746d6c3e3c626f64793e68693c2f626f64793e3c2f68746d6c3e"
+   },
+   "raw_manifest": "{not json",
+   "expected": {
+    "verify_ok": false,
+    "report": "CYOA Downloader v1.1.5 package verification\n========================================================\nFolder: FOLDER\nOK    all 0 local asset reference(s) resolve\nFiles scanned: 2 | asset references checked: 0\n--------------------------------------------------------\nISSUES (1):\n  ✗ invalid or unreadable cyoa_manifest.json sidecar\nNOTES (1):\n  • no project.json at root (expected for pure-website modes)\n--------------------------------------------------------\nResult: FAIL — 1 blocking issue(s)"
+   }
+  },
+  {
+   "name": "project_not_object",
+   "tree": {
+    "project.json": "5b312c20325d",
+    "x.bin": "31"
+   },
+   "expected": {
+    "verify_ok": false,
+    "report": "CYOA Downloader v1.1.5 package verification\n========================================================\nFolder: FOLDER\nOK    all 0 local asset reference(s) resolve\nFiles scanned: 2 | asset references checked: 0\n--------------------------------------------------------\nISSUES (1):\n  ✗ project.json is valid JSON but not an object\nNOTES (1):\n  • no cyoa_manifest.json sidecar — run with --write-manifest to enable checksum verification\n--------------------------------------------------------\nResult: FAIL — 1 blocking issue(s)"
+   }
+  },
+  {
+   "name": "project_not_project",
+   "tree": {
+    "project.json": "7b2268656c6c6f223a2022776f726c64227d"
+   },
+   "expected": {
+    "verify_ok": true,
+    "report": "CYOA Downloader v1.1.5 package verification\n========================================================\nFolder: FOLDER\nOK    all 0 local asset reference(s) resolve\nFiles scanned: 1 | asset references checked: 0\n--------------------------------------------------------\nNOTES (2):\n  • project.json parses but lacks typical project keys\n  • no cyoa_manifest.json sidecar — run with --write-manifest to enable checksum verification\n--------------------------------------------------------\nResult: PASS — package looks intact"
+   }
+  },
+  {
+   "name": "many_zero_bytes",
+   "tree": {
+    "z/00.png": "",
+    "z/01.png": "",
+    "z/02.png": "",
+    "z/03.png": "",
+    "z/04.png": "",
+    "z/05.png": "",
+    "z/06.png": "",
+    "z/07.png": "",
+    "z/08.png": "",
+    "z/09.png": "",
+    "z/10.png": "",
+    "z/11.png": "",
+    "z/12.png": "",
+    "z/13.png": "",
+    "z/14.png": "",
+    "z/15.png": "",
+    "z/16.png": "",
+    "z/17.png": "",
+    "z/18.png": "",
+    "z/19.png": "",
+    "z/20.png": "",
+    "z/21.png": "",
+    "z/22.png": "",
+    "z/23.png": "",
+    "z/24.png": "",
+    "z/25.png": "",
+    "z/26.png": "",
+    "z/27.png": ""
+   },
+   "expected": {
+    "verify_ok": false,
+    "report": "CYOA Downloader v1.1.5 package verification\n========================================================\nFolder: FOLDER\nOK    all 0 local asset reference(s) resolve\nFiles scanned: 28 | asset references checked: 0\n--------------------------------------------------------\nISSUES (26):\n  ✗ zero-byte asset: z\\00.png\n  ✗ zero-byte asset: z\\01.png\n  ✗ zero-byte asset: z\\02.png\n  ✗ zero-byte asset: z\\03.png\n  ✗ zero-byte asset: z\\04.png\n  ✗ zero-byte asset: z\\05.png\n  ✗ zero-byte asset: z\\06.png\n  ✗ zero-byte asset: z\\07.png\n  ✗ zero-byte asset: z\\08.png\n  ✗ zero-byte asset: z\\09.png\n  ✗ zero-byte asset: z\\10.png\n  ✗ zero-byte asset: z\\11.png\n  ✗ zero-byte asset: z\\12.png\n  ✗ zero-byte asset: z\\13.png\n  ✗ zero-byte asset: z\\14.png\n  ✗ zero-byte asset: z\\15.png\n  ✗ zero-byte asset: z\\16.png\n  ✗ zero-byte asset: z\\17.png\n  ✗ zero-byte asset: z\\18.png\n  ✗ zero-byte asset: z\\19.png\n  ✗ zero-byte asset: z\\20.png\n  ✗ zero-byte asset: z\\21.png\n  ✗ zero-byte asset: z\\22.png\n  ✗ zero-byte asset: z\\23.png\n  ✗ zero-byte asset: z\\24.png\n  ✗ ... and 3 more zero-byte files\nNOTES (2):\n  • no project.json at root (expected for pure-website modes)\n  • no cyoa_manifest.json sidecar — run with --write-manifest to enable checksum verification\n--------------------------------------------------------\nResult: FAIL — 26 blocking issue(s)"
+   }
+  },
+  {
+   "name": "empty_folder",
+   "tree": {},
+   "expected": {
+    "verify_ok": false,
+    "report": "CYOA Downloader v1.1.5 package verification\n========================================================\nFolder: FOLDER\n\nFAIL  folder is empty"
+   }
+  }
+ ],
+ "missing_folder": {
+  "verify_ok": false,
+  "report": "CYOA Downloader v1.1.5 package verification\n========================================================\nFolder: FOLDER\n\nFAIL  folder does not exist or is not a directory",
+  "manifest_ok": false,
+  "manifest_msg": "FAIL  folder does not exist: FOLDER"
+ }
+}
