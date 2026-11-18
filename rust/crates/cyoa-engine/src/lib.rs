@@ -5,4 +5,7 @@ pub mod embed;
 pub mod fetch;
 pub mod fetch_plan;
 pub mod localize;
+pub mod output;
 pub mod pipeline;
+pub mod reports;
+pub mod run;

@@ -176,30 +176,8 @@ fn field_group() -> String {
         .join("|")
 }
 
-fn utc_timestamp() -> String {
-    // Python emits a local timestamp; the portable standard-library fallback is UTC.
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64;
-    let days = secs.div_euclid(86_400);
-    let rem = secs.rem_euclid(86_400);
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    let mut y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = mp + if mp < 10 { 3 } else { -9 };
-    y += i64::from(m <= 2);
-    format!(
-        "{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02}",
-        rem / 3600,
-        rem / 60 % 60,
-        rem % 60
-    )
+fn local_timestamp() -> String {
+    crate::reports::local_timestamp()
 }
 
 fn write_failed_log(failed: &[FailedAsset], dir: &Path, source: &str) -> Result<(), PipelineError> {
@@ -212,7 +190,7 @@ fn write_failed_log(failed: &[FailedAsset], dir: &Path, source: &str) -> Result<
     if !path.exists() {
         text.push_str("# Failed image downloads\n# Note: Failed images keep their original external URL in the project JSON.\n#       They will load normally when the original site is online.\n\n");
     }
-    text.push_str(&format!("# --- {} ---\n", utc_timestamp()));
+    text.push_str(&format!("# --- {} ---\n", local_timestamp()));
     if !source.is_empty() {
         text.push_str(&format!("# Source CYOA : {source}\n"));
     }
@@ -656,8 +634,26 @@ pub async fn process_images(
             .collect();
         let dir = dir.clone();
         let source = opts.source_url.clone();
-        tokio::task::spawn_blocking(move || write_failed_log(&image_fails, &dir, &source))
-            .await??;
+        let all_fails = failed.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), PipelineError> {
+            write_failed_log(&image_fails, &dir, &source)?;
+            let items: Vec<_> = all_fails
+                .iter()
+                .map(|f| crate::reports::FailedItem {
+                    url: &f.url,
+                    path: &f.path,
+                    error: &f.error,
+                })
+                .collect();
+            crate::reports::write_failed_assets_log(
+                &items,
+                &dir,
+                &source,
+                "Broken Project Asset Report",
+            )?;
+            Ok(())
+        })
+        .await??;
     }
 
     // Map alias references to the same completed replacement.

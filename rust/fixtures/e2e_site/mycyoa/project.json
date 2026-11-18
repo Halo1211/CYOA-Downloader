@@ -1,0 +1,1 @@
+{"rows":[{"id":"r1","title":"Row","image":"img/a.png","objects":[{"id":"o1","image":"img/b.jpg","text":"<img src=\"img/a.png\">"},{"id":"o2","image":"img/missing.png"}]}],"backgroundImage":"img/b.jpg"}
