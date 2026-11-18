@@ -10,6 +10,45 @@ use std::fmt;
 pub const DEFAULT_NO_PROXY: &str = "localhost,127.0.0.1,::1";
 const SUPPORTED_SCHEMES: &[&str] = &["http", "https", "socks4", "socks4a", "socks5", "socks5h"];
 
+/// CLI flags for proxy resolution; `None` means "not given on the command line".
+#[derive(Debug, Default, Clone, Copy)]
+pub struct ProxyArgs<'a> {
+    pub mode: Option<&'a str>,
+    pub proxy: Option<&'a str>,
+    pub http: Option<&'a str>,
+    pub https: Option<&'a str>,
+    pub bypass: Option<&'a str>,
+}
+
+/// Python `cli.py` proxy resolution: flags override saved settings
+/// (`saved(key)` returns a saved string value); proxy URL flags without
+/// `--proxy-mode` select manual (any non-empty URL) or disabled.
+pub fn resolve_cli(
+    args: &ProxyArgs<'_>,
+    saved: &dyn Fn(&str) -> Option<String>,
+) -> Result<ProxyConfig, ProxyError> {
+    let pick = |arg: Option<&str>, key: &str, default: &str| -> String {
+        arg.map(str::to_string)
+            .or_else(|| saved(key))
+            .unwrap_or_else(|| default.to_string())
+    };
+    let proxy = pick(args.proxy, "proxy", "");
+    let http = pick(args.http, "proxy_http", "");
+    let https = pick(args.https, "proxy_https", "");
+    let bypass = pick(args.bypass, "proxy_no_proxy", DEFAULT_NO_PROXY);
+    let url_flag_given = args.proxy.is_some() || args.http.is_some() || args.https.is_some();
+    let mode = if args.mode.is_none() && url_flag_given {
+        if [&proxy, &http, &https].iter().any(|v| !v.is_empty()) {
+            ProxyMode::Manual
+        } else {
+            ProxyMode::Disabled
+        }
+    } else {
+        ProxyMode::parse(&pick(args.mode, "proxy_mode", "inherit_env"))?
+    };
+    ProxyConfig::new(mode, &proxy, &http, &https, &bypass)
+}
+
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum ProxyError {
     #[error("Unknown proxy mode")]
@@ -276,6 +315,89 @@ impl ProxyConfig {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    fn resolve(args: ProxyArgs<'_>, saved: &[(&str, &str)]) -> Result<ProxyConfig, ProxyError> {
+        let map: std::collections::HashMap<String, String> = saved
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+            .collect();
+        resolve_cli(&args, &|k| map.get(k).cloned())
+    }
+
+    #[test]
+    fn cli_uses_saved_values() {
+        let c = resolve(
+            ProxyArgs::default(),
+            &[
+                ("proxy_mode", "manual"),
+                ("proxy", "http://saved:1"),
+                ("proxy_no_proxy", "localhost, saved"),
+            ],
+        )
+        .unwrap();
+        assert_eq!(c.mode, ProxyMode::Manual);
+        assert_eq!(c.common.as_deref(), Some("http://saved:1"));
+        assert_eq!(c.no_proxy, "localhost,saved");
+        let d = resolve(ProxyArgs::default(), &[]).unwrap();
+        assert_eq!(d.mode, ProxyMode::InheritEnv);
+        assert_eq!(d.no_proxy, DEFAULT_NO_PROXY);
+    }
+
+    #[test]
+    fn cli_args_override_and_infer_mode() {
+        let saved = [("proxy_mode", "disabled"), ("proxy", "bad")];
+        let c = resolve(
+            ProxyArgs {
+                mode: Some("manual"),
+                proxy: Some("http://arg:2"),
+                ..Default::default()
+            },
+            &saved,
+        )
+        .unwrap();
+        assert_eq!(c.common.as_deref(), Some("http://arg:2"));
+        // Saved invalid common proxy joins the inferred manual profile and is rejected, like Python.
+        assert_eq!(
+            resolve(
+                ProxyArgs {
+                    http: Some("http://arg:3"),
+                    ..Default::default()
+                },
+                &saved
+            ),
+            Err(ProxyError::Scheme)
+        );
+        let m = resolve(
+            ProxyArgs {
+                http: Some("http://arg:3"),
+                ..Default::default()
+            },
+            &[],
+        )
+        .unwrap();
+        assert_eq!(m.mode, ProxyMode::Manual);
+        assert_eq!(m.active_proxies().len(), 1);
+        let off = resolve(
+            ProxyArgs {
+                proxy: Some(""),
+                ..Default::default()
+            },
+            &[],
+        )
+        .unwrap();
+        assert_eq!(off.mode, ProxyMode::Disabled);
+        let inherit = resolve(
+            ProxyArgs {
+                mode: Some("inherit_env"),
+                proxy: Some("http://arg:4"),
+                ..Default::default()
+            },
+            &[],
+        )
+        .unwrap();
+        assert_eq!(inherit.mode, ProxyMode::InheritEnv);
+        assert_eq!(inherit.common, None);
+    }
 
     #[test]
     fn normalize_accepts_supported() {

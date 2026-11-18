@@ -76,7 +76,7 @@ Source paths are relative to `cyoa_downloader_app/`.
 | F-013 | Admission budget 20 global / 12 per host | `network/budget.py` | cyoa-net | 3 | S | |
 | F-014 | Retry policy and status retries | `network/retry_policy.py` | cyoa-net | 3 | L | |
 | F-015 | Bandwidth throttle | `network/throttle.py` | cyoa-net | 3 | L | |
-| F-016 | Proxy (manual/env/per-scheme/bypass) | `network/proxy.py` | cyoa-net | 3 | L | PARTIAL: `cyoa_net::proxy` (modes, validation, redaction, manual per-scheme map, bypass, reqwest wiring); redaction/validation checked against Python. Not yet: CLI/GUI flags, settings load, browser/FlareSolverr proxy config. Diff: inherit_env uses reqwest env discovery, not requests.get_environ_proxies |
+| F-016 | Proxy (manual/env/per-scheme/bypass) | `network/proxy.py` | cyoa-net | 3 | L | PARTIAL: `cyoa_net::proxy` (modes, validation, redaction, manual per-scheme map, bypass, reqwest wiring); redaction/validation checked against Python. CLI flags + saved-settings resolution done (Python cli.py 580-599). Not yet: GUI, persisting CLI flags to settings, browser/FlareSolverr proxy config. Diff: inherit_env uses reqwest env discovery, not requests.get_environ_proxies |
 | F-017 | Custom DNS (UDP/TCP/DoH/DoT, IPv6, fallback) | `network/dns.py` | cyoa-net | 3 | L+S | |
 | F-018 | VPN interface guard | `network/vpn.py` | cyoa-net | 3 | L | Windows interface enumeration |
 | F-019 | Cloudflare detection and FlareSolverr | `network/cloudflare.py` | cyoa-net | 6 | L | cloudscraper itself is deferred (D3) |

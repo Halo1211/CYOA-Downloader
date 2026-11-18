@@ -8,6 +8,7 @@ use cyoa_net::{
     admission::RequestBudget,
     client::{ClientConfig, FetchClient},
     policy::DestinationPolicy,
+    proxy::ProxyConfig,
     throttle::DomainThrottle,
 };
 use std::{
@@ -83,6 +84,8 @@ pub struct RunOptions {
     pub cache_limit_mb: u64,
     /// Optional output name (Python `file_name`; cleaned like Python).
     pub file_name: Option<String>,
+    /// F-016 proxy profile for this run.
+    pub proxy: ProxyConfig,
 }
 
 /// Python default for `image_cache_max_mb`.
@@ -99,6 +102,7 @@ impl Default for RunOptions {
             cache_dir: cyoa_storage::cache::ImageCache::default_root(),
             cache_limit_mb: DEFAULT_CACHE_LIMIT_MB,
             file_name: None,
+            proxy: ProxyConfig::disabled(),
         }
     }
 }
@@ -162,6 +166,7 @@ pub async fn run_download(
             allow_internal: false,
         },
         budget: RequestBudget::new(16, 8),
+        proxy: opts.proxy.clone(),
         ..ClientConfig::default()
     })
     .map_err(|e| RunError::OutputDirectory(std::io::Error::other(e.to_string())))?;

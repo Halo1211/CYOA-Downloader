@@ -41,6 +41,21 @@ struct Args {
     /// Seconds to wait after a 429 response (default: 60)
     #[arg(short = 'w', long = "wait-time", alias = "wait", default_value_t = 60)]
     wait_time: u64,
+    /// Proxy URL, e.g. http://127.0.0.1:7890. Use --proxy-mode disabled to ignore environment proxies.
+    #[arg(long)]
+    proxy: Option<String>,
+    /// Proxy mode. Default preserves saved behavior; disabled ignores HTTP_PROXY/HTTPS_PROXY.
+    #[arg(long, value_parser = ["inherit_env", "manual", "disabled"])]
+    proxy_mode: Option<String>,
+    /// Advanced HTTP proxy URL; overrides --proxy for HTTP requests.
+    #[arg(long)]
+    proxy_http: Option<String>,
+    /// Advanced HTTPS proxy URL; overrides --proxy for HTTPS requests.
+    #[arg(long)]
+    proxy_https: Option<String>,
+    /// Comma-separated hosts that bypass a manual proxy.
+    #[arg(long)]
+    proxy_bypass: Option<String>,
 }
 
 fn valid_url(url: &str) -> bool {
@@ -143,6 +158,31 @@ async fn main() -> ExitCode {
         return ExitCode::from(2);
     }
 
+    // Saved settings are read only; Python's CLI also persists proxy flags (not ported yet).
+    let mut store =
+        cyoa_storage::settings::SettingsStore::new(cyoa_storage::settings::default_path());
+    let saved = store
+        .load()
+        .cloned()
+        .unwrap_or_else(|_| cyoa_storage::settings::defaults());
+    let lookup = |key: &str| saved.get(key).and_then(|v| v.as_str()).map(str::to_string);
+    let proxy_cfg = match cyoa_net::proxy::resolve_cli(
+        &cyoa_net::proxy::ProxyArgs {
+            mode: args.proxy_mode.as_deref(),
+            proxy: args.proxy.as_deref(),
+            http: args.proxy_http.as_deref(),
+            https: args.proxy_https.as_deref(),
+            bypass: args.proxy_bypass.as_deref(),
+        },
+        &lookup,
+    ) {
+        Ok(cfg) => cfg,
+        Err(error) => {
+            eprintln!("error: {error}");
+            return ExitCode::from(2);
+        }
+    };
+
     let batch_mode = args.list.is_some();
     let items: Vec<BatchItem> = if let Some(list) = args.list.take() {
         match batch::import_batch_file(&list) {
@@ -211,6 +251,7 @@ async fn main() -> ExitCode {
             workers: args.workers,
             wait_time: args.wait_time,
             file_name: (!item.filename.is_empty()).then(|| item.filename.clone()),
+            proxy: proxy_cfg.clone(),
             ..RunOptions::default()
         };
         match run_one(options, &cancel).await {
