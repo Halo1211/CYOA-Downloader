@@ -33,6 +33,11 @@ const TEXT_EXTS: &[&str] = &[
 const MAX_ROUNDS: usize = 6;
 /// Per-asset size cap (Python has none; generous safety bound).
 pub const DEEP_SCAN_MAX_BYTES: u64 = 512 * 1024 * 1024;
+/// Safety caps (Python has none): candidates per round, requests and bytes
+/// per deep-scan run (Sol review s6).
+pub const MAX_CANDIDATES_PER_ROUND: usize = 20_000;
+pub const DEEP_SCAN_MAX_REQUESTS: usize = 100_000;
+pub const DEEP_SCAN_MAX_TOTAL_BYTES: u64 = 20 * 1024 * 1024 * 1024;
 
 /// One failed deep-scan asset (`failed_deep_assets` item, kind "deep-scan").
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -113,6 +118,40 @@ fn local_or_basename(url: &str, base: &str, content: Option<&[u8]>) -> String {
     if b.is_empty() { "asset".into() } else { b }
 }
 
+/// Python `_ssrf_block_cross_origin` resolves the host: an asset whose
+/// (scheme, host, effective port) differs from the page origin is blocked when
+/// its host resolves to an internal address. The client's resolver exemption
+/// is per hostname only, so a different port on an internally resolving page
+/// host must be caught here (Sol review s6).
+async fn resolves_internal_cross_origin(url: &str, base: &str) -> bool {
+    let (Ok(a), Ok(b)) = (Url::parse(url), Url::parse(base)) else {
+        return false;
+    };
+    let same_origin = a.scheme().eq_ignore_ascii_case(b.scheme())
+        && a.host_str().map(str::to_lowercase) == b.host_str().map(str::to_lowercase)
+        && a.port_or_known_default() == b.port_or_known_default();
+    if same_origin {
+        return false;
+    }
+    let Some(host) = a.host_str() else {
+        return false;
+    };
+    let host = host
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .to_owned();
+    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+        return cyoa_net::policy::ip_is_internal(ip);
+    }
+    match tokio::net::lookup_host((host.as_str(), a.port_or_known_default().unwrap_or(80))).await {
+        Ok(addrs) => addrs
+            .into_iter()
+            .any(|s| cyoa_net::policy::ip_is_internal(s.ip())),
+        // Unresolvable: the request itself will fail; nothing to screen.
+        Err(_) => false,
+    }
+}
+
 /// Result of one `_try_fetch`.
 struct Fetched {
     url: String,
@@ -140,7 +179,9 @@ async fn try_fetch(
     {
         return none(200);
     }
-    if cyoa_parse::discover::ssrf_block_cross_origin(&url, &base, false) {
+    if cyoa_parse::discover::ssrf_block_cross_origin(&url, &base, false)
+        || resolves_internal_cross_origin(&url, &base).await
+    {
         tracing::warn!("  [SSRF blocked] cross-origin internal host: {url}");
         return none(0);
     }
@@ -234,9 +275,20 @@ struct State {
     css_sources: BTreeSet<String>,
     disk_files: BTreeSet<String>,
     generated: GeneratedEntryImageIndex,
+    requests: usize,
+    total_bytes: u64,
 }
 
 impl State {
+    fn budget_exhausted(&self) -> bool {
+        let out = self.requests >= DEEP_SCAN_MAX_REQUESTS
+            || self.total_bytes >= DEEP_SCAN_MAX_TOTAL_BYTES;
+        if out {
+            tracing::warn!("[deep scan] request/byte budget exhausted; stopping");
+        }
+        out
+    }
+
     fn record_failure(&mut self, url: &str, rel: &str, error: &str) {
         if !self.failed_keys.insert((url.to_owned(), error.to_owned())) {
             return;
@@ -414,6 +466,7 @@ impl DeepScan<'_> {
             });
         match written {
             Ok(_) => {
+                st.total_bytes = st.total_bytes.saturating_add(content.len() as u64);
                 st.downloaded.insert(f.url.clone(), rel.clone());
                 st.disk_files.insert(rel.clone());
                 let abs = std::path::absolute(&local).unwrap_or(local);
@@ -446,6 +499,8 @@ impl DeepScan<'_> {
             css_sources: BTreeSet::new(),
             disk_files: BTreeSet::new(),
             generated: GeneratedEntryImageIndex::new(),
+            requests: 0,
+            total_bytes: 0,
         };
         let mut round = 0;
         while round < MAX_ROUNDS && !self.cancel.is_cancelled() {
@@ -465,6 +520,14 @@ impl DeepScan<'_> {
             if to_download.is_empty() {
                 break;
             }
+            let mut to_download = to_download;
+            if to_download.len() > MAX_CANDIDATES_PER_ROUND {
+                tracing::warn!(
+                    "[deep scan] Round {round}: {} candidates, keeping the first {MAX_CANDIDATES_PER_ROUND}",
+                    to_download.len()
+                );
+                to_download.truncate(MAX_CANDIDATES_PER_ROUND);
+            }
             tracing::info!(
                 "[deep scan] Round {round}: fetching {} asset(s)…",
                 to_download.len()
@@ -472,59 +535,73 @@ impl DeepScan<'_> {
             let mut saved = 0usize;
             let mut vite_retry: Vec<String> = Vec::new();
             let mut vite_origin: HashMap<String, (String, u16)> = HashMap::new();
-            for f in self.fetch_many(to_download).await {
-                if self.cancel.is_cancelled() {
+            // Bounded batches: at most workers*2 bodies in memory, each saved
+            // before the next batch starts (Python iter_bounded_results).
+            let batch = self.max_workers.clamp(1, 8) * 2;
+            let chunks: Vec<Vec<String>> =
+                to_download.chunks(batch).map(<[String]>::to_vec).collect();
+            for chunk in chunks {
+                if self.cancel.is_cancelled() || st.budget_exhausted() {
                     break;
                 }
-                if f.content.is_some() {
-                    if self.save(&mut st, &f, "✓") {
-                        saved += 1;
+                st.requests += chunk.len();
+                for f in self.fetch_many(chunk).await {
+                    if self.cancel.is_cancelled() {
+                        break;
                     }
-                    continue;
-                }
-                if f.status == 200 {
-                    continue;
-                }
-                if let Some(alt) = css_root_fallback(&st, &f.url, self.base_url) {
-                    let alt_rel = local_or_basename(&alt, self.base_url, None);
-                    if st.downloaded.contains_key(&alt) || st.disk_files.contains(&alt_rel) {
+                    if f.content.is_some() {
+                        if self.save(&mut st, &f, "✓") {
+                            saved += 1;
+                        }
                         continue;
                     }
-                    st.known.insert(alt.clone());
-                    let r = self.fetch_many(vec![alt]).await.into_iter().next();
-                    if let Some(r) = r.filter(|r| r.content.is_some())
-                        && self.save(&mut st, &r, "✓ CSS root")
+                    if f.status == 200 {
+                        continue;
+                    }
+                    if let Some(alt) = css_root_fallback(&st, &f.url, self.base_url) {
+                        let alt_rel = local_or_basename(&alt, self.base_url, None);
+                        if st.downloaded.contains_key(&alt) || st.disk_files.contains(&alt_rel) {
+                            continue;
+                        }
+                        st.known.insert(alt.clone());
+                        let r = self.fetch_many(vec![alt]).await.into_iter().next();
+                        if let Some(r) = r.filter(|r| r.content.is_some())
+                            && self.save(&mut st, &r, "✓ CSS root")
+                        {
+                            saved += 1;
+                            continue;
+                        }
+                    }
+                    if let Some(route) = viewer_route_asset_fallback(&f.url, self.base_url) {
+                        st.known.insert(route.clone());
+                        let r = self.fetch_many(vec![route]).await.into_iter().next();
+                        if let Some(r) = r.filter(|r| r.content.is_some())
+                            && self.save(&mut st, &r, "✓ route")
+                        {
+                            saved += 1;
+                            continue;
+                        }
+                    }
+                    let path = crate::localize::py_urlparse(&f.url).path.to_owned();
+                    if path.matches('/').count() == 1
+                        && (path.to_lowercase().ends_with(".js")
+                            || path.to_lowercase().ends_with(".mjs"))
                     {
-                        saved += 1;
-                        continue;
+                        let alt = canonical_scan_url(&f.url.replacen(
+                            &path,
+                            &format!("/assets{path}"),
+                            1,
+                        ));
+                        if !st.known.contains(&alt) {
+                            vite_origin.insert(alt.clone(), (f.url.clone(), f.status));
+                            vite_retry.push(alt.clone());
+                            st.known.insert(alt);
+                            continue;
+                        }
                     }
+                    let rel = deep_scan_url_to_local(&f.url, self.base_url, None);
+                    st.record_failure(&f.url, &rel, &http_error(f.status));
                 }
-                if let Some(route) = viewer_route_asset_fallback(&f.url, self.base_url) {
-                    st.known.insert(route.clone());
-                    let r = self.fetch_many(vec![route]).await.into_iter().next();
-                    if let Some(r) = r.filter(|r| r.content.is_some())
-                        && self.save(&mut st, &r, "✓ route")
-                    {
-                        saved += 1;
-                        continue;
-                    }
-                }
-                let path = crate::localize::py_urlparse(&f.url).path.to_owned();
-                if path.matches('/').count() == 1
-                    && (path.to_lowercase().ends_with(".js")
-                        || path.to_lowercase().ends_with(".mjs"))
-                {
-                    let alt =
-                        canonical_scan_url(&f.url.replacen(&path, &format!("/assets{path}"), 1));
-                    if !st.known.contains(&alt) {
-                        vite_origin.insert(alt.clone(), (f.url.clone(), f.status));
-                        vite_retry.push(alt.clone());
-                        st.known.insert(alt);
-                        continue;
-                    }
-                }
-                let rel = deep_scan_url_to_local(&f.url, self.base_url, None);
-                st.record_failure(&f.url, &rel, &http_error(f.status));
             }
             if !vite_retry.is_empty() {
                 for f in self.fetch_many(vite_retry).await {
@@ -611,6 +688,35 @@ fn http_error(status: u16) -> String {
 mod tests {
     use super::*;
     use cyoa_net::{client::ClientConfig, policy::DestinationPolicy};
+
+    #[tokio::test]
+    async fn cross_port_internal_hosts_are_blocked() {
+        // Same internal host, different port: a different service (Sol review).
+        assert!(
+            resolves_internal_cross_origin(
+                "http://127.0.0.1:9/a.png",
+                "http://127.0.0.1:8000/game/"
+            )
+            .await
+        );
+        assert!(
+            resolves_internal_cross_origin(
+                "https://127.0.0.1:8000/a.png",
+                "http://127.0.0.1:8000/"
+            )
+            .await
+        );
+        assert!(
+            !resolves_internal_cross_origin(
+                "http://127.0.0.1:8000/a.png",
+                "http://127.0.0.1:8000/game/"
+            )
+            .await
+        );
+        assert!(
+            resolves_internal_cross_origin("http://localhost:9/x", "http://localhost:8000/").await
+        );
+    }
 
     /// Differential run driven by `rust/scripts/deep_scan_parity.sh`:
     /// DEEP_E2E_DIR=<site folder copy> DEEP_E2E_BASE=<viewer base URL>.

@@ -53,9 +53,11 @@ impl IccRun<'_> {
         let (site_c, client, cancel) = (site.clone(), self.client.clone(), self.cancel.clone());
         let handle = tokio::runtime::Handle::current();
         let pre_deep_scan = !self.auto_strategy && self.deep_scan;
+        let workers = self.workers;
         let mut sink = tokio::task::spawn_blocking(move || {
             let mut sink =
                 MirrorSink::new(site_c, &entry, &base, client, handle, cancel, 512 << 20);
+            sink.workers = workers;
             let result = sink.download_site(pre_deep_scan);
             (sink, result)
         })
@@ -127,20 +129,35 @@ impl IccRun<'_> {
                 "[Auto] Project assets were localized by process_images; skipping redundant post-project JS/CSS deep scan."
             );
         } else if self.deep_scan {
-            let mut sources = HashMap::new();
+            // File walking/parsing is blocking work: run it on a blocking
+            // thread that drives the async fetches via the runtime handle.
             let skip: BTreeSet<String> = processed.resolved_urls.iter().cloned().collect();
-            DeepScan {
-                folder: &site,
-                base_url: &self.source.base_url,
-                client: &self.client,
-                cancel: &self.cancel,
-                max_workers: self.workers,
-                skip_urls: &skip,
-                exclude_relative_paths: &["project.json"],
-                source_urls: &mut sources,
-            }
-            .run()
-            .await;
+            let (site_c, base, client, cancel, workers) = (
+                site.clone(),
+                self.source.base_url.clone(),
+                self.client.clone(),
+                self.cancel.clone(),
+                self.workers,
+            );
+            let handle = tokio::runtime::Handle::current();
+            tokio::task::spawn_blocking(move || {
+                let mut sources = HashMap::new();
+                handle.block_on(
+                    DeepScan {
+                        folder: &site_c,
+                        base_url: &base,
+                        client: &client,
+                        cancel: &cancel,
+                        max_workers: workers,
+                        skip_urls: &skip,
+                        exclude_relative_paths: &["project.json"],
+                        source_urls: &mut sources,
+                    }
+                    .run(),
+                )
+            })
+            .await
+            .map_err(|e| RunError::OutputStage(format!("deep scan worker failed: {e}")))?;
         } else {
             tracing::info!("Deep scan disabled by toggle — skipping JS/CSS asset pass.");
         }

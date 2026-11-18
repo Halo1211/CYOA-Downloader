@@ -92,6 +92,8 @@ pub struct MirrorSink {
     pub max_total_bytes: u64,
     /// Python `self._project_aliases` (relative paths).
     pub project_aliases: Vec<String>,
+    /// Python `self.max_workers` (deep-scan concurrency, clamped 1..=8).
+    pub workers: usize,
     /// Python `self._source_for_local`: local file (relative) -> source URL,
     /// the referrer used when a file is re-analysed.
     pub source_for_local: HashMap<String, String>,
@@ -132,6 +134,7 @@ impl MirrorSink {
             max_requests: DEFAULT_MAX_REQUESTS,
             max_total_bytes: DEFAULT_MAX_TOTAL_BYTES,
             project_aliases: Vec::new(),
+            workers: 4,
             source_for_local: HashMap::new(),
         }
     }
@@ -656,7 +659,7 @@ impl MirrorSink {
             self.base_url.clone(),
             self.client.clone(),
             self.cancel.clone(),
-            4,
+            self.workers,
         );
         let outcome = self.handle.block_on(
             super::deep_driver::DeepScan {

@@ -86,3 +86,15 @@ Read-only review of `cyoa_integrations::cyoa_manager` at 2ec56d7. No SQL injecti
 | 4 | Medium | Probe buffered whole top-level strings | Fixed: unrelated keys are skipped with `IgnoredAny`; only `rows`/`version`/`styling` are inspected (test with a 400 KB field) |
 | 5 | Low | Ignored strings skipped UTF-8 validation | Fixed: `Utf8Checked` reader rejects invalid UTF-8 anywhere, including a code point truncated at EOF |
 | – | Parity | `version` digits: Python `isdigit` accepts non-ASCII digits | Kept ASCII-only; documented in FEATURE_PARITY |
+
+## Session 6: deep scan + ICC mode (Sol task 20261119-000914-sol-26c8670d0a)
+
+Static review of 4daffc4 (deep_driver.rs, deep_scan.rs, icc.rs, MirrorSink::download_site). No traversal write found; scheme/userinfo rejection confirmed in FetchClient (redirects included); block_on placement inside spawn_blocking confirmed correct.
+
+| # | Severity | Finding | Resolution |
+|---|---|---|---|
+| 1 | High | One task per candidate, all bodies held until the batch ended; deep scan bypassed request/byte budgets | Fixed: batches of workers×2 saved before the next batch; caps 20 000 candidates/round, 100 000 requests and 20 GiB per run |
+| 2 | High | Cross-port SSRF: the resolver exemption is per hostname, so an internally resolving page host on another port/scheme was reachable | Fixed: `resolves_internal_cross_origin` blocks any (scheme, host, port) different from the page origin whose host resolves internal, matching Python `_ssrf_block_cross_origin`; unit test |
+| 3 | Medium | Pre-project scan hard-coded 4 workers | Fixed: `MirrorSink.workers` from the run's worker setting |
+| 4 | Medium | Post-project scan walked/parsed files on an async worker | Fixed: runs on a blocking thread driving the async fetches via the runtime handle |
+| 5 | Medium | Tile-count overflow with huge values (Python: 1 tile) | Fixed: overflow-safe ceiling division; unit test |

@@ -536,7 +536,7 @@ fn tiled_overlay(text: &str) -> Option<BTreeSet<String>> {
         let tiles = if truthy(page.get("tiles")) {
             as_int(page.get("tiles"))?
         } else {
-            (height + tile_height - 1).div_euclid(tile_height)
+            1 + (height - 1) / tile_height
         };
         if !(1..=2000).contains(&tiles) {
             return None;
@@ -1668,6 +1668,18 @@ mod path_tests {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tiled_overlay_huge_tile_values_do_not_overflow() {
+        // Python: ceil(MAX / MAX) == 1 tile; must not panic or wrap.
+        let max = i64::MAX;
+        let text = format!(
+            r#"window.CYOA = {{"sections": [], "options": {{}}, "meta": {{"pages": 1, "tileHeight": {max}}}, "pages": {{"1": {{"h": {max}}}}}}};"#
+        );
+        let paths = tiled_overlay_asset_paths(&text);
+        assert!(paths.contains("pages/p01/t0.webp"), "{paths:?}");
+        assert!(paths.contains("pages/p01/preview.webp"));
+    }
 
     #[test]
     fn matches_python_corpus() {
