@@ -26,6 +26,37 @@ use url::Url;
 
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 
+/// Exclusively created private work directory, removed on drop (also when the
+/// run future is aborted).
+struct RunTempDir(PathBuf);
+
+impl RunTempDir {
+    fn create() -> std::io::Result<Self> {
+        let base = std::env::temp_dir();
+        loop {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.subsec_nanos());
+            let path = base.join(format!(
+                "cyoa-run-{}-{}-{nanos:08x}",
+                std::process::id(),
+                NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+            ));
+            match std::fs::create_dir(&path) {
+                Ok(()) => return Ok(Self(path)),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(e) => return Err(e),
+            }
+        }
+    }
+}
+
+impl Drop for RunTempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum OutputMode {
     #[default]
@@ -110,12 +141,8 @@ pub async fn run_download(
     .map_err(|e| RunError::OutputDirectory(std::io::Error::other(e.to_string())))?;
     let source = discover_net::get_project_source(&client, &opts.url, &cancel).await?;
 
-    let temp = std::env::temp_dir().join(format!(
-        "cyoa-run-{}-{}",
-        std::process::id(),
-        NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
-    ));
-    std::fs::create_dir_all(&temp)?;
+    let temp_guard = RunTempDir::create()?;
+    let temp = temp_guard.0.clone();
     let mode = opts.mode;
     let embed = matches!(mode, OutputMode::Embed | OutputMode::Both);
     let download = matches!(mode, OutputMode::Zip | OutputMode::Both);
@@ -147,70 +174,98 @@ pub async fn run_download(
         report_dir: Some(opts.output_dir.clone()),
         ..Default::default()
     };
-    let processed = match pipeline::process_images(
+    let processed = pipeline::process_images(
         &source.project_json,
         &source.base_url,
         ctx,
         &process_opts,
         progress,
     )
-    .await
-    {
-        Ok(v) => v,
-        Err(e) => {
-            let _ = std::fs::remove_dir_all(&temp);
-            return Err(e.into());
-        }
-    };
+    .await?;
     if cancel.is_cancelled() {
-        let _ = std::fs::remove_dir_all(&temp);
         return Err(RunError::Cancelled);
     }
 
     let stem = output::build_output_name(&opts.url);
-    let mut written_paths = Vec::new();
-    let output_result = (|| -> Result<(), RunError> {
+    let output_dir = opts.output_dir.clone();
+    let user_url = opts.url.clone();
+    let embed_str = processed.embed_str;
+    let dl_str = processed.dl_str;
+    let stage_cancel = cancel.clone();
+    // Blocking file I/O and compression run off the async runtime. Cancellation is
+    // checked before every publication; `temp_guard` cleans the work dir on drop.
+    let written_paths = tokio::task::spawn_blocking(move || -> Result<Vec<PathBuf>, RunError> {
+        let check = || {
+            if stage_cancel.is_cancelled() {
+                Err(RunError::Cancelled)
+            } else {
+                Ok(())
+            }
+        };
+        let mut written = Vec::new();
         if embed {
-            written_paths.push(output::save_embedded_json(
-                &processed.embed_str,
+            check()?;
+            written.push(output::save_embedded_json(
+                &embed_str,
                 &format!("{stem}.json"),
-                &opts.output_dir,
+                &output_dir,
             )?);
-            if processed.embed_str != source.project_json {
-                written_paths.push(output::save_embedded_json(
+            if embed_str != source.project_json {
+                check()?;
+                written.push(output::save_embedded_json(
                     &source.project_json,
                     &format!("{stem}_original.json"),
-                    &opts.output_dir,
+                    &output_dir,
                 )?);
             }
         }
         if download {
-            if processed.dl_str != source.project_json {
+            if dl_str != source.project_json {
                 output::save_embedded_json(&source.project_json, "project_original.json", &temp)
                     .map_err(|e| RunError::OutputStage(format!("original ZIP JSON: {e}")))?;
             }
-            output::save_embedded_json(&processed.dl_str, "project.json", &temp)
+            output::save_embedded_json(&dl_str, "project.json", &temp)
                 .map_err(|e| RunError::OutputStage(format!("localized ZIP JSON: {e}")))?;
-            written_paths.push(output::zip_package(
+            check()?;
+            written.push(output::zip_package(
                 &temp,
                 &format!("{stem}.zip"),
-                &opts.output_dir,
+                &output_dir,
             )?);
         }
         // Python opens `{file_name}_metadata.json` with "w" (overwrites, no suffix).
-        let meta_path = opts.output_dir.join(format!("{stem}_metadata.json"));
+        check()?;
+        let meta_path = output_dir.join(format!("{stem}_metadata.json"));
         let meta =
-            crate::reports::project_metadata(&source.project_json, &opts.url, &source.project_url);
+            crate::reports::project_metadata(&source.project_json, &user_url, &source.project_url);
         match cyoa_storage::atomic_io::atomic_write_text(&meta_path, &meta) {
-            Ok(_) => written_paths.push(meta_path),
+            Ok(_) => written.push(meta_path),
             Err(e) => tracing::warn!("Could not save metadata: {e}"),
         }
-        Ok(())
-    })();
-    let _ = std::fs::remove_dir_all(&temp);
-    output_result?;
+        Ok(written)
+    })
+    .await
+    .map_err(|e| RunError::OutputStage(format!("output worker failed: {e}")))??;
+    drop(temp_guard);
     Ok(RunReport {
         written_paths,
         failed_assets: processed.failed,
     })
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod temp_dir_tests {
+    use super::RunTempDir;
+
+    #[test]
+    fn run_temp_dir_is_exclusive_and_removed_on_drop() {
+        let a = RunTempDir::create().unwrap();
+        let b = RunTempDir::create().unwrap();
+        assert_ne!(a.0, b.0);
+        std::fs::write(a.0.join("x"), "1").unwrap();
+        let path = a.0.clone();
+        drop(a);
+        assert!(!path.exists());
+    }
 }

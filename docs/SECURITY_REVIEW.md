@@ -21,3 +21,14 @@ No CRITICAL findings.
 - Treat downloaded HTML, JSON and agent output as untrusted data.
 - Do not commit secrets.
 - Preview content must never reach privileged app IPC.
+
+## Session 4 — Sol review of output stage (run/output/reports/cli)
+9 findings; fixed by Claude (Luna writes failed):
+- High: no-clobber publication (owned temp + hard_link/create_new; concurrent writers tested).
+- High: exclusive run temp dir with RAII cleanup (also on future abort).
+- Medium: pre-existing `.part` files are never deleted; unique pid+counter temp names.
+- Medium: ZIP entry names validated (no `..`, absolute, drive, backslash).
+- Medium: filenames over 200 bytes bounded at char boundaries (normal names unchanged → Python parity).
+- Medium: output stage runs in spawn_blocking with cancellation before each publication.
+- Medium: CLI keeps the real result if Ctrl-C registration fails.
+- Open (deferred): aggregate run byte budget (KI-R5).

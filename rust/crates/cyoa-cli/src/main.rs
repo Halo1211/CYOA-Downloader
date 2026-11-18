@@ -109,10 +109,17 @@ async fn main() -> ExitCode {
     tokio::pin!(download);
     let result = tokio::select! {
         result = &mut download => Some(result),
-        signal = tokio::signal::ctrl_c() => {
-            if signal.is_ok() { cancel.cancel(); }
-            let _ = (&mut download).await;
-            None
+        signal = tokio::signal::ctrl_c() => match signal {
+            Ok(()) => {
+                cancel.cancel();
+                let _ = (&mut download).await;
+                None
+            }
+            Err(e) => {
+                // No interrupt happened; keep downloading and report the real result.
+                eprintln!("warning: Ctrl-C handler unavailable: {e}");
+                Some((&mut download).await)
+            }
         }
     };
     let _ = printer.await;

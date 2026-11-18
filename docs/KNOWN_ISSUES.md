@@ -17,3 +17,4 @@
 - **KI-R3 error strings:** other-4xx/TLS failure messages differ from requests' wording.
 - **KI-R4 blocking resolver:** `FetchCtx.resolver` (SSRF cross-origin check) is synchronous on runtime threads.
 - **DEFERRED in fetch_one:** gallery-dl, headless browser, cookie session, Discord refresh, MediaWiki File: resolution, VPN guard, yt-dlp.
+- **KI-R5 aggregate quota:** only a 512 MiB per-asset cap; no run-wide byte budget (Sol Medium, deferred).

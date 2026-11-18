@@ -103,26 +103,116 @@ pub fn build_output_name(raw_url: &str) -> String {
     }
 }
 
-/// Port of `_available_output_path`, selecting a no-clobber suffix.
-pub fn available_output_path(filename: &str, directory: &Path) -> io::Result<PathBuf> {
-    fs::create_dir_all(directory)?;
+/// Longest final filename component we publish (bytes); most filesystems cap at 255.
+const MAX_NAME_BYTES: usize = 200;
+
+fn truncate_bytes(s: &str, max: usize) -> &str {
+    if s.len() <= max {
+        return s;
+    }
+    let mut end = max;
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
+/// Candidate names in `_available_output_path` order: `name`, `stem_1.ext`, `stem_2.ext`, …
+/// Only over-long names are shortened (Python has no limit; normal names are identical).
+fn output_candidates(filename: &str) -> impl Iterator<Item = String> {
     let safe: String = filename
         .chars()
         .map(|c| if "<>:\"/\\|?*".contains(c) { '_' } else { c })
         .collect();
-    let path = Path::new(&safe);
-    let stem = path.file_stem().unwrap_or_default().to_string_lossy();
-    let ext = path
-        .extension()
-        .map(|e| format!(".{}", e.to_string_lossy()))
-        .unwrap_or_default();
-    let mut target = directory.join(&safe);
-    let mut suffix = 1;
-    while target.exists() {
-        target = directory.join(format!("{stem}_{suffix}{ext}"));
-        suffix += 1;
+    let (stem, ext) = match safe.rfind('.') {
+        Some(i) if i > 0 => (safe[..i].to_owned(), safe[i..].to_owned()),
+        _ => (safe.clone(), String::new()),
+    };
+    (0u64..).map(move |n| {
+        let tail = if n == 0 {
+            ext.clone()
+        } else {
+            format!("_{n}{ext}")
+        };
+        let budget = MAX_NAME_BYTES.saturating_sub(tail.len());
+        format!("{}{tail}", truncate_bytes(&stem, budget))
+    })
+}
+
+/// Port of `_available_output_path` (first free candidate). Advisory only: use
+/// [`publish_no_clobber`] to actually create the file without a TOCTOU race.
+pub fn available_output_path(filename: &str, directory: &Path) -> io::Result<PathBuf> {
+    fs::create_dir_all(directory)?;
+    Ok(output_candidates(filename)
+        .map(|n| directory.join(n))
+        .find(|p| !p.exists())
+        .unwrap_or_else(|| directory.join(filename)))
+}
+
+/// A temp file this process created; removed on drop unless published.
+struct OwnedTemp(PathBuf);
+
+impl Drop for OwnedTemp {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
     }
-    Ok(target)
+}
+
+fn create_owned_temp(directory: &Path) -> io::Result<(OwnedTemp, File)> {
+    loop {
+        let id = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
+        let path = directory.join(format!(".cyoa-out.{}.{id}.part", std::process::id()));
+        match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(file) => return Ok((OwnedTemp(path), file)),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    }
+}
+
+/// Write via `fill` into an owned temp file, then publish it under the first free
+/// candidate name WITHOUT replacing anything (hard link, or create_new + copy where
+/// links are unsupported). Concurrent writers each get a distinct name.
+pub fn publish_no_clobber(
+    filename: &str,
+    directory: &Path,
+    fill: impl FnOnce(File) -> io::Result<File>,
+) -> io::Result<PathBuf> {
+    fs::create_dir_all(directory)?;
+    let (temp, file) = create_owned_temp(directory)?;
+    let file = fill(file)?;
+    file.sync_all()?;
+    drop(file);
+    for name in output_candidates(filename).take(100_000) {
+        let target = directory.join(name);
+        match fs::hard_link(&temp.0, &target) {
+            Ok(()) => return Ok(target),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(_) => match OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&target)
+            {
+                Ok(mut out) => {
+                    let copied = File::open(&temp.0)
+                        .and_then(|mut src| io::copy(&mut src, &mut out))
+                        .and_then(|_| out.sync_all());
+                    if let Err(e) = copied {
+                        drop(out);
+                        let _ = fs::remove_file(&target);
+                        return Err(e);
+                    }
+                    return Ok(target);
+                }
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(e) => return Err(e),
+            },
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "no free output file name",
+    ))
 }
 
 pub fn save_embedded_json(
@@ -130,9 +220,21 @@ pub fn save_embedded_json(
     filename: &str,
     directory: &Path,
 ) -> Result<PathBuf, OutputError> {
-    let target = available_output_path(filename, directory)?;
-    cyoa_storage::atomic_io::atomic_write_text(&target, content)?;
-    Ok(target)
+    Ok(publish_no_clobber(filename, directory, |mut f| {
+        f.write_all(content.as_bytes())?;
+        Ok(f)
+    })?)
+}
+
+/// Reject ZIP entry names that could escape an extraction directory.
+fn safe_entry_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.starts_with('/')
+        && !name.contains('\\')
+        && !name.contains(':')
+        && name
+            .split('/')
+            .all(|c| !c.is_empty() && c != "." && c != "..")
 }
 
 fn files_sorted(root: &Path, current: &Path, out: &mut Vec<PathBuf>) -> io::Result<()> {
@@ -202,7 +304,7 @@ fn zip_method(path: &Path) -> CompressionMethod {
     }
 }
 
-/// Create an atomically published ZIP with sorted, normalized relative names.
+/// Create a ZIP with sorted, validated relative names, published without clobbering.
 pub fn zip_package(
     folder: &Path,
     filename: &str,
@@ -215,45 +317,51 @@ pub fn zip_package(
         )
         .into());
     }
-    fs::create_dir_all(directory)?;
-    let target = available_output_path(filename, directory)?;
-    let id = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
-    let temp = directory.join(format!(
-        ".{}.{}.part",
-        target.file_name().unwrap_or_default().to_string_lossy(),
-        id
-    ));
-    let result = (|| -> Result<(), OutputError> {
-        let file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temp)?;
-        let mut archive = ZipWriter::new(file);
-        let mut paths = Vec::new();
-        files_sorted(folder, folder, &mut paths)?;
-        for path in paths {
-            let relative = path
-                .strip_prefix(folder)
-                .unwrap_or(&path)
-                .to_string_lossy()
-                .replace('\\', "/");
-            let options = SimpleFileOptions::default().compression_method(zip_method(&path));
-            archive.start_file(relative, options)?;
-            let mut input = File::open(path)?;
-            io::copy(&mut input, &mut archive)?;
+    let mut paths = Vec::new();
+    files_sorted(folder, folder, &mut paths)?;
+    let mut entries = Vec::with_capacity(paths.len());
+    for path in paths {
+        let relative = path
+            .strip_prefix(folder)
+            .map_err(|_| io::Error::other("entry outside package folder"))?
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect::<Vec<_>>()
+            .join("/");
+        if !safe_entry_name(&relative) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("unsafe ZIP entry name: {relative}"),
+            )
+            .into());
         }
-        // sync_all needs a writable handle on Windows (FlushFileBuffers).
-        let file = archive.finish()?;
-        file.sync_all()?;
-        drop(file);
-        fs::rename(&temp, &target)?;
-        Ok(())
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&temp);
+        entries.push((relative, path));
     }
-    result?;
-    Ok(target)
+    let mut zip_err = None;
+    let published = publish_no_clobber(filename, directory, |file| {
+        let mut archive = ZipWriter::new(file);
+        let res = (|| -> Result<(), OutputError> {
+            for (relative, path) in &entries {
+                let options = SimpleFileOptions::default().compression_method(zip_method(path));
+                archive.start_file(relative.as_str(), options)?;
+                io::copy(&mut File::open(path)?, &mut archive)?;
+            }
+            Ok(())
+        })();
+        if let Err(e) = res {
+            let msg = e.to_string();
+            zip_err = Some(e);
+            return Err(io::Error::other(msg));
+        }
+        // sync_all needs a writable handle on Windows (FlushFileBuffers); the
+        // publisher syncs the returned writer handle.
+        archive.finish().map_err(io::Error::other)
+    });
+    match (published, zip_err) {
+        (Ok(p), _) => Ok(p),
+        (Err(_), Some(e)) => Err(e),
+        (Err(e), None) => Err(e.into()),
+    }
 }
 
 #[cfg(test)]
@@ -303,5 +411,115 @@ mod tests {
 "
             )
         );
+    }
+
+    fn scratch(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!(
+            "cyoa-out-test-{tag}-{}-{}",
+            std::process::id(),
+            NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn publish_never_replaces_and_follows_python_suffixes() {
+        let d = scratch("noclobber");
+        let a = save_embedded_json("A", "p.json", &d).unwrap();
+        let b = save_embedded_json("B", "p.json", &d).unwrap();
+        assert_eq!(a.file_name().unwrap(), "p.json");
+        assert_eq!(b.file_name().unwrap(), "p_1.json");
+        assert_eq!(fs::read_to_string(&a).unwrap(), "A");
+        assert_eq!(fs::read_to_string(&b).unwrap(), "B");
+        let leftovers = fs::read_dir(&d)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".part"))
+            .count();
+        assert_eq!(leftovers, 0);
+        fs::remove_dir_all(d).unwrap();
+    }
+
+    #[test]
+    fn concurrent_publishers_all_survive() {
+        let d = scratch("race");
+        let handles: Vec<_> = (0..8)
+            .map(|i| {
+                let d = d.clone();
+                std::thread::spawn(move || {
+                    save_embedded_json(&i.to_string(), "r.json", &d).unwrap()
+                })
+            })
+            .collect();
+        let mut contents: Vec<String> = handles
+            .into_iter()
+            .map(|h| fs::read_to_string(h.join().unwrap()).unwrap())
+            .collect();
+        contents.sort();
+        assert_eq!(contents, (0..8).map(|i| i.to_string()).collect::<Vec<_>>());
+        fs::remove_dir_all(d).unwrap();
+    }
+
+    #[test]
+    fn preexisting_part_file_is_untouched() {
+        let d = scratch("part");
+        let sentinel = d.join(format!(".cyoa-out.{}.0.part", std::process::id()));
+        fs::write(&sentinel, "keep").unwrap();
+        save_embedded_json("x", "s.json", &d).unwrap();
+        assert_eq!(fs::read_to_string(&sentinel).unwrap(), "keep");
+        fs::remove_dir_all(d).unwrap();
+    }
+
+    #[test]
+    fn long_names_are_bounded_at_char_boundaries() {
+        let seg = "\u{00e9}".repeat(70); // 140 bytes
+        let name = format!("{seg}_{seg}_{seg}.json");
+        let d = scratch("long");
+        let a = save_embedded_json("1", &name, &d).unwrap();
+        let b = save_embedded_json("2", &name, &d).unwrap();
+        for p in [&a, &b] {
+            let n = p.file_name().unwrap().to_string_lossy().into_owned();
+            assert!(n.len() <= MAX_NAME_BYTES, "{}", n.len());
+            assert!(n.ends_with(".json"));
+        }
+        assert!(
+            b.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .ends_with("_1.json")
+        );
+        // Normal names are never shortened (Python parity).
+        assert_eq!(output_candidates("abc.json").next().unwrap(), "abc.json");
+        fs::remove_dir_all(d).unwrap();
+    }
+
+    #[test]
+    fn unsafe_zip_entry_names_rejected() {
+        for bad in ["../x", "/abs", "C:/x", "a/../b", "a\\b", "", "a//b", "./a"] {
+            assert!(!safe_entry_name(bad), "{bad}");
+        }
+        for ok in ["project.json", "images/a.png", "audio/x y.mp3"] {
+            assert!(safe_entry_name(ok), "{ok}");
+        }
+    }
+
+    #[test]
+    fn zip_package_is_deterministic_and_complete() {
+        let src = scratch("zipsrc");
+        fs::create_dir_all(src.join("images")).unwrap();
+        fs::write(src.join("project.json"), "{}").unwrap();
+        fs::write(src.join("images/b.png"), [1u8; 10]).unwrap();
+        fs::write(src.join("images/a.png"), [2u8; 10]).unwrap();
+        let out = scratch("zipout");
+        let z = zip_package(&src, "p.zip", &out).unwrap();
+        let mut archive = zip::ZipArchive::new(File::open(&z).unwrap()).unwrap();
+        let names: Vec<_> = (0..archive.len())
+            .map(|i| archive.by_index(i).unwrap().name().unwrap().into_owned())
+            .collect();
+        assert_eq!(names, ["images/a.png", "images/b.png", "project.json"]);
+        fs::remove_dir_all(src).unwrap();
+        fs::remove_dir_all(out).unwrap();
     }
 }
