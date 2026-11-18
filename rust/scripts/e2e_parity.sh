@@ -22,7 +22,10 @@ fail=0
 for f in "$STEM.json" "${STEM}_original.json"; do cmp -s "$WORK/py/$f" "$WORK/rs/$f" && echo "OK   $f" || { echo "DIFF $f"; fail=1; }; done
 strip() { grep -v -e downloaded_at -e Generated -e '^# ---' "$1"; }
 for f in "${STEM}_metadata.json" failed_images.txt failed_assets.txt; do
-  diff -q <(strip "$WORK/py/$f") <(strip "$WORK/rs/$f") >/dev/null && echo "OK   $f (timestamps ignored)" || { echo "DIFF $f"; fail=1; }
+  # Both files must exist (a missing pair must not compare equal), and the
+  # comparison is byte-exact apart from timestamp lines (CRLF included).
+  if [ ! -f "$WORK/py/$f" ] || [ ! -f "$WORK/rs/$f" ]; then echo "MISSING $f"; fail=1; continue; fi
+  cmp -s <(strip "$WORK/py/$f") <(strip "$WORK/rs/$f") && echo "OK   $f (timestamps ignored, byte-exact)" || { echo "DIFF $f"; fail=1; }
 done
 for d in py rs; do mkdir -p "$WORK/z$d"; (cd "$WORK/z$d" && unzip -q "$WORK/$d/$STEM.zip"); done
 diff -rq "$WORK/zpy" "$WORK/zrs" >/dev/null && echo "OK   $STEM.zip contents" || { echo "DIFF $STEM.zip"; fail=1; }

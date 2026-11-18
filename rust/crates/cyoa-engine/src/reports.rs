@@ -10,6 +10,16 @@ fn now_local() -> OffsetDateTime {
     OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc())
 }
 
+/// Python text-mode newline translation for `.txt` reports: every `\n`
+/// becomes `\r\n` on Windows (`open(..., "w"/"a")`, `Path.write_text`).
+pub fn os_text(text: &str) -> String {
+    if cfg!(windows) {
+        text.replace('\n', "\r\n")
+    } else {
+        text.to_owned()
+    }
+}
+
 /// `datetime.now().astimezone().strftime('%Y-%m-%d %H:%M:%S')`.
 pub fn local_timestamp() -> String {
     let t = now_local();
@@ -159,8 +169,78 @@ pub fn write_failed_assets_log(
         lines.push(format!("  Err  : {}", dash(it.error)));
         lines.push(String::new());
     }
-    cyoa_storage::atomic_io::atomic_write_text(dir.join("failed_assets.txt"), &lines.join("\n"))?;
+    cyoa_storage::atomic_io::atomic_write_text(
+        dir.join("failed_assets.txt"),
+        &os_text(&lines.join("\n")),
+    )?;
     Ok(())
+}
+
+/// `append_asset_failures_to_backup_report`: append a titled section to an
+/// existing `backup_report.txt` (Python opens it in append mode).
+pub fn append_asset_failures_to_backup_report(
+    items: &[FailedItem<'_>],
+    report: &Path,
+    source_url: &str,
+    title: &str,
+) -> std::io::Result<()> {
+    use std::io::Write;
+    if items.is_empty() {
+        return Ok(());
+    }
+    let dash = |s: &str| {
+        if s.is_empty() {
+            "-".to_owned()
+        } else {
+            s.to_owned()
+        }
+    };
+    let rule = "=".repeat(60);
+    let mut lines = vec![
+        String::new(),
+        rule.clone(),
+        title.to_uppercase(),
+        rule,
+        format!("Generated : {}", local_timestamp()),
+        format!("Source    : {}", dash(source_url)),
+        format!("Total     : {}", items.len()),
+        String::new(),
+    ];
+    for (i, it) in items.iter().enumerate() {
+        lines.push(format!("[{}] asset", i + 1));
+        lines.push(format!("  Path : {}", dash(it.path)));
+        lines.push(format!("  URL  : {}", dash(it.url)));
+        lines.push(format!("  Err  : {}", dash(it.error)));
+        lines.push(String::new());
+    }
+    let mut f = fs::OpenOptions::new().append(true).open(report)?;
+    f.write_all(os_text(&format!("\n{}", lines.join("\n"))).as_bytes())
+}
+
+/// `write_asset_failure_summary`: remove the deprecated
+/// `broken_assets_report.html`, append to `backup_report.txt` when it exists,
+/// otherwise write `failed_assets.txt`.
+pub fn write_asset_failure_summary(
+    items: &[FailedItem<'_>],
+    dir: &Path,
+    source_url: &str,
+    title: &str,
+) -> Result<(), cyoa_storage::atomic_io::AtomicWriteError> {
+    if items.is_empty() {
+        return Ok(());
+    }
+    let stale = dir.join("broken_assets_report.html");
+    // Only a regular file is removed (never follow a planted symlink/dir).
+    if fs::symlink_metadata(&stale).is_ok_and(|m| m.is_file()) {
+        let _ = fs::remove_file(&stale);
+    }
+    let backup = dir.join("backup_report.txt");
+    if fs::symlink_metadata(&backup).is_ok_and(|m| m.is_file())
+        && append_asset_failures_to_backup_report(items, &backup, source_url, title).is_ok()
+    {
+        return Ok(());
+    }
+    write_failed_assets_log(items, dir, source_url, title)
 }
 
 /// `importers/batch.py::write_failed_url_log` (appends; header only for a new or empty file).
@@ -204,7 +284,7 @@ pub fn write_failed_url_log(
         .create(true)
         .append(true)
         .open(&path)?;
-    f.write_all(text.as_bytes())?;
+    f.write_all(os_text(&text).as_bytes())?;
     Ok(Some(path))
 }
 
@@ -212,6 +292,69 @@ pub fn write_failed_url_log(
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    /// Python reference output of `write_asset_failure_summary`
+    /// (session 6, Windows; Generated line normalised).
+    const PY_APPEND: &str = "EXISTING\n\n\n============================================================\nBROKEN PROJECT ASSET REPORT\n============================================================\nGenerated : <TS>\nSource    : https://x/\nTotal     : 2\n\n[1] asset\n  Path : img/a.png\n  URL  : https://x/a.png\n  Err  : HTTP 404\n\n[2] asset\n  Path : -\n  URL  : -\n  Err  : -\n";
+    const PY_FRESH: &str = "Broken Project Asset Report\n===========================\nGenerated : <TS>\nSource    : -\nTotal     : 2\n\n[1] asset\n  Path : img/a.png\n  URL  : https://x/a.png\n  Err  : HTTP 404\n\n[2] asset\n  Path : -\n  URL  : -\n  Err  : -\n";
+
+    fn normalised(path: &Path) -> String {
+        let raw = fs::read_to_string(path).unwrap();
+        // Python wrote these with text-mode newlines: identical bytes expected.
+        let text = if cfg!(windows) {
+            assert!(
+                !raw.replace("\r\n", "").contains('\n'),
+                "bare LF in {raw:?}"
+            );
+            raw.replace("\r\n", "\n")
+        } else {
+            raw
+        };
+        text.lines()
+            .map(|l| {
+                if l.starts_with("Generated : ") {
+                    "Generated : <TS>"
+                } else {
+                    l
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n"
+    }
+
+    #[test]
+    fn asset_failure_summary_matches_python() {
+        let items = [
+            FailedItem {
+                url: "https://x/a.png",
+                path: "img/a.png",
+                error: "HTTP 404",
+            },
+            FailedItem {
+                url: "",
+                path: "",
+                error: "",
+            },
+        ];
+        let tmp = tempfile::tempdir().unwrap();
+        let a = tmp.path().join("a");
+        let b = tmp.path().join("b");
+        fs::create_dir_all(&a).unwrap();
+        fs::create_dir_all(&b).unwrap();
+        fs::write(a.join("backup_report.txt"), os_text("EXISTING\n")).unwrap();
+        fs::write(b.join("broken_assets_report.html"), "x").unwrap();
+        let title = "Broken Project Asset Report";
+        write_asset_failure_summary(&items, &a, "https://x/", title).unwrap();
+        write_asset_failure_summary(&items, &b, "", title).unwrap();
+        assert_eq!(normalised(&a.join("backup_report.txt")), PY_APPEND);
+        assert!(
+            !a.join("failed_assets.txt").exists(),
+            "appended, not separate"
+        );
+        assert_eq!(normalised(&b.join("failed_assets.txt")), PY_FRESH);
+        assert!(!b.join("broken_assets_report.html").exists());
+    }
 
     #[test]
     fn metadata_matches_python_fixture_shape() {

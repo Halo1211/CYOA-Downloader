@@ -18,3 +18,7 @@
 - **KI-R4 blocking resolver:** `FetchCtx.resolver` (SSRF cross-origin check) is synchronous on runtime threads.
 - **DEFERRED in fetch_one:** gallery-dl, headless browser, cookie session, Discord refresh, MediaWiki File: resolution, VPN guard, yt-dlp.
 - **KI-R5 aggregate quota:** only a 512 MiB per-asset cap; no run-wide byte budget (Sol Medium, deferred).
+
+## Session 6
+- FIXED: Rust `.txt` reports were LF while Python writes CRLF on Windows (text mode). Now `reports::os_text`. The old e2e script compared with `grep -v` + `diff` and would have reported OK even if both files were missing; it now requires both files and compares byte-exact.
+- FIXED: Rust always wrote `failed_assets.txt`; Python appends to an existing `backup_report.txt` and removes stale `broken_assets_report.html` (`write_asset_failure_summary`).

@@ -916,6 +916,7 @@ version = "0.1.0"
 dependencies = [
  "cyoa-core",
  "cyoa-engine",
+ "cyoa-net",
  "eframe",
  "rfd",
  "serde",

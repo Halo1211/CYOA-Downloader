@@ -195,7 +195,10 @@ fn write_failed_log(failed: &[FailedAsset], dir: &Path, source: &str) -> Result<
     }
     fs::create_dir_all(dir)?;
     let path = dir.join("failed_images.txt");
-    let mut text = fs::read_to_string(&path).unwrap_or_default();
+    // Existing bytes are kept as-is; only the appended section gets Python's
+    // text-mode newline translation (CRLF on Windows).
+    let existing = fs::read_to_string(&path).unwrap_or_default();
+    let mut text = String::new();
     if !path.exists() {
         text.push_str("# Failed image downloads\n# Note: Failed images keep their original external URL in the project JSON.\n#       They will load normally when the original site is online.\n\n");
     }
@@ -208,6 +211,7 @@ fn write_failed_log(failed: &[FailedAsset], dir: &Path, source: &str) -> Result<
         text.push_str(&format!("{}\t{}\n", item.url, item.error));
     }
     text.push('\n');
+    let text = existing + &crate::reports::os_text(&text);
     cyoa_storage::atomic_io::atomic_write_text(path, &text)?;
     Ok(())
 }
@@ -709,7 +713,7 @@ pub async fn process_images(
                     error: &f.error,
                 })
                 .collect();
-            crate::reports::write_failed_assets_log(
+            crate::reports::write_asset_failure_summary(
                 &items,
                 &dir,
                 &source,

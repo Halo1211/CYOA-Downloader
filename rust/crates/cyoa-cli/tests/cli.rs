@@ -184,7 +184,12 @@ fn list_mode_rejects_missing_file_and_reports_unsupported_modes() {
         .output()
         .unwrap();
     assert_eq!(run.status.code(), Some(1));
-    let log = fs::read_to_string(out.join("failed_urls.txt")).unwrap();
+    let raw = fs::read_to_string(out.join("failed_urls.txt")).unwrap();
+    // Python appends in text mode: CRLF on Windows, LF elsewhere.
+    if cfg!(windows) {
+        assert!(!raw.replace("\r\n", "").contains('\n'), "bare LF: {raw:?}");
+    }
+    let log = raw.replace("\r\n", "\n");
     assert!(log.starts_with("# Failed batch URL downloads\n# Format: url<TAB>error_message\n\n"));
     assert!(log.contains(
         "https://a.example/x\tmode 'website_folder' is not supported by the Rust port yet\n"
