@@ -1186,5 +1186,17 @@ mod probe {
         let t = std::time::Instant::now();
         let _ = cyoa_parse::assets::normalize_embedded_http_url(&blob);
         eprintln!("normalize_embedded {:?}", t.elapsed());
+        let unit =
+            "a.p=\"x/\";b='y.png';c(\"./c-1.js\");d={\"k\":\"v\"};e=`t${1}`;img.src=s+\"q.webp\";";
+        let js = unit.repeat(n / unit.len() + 1);
+        let t = std::time::Instant::now();
+        let _ = super::super::js::infer_runtime_chunk_paths(&js);
+        eprintln!("js-like runtime_chunk {:?}", t.elapsed());
+        let t = std::time::Instant::now();
+        let _ = super::super::js::infer_dynamic_asset_paths(&js);
+        eprintln!("js-like infer_dynamic {:?}", t.elapsed());
+        let t = std::time::Instant::now();
+        let _ = scan_file_for_assets(&js, "https://s.t/a/app.js", "https://s.t/a/", ".js");
+        eprintln!("js-like full scan {:?}", t.elapsed());
     }
 }
