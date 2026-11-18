@@ -169,6 +169,16 @@ fn output_stem(opts: &RunOptions) -> String {
     }
 }
 
+/// Python `engine_mode` (`--cyoap-vue-website/--cyoap-vue-folder` ->
+/// CyoapVue, `--cyoap-vue` -> Auto probe, otherwise Standard).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Engine {
+    #[default]
+    Standard,
+    CyoapVue,
+    Auto,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum OutputMode {
     #[default]
@@ -208,6 +218,8 @@ pub struct RunOptions {
     pub deep_scan: bool,
     /// Python `ArchivePolicy` from settings (`archive_*`); auto by default.
     pub archive: crate::icc::ArchivePolicy,
+    /// Python `engine_mode` for website modes: standard, cyoap_vue, auto.
+    pub engine: Engine,
 }
 
 /// Python default for `image_cache_max_mb`.
@@ -229,6 +241,7 @@ impl Default for RunOptions {
             vpn: None,
             deep_scan: true,
             archive: crate::icc::ArchivePolicy::default(),
+            engine: Engine::Standard,
         }
     }
 }
@@ -265,6 +278,14 @@ the viewer HTML/CSS/JS directly without needing a project file."
     OutputStage(String),
     #[error("download cancelled")]
     Cancelled,
+    /// orchestrator.py RuntimeError text (engine cyoap_vue, no dist pair).
+    #[error(
+        "cyoap_vue mode selected, but dist/platform.json + dist/nodes/list.json were not found."
+    )]
+    CyoapNotFound,
+    /// A website-mode error whose message must stay exactly Python's.
+    #[error("{0}")]
+    Website(String),
 }
 
 pub async fn run_download(
@@ -328,11 +349,57 @@ pub async fn run_download(
             spool_dir,
             cancel: cancel.clone(),
             progress,
+            custom_fallback: false,
         }
         .run()
         .await;
         drop(temp_guard);
         return result;
+    }
+    // CYOAP Vue (orchestrator.py 426-446): website modes with engine
+    // cyoap_vue/auto try the dist/platform.json + dist/nodes/list.json flow.
+    if matches!(opts.mode, OutputMode::IccZip | OutputMode::IccFolder)
+        && matches!(opts.engine, Engine::CyoapVue | Engine::Auto)
+    {
+        tracing::info!("Phase 0/4: probing cyoap_vue dist/ structure…");
+        let stem = output_stem(opts);
+        let site = output::unique_folder(&opts.output_dir.join(&stem));
+        let zip = opts.mode == OutputMode::IccZip;
+        match crate::cyoap::try_download_cyoap_vue_site(
+            &client,
+            &opts.url,
+            &site,
+            zip,
+            opts.workers,
+            &cancel,
+        )
+        .await
+        {
+            Ok(true) => {
+                let written = if zip {
+                    let name = site
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    opts.output_dir.join(format!("{name}.zip"))
+                } else {
+                    site
+                };
+                return Ok(RunReport {
+                    stem,
+                    written_paths: vec![written],
+                    failed_assets: Vec::new(),
+                });
+            }
+            Ok(false) if opts.engine == Engine::CyoapVue => return Err(RunError::CyoapNotFound),
+            Ok(false) => tracing::info!(
+                "cyoap_vue probe: no dist/platform.json + dist/nodes/list.json pair found; falling back."
+            ),
+            Err(e) if opts.engine == Engine::CyoapVue => return Err(RunError::Website(e)),
+            Err(e) => tracing::warn!(
+                "cyoap_vue auto probe failed, falling back to standard resolver: {e}"
+            ),
+        }
     }
     let source = match discover_net::get_project_source(&client, &opts.url, &cancel).await {
         Ok(s) => s,
@@ -341,7 +408,38 @@ pub async fn run_download(
         }
         Err(e) => {
             tracing::warn!("project discovery failed: {e}");
-            return Err(RunError::ProjectUnresolved);
+            // orchestrator.py 484-527: an HTML page without a project payload
+            // is archived as a custom viewer website (any output mode).
+            let page = discover_net::fetch_page_text(&client, &opts.url, &cancel)
+                .await
+                .unwrap_or_default();
+            if !page.to_lowercase().contains("<html") {
+                return Err(RunError::ProjectUnresolved);
+            }
+            let temp_guard = RunTempDir::create()?;
+            let spool_dir = temp_guard.0.join("spool");
+            std::fs::create_dir(&spool_dir)?;
+            let zip = !matches!(opts.mode, OutputMode::IccFolder | OutputMode::PureFolder);
+            let result = crate::pure::PureRun {
+                url: &opts.url,
+                stem: output_stem(opts),
+                output_dir: opts.output_dir.clone(),
+                zip,
+                deep_scan: opts.deep_scan,
+                workers: opts.workers,
+                policy: opts.archive.clone(),
+                client: client.clone(),
+                run_opts: opts.clone(),
+                cache: open_cache(opts),
+                spool_dir,
+                cancel: cancel.clone(),
+                progress,
+                custom_fallback: true,
+            }
+            .run()
+            .await;
+            drop(temp_guard);
+            return result;
         }
     };
 

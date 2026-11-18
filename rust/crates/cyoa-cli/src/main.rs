@@ -47,6 +47,15 @@ struct Args {
     /// Same as --pure-website but keep as folder instead of ZIP.
     #[arg(long)]
     pure_website_folder: bool,
+    /// Auto-probe dedicated cyoap_vue ICC backup mode before standard ICC detection.
+    #[arg(long)]
+    cyoap_vue: bool,
+    /// Use dedicated cyoap_vue ICC mode and output ZIP.
+    #[arg(long)]
+    cyoap_vue_website: bool,
+    /// Use dedicated cyoap_vue ICC mode and keep folder output.
+    #[arg(long)]
+    cyoap_vue_folder: bool,
     /// Disable the JS/CSS deep-scan asset pass (default: on).
     #[arg(long)]
     no_deep_scan: bool,
@@ -192,7 +201,10 @@ fn item_mode(args: &Args, mode: &str) -> Result<OutputMode, String> {
         | "website_folder"
         | "pure_website"
         | "pure_website_zip"
-        | "pure_website_folder" => {}
+        | "pure_website_folder"
+        | "cyoap_vue"
+        | "cyoap_vue_zip"
+        | "cyoap_vue_folder" => {}
         other => {
             return Err(format!(
                 "mode '{other}' is not supported by the Rust port yet"
@@ -204,6 +216,10 @@ fn item_mode(args: &Args, mode: &str) -> Result<OutputMode, String> {
             OutputMode::PureZip
         } else if args.pure_website_folder || mode == "pure_website_folder" {
             OutputMode::PureFolder
+        } else if args.cyoap_vue_website || matches!(mode, "cyoap_vue" | "cyoap_vue_zip") {
+            OutputMode::IccZip
+        } else if args.cyoap_vue_folder || mode == "cyoap_vue_folder" {
+            OutputMode::IccFolder
         } else if args.website || matches!(mode, "website" | "website_zip") {
             OutputMode::IccZip
         } else if args.website_folder || mode == "website_folder" {
@@ -320,6 +336,8 @@ async fn main() -> ExitCode {
         args.website_folder,
         args.pure_website,
         args.pure_website_folder,
+        args.cyoap_vue_website,
+        args.cyoap_vue_folder,
     ]
     .iter()
     .filter(|f| **f)
@@ -537,6 +555,17 @@ async fn main() -> ExitCode {
             dns: dns.clone(),
             vpn: vpn.clone(),
             deep_scan: !args.no_deep_scan,
+            // cli.py: engine per row (cyoap_vue* rows) or from the flags.
+            engine: if item.mode.starts_with("cyoap_vue")
+                || args.cyoap_vue_website
+                || args.cyoap_vue_folder
+            {
+                cyoa_engine::run::Engine::CyoapVue
+            } else if args.cyoap_vue {
+                cyoa_engine::run::Engine::Auto
+            } else {
+                cyoa_engine::run::Engine::Standard
+            },
             archive: archive.clone(),
             ..RunOptions::default()
         };

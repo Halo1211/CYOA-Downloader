@@ -160,6 +160,18 @@ pub async fn get_project_source(
     get_at_depth(client, url, 0, cancel).await
 }
 
+/// Python `get_source(url)`: the page text, or None on failure.
+pub(crate) async fn fetch_page_text(
+    client: &FetchClient,
+    url: &str,
+    cancel: &CancellationToken,
+) -> Option<String> {
+    request_text(client, url, cancel, MAX_PAGE_BYTES)
+        .await
+        .ok()
+        .flatten()
+}
+
 fn is_cafe_host(url: &str) -> bool {
     Url::parse(url)
         .ok()

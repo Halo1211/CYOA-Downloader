@@ -40,6 +40,9 @@ pub struct PureRun<'a> {
     pub spool_dir: PathBuf,
     pub cancel: CancellationToken,
     pub progress: Option<tokio::sync::mpsc::Sender<Progress>>,
+    /// orchestrator.py 484-527 custom-viewer fallback (no project payload in
+    /// any mode): no captured-project recovery, no backup_report/integrity.
+    pub custom_fallback: bool,
 }
 
 struct Mirrored {
@@ -52,10 +55,17 @@ struct Mirrored {
 impl PureRun<'_> {
     pub async fn run(self) -> Result<RunReport, RunError> {
         let site = output::unique_folder(&self.output_dir.join(&self.stem));
-        tracing::info!(
-            "Pure website download (no project search) → {}/",
-            site.display()
-        );
+        if self.custom_fallback {
+            tracing::warn!(
+                "No standard project payload; automatically falling back to custom viewer archive → {}/",
+                site.display()
+            );
+        } else {
+            tracing::info!(
+                "Pure website download (no project search) → {}/",
+                site.display()
+            );
+        }
         output::prepare_clean_output_folder(&site)?;
 
         let auto = self.policy.strategy == "auto";
@@ -106,13 +116,17 @@ impl PureRun<'_> {
         let Mirrored { mut sink, .. } = mirrored;
 
         // Auto: localize assets of a project.json the archive happened to save.
-        if auto {
+        if auto && !self.custom_fallback {
             self.recover_captured_project(&site).await?;
         }
 
         let manifest_site = site.clone();
+        let fallback = self.custom_fallback;
         let check = tokio::task::spawn_blocking(move || {
             sink.localize_existing_text_assets();
+            if fallback {
+                return Ok(PathBuf::new());
+            }
             let manifest = sink.write_manifest("");
             let result = integrity::validate_integrity(&manifest_site);
             if let Err(e) = integrity::append_to_backup_report(&manifest_site, &result) {
@@ -124,7 +138,11 @@ impl PureRun<'_> {
         .map_err(|e| RunError::OutputStage(format!("website worker failed: {e}")))?;
         check.map_err(RunError::OutputStage)?;
         let zip = output::finalize_site_folder(&site, &self.stem, self.zip, &self.output_dir)?;
-        tracing::info!("Pure website download complete.");
+        if self.custom_fallback {
+            tracing::info!("Custom viewer archive fallback complete.");
+        } else {
+            tracing::info!("Pure website download complete.");
+        }
         Ok(RunReport {
             stem: self.stem,
             written_paths: vec![zip.unwrap_or(site)],

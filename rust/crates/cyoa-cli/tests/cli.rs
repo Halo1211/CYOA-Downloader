@@ -212,7 +212,9 @@ fn list_mode_rejects_missing_file_and_reports_unsupported_modes() {
     let log = raw.replace("\r\n", "\n");
     assert!(log.starts_with("# Failed batch URL downloads\n# Format: url<TAB>error_message\n\n"));
     assert!(log.contains(
-        "https://a.example/x\tmode 'cyoap_vue_folder' is not supported by the Rust port yet\n"
+        // Every Python batch mode is ported now: the CYOAP row is attempted
+        // and fails like Python when dist/platform.json is unreachable.
+        "https://a.example/x\tcyoap_vue mode selected, but dist/platform.json + dist/nodes/list.json were not found.\n"
     ));
 }
 
