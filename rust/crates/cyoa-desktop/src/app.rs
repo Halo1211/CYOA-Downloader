@@ -627,7 +627,10 @@ mod tests {
         }
         let per_frame = start.elapsed() / n;
         println!("100k-row queue + 5000-line log: {per_frame:?} per frame");
-        assert!(per_frame < std::time::Duration::from_millis(250), "{per_frame:?}");
+        assert!(
+            per_frame < std::time::Duration::from_millis(250),
+            "{per_frame:?}"
+        );
     }
 
     #[test]
