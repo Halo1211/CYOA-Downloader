@@ -656,6 +656,45 @@ impl MirrorSink {
         text
     }
 
+    /// Python `write_project_payload`: localize `customCss`, write
+    /// `project.json` (text mode) plus a basename alias when the project URL
+    /// is not named `project.json`, then localize Google Fonts.
+    pub fn write_project_payload(&mut self, project_url: &str, text: &str) -> Result<(), String> {
+        let (start, base) = (self.start_url.clone(), self.base_url.clone());
+        let text = super::payload::localize_custom_css(text, &mut |css| {
+            Rewriter {
+                start_url: &start,
+                base_url: &base,
+                sink: &mut *self,
+            }
+            .process_css(css, &start, "project.json")
+        });
+        let bytes = crate::reports::os_text(&text).into_bytes();
+        self.write("project.json", &bytes)?;
+        if !project_url.is_empty() {
+            self.set_entry(project_url, Entry::Done(Some("project.json".into())));
+            let path = py_urlparse(project_url).path;
+            let basename = path.rsplit('/').next().unwrap_or("");
+            if !basename.is_empty() && !basename.eq_ignore_ascii_case("project.json") {
+                let alias = cyoa_core::paths::safe_rel_path(basename, "project");
+                if alias != "project.json" {
+                    self.write(&alias, &bytes)?;
+                    tracing::info!("  Project alias: {alias}");
+                    self.project_aliases.push(alias);
+                }
+            }
+        }
+        let start = self.start_url.clone();
+        let sheet = super::payload::google_fonts_stylesheet(&text, &mut |url| {
+            self.download(url, "css", Some(&start))
+        });
+        if let Some(sheet) = sheet {
+            self.write("css/offline-google-fonts.css", sheet.as_bytes())?;
+            super::payload::patch_google_fonts_loaders(&self.root);
+        }
+        Ok(())
+    }
+
     /// Python `write_manifest`: `backup_report.txt` (text mode, so CRLF on
     /// Windows), overwriting any earlier report.
     pub fn write_manifest(&self, project_url: &str) -> Result<PathBuf, String> {
@@ -746,6 +785,75 @@ mod tests {
     use super::*;
     use cyoa_net::{client::ClientConfig, policy::DestinationPolicy};
     use wiremock::{Mock, MockServer, ResponseTemplate, matchers::path};
+
+    #[tokio::test]
+    async fn project_payload_localizes_custom_css_and_writes_alias() {
+        let server = MockServer::start().await;
+        Mock::given(path("/game/img/bg.png"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "image/png")
+                    .set_body_bytes(b"PNG".to_vec()),
+            )
+            .mount(&server)
+            .await;
+        let start = format!("{}/game/", server.uri());
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().to_path_buf();
+        let client = FetchClient::new(ClientConfig {
+            policy: DestinationPolicy {
+                origin: Some(Url::parse(&start).unwrap()),
+                allow_internal: false,
+            },
+            ..ClientConfig::default()
+        })
+        .unwrap();
+        let handle = tokio::runtime::Handle::current();
+        let project_url = format!("{start}data.json");
+        let sink = tokio::task::spawn_blocking(move || {
+            let mut sink = MirrorSink::new(
+                root,
+                &start,
+                &start,
+                client,
+                handle,
+                CancellationToken::new(),
+                1 << 20,
+            );
+            sink.write_project_payload(
+                &project_url,
+                r#"{"rows":[],"styling":{"customCss":"body{background:url(img/bg.png)}"}}"#,
+            )
+            .unwrap();
+            sink
+        })
+        .await
+        .unwrap();
+        let project = std::fs::read_to_string(tmp.path().join("project.json")).unwrap();
+        let (_, local, _) = sink
+            .success
+            .iter()
+            .find(|(u, _, _)| u.ends_with("/game/img/bg.png"))
+            .unwrap()
+            .clone();
+        assert_eq!(std::fs::read(tmp.path().join(&local)).unwrap(), b"PNG");
+        assert!(
+            project.contains(&format!("url(\\\"{local}\\\")")),
+            "{local}: {project}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(tmp.path().join("data.json")).unwrap(),
+            project
+        );
+        assert_eq!(sink.project_aliases, vec!["data.json".to_owned()]);
+        assert!(
+            sink.success
+                .iter()
+                .any(|(u, _, _)| u.ends_with("/game/img/bg.png"))
+        );
+        // No googleFonts list: no stylesheet.
+        assert!(!tmp.path().join("css/offline-google-fonts.css").exists());
+    }
 
     /// `write_manifest` vs Python (`fixtures/export_website_manifest.py`):
     /// same state, pinned timestamp, platform newlines included.

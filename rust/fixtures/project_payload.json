@@ -1,0 +1,98 @@
+{
+ "js": {
+  "js/app.js": "load(\"https://fonts.googleapis.com/css2?family=\".concat(n,\"&display=swap\"));\n",
+  "js/sub/b.js": "x=`https://fonts.googleapis.com/css2?family=${f}&display=swap`;",
+  "js/none.js": "nothing();"
+ },
+ "custom_css": [
+  {
+   "in": "{\"rows\":[]}",
+   "out": "{\"rows\":[]}",
+   "calls": []
+  },
+  {
+   "in": "{\"customCss\": \"a{}\", \"rows\": [{\"customCSS\": \"b{}\", \"x\": {\"CustomCss\": \"c{}\"}}, {\"customcss\": \"d{}\"}], \"styling\": {\"customCss\": \"e{}\"}, \"n\": 1.5, \"i\": 12345678901234567, \"u\": \"caf\\u00e9\\u2028\\u0001\\u007f/\\ud83d\\ude00\"}",
+   "out": "{\"customCss\":\"1:A{}\",\"rows\":[{\"customCSS\":\"4:B{}\",\"x\":{\"CustomCss\":\"5:C{}\"}},{\"customcss\":\"3:D{}\"}],\"styling\":{\"customCss\":\"2:E{}\"},\"n\":1.5,\"i\":12345678901234567,\"u\":\"café \\u0001/😀\"}",
+   "calls": [
+    "a{}",
+    "e{}",
+    "d{}",
+    "b{}",
+    "c{}"
+   ]
+  },
+  {
+   "in": "{\"customCss\":\"\",\"rows\":[]}",
+   "out": "{\"customCss\":\"\",\"rows\":[]}",
+   "calls": [
+    ""
+   ]
+  },
+  {
+   "in": "{\"customCss\":5,\"rows\":[]}",
+   "out": "{\"customCss\":5,\"rows\":[]}",
+   "calls": []
+  },
+  {
+   "in": "[1,2]",
+   "out": "[1,2]",
+   "calls": []
+  },
+  {
+   "in": "not json",
+   "out": "not json",
+   "calls": []
+  }
+ ],
+ "google_fonts": [
+  {
+   "in": "{\"googleFonts\":[\"Roboto\",\"Open Sans\",\"  \",7,\"Missing Font\"],\"rows\":[]}",
+   "changed": 2,
+   "requested": [
+    [
+     "https://fonts.googleapis.com/css2?family=Roboto&display=swap",
+     "css",
+     "https://h.test/game/"
+    ],
+    [
+     "https://fonts.googleapis.com/css2?family=Open+Sans&display=swap",
+     "css",
+     "https://h.test/game/"
+    ],
+    [
+     "https://fonts.googleapis.com/css2?family=Missing+Font&display=swap",
+     "css",
+     "https://h.test/game/"
+    ]
+   ],
+   "stylesheet": "@import url(\"../fonts/f1.css\");\n@import url(\"../fonts/f2.css\");\n",
+   "js": {
+    "js/app.js": "load(\"css/offline-google-fonts.css\");\n",
+    "js/sub/b.js": "x=\"css/offline-google-fonts.css\";",
+    "js/none.js": "nothing();"
+   }
+  },
+  {
+   "in": "{\"googleFonts\":[],\"rows\":[]}",
+   "changed": 2,
+   "requested": [],
+   "stylesheet": "\n",
+   "js": {
+    "js/app.js": "load(\"css/offline-google-fonts.css\");\n",
+    "js/sub/b.js": "x=\"css/offline-google-fonts.css\";",
+    "js/none.js": "nothing();"
+   }
+  },
+  {
+   "in": "{\"googleFonts\":\"Roboto\"}",
+   "changed": 0,
+   "requested": [],
+   "stylesheet": null,
+   "js": {
+    "js/app.js": "load(\"https://fonts.googleapis.com/css2?family=\".concat(n,\"&display=swap\"));\n",
+    "js/sub/b.js": "x=`https://fonts.googleapis.com/css2?family=${f}&display=swap`;",
+    "js/none.js": "nothing();"
+   }
+  }
+ ]
+}

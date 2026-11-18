@@ -21,6 +21,7 @@ pub mod html;
 pub mod js;
 pub mod mirror;
 pub mod page;
+pub mod payload;
 
 const STYLE: &[&str] = &[".css"];
 const SCRIPT: &[&str] = &[".js", ".mjs"];
