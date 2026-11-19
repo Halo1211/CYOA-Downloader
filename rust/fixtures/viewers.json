@@ -1,0 +1,4160 @@
+{
+ "viewers_files": {
+  "remix_pack.zip": [
+   "viewer-template.zip",
+   "index.html"
+  ],
+  "plus2_local.zip": [
+   "dist/js/app.js",
+   "dist/js/polyfills.js",
+   "dist/index.html"
+  ],
+  "plus2_web.zip": [
+   "core.js",
+   "index.html"
+  ],
+  "ouro.zip": [
+   "js/app.d3103a3b.js",
+   "index.html"
+  ],
+  "classic.zip": [
+   "js/app.c533aa25.js",
+   "index.html"
+  ],
+  "plain.zip": [
+   "index.html"
+  ]
+ },
+ "manifest_raw": {
+  "remix": {
+   "name": "Remix",
+   "zip_filename": "remix_pack.zip",
+   "viewer_type": "custom",
+   "registered_at": "2026-01-01"
+  },
+  "plus2": {
+   "name": "ICC Plus 2.9.1 Local",
+   "zip_filename": "plus2_local.zip",
+   "viewer_type": "icc_plus",
+   "registered_at": "2026-02-01"
+  },
+  "plus2web": {
+   "name": "ICC Plus 2 Online",
+   "zip_filename": "plus2_web.zip",
+   "viewer_type": "icc_plus2"
+  },
+  "ouro": {
+   "name": "Ouro",
+   "zip_filename": "ouro.zip",
+   "viewer_type": "custom"
+  },
+  "classic_new": {
+   "name": "New Viewer 1.18.9",
+   "zip_filename": "classic.zip",
+   "viewer_type": "icc_plus"
+  },
+  "classic_orig": {
+   "name": "Viewer 1.8 [Original]",
+   "zip_filename": "classic.zip",
+   "viewer_type": "icc_legacy"
+  },
+  "legacy_explicit": {
+   "name": "x",
+   "zip_filename": "plain.zip",
+   "runtime_family": "icc_legacy",
+   "source_descriptor": "Creator Plus"
+  },
+  "alias": {
+   "name": "alias",
+   "zip_filename": "plain.zip",
+   "runtime_family": "ICC_PLUS_2"
+  },
+  "icc_alias": {
+   "name": "old",
+   "zip_filename": "plain.zip",
+   "viewer_type": "icc"
+  },
+  "om": {
+   "name": "Om1cr0n LocalViewer",
+   "zip_filename": "plain.zip",
+   "viewer_type": "om1cr0n"
+  },
+  "cyoap": {
+   "name": "cyoap viewer v3",
+   "zip_filename": "plain.zip",
+   "viewer_type": "cyoap_vue"
+  },
+  "brk": {
+   "name": "Broken standalone 1.2",
+   "zip_filename": "broken.zip",
+   "viewer_type": "custom"
+  },
+  "rar": {
+   "name": "Rar v2.1",
+   "zip_filename": "pack.rar",
+   "viewer_type": "custom",
+   "viewer_variant": "ONLINE"
+  },
+  "desc_plus2": {
+   "name": "something plus-2",
+   "zip_filename": "plain.zip"
+  },
+  "desc_legacy": {
+   "name": "legacy thing",
+   "zip_filename": "plain.zip"
+  },
+  "bad_zip": {
+   "name": "b",
+   "zip_filename": "../evil.zip"
+  },
+  "bad_ext": {
+   "name": "b",
+   "zip_filename": "evil.exe"
+  },
+  "bad_drive": {
+   "name": "b",
+   "zip_filename": "C:evil.zip"
+  },
+  "bad_entry": {
+   "name": "b",
+   "zip_filename": "plain.zip",
+   "entry_point": "../x.html"
+  },
+  "bad_proj": {
+   "name": "b",
+   "zip_filename": "plain.zip",
+   "project_json_path": "/abs/p.json"
+  },
+  "bad_inner": {
+   "name": "b",
+   "zip_filename": "plain.zip",
+   "inner_archive": "inner.rar"
+  },
+  "ok_inner": {
+   "name": "inner",
+   "zip_filename": "plain.zip",
+   "inner_archive": "sub\\v.zip",
+   "entry_point": "a/./b.html",
+   "project_json_path": "data/project.json"
+  },
+  "nonstr": {
+   "name": 5,
+   "zip_filename": null,
+   "viewer_type": [
+    "x"
+   ],
+   "extra": {
+    "k": 1
+   }
+  },
+  "empty_zip": {
+   "name": "nozip"
+  },
+  "not_dict": "string"
+ },
+ "manifest_loaded": {
+  "remix": {
+   "name": "Remix",
+   "zip_filename": "remix_pack.zip",
+   "viewer_type": "custom",
+   "registered_at": "2026-01-01",
+   "description": "",
+   "entry_point": "index.html",
+   "project_json_path": "",
+   "inner_archive": "",
+   "runtime_family": "",
+   "viewer_variant": ""
+  },
+  "plus2": {
+   "name": "ICC Plus 2.9.1 Local",
+   "zip_filename": "plus2_local.zip",
+   "viewer_type": "icc_plus",
+   "registered_at": "2026-02-01",
+   "description": "",
+   "entry_point": "index.html",
+   "project_json_path": "",
+   "inner_archive": "",
+   "runtime_family": "",
+   "viewer_variant": ""
+  },
+  "plus2web": {
+   "name": "ICC Plus 2 Online",
+   "zip_filename": "plus2_web.zip",
+   "viewer_type": "icc_plus2",
+   "description": "",
+   "entry_point": "index.html",
+   "project_json_path": "",
+   "inner_archive": "",
+   "runtime_family": "",
+   "viewer_variant": ""
+  },
+  "ouro": {
+   "name": "Ouro",
+   "zip_filename": "ouro.zip",
+   "viewer_type": "custom",
+   "description": "",
+   "entry_point": "index.html",
+   "project_json_path": "",
+   "inner_archive": "",
+   "runtime_family": "",
+   "viewer_variant": ""
+  },
+  "classic_new": {
+   "name": "New Viewer 1.18.9",
+   "zip_filename": "classic.zip",
+   "viewer_type": "icc_plus",
+   "description": "",
+   "entry_point": "index.html",
+   "project_json_path": "",
+   "inner_archive": "",
+   "runtime_family": "",
+   "viewer_variant": ""
+  },
+  "classic_orig": {
+   "name": "Viewer 1.8 [Original]",
+   "zip_filename": "classic.zip",
+   "viewer_type": "icc_legacy",
+   "description": "",
+   "entry_point": "index.html",
+   "project_json_path": "",
+   "inner_archive": "",
+   "runtime_family": "",
+   "viewer_variant": ""
+  },
+  "legacy_explicit": {
+   "name": "x",
+   "zip_filename": "plain.zip",
+   "runtime_family": "icc_legacy",
+   "source_descriptor": "Creator Plus",
+   "viewer_type": "custom",
+   "description": "",
+   "entry_point": "index.html",
+   "project_json_path": "",
+   "inner_archive": "",
+   "viewer_variant": ""
+  },
+  "alias": {
+   "name": "alias",
+   "zip_filename": "plain.zip",
+   "runtime_family": "ICC_PLUS_2",
+   "viewer_type": "custom",
+   "description": "",
+   "entry_point": "index.html",
+   "project_json_path": "",
+   "inner_archive": "",
+   "viewer_variant": ""
+  },
+  "icc_alias": {
+   "name": "old",
+   "zip_filename": "plain.zip",
+   "viewer_type": "icc",
+   "description": "",
+   "entry_point": "index.html",
+   "project_json_path": "",
+   "inner_archive": "",
+   "runtime_family": "",
+   "viewer_variant": ""
+  },
+  "om": {
+   "name": "Om1cr0n LocalViewer",
+   "zip_filename": "plain.zip",
+   "viewer_type": "om1cr0n",
+   "description": "",
+   "entry_point": "index.html",
+   "project_json_path": "",
+   "inner_archive": "",
+   "runtime_family": "",
+   "viewer_variant": ""
+  },
+  "cyoap": {
+   "name": "cyoap viewer v3",
+   "zip_filename": "plain.zip",
+   "viewer_type": "cyoap_vue",
+   "description": "",
+   "entry_point": "index.html",
+   "project_json_path": "",
+   "inner_archive": "",
+   "runtime_family": "",
+   "viewer_variant": ""
+  },
+  "brk": {
+   "name": "Broken standalone 1.2",
+   "zip_filename": "broken.zip",
+   "viewer_type": "custom",
+   "description": "",
+   "entry_point": "index.html",
+   "project_json_path": "",
+   "inner_archive": "",
+   "runtime_family": "",
+   "viewer_variant": ""
+  },
+  "rar": {
+   "name": "Rar v2.1",
+   "zip_filename": "pack.rar",
+   "viewer_type": "custom",
+   "viewer_variant": "ONLINE",
+   "description": "",
+   "entry_point": "index.html",
+   "project_json_path": "",
+   "inner_archive": "",
+   "runtime_family": ""
+  },
+  "desc_plus2": {
+   "name": "something plus-2",
+   "zip_filename": "plain.zip",
+   "viewer_type": "custom",
+   "description": "",
+   "entry_point": "index.html",
+   "project_json_path": "",
+   "inner_archive": "",
+   "runtime_family": "",
+   "viewer_variant": ""
+  },
+  "desc_legacy": {
+   "name": "legacy thing",
+   "zip_filename": "plain.zip",
+   "viewer_type": "custom",
+   "description": "",
+   "entry_point": "index.html",
+   "project_json_path": "",
+   "inner_archive": "",
+   "runtime_family": "",
+   "viewer_variant": ""
+  },
+  "nonstr": {
+   "name": "nonstr",
+   "zip_filename": "",
+   "viewer_type": "custom",
+   "extra": {
+    "k": 1
+   },
+   "description": "",
+   "entry_point": "index.html",
+   "project_json_path": "",
+   "inner_archive": "",
+   "runtime_family": "",
+   "viewer_variant": ""
+  },
+  "empty_zip": {
+   "name": "nozip",
+   "zip_filename": "",
+   "viewer_type": "custom",
+   "description": "",
+   "entry_point": "index.html",
+   "project_json_path": "",
+   "inner_archive": "",
+   "runtime_family": "",
+   "viewer_variant": ""
+  }
+ },
+ "families": {
+  "remix": "icc_remix",
+  "plus2": "icc_plus2",
+  "plus2web": "icc_plus2",
+  "ouro": "lt_ouroumov",
+  "classic_new": "icc_plus_legacy",
+  "classic_orig": "icc_original",
+  "legacy_explicit": "icc_plus_legacy",
+  "alias": "icc_plus2",
+  "icc_alias": "icc_original",
+  "om": "om1cr0n",
+  "cyoap": "cyoap_vue",
+  "brk": "custom",
+  "rar": "icc_plus2",
+  "desc_plus2": "icc_plus2",
+  "desc_legacy": "icc_original",
+  "nonstr": "custom",
+  "empty_zip": "custom"
+ },
+ "variants": {
+  "remix": "",
+  "plus2": "offline",
+  "plus2web": "online",
+  "ouro": "",
+  "classic_new": "",
+  "classic_orig": "",
+  "legacy_explicit": "",
+  "alias": "",
+  "icc_alias": "",
+  "om": "offline",
+  "cyoap": "",
+  "brk": "offline",
+  "rar": "online",
+  "desc_plus2": "",
+  "desc_legacy": "",
+  "nonstr": "",
+  "empty_zip": ""
+ },
+ "quality": {
+  "remix": [
+   5,
+   [],
+   "2026-01-01"
+  ],
+  "plus2": [
+   5,
+   [
+    2,
+    9,
+    1,
+    2
+   ],
+   "2026-02-01"
+  ],
+  "plus2web": [
+   5,
+   [
+    2,
+    2
+   ],
+   ""
+  ],
+  "ouro": [
+   5,
+   [],
+   ""
+  ],
+  "classic_new": [
+   5,
+   [
+    1,
+    18,
+    9
+   ],
+   ""
+  ],
+  "classic_orig": [
+   5,
+   [
+    1,
+    8
+   ],
+   ""
+  ],
+  "legacy_explicit": [
+   5,
+   [],
+   ""
+  ],
+  "alias": [
+   5,
+   [],
+   ""
+  ],
+  "icc_alias": [
+   5,
+   [],
+   ""
+  ],
+  "om": [
+   5,
+   [
+    1,
+    0
+   ],
+   ""
+  ],
+  "cyoap": [
+   5,
+   [
+    3
+   ],
+   ""
+  ],
+  "brk": [
+   5,
+   [
+    1,
+    2
+   ],
+   ""
+  ],
+  "rar": [
+   0,
+   [
+    2,
+    1
+   ],
+   ""
+  ],
+  "desc_plus2": [
+   5,
+   [
+    2
+   ],
+   ""
+  ],
+  "desc_legacy": [
+   5,
+   [],
+   ""
+  ],
+  "nonstr": [
+   0,
+   [],
+   ""
+  ],
+  "empty_zip": [
+   0,
+   [],
+   ""
+  ]
+ },
+ "classic_family": {
+  "remix": "icc_original",
+  "plus2": "icc_plus_legacy",
+  "plus2web": "icc_original",
+  "ouro": "icc_original",
+  "classic_new": "icc_plus_legacy",
+  "classic_orig": "icc_original",
+  "legacy_explicit": "icc_plus_legacy",
+  "alias": "icc_original",
+  "icc_alias": "icc_original",
+  "om": "icc_original",
+  "cyoap": "icc_original",
+  "brk": "icc_original",
+  "rar": "icc_original",
+  "desc_plus2": "icc_original",
+  "desc_legacy": "icc_original",
+  "nonstr": "icc_original",
+  "empty_zip": "icc_original"
+ },
+ "projects": {
+  "none": null,
+  "bad_json": "{not json",
+  "list": [
+   1,
+   2
+  ],
+  "plus2_top": "{\"version\": \"2.1\", \"rows\": [], \"pointTypes\": [], \"styling\": {}}",
+  "plus2_app": {
+   "version": "2.0",
+   "app": {
+    "rows": [],
+    "pointTypes": [],
+    "styling": {}
+   }
+  },
+  "app_version": {
+   "app": {
+    "rows": [],
+    "pointTypes": [],
+    "styling": {},
+    "version": "2.5"
+   }
+  },
+  "legacy": {
+   "rows": [],
+   "pointTypes": [],
+   "styling": {},
+   "objectMap": {}
+  },
+  "original": {
+   "rows": [],
+   "pointTypes": [],
+   "styling": {},
+   "version": "1.8"
+  },
+  "missing": {
+   "rows": [],
+   "pointTypes": []
+  },
+  "styling_list": {
+   "rows": [],
+   "pointTypes": [],
+   "styling": []
+  }
+ },
+ "project_family": {
+  "none": "",
+  "bad_json": "",
+  "list": "",
+  "plus2_top": "icc_plus2",
+  "plus2_app": "icc_plus2",
+  "app_version": "icc_plus2",
+  "legacy": "icc_plus_legacy",
+  "original": "icc_original",
+  "missing": "",
+  "styling_list": ""
+ },
+ "htmls": {
+  "empty": "",
+  "remix": "<script>{{ICC_PROJECT_DATA_SCRIPT}}</script>",
+  "plus2": "<script src=\"core.js\"></script>",
+  "ouro": "<script src=\"js/app.d3103a3b.js\"></script>",
+  "classic": "<script src=\"js/app.c533aa25.js\"></script><script src=\"chunk-vendors.59af3576.js\"></script>",
+  "om": "Om1cr0n animation.webp assets/index-abc.js",
+  "cyoap": "platform.json cyoap",
+  "hints": "ICC+ Viewer 1.8 icc-plus"
+ },
+ "html_family": {
+  "empty": [
+   "",
+   ""
+  ],
+  "remix": [
+   "icc_remix",
+   "source HTML contains an ICC Remix runtime marker"
+  ],
+  "plus2": [
+   "icc_plus2",
+   "source HTML contains an ICC Plus 2 runtime marker"
+  ],
+  "ouro": [
+   "lt_ouroumov",
+   "source HTML contains the Lt. Ouroumov bundle marker"
+  ],
+  "classic": [
+   "icc_classic",
+   "source HTML contains a classic ICC bundle marker"
+  ],
+  "om": [
+   "",
+   ""
+  ],
+  "cyoap": [
+   "",
+   ""
+  ],
+  "hints": [
+   "",
+   ""
+  ]
+ },
+ "safe_archive_name": [
+  [
+   "a.zip",
+   "a.zip"
+  ],
+  [
+   "A.RAR",
+   "A.RAR"
+  ],
+  [
+   " x.zip ",
+   "x.zip"
+  ],
+  [
+   "",
+   ""
+  ],
+  [
+   ".",
+   ""
+  ],
+  [
+   "..",
+   ""
+  ],
+  [
+   "a/b.zip",
+   ""
+  ],
+  [
+   "a\\b.zip",
+   ""
+  ],
+  [
+   "c:x.zip",
+   ""
+  ],
+  [
+   "x.7z",
+   ""
+  ],
+  [
+   null,
+   ""
+  ],
+  [
+   5,
+   ""
+  ]
+ ],
+ "safe_rel_path": [
+  [
+   "index.html",
+   "index.html"
+  ],
+  [
+   "a/../b",
+   ""
+  ],
+  [
+   "./a/b",
+   ""
+  ],
+  [
+   "a\\b",
+   "a/b"
+  ],
+  [
+   "/abs",
+   ""
+  ],
+  [
+   "C:/x",
+   ""
+  ],
+  [
+   "",
+   ""
+  ],
+  [
+   null,
+   ""
+  ],
+  [
+   "a//b",
+   ""
+  ],
+  [
+   "con.html",
+   ""
+  ]
+ ],
+ "selections": [
+  {
+   "html": "empty",
+   "project": "none",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": null
+  },
+  {
+   "html": "empty",
+   "project": "none",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "matched registered viewer hints and output mode"
+   }
+  },
+  {
+   "html": "empty",
+   "project": "none",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "desc_plus2",
+    "name": "something plus-2",
+    "zip_filename": "plain.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "matched registered viewer hints and output mode"
+   }
+  },
+  {
+   "html": "empty",
+   "project": "none",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "cyoap",
+    "name": "cyoap viewer v3",
+    "zip_filename": "plain.zip",
+    "viewer_type": "cyoap_vue",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "cyoap_vue",
+    "selection_reason": "matched registered viewer hints and output mode"
+   }
+  },
+  {
+   "html": "empty",
+   "project": "plus2_top",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "project.json version 2.1 requires ICC Plus 2"
+   }
+  },
+  {
+   "html": "empty",
+   "project": "plus2_top",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "project.json version 2.1 requires ICC Plus 2"
+   }
+  },
+  {
+   "html": "empty",
+   "project": "plus2_top",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "desc_plus2",
+    "name": "something plus-2",
+    "zip_filename": "plain.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "project.json version 2.1 requires ICC Plus 2"
+   }
+  },
+  {
+   "html": "empty",
+   "project": "plus2_top",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "project.json version 2.1 requires ICC Plus 2"
+   }
+  },
+  {
+   "html": "empty",
+   "project": "legacy",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_new",
+    "name": "New Viewer 1.18.9",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_plus",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus_legacy",
+    "selection_reason": "unversioned ICC Plus project.json uses the Plus legacy viewer"
+   }
+  },
+  {
+   "html": "empty",
+   "project": "legacy",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_new",
+    "name": "New Viewer 1.18.9",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_plus",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus_legacy",
+    "selection_reason": "unversioned ICC Plus project.json uses the Plus legacy viewer"
+   }
+  },
+  {
+   "html": "empty",
+   "project": "legacy",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "legacy_explicit",
+    "name": "x",
+    "zip_filename": "plain.zip",
+    "runtime_family": "icc_legacy",
+    "source_descriptor": "Creator Plus",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus_legacy",
+    "selection_reason": "unversioned ICC Plus project.json uses the Plus legacy viewer"
+   }
+  },
+  {
+   "html": "empty",
+   "project": "legacy",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_new",
+    "name": "New Viewer 1.18.9",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_plus",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus_legacy",
+    "selection_reason": "unversioned ICC Plus project.json uses the Plus legacy viewer"
+   }
+  },
+  {
+   "html": "empty",
+   "project": "original",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_orig",
+    "name": "Viewer 1.8 [Original]",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_legacy",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_original",
+    "selection_reason": "classic ICC project.json uses the original Viewer 1.8 contract"
+   }
+  },
+  {
+   "html": "empty",
+   "project": "original",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_orig",
+    "name": "Viewer 1.8 [Original]",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_legacy",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_original",
+    "selection_reason": "classic ICC project.json uses the original Viewer 1.8 contract"
+   }
+  },
+  {
+   "html": "empty",
+   "project": "original",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "desc_legacy",
+    "name": "legacy thing",
+    "zip_filename": "plain.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_original",
+    "selection_reason": "classic ICC project.json uses the original Viewer 1.8 contract"
+   }
+  },
+  {
+   "html": "empty",
+   "project": "original",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_orig",
+    "name": "Viewer 1.8 [Original]",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_legacy",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_original",
+    "selection_reason": "classic ICC project.json uses the original Viewer 1.8 contract"
+   }
+  },
+  {
+   "html": "empty",
+   "project": "app_version",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "project.json version 2.5 requires ICC Plus 2"
+   }
+  },
+  {
+   "html": "empty",
+   "project": "app_version",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "project.json version 2.5 requires ICC Plus 2"
+   }
+  },
+  {
+   "html": "empty",
+   "project": "app_version",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "desc_plus2",
+    "name": "something plus-2",
+    "zip_filename": "plain.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "project.json version 2.5 requires ICC Plus 2"
+   }
+  },
+  {
+   "html": "empty",
+   "project": "app_version",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "project.json version 2.5 requires ICC Plus 2"
+   }
+  },
+  {
+   "html": "remix",
+   "project": "none",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "remix",
+    "name": "Remix",
+    "zip_filename": "remix_pack.zip",
+    "viewer_type": "custom",
+    "registered_at": "2026-01-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_remix",
+    "selection_reason": "source HTML contains an ICC Remix runtime marker"
+   }
+  },
+  {
+   "html": "remix",
+   "project": "none",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "remix",
+    "name": "Remix",
+    "zip_filename": "remix_pack.zip",
+    "viewer_type": "custom",
+    "registered_at": "2026-01-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_remix",
+    "selection_reason": "source HTML contains an ICC Remix runtime marker"
+   }
+  },
+  {
+   "html": "remix",
+   "project": "none",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "remix",
+    "name": "Remix",
+    "zip_filename": "remix_pack.zip",
+    "viewer_type": "custom",
+    "registered_at": "2026-01-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_remix",
+    "selection_reason": "source HTML contains an ICC Remix runtime marker"
+   }
+  },
+  {
+   "html": "remix",
+   "project": "none",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "remix",
+    "name": "Remix",
+    "zip_filename": "remix_pack.zip",
+    "viewer_type": "custom",
+    "registered_at": "2026-01-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_remix",
+    "selection_reason": "source HTML contains an ICC Remix runtime marker"
+   }
+  },
+  {
+   "html": "remix",
+   "project": "plus2_top",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "remix",
+    "name": "Remix",
+    "zip_filename": "remix_pack.zip",
+    "viewer_type": "custom",
+    "registered_at": "2026-01-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_remix",
+    "selection_reason": "source HTML contains an ICC Remix runtime marker"
+   }
+  },
+  {
+   "html": "remix",
+   "project": "plus2_top",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "remix",
+    "name": "Remix",
+    "zip_filename": "remix_pack.zip",
+    "viewer_type": "custom",
+    "registered_at": "2026-01-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_remix",
+    "selection_reason": "source HTML contains an ICC Remix runtime marker"
+   }
+  },
+  {
+   "html": "remix",
+   "project": "plus2_top",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "remix",
+    "name": "Remix",
+    "zip_filename": "remix_pack.zip",
+    "viewer_type": "custom",
+    "registered_at": "2026-01-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_remix",
+    "selection_reason": "source HTML contains an ICC Remix runtime marker"
+   }
+  },
+  {
+   "html": "remix",
+   "project": "plus2_top",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "remix",
+    "name": "Remix",
+    "zip_filename": "remix_pack.zip",
+    "viewer_type": "custom",
+    "registered_at": "2026-01-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_remix",
+    "selection_reason": "source HTML contains an ICC Remix runtime marker"
+   }
+  },
+  {
+   "html": "remix",
+   "project": "legacy",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "remix",
+    "name": "Remix",
+    "zip_filename": "remix_pack.zip",
+    "viewer_type": "custom",
+    "registered_at": "2026-01-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_remix",
+    "selection_reason": "source HTML contains an ICC Remix runtime marker"
+   }
+  },
+  {
+   "html": "remix",
+   "project": "legacy",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "remix",
+    "name": "Remix",
+    "zip_filename": "remix_pack.zip",
+    "viewer_type": "custom",
+    "registered_at": "2026-01-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_remix",
+    "selection_reason": "source HTML contains an ICC Remix runtime marker"
+   }
+  },
+  {
+   "html": "remix",
+   "project": "legacy",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "remix",
+    "name": "Remix",
+    "zip_filename": "remix_pack.zip",
+    "viewer_type": "custom",
+    "registered_at": "2026-01-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_remix",
+    "selection_reason": "source HTML contains an ICC Remix runtime marker"
+   }
+  },
+  {
+   "html": "remix",
+   "project": "legacy",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "remix",
+    "name": "Remix",
+    "zip_filename": "remix_pack.zip",
+    "viewer_type": "custom",
+    "registered_at": "2026-01-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_remix",
+    "selection_reason": "source HTML contains an ICC Remix runtime marker"
+   }
+  },
+  {
+   "html": "remix",
+   "project": "original",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "remix",
+    "name": "Remix",
+    "zip_filename": "remix_pack.zip",
+    "viewer_type": "custom",
+    "registered_at": "2026-01-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_remix",
+    "selection_reason": "source HTML contains an ICC Remix runtime marker"
+   }
+  },
+  {
+   "html": "remix",
+   "project": "original",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "remix",
+    "name": "Remix",
+    "zip_filename": "remix_pack.zip",
+    "viewer_type": "custom",
+    "registered_at": "2026-01-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_remix",
+    "selection_reason": "source HTML contains an ICC Remix runtime marker"
+   }
+  },
+  {
+   "html": "remix",
+   "project": "original",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "remix",
+    "name": "Remix",
+    "zip_filename": "remix_pack.zip",
+    "viewer_type": "custom",
+    "registered_at": "2026-01-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_remix",
+    "selection_reason": "source HTML contains an ICC Remix runtime marker"
+   }
+  },
+  {
+   "html": "remix",
+   "project": "original",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "remix",
+    "name": "Remix",
+    "zip_filename": "remix_pack.zip",
+    "viewer_type": "custom",
+    "registered_at": "2026-01-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_remix",
+    "selection_reason": "source HTML contains an ICC Remix runtime marker"
+   }
+  },
+  {
+   "html": "remix",
+   "project": "app_version",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "remix",
+    "name": "Remix",
+    "zip_filename": "remix_pack.zip",
+    "viewer_type": "custom",
+    "registered_at": "2026-01-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_remix",
+    "selection_reason": "source HTML contains an ICC Remix runtime marker"
+   }
+  },
+  {
+   "html": "remix",
+   "project": "app_version",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "remix",
+    "name": "Remix",
+    "zip_filename": "remix_pack.zip",
+    "viewer_type": "custom",
+    "registered_at": "2026-01-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_remix",
+    "selection_reason": "source HTML contains an ICC Remix runtime marker"
+   }
+  },
+  {
+   "html": "remix",
+   "project": "app_version",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "remix",
+    "name": "Remix",
+    "zip_filename": "remix_pack.zip",
+    "viewer_type": "custom",
+    "registered_at": "2026-01-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_remix",
+    "selection_reason": "source HTML contains an ICC Remix runtime marker"
+   }
+  },
+  {
+   "html": "remix",
+   "project": "app_version",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "remix",
+    "name": "Remix",
+    "zip_filename": "remix_pack.zip",
+    "viewer_type": "custom",
+    "registered_at": "2026-01-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_remix",
+    "selection_reason": "source HTML contains an ICC Remix runtime marker"
+   }
+  },
+  {
+   "html": "plus2",
+   "project": "none",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "source HTML contains an ICC Plus 2 runtime marker"
+   }
+  },
+  {
+   "html": "plus2",
+   "project": "none",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "source HTML contains an ICC Plus 2 runtime marker"
+   }
+  },
+  {
+   "html": "plus2",
+   "project": "none",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "desc_plus2",
+    "name": "something plus-2",
+    "zip_filename": "plain.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "source HTML contains an ICC Plus 2 runtime marker"
+   }
+  },
+  {
+   "html": "plus2",
+   "project": "none",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "source HTML contains an ICC Plus 2 runtime marker"
+   }
+  },
+  {
+   "html": "plus2",
+   "project": "plus2_top",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "source HTML contains an ICC Plus 2 runtime marker"
+   }
+  },
+  {
+   "html": "plus2",
+   "project": "plus2_top",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "source HTML contains an ICC Plus 2 runtime marker"
+   }
+  },
+  {
+   "html": "plus2",
+   "project": "plus2_top",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "desc_plus2",
+    "name": "something plus-2",
+    "zip_filename": "plain.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "source HTML contains an ICC Plus 2 runtime marker"
+   }
+  },
+  {
+   "html": "plus2",
+   "project": "plus2_top",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "source HTML contains an ICC Plus 2 runtime marker"
+   }
+  },
+  {
+   "html": "plus2",
+   "project": "legacy",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "source HTML contains an ICC Plus 2 runtime marker"
+   }
+  },
+  {
+   "html": "plus2",
+   "project": "legacy",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "source HTML contains an ICC Plus 2 runtime marker"
+   }
+  },
+  {
+   "html": "plus2",
+   "project": "legacy",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "desc_plus2",
+    "name": "something plus-2",
+    "zip_filename": "plain.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "source HTML contains an ICC Plus 2 runtime marker"
+   }
+  },
+  {
+   "html": "plus2",
+   "project": "legacy",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "source HTML contains an ICC Plus 2 runtime marker"
+   }
+  },
+  {
+   "html": "plus2",
+   "project": "original",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "source HTML contains an ICC Plus 2 runtime marker"
+   }
+  },
+  {
+   "html": "plus2",
+   "project": "original",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "source HTML contains an ICC Plus 2 runtime marker"
+   }
+  },
+  {
+   "html": "plus2",
+   "project": "original",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "desc_plus2",
+    "name": "something plus-2",
+    "zip_filename": "plain.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "source HTML contains an ICC Plus 2 runtime marker"
+   }
+  },
+  {
+   "html": "plus2",
+   "project": "original",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "source HTML contains an ICC Plus 2 runtime marker"
+   }
+  },
+  {
+   "html": "plus2",
+   "project": "app_version",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "source HTML contains an ICC Plus 2 runtime marker"
+   }
+  },
+  {
+   "html": "plus2",
+   "project": "app_version",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "source HTML contains an ICC Plus 2 runtime marker"
+   }
+  },
+  {
+   "html": "plus2",
+   "project": "app_version",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "desc_plus2",
+    "name": "something plus-2",
+    "zip_filename": "plain.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "source HTML contains an ICC Plus 2 runtime marker"
+   }
+  },
+  {
+   "html": "plus2",
+   "project": "app_version",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "source HTML contains an ICC Plus 2 runtime marker"
+   }
+  },
+  {
+   "html": "ouro",
+   "project": "none",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "ouro",
+    "name": "Ouro",
+    "zip_filename": "ouro.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "lt_ouroumov",
+    "selection_reason": "source HTML contains the Lt. Ouroumov bundle marker"
+   }
+  },
+  {
+   "html": "ouro",
+   "project": "none",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "ouro",
+    "name": "Ouro",
+    "zip_filename": "ouro.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "lt_ouroumov",
+    "selection_reason": "source HTML contains the Lt. Ouroumov bundle marker"
+   }
+  },
+  {
+   "html": "ouro",
+   "project": "none",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "ouro",
+    "name": "Ouro",
+    "zip_filename": "ouro.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "lt_ouroumov",
+    "selection_reason": "source HTML contains the Lt. Ouroumov bundle marker"
+   }
+  },
+  {
+   "html": "ouro",
+   "project": "none",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "ouro",
+    "name": "Ouro",
+    "zip_filename": "ouro.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "lt_ouroumov",
+    "selection_reason": "source HTML contains the Lt. Ouroumov bundle marker"
+   }
+  },
+  {
+   "html": "ouro",
+   "project": "plus2_top",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "ouro",
+    "name": "Ouro",
+    "zip_filename": "ouro.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "lt_ouroumov",
+    "selection_reason": "source HTML contains the Lt. Ouroumov bundle marker"
+   }
+  },
+  {
+   "html": "ouro",
+   "project": "plus2_top",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "ouro",
+    "name": "Ouro",
+    "zip_filename": "ouro.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "lt_ouroumov",
+    "selection_reason": "source HTML contains the Lt. Ouroumov bundle marker"
+   }
+  },
+  {
+   "html": "ouro",
+   "project": "plus2_top",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "ouro",
+    "name": "Ouro",
+    "zip_filename": "ouro.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "lt_ouroumov",
+    "selection_reason": "source HTML contains the Lt. Ouroumov bundle marker"
+   }
+  },
+  {
+   "html": "ouro",
+   "project": "plus2_top",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "ouro",
+    "name": "Ouro",
+    "zip_filename": "ouro.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "lt_ouroumov",
+    "selection_reason": "source HTML contains the Lt. Ouroumov bundle marker"
+   }
+  },
+  {
+   "html": "ouro",
+   "project": "legacy",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "ouro",
+    "name": "Ouro",
+    "zip_filename": "ouro.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "lt_ouroumov",
+    "selection_reason": "source HTML contains the Lt. Ouroumov bundle marker"
+   }
+  },
+  {
+   "html": "ouro",
+   "project": "legacy",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "ouro",
+    "name": "Ouro",
+    "zip_filename": "ouro.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "lt_ouroumov",
+    "selection_reason": "source HTML contains the Lt. Ouroumov bundle marker"
+   }
+  },
+  {
+   "html": "ouro",
+   "project": "legacy",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "ouro",
+    "name": "Ouro",
+    "zip_filename": "ouro.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "lt_ouroumov",
+    "selection_reason": "source HTML contains the Lt. Ouroumov bundle marker"
+   }
+  },
+  {
+   "html": "ouro",
+   "project": "legacy",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "ouro",
+    "name": "Ouro",
+    "zip_filename": "ouro.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "lt_ouroumov",
+    "selection_reason": "source HTML contains the Lt. Ouroumov bundle marker"
+   }
+  },
+  {
+   "html": "ouro",
+   "project": "original",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "ouro",
+    "name": "Ouro",
+    "zip_filename": "ouro.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "lt_ouroumov",
+    "selection_reason": "source HTML contains the Lt. Ouroumov bundle marker"
+   }
+  },
+  {
+   "html": "ouro",
+   "project": "original",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "ouro",
+    "name": "Ouro",
+    "zip_filename": "ouro.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "lt_ouroumov",
+    "selection_reason": "source HTML contains the Lt. Ouroumov bundle marker"
+   }
+  },
+  {
+   "html": "ouro",
+   "project": "original",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "ouro",
+    "name": "Ouro",
+    "zip_filename": "ouro.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "lt_ouroumov",
+    "selection_reason": "source HTML contains the Lt. Ouroumov bundle marker"
+   }
+  },
+  {
+   "html": "ouro",
+   "project": "original",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "ouro",
+    "name": "Ouro",
+    "zip_filename": "ouro.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "lt_ouroumov",
+    "selection_reason": "source HTML contains the Lt. Ouroumov bundle marker"
+   }
+  },
+  {
+   "html": "ouro",
+   "project": "app_version",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "ouro",
+    "name": "Ouro",
+    "zip_filename": "ouro.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "lt_ouroumov",
+    "selection_reason": "source HTML contains the Lt. Ouroumov bundle marker"
+   }
+  },
+  {
+   "html": "ouro",
+   "project": "app_version",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "ouro",
+    "name": "Ouro",
+    "zip_filename": "ouro.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "lt_ouroumov",
+    "selection_reason": "source HTML contains the Lt. Ouroumov bundle marker"
+   }
+  },
+  {
+   "html": "ouro",
+   "project": "app_version",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "ouro",
+    "name": "Ouro",
+    "zip_filename": "ouro.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "lt_ouroumov",
+    "selection_reason": "source HTML contains the Lt. Ouroumov bundle marker"
+   }
+  },
+  {
+   "html": "ouro",
+   "project": "app_version",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "ouro",
+    "name": "Ouro",
+    "zip_filename": "ouro.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "lt_ouroumov",
+    "selection_reason": "source HTML contains the Lt. Ouroumov bundle marker"
+   }
+  },
+  {
+   "html": "classic",
+   "project": "none",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_orig",
+    "name": "Viewer 1.8 [Original]",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_legacy",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_original",
+    "selection_reason": "classic ICC bundle plus project schema selects icc_original"
+   }
+  },
+  {
+   "html": "classic",
+   "project": "none",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_orig",
+    "name": "Viewer 1.8 [Original]",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_legacy",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_original",
+    "selection_reason": "classic ICC bundle plus project schema selects icc_original"
+   }
+  },
+  {
+   "html": "classic",
+   "project": "none",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "desc_legacy",
+    "name": "legacy thing",
+    "zip_filename": "plain.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_original",
+    "selection_reason": "classic ICC bundle plus project schema selects icc_original"
+   }
+  },
+  {
+   "html": "classic",
+   "project": "none",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_orig",
+    "name": "Viewer 1.8 [Original]",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_legacy",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_original",
+    "selection_reason": "classic ICC bundle plus project schema selects icc_original"
+   }
+  },
+  {
+   "html": "classic",
+   "project": "plus2_top",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_orig",
+    "name": "Viewer 1.8 [Original]",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_legacy",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_original",
+    "selection_reason": "classic ICC bundle plus project schema selects icc_original"
+   }
+  },
+  {
+   "html": "classic",
+   "project": "plus2_top",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_orig",
+    "name": "Viewer 1.8 [Original]",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_legacy",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_original",
+    "selection_reason": "classic ICC bundle plus project schema selects icc_original"
+   }
+  },
+  {
+   "html": "classic",
+   "project": "plus2_top",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "desc_legacy",
+    "name": "legacy thing",
+    "zip_filename": "plain.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_original",
+    "selection_reason": "classic ICC bundle plus project schema selects icc_original"
+   }
+  },
+  {
+   "html": "classic",
+   "project": "plus2_top",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_orig",
+    "name": "Viewer 1.8 [Original]",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_legacy",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_original",
+    "selection_reason": "classic ICC bundle plus project schema selects icc_original"
+   }
+  },
+  {
+   "html": "classic",
+   "project": "legacy",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_new",
+    "name": "New Viewer 1.18.9",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_plus",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus_legacy",
+    "selection_reason": "classic ICC bundle plus project schema selects icc_plus_legacy"
+   }
+  },
+  {
+   "html": "classic",
+   "project": "legacy",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_new",
+    "name": "New Viewer 1.18.9",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_plus",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus_legacy",
+    "selection_reason": "classic ICC bundle plus project schema selects icc_plus_legacy"
+   }
+  },
+  {
+   "html": "classic",
+   "project": "legacy",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "legacy_explicit",
+    "name": "x",
+    "zip_filename": "plain.zip",
+    "runtime_family": "icc_legacy",
+    "source_descriptor": "Creator Plus",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus_legacy",
+    "selection_reason": "classic ICC bundle plus project schema selects icc_plus_legacy"
+   }
+  },
+  {
+   "html": "classic",
+   "project": "legacy",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_new",
+    "name": "New Viewer 1.18.9",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_plus",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus_legacy",
+    "selection_reason": "classic ICC bundle plus project schema selects icc_plus_legacy"
+   }
+  },
+  {
+   "html": "classic",
+   "project": "original",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_orig",
+    "name": "Viewer 1.8 [Original]",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_legacy",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_original",
+    "selection_reason": "classic ICC bundle plus project schema selects icc_original"
+   }
+  },
+  {
+   "html": "classic",
+   "project": "original",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_orig",
+    "name": "Viewer 1.8 [Original]",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_legacy",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_original",
+    "selection_reason": "classic ICC bundle plus project schema selects icc_original"
+   }
+  },
+  {
+   "html": "classic",
+   "project": "original",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "desc_legacy",
+    "name": "legacy thing",
+    "zip_filename": "plain.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_original",
+    "selection_reason": "classic ICC bundle plus project schema selects icc_original"
+   }
+  },
+  {
+   "html": "classic",
+   "project": "original",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_orig",
+    "name": "Viewer 1.8 [Original]",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_legacy",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_original",
+    "selection_reason": "classic ICC bundle plus project schema selects icc_original"
+   }
+  },
+  {
+   "html": "classic",
+   "project": "app_version",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_orig",
+    "name": "Viewer 1.8 [Original]",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_legacy",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_original",
+    "selection_reason": "classic ICC bundle plus project schema selects icc_original"
+   }
+  },
+  {
+   "html": "classic",
+   "project": "app_version",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_orig",
+    "name": "Viewer 1.8 [Original]",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_legacy",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_original",
+    "selection_reason": "classic ICC bundle plus project schema selects icc_original"
+   }
+  },
+  {
+   "html": "classic",
+   "project": "app_version",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "desc_legacy",
+    "name": "legacy thing",
+    "zip_filename": "plain.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_original",
+    "selection_reason": "classic ICC bundle plus project schema selects icc_original"
+   }
+  },
+  {
+   "html": "classic",
+   "project": "app_version",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_orig",
+    "name": "Viewer 1.8 [Original]",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_legacy",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_original",
+    "selection_reason": "classic ICC bundle plus project schema selects icc_original"
+   }
+  },
+  {
+   "html": "om",
+   "project": "none",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "om",
+    "name": "Om1cr0n LocalViewer",
+    "zip_filename": "plain.zip",
+    "viewer_type": "om1cr0n",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "om1cr0n",
+    "selection_reason": "matched registered viewer hints and output mode"
+   }
+  },
+  {
+   "html": "om",
+   "project": "none",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "matched registered viewer hints and output mode"
+   }
+  },
+  {
+   "html": "om",
+   "project": "none",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "desc_plus2",
+    "name": "something plus-2",
+    "zip_filename": "plain.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "matched registered viewer hints and output mode"
+   }
+  },
+  {
+   "html": "om",
+   "project": "none",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "cyoap",
+    "name": "cyoap viewer v3",
+    "zip_filename": "plain.zip",
+    "viewer_type": "cyoap_vue",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "cyoap_vue",
+    "selection_reason": "matched registered viewer hints and output mode"
+   }
+  },
+  {
+   "html": "om",
+   "project": "plus2_top",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "project.json version 2.1 requires ICC Plus 2"
+   }
+  },
+  {
+   "html": "om",
+   "project": "plus2_top",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "project.json version 2.1 requires ICC Plus 2"
+   }
+  },
+  {
+   "html": "om",
+   "project": "plus2_top",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "desc_plus2",
+    "name": "something plus-2",
+    "zip_filename": "plain.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "project.json version 2.1 requires ICC Plus 2"
+   }
+  },
+  {
+   "html": "om",
+   "project": "plus2_top",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "project.json version 2.1 requires ICC Plus 2"
+   }
+  },
+  {
+   "html": "om",
+   "project": "legacy",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_new",
+    "name": "New Viewer 1.18.9",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_plus",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus_legacy",
+    "selection_reason": "unversioned ICC Plus project.json uses the Plus legacy viewer"
+   }
+  },
+  {
+   "html": "om",
+   "project": "legacy",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_new",
+    "name": "New Viewer 1.18.9",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_plus",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus_legacy",
+    "selection_reason": "unversioned ICC Plus project.json uses the Plus legacy viewer"
+   }
+  },
+  {
+   "html": "om",
+   "project": "legacy",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "legacy_explicit",
+    "name": "x",
+    "zip_filename": "plain.zip",
+    "runtime_family": "icc_legacy",
+    "source_descriptor": "Creator Plus",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus_legacy",
+    "selection_reason": "unversioned ICC Plus project.json uses the Plus legacy viewer"
+   }
+  },
+  {
+   "html": "om",
+   "project": "legacy",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_new",
+    "name": "New Viewer 1.18.9",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_plus",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus_legacy",
+    "selection_reason": "unversioned ICC Plus project.json uses the Plus legacy viewer"
+   }
+  },
+  {
+   "html": "om",
+   "project": "original",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_orig",
+    "name": "Viewer 1.8 [Original]",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_legacy",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_original",
+    "selection_reason": "classic ICC project.json uses the original Viewer 1.8 contract"
+   }
+  },
+  {
+   "html": "om",
+   "project": "original",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_orig",
+    "name": "Viewer 1.8 [Original]",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_legacy",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_original",
+    "selection_reason": "classic ICC project.json uses the original Viewer 1.8 contract"
+   }
+  },
+  {
+   "html": "om",
+   "project": "original",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "desc_legacy",
+    "name": "legacy thing",
+    "zip_filename": "plain.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_original",
+    "selection_reason": "classic ICC project.json uses the original Viewer 1.8 contract"
+   }
+  },
+  {
+   "html": "om",
+   "project": "original",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_orig",
+    "name": "Viewer 1.8 [Original]",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_legacy",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_original",
+    "selection_reason": "classic ICC project.json uses the original Viewer 1.8 contract"
+   }
+  },
+  {
+   "html": "om",
+   "project": "app_version",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "project.json version 2.5 requires ICC Plus 2"
+   }
+  },
+  {
+   "html": "om",
+   "project": "app_version",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "project.json version 2.5 requires ICC Plus 2"
+   }
+  },
+  {
+   "html": "om",
+   "project": "app_version",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "desc_plus2",
+    "name": "something plus-2",
+    "zip_filename": "plain.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "project.json version 2.5 requires ICC Plus 2"
+   }
+  },
+  {
+   "html": "om",
+   "project": "app_version",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "project.json version 2.5 requires ICC Plus 2"
+   }
+  },
+  {
+   "html": "cyoap",
+   "project": "none",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "cyoap",
+    "name": "cyoap viewer v3",
+    "zip_filename": "plain.zip",
+    "viewer_type": "cyoap_vue",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "cyoap_vue",
+    "selection_reason": "matched registered viewer hints and output mode"
+   }
+  },
+  {
+   "html": "cyoap",
+   "project": "none",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "matched registered viewer hints and output mode"
+   }
+  },
+  {
+   "html": "cyoap",
+   "project": "none",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "desc_plus2",
+    "name": "something plus-2",
+    "zip_filename": "plain.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "matched registered viewer hints and output mode"
+   }
+  },
+  {
+   "html": "cyoap",
+   "project": "none",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "cyoap",
+    "name": "cyoap viewer v3",
+    "zip_filename": "plain.zip",
+    "viewer_type": "cyoap_vue",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "cyoap_vue",
+    "selection_reason": "matched registered viewer hints and output mode"
+   }
+  },
+  {
+   "html": "cyoap",
+   "project": "plus2_top",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "project.json version 2.1 requires ICC Plus 2"
+   }
+  },
+  {
+   "html": "cyoap",
+   "project": "plus2_top",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "project.json version 2.1 requires ICC Plus 2"
+   }
+  },
+  {
+   "html": "cyoap",
+   "project": "plus2_top",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "desc_plus2",
+    "name": "something plus-2",
+    "zip_filename": "plain.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "project.json version 2.1 requires ICC Plus 2"
+   }
+  },
+  {
+   "html": "cyoap",
+   "project": "plus2_top",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "project.json version 2.1 requires ICC Plus 2"
+   }
+  },
+  {
+   "html": "cyoap",
+   "project": "legacy",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_new",
+    "name": "New Viewer 1.18.9",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_plus",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus_legacy",
+    "selection_reason": "unversioned ICC Plus project.json uses the Plus legacy viewer"
+   }
+  },
+  {
+   "html": "cyoap",
+   "project": "legacy",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_new",
+    "name": "New Viewer 1.18.9",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_plus",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus_legacy",
+    "selection_reason": "unversioned ICC Plus project.json uses the Plus legacy viewer"
+   }
+  },
+  {
+   "html": "cyoap",
+   "project": "legacy",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "legacy_explicit",
+    "name": "x",
+    "zip_filename": "plain.zip",
+    "runtime_family": "icc_legacy",
+    "source_descriptor": "Creator Plus",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus_legacy",
+    "selection_reason": "unversioned ICC Plus project.json uses the Plus legacy viewer"
+   }
+  },
+  {
+   "html": "cyoap",
+   "project": "legacy",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_new",
+    "name": "New Viewer 1.18.9",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_plus",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus_legacy",
+    "selection_reason": "unversioned ICC Plus project.json uses the Plus legacy viewer"
+   }
+  },
+  {
+   "html": "cyoap",
+   "project": "original",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_orig",
+    "name": "Viewer 1.8 [Original]",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_legacy",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_original",
+    "selection_reason": "classic ICC project.json uses the original Viewer 1.8 contract"
+   }
+  },
+  {
+   "html": "cyoap",
+   "project": "original",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_orig",
+    "name": "Viewer 1.8 [Original]",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_legacy",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_original",
+    "selection_reason": "classic ICC project.json uses the original Viewer 1.8 contract"
+   }
+  },
+  {
+   "html": "cyoap",
+   "project": "original",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "desc_legacy",
+    "name": "legacy thing",
+    "zip_filename": "plain.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_original",
+    "selection_reason": "classic ICC project.json uses the original Viewer 1.8 contract"
+   }
+  },
+  {
+   "html": "cyoap",
+   "project": "original",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_orig",
+    "name": "Viewer 1.8 [Original]",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_legacy",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_original",
+    "selection_reason": "classic ICC project.json uses the original Viewer 1.8 contract"
+   }
+  },
+  {
+   "html": "cyoap",
+   "project": "app_version",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "project.json version 2.5 requires ICC Plus 2"
+   }
+  },
+  {
+   "html": "cyoap",
+   "project": "app_version",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "project.json version 2.5 requires ICC Plus 2"
+   }
+  },
+  {
+   "html": "cyoap",
+   "project": "app_version",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "desc_plus2",
+    "name": "something plus-2",
+    "zip_filename": "plain.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "project.json version 2.5 requires ICC Plus 2"
+   }
+  },
+  {
+   "html": "cyoap",
+   "project": "app_version",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "project.json version 2.5 requires ICC Plus 2"
+   }
+  },
+  {
+   "html": "hints",
+   "project": "none",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "matched registered viewer hints and output mode"
+   }
+  },
+  {
+   "html": "hints",
+   "project": "none",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "matched registered viewer hints and output mode"
+   }
+  },
+  {
+   "html": "hints",
+   "project": "none",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "desc_plus2",
+    "name": "something plus-2",
+    "zip_filename": "plain.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "matched registered viewer hints and output mode"
+   }
+  },
+  {
+   "html": "hints",
+   "project": "none",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "cyoap",
+    "name": "cyoap viewer v3",
+    "zip_filename": "plain.zip",
+    "viewer_type": "cyoap_vue",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "cyoap_vue",
+    "selection_reason": "matched registered viewer hints and output mode"
+   }
+  },
+  {
+   "html": "hints",
+   "project": "plus2_top",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "project.json version 2.1 requires ICC Plus 2"
+   }
+  },
+  {
+   "html": "hints",
+   "project": "plus2_top",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "project.json version 2.1 requires ICC Plus 2"
+   }
+  },
+  {
+   "html": "hints",
+   "project": "plus2_top",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "desc_plus2",
+    "name": "something plus-2",
+    "zip_filename": "plain.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "project.json version 2.1 requires ICC Plus 2"
+   }
+  },
+  {
+   "html": "hints",
+   "project": "plus2_top",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "project.json version 2.1 requires ICC Plus 2"
+   }
+  },
+  {
+   "html": "hints",
+   "project": "legacy",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_new",
+    "name": "New Viewer 1.18.9",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_plus",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus_legacy",
+    "selection_reason": "unversioned ICC Plus project.json uses the Plus legacy viewer"
+   }
+  },
+  {
+   "html": "hints",
+   "project": "legacy",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_new",
+    "name": "New Viewer 1.18.9",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_plus",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus_legacy",
+    "selection_reason": "unversioned ICC Plus project.json uses the Plus legacy viewer"
+   }
+  },
+  {
+   "html": "hints",
+   "project": "legacy",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "legacy_explicit",
+    "name": "x",
+    "zip_filename": "plain.zip",
+    "runtime_family": "icc_legacy",
+    "source_descriptor": "Creator Plus",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus_legacy",
+    "selection_reason": "unversioned ICC Plus project.json uses the Plus legacy viewer"
+   }
+  },
+  {
+   "html": "hints",
+   "project": "legacy",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_new",
+    "name": "New Viewer 1.18.9",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_plus",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus_legacy",
+    "selection_reason": "unversioned ICC Plus project.json uses the Plus legacy viewer"
+   }
+  },
+  {
+   "html": "hints",
+   "project": "original",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_orig",
+    "name": "Viewer 1.8 [Original]",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_legacy",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_original",
+    "selection_reason": "classic ICC project.json uses the original Viewer 1.8 contract"
+   }
+  },
+  {
+   "html": "hints",
+   "project": "original",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_orig",
+    "name": "Viewer 1.8 [Original]",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_legacy",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_original",
+    "selection_reason": "classic ICC project.json uses the original Viewer 1.8 contract"
+   }
+  },
+  {
+   "html": "hints",
+   "project": "original",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "desc_legacy",
+    "name": "legacy thing",
+    "zip_filename": "plain.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_original",
+    "selection_reason": "classic ICC project.json uses the original Viewer 1.8 contract"
+   }
+  },
+  {
+   "html": "hints",
+   "project": "original",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "classic_orig",
+    "name": "Viewer 1.8 [Original]",
+    "zip_filename": "classic.zip",
+    "viewer_type": "icc_legacy",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_original",
+    "selection_reason": "classic ICC project.json uses the original Viewer 1.8 contract"
+   }
+  },
+  {
+   "html": "hints",
+   "project": "app_version",
+   "mode": "auto",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "project.json version 2.5 requires ICC Plus 2"
+   }
+  },
+  {
+   "html": "hints",
+   "project": "app_version",
+   "mode": "website_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "project.json version 2.5 requires ICC Plus 2"
+   }
+  },
+  {
+   "html": "hints",
+   "project": "app_version",
+   "mode": "pure_website_folder",
+   "preferred": "auto",
+   "result": {
+    "id": "desc_plus2",
+    "name": "something plus-2",
+    "zip_filename": "plain.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "project.json version 2.5 requires ICC Plus 2"
+   }
+  },
+  {
+   "html": "hints",
+   "project": "app_version",
+   "mode": "cyoap_vue_zip",
+   "preferred": "auto",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "project.json version 2.5 requires ICC Plus 2"
+   }
+  },
+  {
+   "html": "empty",
+   "project": "none",
+   "mode": "auto",
+   "preferred": "plus2",
+   "result": {
+    "id": "plus2",
+    "name": "ICC Plus 2.9.1 Local",
+    "zip_filename": "plus2_local.zip",
+    "viewer_type": "icc_plus",
+    "registered_at": "2026-02-01",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "icc_plus2",
+    "selection_reason": "Manual viewer override: plus2"
+   }
+  },
+  {
+   "html": "empty",
+   "project": "none",
+   "mode": "auto",
+   "preferred": "plus2web",
+   "result": null
+  },
+  {
+   "html": "empty",
+   "project": "none",
+   "mode": "auto",
+   "preferred": "ouro",
+   "result": {
+    "id": "ouro",
+    "name": "Ouro",
+    "zip_filename": "ouro.zip",
+    "viewer_type": "custom",
+    "description": "",
+    "entry_point": "index.html",
+    "project_json_path": "",
+    "inner_archive": "",
+    "runtime_family": "",
+    "viewer_variant": "",
+    "detected_family": "lt_ouroumov",
+    "selection_reason": "Manual viewer override: ouro"
+   }
+  },
+  {
+   "html": "empty",
+   "project": "none",
+   "mode": "auto",
+   "preferred": "missing_id",
+   "result": null
+  },
+  {
+   "html": "empty",
+   "project": "none",
+   "mode": "auto",
+   "preferred": "AUTO",
+   "result": null
+  },
+  {
+   "html": "empty",
+   "project": "none",
+   "mode": "auto",
+   "preferred": " auto ",
+   "result": null
+  }
+ ],
+ "recommendations": [
+  {
+   "family": "icc_plus2",
+   "title_en": "ICC Plus 2 Local Viewer",
+   "title_id": "Viewer Lokal ICC Plus 2",
+   "use_en": "Required for project.json with version 2.x and modern Plus 2 sites.",
+   "use_id": "Wajib untuk project.json version 2.x dan situs Plus 2 modern.",
+   "required": true,
+   "available": true,
+   "viewer_id": "plus2",
+   "viewer_name": "ICC Plus 2.9.1 Local"
+  },
+  {
+   "family": "icc_plus_legacy",
+   "title_en": "ICC Plus Legacy Viewer",
+   "title_id": "Viewer ICC Plus Legacy",
+   "use_en": "Recommended for unversioned ICC Plus projects with advanced design and requirement fields.",
+   "use_id": "Disarankan untuk project ICC Plus tanpa version dengan field desain dan requirement lanjutan.",
+   "required": true,
+   "available": true,
+   "viewer_id": "classic_new",
+   "viewer_name": "New Viewer 1.18.9"
+  },
+  {
+   "family": "icc_original",
+   "title_en": "ICC Original / New Viewer",
+   "title_id": "Viewer ICC Original / New",
+   "use_en": "Recommended for classic ICC projects; Viewer 1.8 remains separate from ICC Plus.",
+   "use_id": "Disarankan untuk project ICC klasik; Viewer 1.8 dipisahkan dari ICC Plus.",
+   "required": true,
+   "available": true,
+   "viewer_id": "classic_orig",
+   "viewer_name": "Viewer 1.8 [Original]"
+  },
+  {
+   "family": "icc_remix",
+   "title_en": "ICC Remix Local Viewer",
+   "title_id": "Viewer Lokal ICC Remix",
+   "use_en": "Recommended when the source HTML identifies an ICC Remix runtime.",
+   "use_id": "Disarankan ketika HTML sumber terdeteksi memakai runtime ICC Remix.",
+   "required": false,
+   "available": true,
+   "viewer_id": "remix",
+   "viewer_name": "Remix"
+  },
+  {
+   "family": "lt_ouroumov",
+   "title_en": "Lt. Ouroumov-compatible Viewer",
+   "title_id": "Viewer kompatibel Lt. Ouroumov",
+   "use_en": "Optional exact-match viewer; a compatible classic viewer remains the fallback.",
+   "use_id": "Viewer exact-match opsional; viewer klasik yang kompatibel tetap menjadi fallback.",
+   "required": false,
+   "available": true,
+   "viewer_id": "ouro",
+   "viewer_name": "Ouro"
+  }
+ ],
+ "iccplus_assets": [
+  [
+   [],
+   null
+  ],
+  [
+   "notalist",
+   null
+  ],
+  [
+   [
+    {
+     "name": "ICCPlus_v2.9.1_online.zip",
+     "browser_download_url": "u1"
+    }
+   ],
+   null
+  ],
+  [
+   [
+    {
+     "name": "ICCPlus_v2.9.1_local.zip",
+     "browser_download_url": "u1"
+    },
+    {
+     "name": "ICCPlus_v2.10.0_offline.rar",
+     "browser_download_url": "u2"
+    },
+    {
+     "name": "ICCPlus_v2.8_standalone.zip",
+     "browser_download_url": "u3"
+    },
+    {
+     "name": "ICCPlus_v3_local.zip",
+     "browser_download_url": ""
+    },
+    "junk"
+   ],
+   {
+    "name": "ICCPlus_v2.9.1_local.zip",
+    "browser_download_url": "u1"
+   }
+  ],
+  [
+   [
+    {
+     "name": "a_local_1.zip",
+     "browser_download_url": "x"
+    },
+    {
+     "name": "b_local_1.zip",
+     "browser_download_url": "y"
+    }
+   ],
+   {
+    "name": "a_local_1.zip",
+    "browser_download_url": "x"
+   }
+  ]
+ ]
+}
