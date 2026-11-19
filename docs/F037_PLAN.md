@@ -1,4 +1,4 @@
-# F-037 Offline viewers: audit and migration plan (2026-11-19, awaiting approval)
+# F-037 Offline viewers: audit and migration plan (2026-11-19, V1–V3 approved and done 2026-11-19; V4–V5 await approval)
 
 ## Audit (Python, 4,086 lines)
 | File | Lines | Contents |

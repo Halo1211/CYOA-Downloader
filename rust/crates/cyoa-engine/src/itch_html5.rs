@@ -106,6 +106,7 @@ fn extract_validated(archive: &Path, destination: &Path) -> Result<Option<String
     };
     let dest = destination.to_string_lossy();
     let mut seen = HashSet::new();
+    let mut total = 0_u64;
     for (i, (name, is_dir, _, mode)) in list.iter().enumerate() {
         let raw = if *is_dir {
             name.trim_end_matches(['/', '\\'])
@@ -113,7 +114,7 @@ fn extract_validated(archive: &Path, destination: &Path) -> Result<Option<String
             name.as_str()
         };
         let rel = cyoa_core::paths::safe_archive_rel_path(raw, false).map_err(other)?;
-        if !seen.insert(rel.to_lowercase()) {
+        if !seen.insert(casefold(&rel)) {
             return Err(other("HTML5 archive contains duplicate paths"));
         }
         if mode.is_some_and(|m| m & 0o170000 == 0o120000) {
@@ -127,11 +128,44 @@ fn extract_validated(archive: &Path, destination: &Path) -> Result<Option<String
         if let Some(parent) = target.parent() {
             fs::create_dir_all(parent)?;
         }
-        let mut reader = z.by_index(i).map_err(other)?;
+        // Byte-bounded even when a header under-declares its size (the
+        // validator only sees declared sizes).
+        let reader = z.by_index(i).map_err(other)?;
         let mut writer = fs::File::create(&target)?;
-        std::io::copy(&mut reader, &mut writer)?;
+        let written = std::io::copy(&mut reader.take(MEMBER_MAX + 1), &mut writer)?;
+        if written > MEMBER_MAX {
+            return Err(other("HTML5 archive member exceeds 1 GiB"));
+        }
+        total += written;
+        if total > TOTAL_MAX {
+            return Err(other("HTML5 archive exceeds 2 GiB"));
+        }
     }
     Ok(Some(entry))
+}
+
+const MEMBER_MAX: u64 = 1024 * 1024 * 1024;
+const TOTAL_MAX: u64 = 2 * 1024 * 1024 * 1024;
+
+/// Python `str.casefold()` for path identities: full lowercase plus the
+/// folds `to_lowercase` lacks (ß→ss, ſ→s, final sigma, ligatures, …).
+fn casefold(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            'ß' | 'ẞ' => out.push_str("ss"),
+            'ſ' => out.push('s'),
+            'ς' => out.push('σ'),
+            'ﬀ' => out.push_str("ff"),
+            'ﬁ' => out.push_str("fi"),
+            'ﬂ' => out.push_str("fl"),
+            'ﬃ' => out.push_str("ffi"),
+            'ﬄ' => out.push_str("ffl"),
+            'ﬅ' | 'ﬆ' => out.push_str("st"),
+            c => out.extend(c.to_lowercase()),
+        }
+    }
+    out
 }
 
 fn marker_json(digest: &str, entry: &str, complete: bool) -> String {
@@ -282,4 +316,22 @@ pub fn materialize_itch_html5_archive(
     )
     .map_err(other)?;
     Ok((Some(index), false, complete))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn casefold_matches_python_on_path_cases() {
+        // Expected values from Python 3.12 str.casefold().
+        for (s, want) in [
+            ("Straße/ẞ.css", "strasse/ss.css"),
+            ("ſ.css", "s.css"),
+            ("ΣΑΣ/ς.js", "σασ/σ.js"),
+            ("ﬁle.TXT", "file.txt"),
+            ("İ", "i\u{307}"),
+            ("A.txt", "a.txt"),
+        ] {
+            assert_eq!(super::casefold(s), want, "{s}");
+        }
+    }
 }

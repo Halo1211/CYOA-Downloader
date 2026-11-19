@@ -1,5 +1,14 @@
 # Migration progress (primary state document)
 
+**Session 7 (2026-11-19): F-037 offline viewers V1–V3 + consumers.** 306+ Rust tests pass; fmt and clippy (-D warnings) clean; `e2e_parity.sh` 6/6 OK; new `rust/scripts/viewer_parity.sh` 5/5 identical to Python (manual viewer in embed/zip/both, auto selection + legacy index merge on a classic ICC page).
+- Plan: `docs/F037_PLAN.md` (approved V1–V3, RAR = system tar). V4 (modernizer, `--modernize-library`) and V5 (GUI viewer panel) still need approval.
+- V1 registry (`cyoa_integrations::offline_viewers`), V2 injection (`cyoa_engine::offline_viewer`), preserved publisher index (`cyoa_engine::preserved_index`), V3 wiring in `run.rs` (settings `offline_viewer_json_enabled` / `offline_viewer_preferred_id`, CLI + GUI), embed/both `audio/` merge into the output folder (was missing).
+- Unblocked: itch.io HTML5 ZIP offline folders (`cyoa_engine::itch_html5`, CLI `--itch*` now prepares them) and the CYOA Manager serve folder (`cyoa_engine::manager_serve`; GUI library panel still missing).
+- Python fixtures: `fixtures/viewers.json`, `viewer_inject.json` (27 trees), `preserved_index.json` (76 cases), `itch_html5.json` (10 steps), `manager_serve.json` (5 steps); all byte-identical.
+- Sol reviewed V2 (6 findings, all fixed: bounded per-member RAR extraction with deadline, link refusal, localization budgets, fetcher contract). Sol's V3 review stopped on the ChatGPT usage limit (resets 2026-11-21); Claude fixed the casefold finding it was tracing and added byte-bounded HTML5 member reads. Re-run `sol_review` on itch_html5.rs / manager_serve.rs / preserved_index.rs after the reset.
+- Agent note: Luna produced partial/non-compiling work twice (V2 skeleton, preserved_index); Claude wrote those modules. Heredocs mangle ``/`
+` escapes: use the Edit tool for Rust/Python sources.
+
 **Session 6 (2026-11-18), latest commit `05d58da`:** 219 Rust tests pass; fmt and clippy (-D warnings) are clean; `e2e_parity.sh` reports 6 OK lines (now byte-exact, and it fails when a file is missing).
 - F-016 proxy: core, CLI, GUI. Redaction and validation checked against Python.
 - F-017 custom DNS: UDP/TCP/DoT/DoH, a cache, and fallback. Wired into `PolicyResolver` with the SSRF check kept. CLI and GUI done. Python differential fixture. Sol review findings fixed.
