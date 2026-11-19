@@ -199,9 +199,20 @@ pub struct FetchClient {
     http: reqwest::Client,
     cfg: ClientConfig,
     jar: Arc<reqwest::cookie::Jar>,
-    user_agent: Arc<std::sync::RwLock<Option<String>>>,
+    /// Solved FlareSolverr user agents, per origin (scheme://host:port).
+    user_agent: Arc<std::sync::RwLock<std::collections::HashMap<String, HeaderValue>>>,
     cloudscraper_logged: Arc<std::sync::atomic::AtomicBool>,
     flaresolverr: Arc<std::sync::OnceLock<Option<Arc<crate::cloudflare::FlareSolverr>>>>,
+}
+
+/// `scheme://host:port` key for per-origin solved user agents.
+fn origin_key(url: &Url) -> String {
+    format!(
+        "{}://{}:{}",
+        url.scheme(),
+        url.host_str().unwrap_or("").to_ascii_lowercase(),
+        url.port_or_known_default().unwrap_or(0)
+    )
 }
 
 /// One Cloudflare attempt outcome (Python `_do_request` sentinels).
@@ -322,7 +333,7 @@ impl FetchClient {
             http: b.build()?,
             cfg,
             jar,
-            user_agent: Arc::new(std::sync::RwLock::new(None)),
+            user_agent: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
             cloudscraper_logged: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             flaresolverr: Arc::new(std::sync::OnceLock::new()),
         })
@@ -521,6 +532,36 @@ impl FetchClient {
         let Some(fs) = self.flaresolverr() else {
             return Attempt::Fail(E::CloudflareChallenge);
         };
+        // The solver navigates on our behalf: the target must pass the same
+        // destination, VPN and cancellation checks as a direct request.
+        if cancel.is_cancelled() {
+            return Attempt::Fail(E::Cancelled);
+        }
+        if let Err(e) = self.cfg.policy.check(url) {
+            return Attempt::Fail(e.into());
+        }
+        if let Some(host) = url.host_str()
+            && !self.cfg.policy.allow_internal
+            && !self
+                .cfg
+                .policy
+                .origin
+                .as_ref()
+                .is_some_and(|o| o.origin() == url.origin())
+        {
+            let port = url.port_or_known_default().unwrap_or(443);
+            let resolved = tokio::net::lookup_host((host.trim_matches(['[', ']']), port)).await;
+            if let Ok(addrs) = resolved
+                && addrs.map(|a| a.ip()).any(crate::policy::ip_is_internal)
+            {
+                return Attempt::Fail(PolicyError::Internal.into());
+            }
+        }
+        if let Some(vpn) = &self.cfg.vpn
+            && !vpn.satisfied_async().await
+        {
+            return Attempt::Fail(E::VpnBlocked);
+        }
         let mut headers = HeaderMap::new();
         for (k, v) in get_headers_for_url(url.as_str()) {
             if let (Ok(k), Ok(v)) = (
@@ -531,7 +572,11 @@ impl FetchClient {
             }
         }
         headers.extend(opts.headers.clone());
-        let Some(solution) = fs.solve(url.as_str(), &headers).await else {
+        let solved = tokio::select! {
+            s = fs.solve(url.as_str(), &headers) => s,
+            () = cancel.cancelled() => return Attempt::Fail(E::Cancelled),
+        };
+        let Some(solution) = solved else {
             return Attempt::Fail(E::CloudflareChallenge);
         };
         if !solution.is_object() {
@@ -558,10 +603,12 @@ impl FetchClient {
             .or_else(|| solution.get("user-agent"))
             .and_then(serde_json::Value::as_str)
             .filter(|s| !s.is_empty());
-        if let Some(ua) = ua
-            && let Ok(mut slot) = self.user_agent.write()
+        // Validated (no CR/LF, bounded) and scoped to the solved origin.
+        if let Some(ua) = ua.filter(|u| u.len() <= 512)
+            && let Ok(value) = HeaderValue::from_str(ua)
+            && let Ok(mut map) = self.user_agent.write()
         {
-            *slot = Some(ua.to_owned());
+            map.insert(origin_key(url), value);
         }
         let host = url.host_str().unwrap_or("");
         for cookie in solution
@@ -591,22 +638,31 @@ impl FetchClient {
                 .and_then(serde_json::Value::as_str)
                 .filter(|p| !p.is_empty())
                 .unwrap_or("/");
-            let bare = domain.trim_start_matches('.');
-            // A host-only cookie for the request host; a Domain attribute
-            // only for a parent domain (IP hosts cannot carry one).
-            let text = if bare.eq_ignore_ascii_case(host) {
+            let bare = domain.trim_start_matches('.').to_ascii_lowercase();
+            let host_l = host.to_ascii_lowercase();
+            // Only the solved host or one of its parent domains; never an
+            // unrelated site. Attribute syntax in any field is rejected.
+            let related = bare == host_l || host_l.ends_with(&format!(".{bare}"));
+            let clean = |s: &str| !s.contains([';', '\r', '\n', ','].as_ref());
+            if !related || !clean(name) || !clean(&value) || !clean(path) || !clean(&bare) {
+                tracing::debug!("[FlareSolverr] Ignoring cookie for unrelated or invalid domain");
+                continue;
+            }
+            let secure = cookie
+                .get("secure")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+            let mut text = if bare == host_l {
                 format!("{name}={value}; Path={path}")
             } else {
                 format!("{name}={value}; Domain={bare}; Path={path}")
             };
-            let target = if bare.eq_ignore_ascii_case(host) {
-                Some(url.clone())
-            } else {
-                Url::parse(&format!("{}://{bare}/", url.scheme())).ok()
-            };
-            if let Some(target) = target {
-                self.jar.add_cookie_str(&text, &target);
+            if secure {
+                text.push_str("; Secure");
             }
+            // Always inserted against the request URL so the jar's own
+            // domain validation applies.
+            self.jar.add_cookie_str(&text, url);
         }
     }
 
@@ -668,15 +724,10 @@ impl FetchClient {
             headers.insert(k, v);
         }
         headers.extend(opts.headers.clone());
-        if let Ok(ua) = self.user_agent.read()
-            && let Some(ua) = ua.as_ref()
+        if let Ok(map) = self.user_agent.read()
+            && let Some(ua) = map.get(&origin_key(url))
         {
-            {
-                headers.insert(
-                    reqwest::header::USER_AGENT,
-                    HeaderValue::from_str(ua).map_err(|_| PolicyError::InvalidUrl)?,
-                );
-            }
+            headers.insert(reqwest::header::USER_AGENT, ua.clone());
         }
         let mut lease = wait(
             cancel,

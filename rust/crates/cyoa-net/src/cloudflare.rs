@@ -268,7 +268,43 @@ impl FlareSolverr {
                     );
                     return None;
                 }
-                let bytes = match r.bytes().await {
+                // Bounded: a solver answer is a page plus metadata.
+                const MAX_SOLVER_BYTES: usize = 32 << 20;
+                if r.content_length()
+                    .is_some_and(|n| n as usize > MAX_SOLVER_BYTES)
+                {
+                    tracing::warn!(
+                        "[FlareSolverr] API unavailable at {}: response too large",
+                        self.cfg.flaresolverr_url
+                    );
+                    return None;
+                }
+                let mut r = r;
+                let mut buf = Vec::new();
+                loop {
+                    match r.chunk().await {
+                        Ok(Some(c)) => {
+                            buf.extend_from_slice(&c);
+                            if buf.len() > MAX_SOLVER_BYTES {
+                                tracing::warn!(
+                                    "[FlareSolverr] API unavailable at {}: response too large",
+                                    self.cfg.flaresolverr_url
+                                );
+                                return None;
+                            }
+                        }
+                        Ok(None) => break,
+                        Err(e) => {
+                            tracing::warn!(
+                                "[FlareSolverr] API unavailable at {}: {e}",
+                                self.cfg.flaresolverr_url
+                            );
+                            return None;
+                        }
+                    }
+                }
+                let bytes: Result<Vec<u8>, reqwest::Error> = Ok(buf);
+                let bytes = match bytes {
                     Ok(v) => v,
                     Err(e) => {
                         tracing::warn!(
@@ -597,6 +633,52 @@ mod flow_tests {
             );
             // flaresolverr mode never probes the origin first; auto does.
             assert_eq!(reqs.len(), if mode == "auto" { 2 } else { 1 }, "{mode}");
+        }
+    }
+
+    #[tokio::test]
+    async fn solver_cookies_for_other_domains_and_crlf_user_agents_are_ignored() {
+        let o = origin().await;
+        let fs = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1"))
+            .respond_with(|req: &Request| {
+                let body: serde_json::Value = serde_json::from_slice(&req.body).unwrap();
+                if body["cmd"] == "sessions.create" {
+                    return ResponseTemplate::new(200)
+                        .set_body_json(serde_json::json!({"status":"ok","session":"s"}));
+                }
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "status": "ok",
+                    "solution": {
+                        "status": 200,
+                        "userAgent": "UA\r\nX-Evil: 1",
+                        "cookies": [
+                            {"name": "cf_clearance", "value": "ok", "domain": "evil.example"},
+                            {"name": "cf_clearance", "value": "ok; Domain=127.0.0.1", "domain": "127.0.0.1"}
+                        ]
+                    }
+                }))
+            })
+            .mount(&fs)
+            .await;
+        let c = client(&o, cfg("flaresolverr", &fs.uri()));
+        let url = Url::parse(&format!("{}/page", o.uri())).unwrap();
+        match c
+            .get(&url, &FetchOptions::default(), &CancellationToken::new())
+            .await
+        {
+            Err(FetchError::CloudflareChallenge) => {}
+            Err(e) => panic!("unexpected error {e}"),
+            Ok(_) => panic!("foreign/injected cookies must not unlock the origin"),
+        }
+        for req in o.received_requests().await.unwrap() {
+            assert!(req.headers.get("cookie").is_none());
+            assert!(req.headers.get("x-evil").is_none());
+            assert_ne!(
+                req.headers.get("user-agent").and_then(|v| v.to_str().ok()),
+                Some("UA")
+            );
         }
     }
 

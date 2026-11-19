@@ -242,7 +242,8 @@ impl GalleryDl {
         {
             cmd.arg("--proxy").arg(proxy);
         }
-        cmd.arg(url).stdin(Stdio::null());
+        // `--` keeps a URL from ever being parsed as an option.
+        cmd.arg("--").arg(url).stdin(Stdio::null());
         match std::fs::File::create(&out_log) {
             Ok(f) => {
                 let err = f
@@ -294,16 +295,16 @@ impl GalleryDl {
             .max_by_key(|(_, len)| *len)
             .map(|(p, _)| p.clone())
         else {
-            let tail = std::fs::read(&out_log)
-                .map(|b| {
-                    let start = b.len().saturating_sub(4096);
-                    String::from_utf8_lossy(&b[start..]).into_owned()
-                })
-                .unwrap_or_default();
+            let tail = read_tail(&out_log, 4096);
             let short: String = tail.chars().take(200).collect();
             tracing::debug!("[gallery-dl] No output for {url} | rc={code} | output={short}");
             return Ok(None);
         };
+        // Bounded like a direct fetch (512 MiB).
+        if std::fs::metadata(&best).map_or(true, |m| m.len() > MAX_MEDIA_BYTES) {
+            tracing::warn!("[gallery-dl] Output too large or unreadable: {url}");
+            return Ok(None);
+        }
         let data = std::fs::read(&best).unwrap_or_default();
         if data.len() < 64 {
             return Ok(None);
@@ -315,6 +316,21 @@ impl GalleryDl {
         tracing::info!("  [gallery-dl ✓] {name} ({}KB)", data.len() / 1024);
         Ok(Some(data))
     }
+}
+
+const MAX_MEDIA_BYTES: u64 = 512 << 20;
+
+/// Last `n` bytes of a file without reading all of it.
+fn read_tail(path: &Path, n: u64) -> String {
+    use std::io::{Read, Seek, SeekFrom};
+    let Ok(mut f) = std::fs::File::open(path) else {
+        return String::new();
+    };
+    let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+    let _ = f.seek(SeekFrom::Start(len.saturating_sub(n)));
+    let mut buf = Vec::new();
+    let _ = f.take(n).read_to_end(&mut buf);
+    String::from_utf8_lossy(&buf).into_owned()
 }
 
 /// Python `_is_probable_raw_cdn_asset`.

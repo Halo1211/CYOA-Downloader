@@ -437,11 +437,17 @@ impl YtDlp for YtDlpExe {
         let mut child = c.spawn().map_err(|e| e.to_string())?;
         let stdout = child.stdout.take().map(bounded_reader);
         let stderr = child.stderr.take().map(bounded_reader);
+        let started = Instant::now();
         loop {
             if cancel.is_cancelled() {
                 let _ = child.kill();
                 let _ = child.wait();
                 return Err("download cancelled".into());
+            }
+            if started.elapsed() > YTDLP_DEADLINE {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("yt-dlp timed out".into());
             }
             if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
                 let mut out = stdout.and_then(|h| h.join().ok()).unwrap_or_default();
@@ -455,6 +461,50 @@ impl YtDlp for YtDlpExe {
         }
     }
 }
+/// Spawn, poll every 100 ms, kill on cancellation or deadline; true when
+/// the process exited successfully in time.
+fn run_bounded(mut cmd: Command, limit: Duration, cancel: &CancellationToken) -> bool {
+    let Ok(mut child) = cmd.spawn() else {
+        return false;
+    };
+    let started = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status.success(),
+            Ok(None) if !cancel.is_cancelled() && started.elapsed() < limit => {
+                thread::sleep(Duration::from_millis(100));
+            }
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return false;
+            }
+        }
+    }
+}
+
+/// YouTube / SoundCloud hosts accepted for yt-dlp (parsed, anchored).
+fn is_media_host(url: &str) -> bool {
+    let Ok(u) = url::Url::parse(url) else {
+        return false;
+    };
+    if !matches!(u.scheme(), "http" | "https") {
+        return false;
+    }
+    let host = u.host_str().unwrap_or("").to_ascii_lowercase();
+    [
+        "youtube.com",
+        "youtu.be",
+        "youtube-nocookie.com",
+        "soundcloud.com",
+    ]
+    .iter()
+    .any(|d| host == *d || host.ends_with(&format!(".{d}")))
+}
+
+/// Total time allowed for one yt-dlp invocation.
+const YTDLP_DEADLINE: Duration = Duration::from_secs(30 * 60);
+
 #[derive(Clone, Debug, Default)]
 pub struct AudioConfig {
     pub enabled: bool,
@@ -581,6 +631,16 @@ pub fn download_youtube_audio(
         } else {
             format!("https://www.youtube.com/watch?v={clean}")
         };
+        // Security divergence from Python (Sol review): the media regexes
+        // are unanchored, so only real YouTube/SoundCloud hosts are handed
+        // to yt-dlp (it fetches outside the destination policy).
+        if !is_media_host(&clean) {
+            let reason = "not a YouTube/SoundCloud host; not passed to yt-dlp".to_owned();
+            tracing::warn!("  yt-dlp: skipped {clean} — {reason}");
+            failed.push(raw.clone());
+            reasons.insert(raw.clone(), reason);
+            continue;
+        }
         let id = audio_id_for(&clean);
         let expected = audio.join(format!("{id}.mp3"));
         let rel = format!("audio/{id}.mp3");
@@ -685,14 +745,22 @@ pub fn download_youtube_audio(
                         })
                         .unwrap_or_else(|| PathBuf::from("ffmpeg"));
                     let tmp = audio.join(format!(".cyoa-audio-{}.part.mp3", std::process::id()));
-                    if Command::new(exe)
+                    let mut ffmpeg = Command::new(exe);
+                    ffmpeg
                         .args(["-i"])
                         .arg(&src)
                         .args(["-q:a", "2", "-y"])
                         .arg(&tmp)
-                        .status()
-                        .map(|s| s.success())
-                        .unwrap_or(false)
+                        .stdin(Stdio::null())
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null());
+                    #[cfg(windows)]
+                    {
+                        use std::os::windows::process::CommandExt;
+                        ffmpeg.creation_flags(0x0800_0000);
+                    }
+                    // Python: subprocess.run(..., timeout=60); cancellable here.
+                    if run_bounded(ffmpeg, Duration::from_secs(60), cancel)
                         && usable(&tmp)
                         && fs::rename(&tmp, &dst).is_ok()
                     {
@@ -915,5 +983,23 @@ mod flow_tests {
             &fs::read_to_string(td.path().join("skipped_youtube_audio.txt")).unwrap(),
         );
         assert_eq!(actual, normalized_skip(row["skip_log"].as_str().unwrap()));
+    }
+}
+
+#[cfg(test)]
+mod host_tests {
+    #[test]
+    fn only_real_media_hosts_reach_ytdlp() {
+        for (u, ok) in [
+            ("https://www.youtube.com/watch?v=dQw4w9WgXcQ", true),
+            ("https://youtu.be/dQw4w9WgXcQ", true),
+            ("https://m.soundcloud.com/a/b", true),
+            ("http://127.0.0.1:8080/youtube.com/a", false),
+            ("https://evil.example/www.youtube.com/watch?v=x", false),
+            ("https://notyoutube.com/watch?v=dQw4w9WgXcQ", false),
+            ("file:///youtube.com/x", false),
+        ] {
+            assert_eq!(super::is_media_host(u), ok, "{u}");
+        }
     }
 }
