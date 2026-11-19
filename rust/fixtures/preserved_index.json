@@ -1,0 +1,406 @@
+{
+ "merge": [
+  [
+   "<!DOCTYPE html><html><head><title>Viewer</title><link rel=\"stylesheet\" href=\"css/app.c533aa25.css\"><script src=\"js/app.c533aa25.js\"></script></head><body><div id=\"app\"></div></body></html>",
+   "",
+   "<!DOCTYPE html><html><head><title>Viewer</title><link rel=\"stylesheet\" href=\"css/app.c533aa25.css\"><script src=\"js/app.c533aa25.js\"></script></head><body><div id=\"app\"></div></body></html>"
+  ],
+  [
+   "<!DOCTYPE html><html><head><title>Viewer</title><link rel=\"stylesheet\" href=\"css/app.c533aa25.css\"><script src=\"js/app.c533aa25.js\"></script></head><body><div id=\"app\"></div></body></html>",
+   "<html><head><title>  My\n  Great   CYOA </title><meta name=\"description\" content=\"d\"><meta charset=\"utf-8\"><link rel=\"icon\" href=\"fav.png\"><link rel=\"stylesheet\" href=\"./custom.css\"><link rel=\"stylesheet\" href=\"css/app.c533aa25.css\"><link rel=\"stylesheet\" href=\"css/app.publisher-theme.css\"><style>body{color:red}</style><script src=\"js/app.c533aa25.js\"></script><script defer src=\"https://static.cloudflareinsights.com/beacon.min.js\" data-cf-beacon=\"{}\"></script><script>window.x=1</script></head><body><div id=\"app\"></div><script src=\"js/chunk-vendors.59af3576.js\"></script><script src=\"extra.js\"></script><script>console.log(\"b\")</script></body></html>",
+   "<!DOCTYPE html><html><head>\n<meta name=\"description\" content=\"d\">\n<meta charset=\"utf-8\">\n<link rel=\"icon\" href=\"fav.png\">\n<link rel=\"stylesheet\" href=\"./custom.css\">\n<link rel=\"stylesheet\" href=\"css/app.publisher-theme.css\">\n<style>body{color:red}</style>\n<script>window.x=1</script>\n<title>My Great CYOA</title><link rel=\"stylesheet\" href=\"css/app.c533aa25.css\"><script src=\"js/app.c533aa25.js\"></script></head><body><div id=\"app\"></div><script src=\"extra.js\"></script>\n<script>console.log(\"b\")</script>\n</body></html>"
+  ],
+  [
+   "<!DOCTYPE html><html><head><title>Viewer</title><link rel=\"stylesheet\" href=\"css/app.c533aa25.css\"><script src=\"js/app.c533aa25.js\"></script></head><body><div id=\"app\"></div></body></html>",
+   "<HEAD><TITLE>Upper</TITLE><LINK REL=\"shortcut icon\" HREF=\"i.ico\"><SCRIPT SRC='./a.js'></SCRIPT></HEAD><BODY><SCRIPT SRC='a.js'></SCRIPT></BODY>",
+   "<!DOCTYPE html><html><head>\n<LINK REL=\"shortcut icon\" HREF=\"i.ico\">\n<SCRIPT SRC='./a.js'></SCRIPT>\n<title>Upper</title><link rel=\"stylesheet\" href=\"css/app.c533aa25.css\"><script src=\"js/app.c533aa25.js\"></script></head><body><div id=\"app\"></div></body></html>"
+  ],
+  [
+   "<!DOCTYPE html><html><head><title>Viewer</title><link rel=\"stylesheet\" href=\"css/app.c533aa25.css\"><script src=\"js/app.c533aa25.js\"></script></head><body><div id=\"app\"></div></body></html>",
+   "<title>t</title><script src=\"core.js\"></script><script src=\"x/core.js\"></script><script src=\"js/app.js?v=1\"></script><script src=\"polyfills.js\"></script>",
+   "<!DOCTYPE html><html><head>\n<script src=\"x/core.js\"></script>\n<title>t</title><link rel=\"stylesheet\" href=\"css/app.c533aa25.css\"><script src=\"js/app.c533aa25.js\"></script></head><body><div id=\"app\"></div></body></html>"
+  ],
+  [
+   "<!DOCTYPE html><html><head><title>Viewer</title><link rel=\"stylesheet\" href=\"css/app.c533aa25.css\"><script src=\"js/app.c533aa25.js\"></script></head><body><div id=\"app\"></div></body></html>",
+   "<html><head><script src=\"/cdn-cgi/scripts/x.js\"></script><link rel=\"stylesheet\" href=\".//style.css\"></head><body></body></html>",
+   "<!DOCTYPE html><html><head>\n<link rel=\"stylesheet\" href=\".//style.css\">\n<title>Viewer</title><link rel=\"stylesheet\" href=\"css/app.c533aa25.css\"><script src=\"js/app.c533aa25.js\"></script></head><body><div id=\"app\"></div></body></html>"
+  ],
+  [
+   "<html><head></head><body>x</body></html>",
+   "",
+   "<html><head></head><body>x</body></html>"
+  ],
+  [
+   "<html><head></head><body>x</body></html>",
+   "<html><head><title>  My\n  Great   CYOA </title><meta name=\"description\" content=\"d\"><meta charset=\"utf-8\"><link rel=\"icon\" href=\"fav.png\"><link rel=\"stylesheet\" href=\"./custom.css\"><link rel=\"stylesheet\" href=\"css/app.c533aa25.css\"><link rel=\"stylesheet\" href=\"css/app.publisher-theme.css\"><style>body{color:red}</style><script src=\"js/app.c533aa25.js\"></script><script defer src=\"https://static.cloudflareinsights.com/beacon.min.js\" data-cf-beacon=\"{}\"></script><script>window.x=1</script></head><body><div id=\"app\"></div><script src=\"js/chunk-vendors.59af3576.js\"></script><script src=\"extra.js\"></script><script>console.log(\"b\")</script></body></html>",
+   "<html><head>\n<meta name=\"description\" content=\"d\">\n<meta charset=\"utf-8\">\n<link rel=\"icon\" href=\"fav.png\">\n<link rel=\"stylesheet\" href=\"./custom.css\">\n<link rel=\"stylesheet\" href=\"css/app.c533aa25.css\">\n<link rel=\"stylesheet\" href=\"css/app.publisher-theme.css\">\n<style>body{color:red}</style>\n<script>window.x=1</script>\n\n<title>My Great CYOA</title>\n</head><body>x<script src=\"extra.js\"></script>\n<script>console.log(\"b\")</script>\n</body></html>"
+  ],
+  [
+   "<html><head></head><body>x</body></html>",
+   "<HEAD><TITLE>Upper</TITLE><LINK REL=\"shortcut icon\" HREF=\"i.ico\"><SCRIPT SRC='./a.js'></SCRIPT></HEAD><BODY><SCRIPT SRC='a.js'></SCRIPT></BODY>",
+   "<html><head>\n<LINK REL=\"shortcut icon\" HREF=\"i.ico\">\n<SCRIPT SRC='./a.js'></SCRIPT>\n\n<title>Upper</title>\n</head><body>x</body></html>"
+  ],
+  [
+   "<html><head></head><body>x</body></html>",
+   "<title>t</title><script src=\"core.js\"></script><script src=\"x/core.js\"></script><script src=\"js/app.js?v=1\"></script><script src=\"polyfills.js\"></script>",
+   "<html><head>\n<script src=\"x/core.js\"></script>\n\n<title>t</title>\n</head><body>x</body></html>"
+  ],
+  [
+   "<html><head></head><body>x</body></html>",
+   "<html><head><script src=\"/cdn-cgi/scripts/x.js\"></script><link rel=\"stylesheet\" href=\".//style.css\"></head><body></body></html>",
+   "<html><head>\n<link rel=\"stylesheet\" href=\".//style.css\">\n</head><body>x</body></html>"
+  ],
+  [
+   "<html><body>no head</body></html>",
+   "",
+   "<html><body>no head</body></html>"
+  ],
+  [
+   "<html><body>no head</body></html>",
+   "<html><head><title>  My\n  Great   CYOA </title><meta name=\"description\" content=\"d\"><meta charset=\"utf-8\"><link rel=\"icon\" href=\"fav.png\"><link rel=\"stylesheet\" href=\"./custom.css\"><link rel=\"stylesheet\" href=\"css/app.c533aa25.css\"><link rel=\"stylesheet\" href=\"css/app.publisher-theme.css\"><style>body{color:red}</style><script src=\"js/app.c533aa25.js\"></script><script defer src=\"https://static.cloudflareinsights.com/beacon.min.js\" data-cf-beacon=\"{}\"></script><script>window.x=1</script></head><body><div id=\"app\"></div><script src=\"js/chunk-vendors.59af3576.js\"></script><script src=\"extra.js\"></script><script>console.log(\"b\")</script></body></html>",
+   "<meta name=\"description\" content=\"d\">\n<meta charset=\"utf-8\">\n<link rel=\"icon\" href=\"fav.png\">\n<link rel=\"stylesheet\" href=\"./custom.css\">\n<link rel=\"stylesheet\" href=\"css/app.c533aa25.css\">\n<link rel=\"stylesheet\" href=\"css/app.publisher-theme.css\">\n<style>body{color:red}</style>\n<script>window.x=1</script>\n<title>My Great CYOA</title>\n<html><body>no head<script src=\"extra.js\"></script>\n<script>console.log(\"b\")</script>\n</body></html>"
+  ],
+  [
+   "<html><body>no head</body></html>",
+   "<HEAD><TITLE>Upper</TITLE><LINK REL=\"shortcut icon\" HREF=\"i.ico\"><SCRIPT SRC='./a.js'></SCRIPT></HEAD><BODY><SCRIPT SRC='a.js'></SCRIPT></BODY>",
+   "<LINK REL=\"shortcut icon\" HREF=\"i.ico\">\n<SCRIPT SRC='./a.js'></SCRIPT>\n<title>Upper</title>\n<html><body>no head</body></html>"
+  ],
+  [
+   "<html><body>no head</body></html>",
+   "<title>t</title><script src=\"core.js\"></script><script src=\"x/core.js\"></script><script src=\"js/app.js?v=1\"></script><script src=\"polyfills.js\"></script>",
+   "<script src=\"x/core.js\"></script>\n<title>t</title>\n<html><body>no head</body></html>"
+  ],
+  [
+   "<html><body>no head</body></html>",
+   "<html><head><script src=\"/cdn-cgi/scripts/x.js\"></script><link rel=\"stylesheet\" href=\".//style.css\"></head><body></body></html>",
+   "<link rel=\"stylesheet\" href=\".//style.css\">\n<html><body>no head</body></html>"
+  ],
+  [
+   "plain",
+   "",
+   "plain"
+  ],
+  [
+   "plain",
+   "<html><head><title>  My\n  Great   CYOA </title><meta name=\"description\" content=\"d\"><meta charset=\"utf-8\"><link rel=\"icon\" href=\"fav.png\"><link rel=\"stylesheet\" href=\"./custom.css\"><link rel=\"stylesheet\" href=\"css/app.c533aa25.css\"><link rel=\"stylesheet\" href=\"css/app.publisher-theme.css\"><style>body{color:red}</style><script src=\"js/app.c533aa25.js\"></script><script defer src=\"https://static.cloudflareinsights.com/beacon.min.js\" data-cf-beacon=\"{}\"></script><script>window.x=1</script></head><body><div id=\"app\"></div><script src=\"js/chunk-vendors.59af3576.js\"></script><script src=\"extra.js\"></script><script>console.log(\"b\")</script></body></html>",
+   "<meta name=\"description\" content=\"d\">\n<meta charset=\"utf-8\">\n<link rel=\"icon\" href=\"fav.png\">\n<link rel=\"stylesheet\" href=\"./custom.css\">\n<link rel=\"stylesheet\" href=\"css/app.c533aa25.css\">\n<link rel=\"stylesheet\" href=\"css/app.publisher-theme.css\">\n<style>body{color:red}</style>\n<script>window.x=1</script>\n<title>My Great CYOA</title>\nplain\n<script src=\"extra.js\"></script>\n<script>console.log(\"b\")</script>"
+  ],
+  [
+   "plain",
+   "<HEAD><TITLE>Upper</TITLE><LINK REL=\"shortcut icon\" HREF=\"i.ico\"><SCRIPT SRC='./a.js'></SCRIPT></HEAD><BODY><SCRIPT SRC='a.js'></SCRIPT></BODY>",
+   "<LINK REL=\"shortcut icon\" HREF=\"i.ico\">\n<SCRIPT SRC='./a.js'></SCRIPT>\n<title>Upper</title>\nplain"
+  ],
+  [
+   "plain",
+   "<title>t</title><script src=\"core.js\"></script><script src=\"x/core.js\"></script><script src=\"js/app.js?v=1\"></script><script src=\"polyfills.js\"></script>",
+   "<script src=\"x/core.js\"></script>\n<title>t</title>\nplain"
+  ],
+  [
+   "plain",
+   "<html><head><script src=\"/cdn-cgi/scripts/x.js\"></script><link rel=\"stylesheet\" href=\".//style.css\"></head><body></body></html>",
+   "<link rel=\"stylesheet\" href=\".//style.css\">\nplain"
+  ]
+ ],
+ "plus2": [
+  [
+   "",
+   "{\"version\": \"2.1\", \"rows\": [{\"t\": \"</script>\"}], \"backpack\": [1], \"n\": 1.5}",
+   "<link rel=\"stylesheet\" href=\"./css/loading.css\">\n<link id=\"theme-light\" rel=\"stylesheet\" href=\"./css/smui.css\" media=\"(prefers-color-scheme: light)\">\n<link id=\"theme-dark\" rel=\"stylesheet\" href=\"./css/smui-dark.css\" media=\"screen and (prefers-color-scheme: dark)\">\n<link rel=\"stylesheet\" href=\"./css/roboto.css\">\n<link rel=\"stylesheet\" href=\"./css/bootstrap.min.css\">\n<link rel=\"stylesheet\" href=\"./css/material-icons.css\">\n<script src=\"./js/polyfills.js\"></script>\n<link href=\"./js/app.js\" rel=\"preload\" as=\"script\">\n\n<div id=\"app\"></div>\n<script src=\"./js/app.js\"></script>"
+  ],
+  [
+   "<html><head><title>  My\n  Great   CYOA </title><meta name=\"description\" content=\"d\"><meta charset=\"utf-8\"><link rel=\"icon\" href=\"fav.png\"><link rel=\"stylesheet\" href=\"./custom.css\"><link rel=\"stylesheet\" href=\"css/app.c533aa25.css\"><link rel=\"stylesheet\" href=\"css/app.publisher-theme.css\"><style>body{color:red}</style><script src=\"js/app.c533aa25.js\"></script><script defer src=\"https://static.cloudflareinsights.com/beacon.min.js\" data-cf-beacon=\"{}\"></script><script>window.x=1</script></head><body><div id=\"app\"></div><script src=\"js/chunk-vendors.59af3576.js\"></script><script src=\"extra.js\"></script><script>console.log(\"b\")</script></body></html>",
+   "{\"version\": \"2.1\", \"rows\": [{\"t\": \"</script>\"}], \"backpack\": [1], \"n\": 1.5}",
+   "<html><head>\n<link rel=\"stylesheet\" href=\"./css/loading.css\">\n<link id=\"theme-light\" rel=\"stylesheet\" href=\"./css/smui.css\" media=\"(prefers-color-scheme: light)\">\n<link id=\"theme-dark\" rel=\"stylesheet\" href=\"./css/smui-dark.css\" media=\"screen and (prefers-color-scheme: dark)\">\n<link rel=\"stylesheet\" href=\"./css/roboto.css\">\n<link rel=\"stylesheet\" href=\"./css/bootstrap.min.css\">\n<link rel=\"stylesheet\" href=\"./css/material-icons.css\">\n<script src=\"./js/polyfills.js\"></script>\n<link href=\"./js/app.js\" rel=\"preload\" as=\"script\">\n<title>  My\n  Great   CYOA </title><meta name=\"description\" content=\"d\"><meta charset=\"utf-8\"><link rel=\"icon\" href=\"fav.png\"><link rel=\"stylesheet\" href=\"./custom.css\"><link rel=\"stylesheet\" href=\"css/app.publisher-theme.css\"><style>body{color:red}</style><script defer src=\"https://static.cloudflareinsights.com/beacon.min.js\" data-cf-beacon=\"{}\"></script><script>window.x=1</script></head><body><div id=\"app\"></div><script src=\"extra.js\"></script><script>console.log(\"b\")</script><script src=\"./js/app.js\"></script>\n</body></html>"
+  ],
+  [
+   "<HEAD><TITLE>Upper</TITLE><LINK REL=\"shortcut icon\" HREF=\"i.ico\"><SCRIPT SRC='./a.js'></SCRIPT></HEAD><BODY><SCRIPT SRC='a.js'></SCRIPT></BODY>",
+   "{\"version\": \"2.1\", \"rows\": [{\"t\": \"</script>\"}], \"backpack\": [1], \"n\": 1.5}",
+   "<HEAD>\n<link rel=\"stylesheet\" href=\"./css/loading.css\">\n<link id=\"theme-light\" rel=\"stylesheet\" href=\"./css/smui.css\" media=\"(prefers-color-scheme: light)\">\n<link id=\"theme-dark\" rel=\"stylesheet\" href=\"./css/smui-dark.css\" media=\"screen and (prefers-color-scheme: dark)\">\n<link rel=\"stylesheet\" href=\"./css/roboto.css\">\n<link rel=\"stylesheet\" href=\"./css/bootstrap.min.css\">\n<link rel=\"stylesheet\" href=\"./css/material-icons.css\">\n<script src=\"./js/polyfills.js\"></script>\n<link href=\"./js/app.js\" rel=\"preload\" as=\"script\">\n<TITLE>Upper</TITLE><LINK REL=\"shortcut icon\" HREF=\"i.ico\"><SCRIPT SRC='./a.js'></SCRIPT></HEAD><BODY><SCRIPT SRC='a.js'></SCRIPT><div id=\"app\"></div>\n<script src=\"./js/app.js\"></script>\n</BODY>"
+  ],
+  [
+   "<title>t</title><script src=\"core.js\"></script><script src=\"x/core.js\"></script><script src=\"js/app.js?v=1\"></script><script src=\"polyfills.js\"></script>",
+   "{\"version\": \"2.1\", \"rows\": [{\"t\": \"</script>\"}], \"backpack\": [1], \"n\": 1.5}",
+   "<link rel=\"stylesheet\" href=\"./css/loading.css\">\n<link id=\"theme-light\" rel=\"stylesheet\" href=\"./css/smui.css\" media=\"(prefers-color-scheme: light)\">\n<link id=\"theme-dark\" rel=\"stylesheet\" href=\"./css/smui-dark.css\" media=\"screen and (prefers-color-scheme: dark)\">\n<link rel=\"stylesheet\" href=\"./css/roboto.css\">\n<link rel=\"stylesheet\" href=\"./css/bootstrap.min.css\">\n<link rel=\"stylesheet\" href=\"./css/material-icons.css\">\n<script src=\"./js/polyfills.js\"></script>\n<title>t</title><script src=\"x/core.js\"></script><div id=\"app\"></div><script src=\"js/app.js?v=1\"></script><script src=\"polyfills.js\"></script>\n"
+  ],
+  [
+   "<html><head><script src=\"/cdn-cgi/scripts/x.js\"></script><link rel=\"stylesheet\" href=\".//style.css\"></head><body></body></html>",
+   "{\"version\": \"2.1\", \"rows\": [{\"t\": \"</script>\"}], \"backpack\": [1], \"n\": 1.5}",
+   "<html><head>\n<link rel=\"stylesheet\" href=\"./css/loading.css\">\n<link id=\"theme-light\" rel=\"stylesheet\" href=\"./css/smui.css\" media=\"(prefers-color-scheme: light)\">\n<link id=\"theme-dark\" rel=\"stylesheet\" href=\"./css/smui-dark.css\" media=\"screen and (prefers-color-scheme: dark)\">\n<link rel=\"stylesheet\" href=\"./css/roboto.css\">\n<link rel=\"stylesheet\" href=\"./css/bootstrap.min.css\">\n<link rel=\"stylesheet\" href=\"./css/material-icons.css\">\n<script src=\"./js/polyfills.js\"></script>\n<link href=\"./js/app.js\" rel=\"preload\" as=\"script\">\n<script src=\"/cdn-cgi/scripts/x.js\"></script><link rel=\"stylesheet\" href=\".//style.css\"></head><body><div id=\"app\"></div>\n<script src=\"./js/app.js\"></script>\n</body></html>"
+  ],
+  [
+   "<html><head><link href=\"./_app/immutable/x.css\" rel=\"stylesheet\"><script src=\"./_app/immutable/start.js\"></script><script>__sveltekit_1 = {}; import('./_app/immutable/entry.js')</script><script src=\"js/app.B6d7tc9y.js\"></script><script src=\"app\"></script><link rel=\"stylesheet\" href=\"css/app.12345678.css\"></head><body data-sveltekit-preload-data><div id=\"loading-overlay\"></div><script src=\"./js/app.js\"></script><div id=\"app\"></div></body></html>",
+   "{\"version\": \"2.1\", \"rows\": [{\"t\": \"</script>\"}], \"backpack\": [1], \"n\": 1.5}",
+   "<html><head>\n<link rel=\"stylesheet\" href=\"./css/loading.css\">\n<link id=\"theme-light\" rel=\"stylesheet\" href=\"./css/smui.css\" media=\"(prefers-color-scheme: light)\">\n<link id=\"theme-dark\" rel=\"stylesheet\" href=\"./css/smui-dark.css\" media=\"screen and (prefers-color-scheme: dark)\">\n<link rel=\"stylesheet\" href=\"./css/roboto.css\">\n<link rel=\"stylesheet\" href=\"./css/bootstrap.min.css\">\n<link rel=\"stylesheet\" href=\"./css/material-icons.css\">\n<script src=\"./js/polyfills.js\"></script>\n<script src=\"./_app/immutable/start.js\"></script></head><body data-sveltekit-preload-data><div id=\"loading-overlay\"></div><div id=\"app\"></div><script src=\"./js/app.js\"></script><script id=\"__cyoa_replacement_loader_bridge__\">(function(){var observer;function hide(){var node=document.getElementById(\"loading-overlay\");if(!node)return;node.style.opacity=\"0\";setTimeout(function(){node.style.display=\"none\";},500);if(observer)observer.disconnect();}function ready(){var app=document.getElementById(\"app\");if(app&&app.childNodes.length){hide();return true;}return false;}if(!ready()){observer=new MutationObserver(ready);observer.observe(document.documentElement,{childList:true,subtree:true});}})();</script>\n</body></html>"
+  ],
+  [
+   "<html><head><script src=\"__cyoa_offline_project__.js\"></script>\n<script id=\"__cyoa_offline_patch__\">x</script>\n</head><body><main id=\"app\"> </main></body></html>",
+   "{\"version\": \"2.1\", \"rows\": [{\"t\": \"</script>\"}], \"backpack\": [1], \"n\": 1.5}",
+   "<html><head>\n<link rel=\"stylesheet\" href=\"./css/loading.css\">\n<link id=\"theme-light\" rel=\"stylesheet\" href=\"./css/smui.css\" media=\"(prefers-color-scheme: light)\">\n<link id=\"theme-dark\" rel=\"stylesheet\" href=\"./css/smui-dark.css\" media=\"screen and (prefers-color-scheme: dark)\">\n<link rel=\"stylesheet\" href=\"./css/roboto.css\">\n<link rel=\"stylesheet\" href=\"./css/bootstrap.min.css\">\n<link rel=\"stylesheet\" href=\"./css/material-icons.css\">\n<script src=\"./js/polyfills.js\"></script>\n<link href=\"./js/app.js\" rel=\"preload\" as=\"script\">\n</head><body><main id=\"app\"> </main><script src=\"./js/app.js\"></script>\n</body></html>"
+  ],
+  [
+   "<html><head><link rel=\"stylesheet\" href=\"./css/loading.css\"></head><body></body></html>",
+   "{\"version\": \"2.1\", \"rows\": [{\"t\": \"</script>\"}], \"backpack\": [1], \"n\": 1.5}",
+   "<html><head>\n<link id=\"theme-light\" rel=\"stylesheet\" href=\"./css/smui.css\" media=\"(prefers-color-scheme: light)\">\n<link id=\"theme-dark\" rel=\"stylesheet\" href=\"./css/smui-dark.css\" media=\"screen and (prefers-color-scheme: dark)\">\n<link rel=\"stylesheet\" href=\"./css/roboto.css\">\n<link rel=\"stylesheet\" href=\"./css/bootstrap.min.css\">\n<link rel=\"stylesheet\" href=\"./css/material-icons.css\">\n<script src=\"./js/polyfills.js\"></script>\n<link href=\"./js/app.js\" rel=\"preload\" as=\"script\">\n<link rel=\"stylesheet\" href=\"./css/loading.css\"></head><body><div id=\"app\"></div>\n<script src=\"./js/app.js\"></script>\n</body></html>"
+  ]
+ ],
+ "remix": [
+  [
+   "",
+   "{\"version\": \"2.1\", \"rows\": [{\"t\": \"</script>\"}], \"backpack\": [1], \"n\": 1.5}",
+   "<script id=\"__icc_offline_data__\">window.__CYOA_PROJECT__={\"version\":\"2.1\",\"rows\":[{\"t\":\"<\\/script>\"}],\"backpack\":[1],\"n\":1.5,\"customFonts\":[],\"groups\":[],\"rowDesignGroups\":[],\"soundEffects\":[],\"variables\":[],\"words\":[],\"categories\":[],\"mdObjects\":[],\"objectDesignGroups\":[],\"globalRequirements\":[],\"googleFonts\":[],\"activated\":[],\"pointTypes\":[],\"barBgColorStack\":[],\"barIconColorStack\":[],\"barTextColorStack\":[],\"bgColorStack\":[],\"bgImageStack\":[]};window.__ICCPLUS_DATA__={\"version\":\"2.1\",\"rows\":[{\"t\":\"<\\/script>\"}],\"backpack\":[1],\"n\":1.5,\"customFonts\":[],\"groups\":[],\"rowDesignGroups\":[],\"soundEffects\":[],\"variables\":[],\"words\":[],\"categories\":[],\"mdObjects\":[],\"objectDesignGroups\":[],\"globalRequirements\":[],\"googleFonts\":[],\"activated\":[],\"pointTypes\":[],\"barBgColorStack\":[],\"barIconColorStack\":[],\"barTextColorStack\":[],\"bgColorStack\":[],\"bgImageStack\":[]};window.__CYOA_DATA__={\"version\":\"2.1\",\"rows\":[{\"t\":\"<\\/script>\"}],\"backpack\":[1],\"n\":1.5,\"customFonts\":[],\"groups\":[],\"rowDesignGroups\":[],\"soundEffects\":[],\"variables\":[],\"words\":[],\"categories\":[],\"mdObjects\":[],\"objectDesignGroups\":[],\"globalRequirements\":[],\"googleFonts\":[],\"activated\":[],\"pointTypes\":[],\"barBgColorStack\":[],\"barIconColorStack\":[],\"barTextColorStack\":[],\"bgColorStack\":[],\"bgImageStack\":[]};</script>\n<link rel=\"stylesheet\" href=\"./css/loading.css\">\n<link rel=\"stylesheet\" href=\"./css/smui.css\" media=\"(prefers-color-scheme: light)\" id=\"theme-light\">\n<link rel=\"stylesheet\" href=\"./css/smui-dark.css\" media=\"screen and (prefers-color-scheme: dark)\" id=\"theme-dark\">\n<link rel=\"stylesheet\" href=\"./css/roboto.css\">\n<link rel=\"stylesheet\" href=\"./css/bootstrap.min.css\">\n<link rel=\"stylesheet\" href=\"./css/material-icons.css\">\n<link rel=\"stylesheet\" href=\"./assets/iccplus_viewer.css\">\n<script>window.__ICCPLUS_PLAYABLE_SITE__ = true;</script>\n<script src=\"./js/polyfills.js\"></script>\n\n<script src=\"./app\" defer></script>"
+  ],
+  [
+   "",
+   "{\"rows\": [], \"title\": \"é\"}",
+   "<script id=\"__icc_offline_data__\">window.__CYOA_PROJECT__={\"rows\":[],\"title\":\"é\"};window.__ICCPLUS_DATA__={\"rows\":[],\"title\":\"é\"};window.__CYOA_DATA__={\"rows\":[],\"title\":\"é\"};</script>\n<link rel=\"stylesheet\" href=\"./css/loading.css\">\n<link rel=\"stylesheet\" href=\"./css/smui.css\" media=\"(prefers-color-scheme: light)\" id=\"theme-light\">\n<link rel=\"stylesheet\" href=\"./css/smui-dark.css\" media=\"screen and (prefers-color-scheme: dark)\" id=\"theme-dark\">\n<link rel=\"stylesheet\" href=\"./css/roboto.css\">\n<link rel=\"stylesheet\" href=\"./css/bootstrap.min.css\">\n<link rel=\"stylesheet\" href=\"./css/material-icons.css\">\n<link rel=\"stylesheet\" href=\"./assets/iccplus_viewer.css\">\n<script>window.__ICCPLUS_PLAYABLE_SITE__ = true;</script>\n<script src=\"./js/polyfills.js\"></script>\n\n<script src=\"./app\" defer></script>"
+  ],
+  [
+   "",
+   "{\"version\": 2, \"rows\": []}",
+   "<script id=\"__icc_offline_data__\">window.__CYOA_PROJECT__={\"version\":2,\"rows\":[]};window.__ICCPLUS_DATA__={\"version\":2,\"rows\":[]};window.__CYOA_DATA__={\"version\":2,\"rows\":[]};</script>\n<link rel=\"stylesheet\" href=\"./css/loading.css\">\n<link rel=\"stylesheet\" href=\"./css/smui.css\" media=\"(prefers-color-scheme: light)\" id=\"theme-light\">\n<link rel=\"stylesheet\" href=\"./css/smui-dark.css\" media=\"screen and (prefers-color-scheme: dark)\" id=\"theme-dark\">\n<link rel=\"stylesheet\" href=\"./css/roboto.css\">\n<link rel=\"stylesheet\" href=\"./css/bootstrap.min.css\">\n<link rel=\"stylesheet\" href=\"./css/material-icons.css\">\n<link rel=\"stylesheet\" href=\"./assets/iccplus_viewer.css\">\n<script>window.__ICCPLUS_PLAYABLE_SITE__ = true;</script>\n<script src=\"./js/polyfills.js\"></script>\n\n<script src=\"./app\" defer></script>"
+  ],
+  [
+   "<html><head><title>  My\n  Great   CYOA </title><meta name=\"description\" content=\"d\"><meta charset=\"utf-8\"><link rel=\"icon\" href=\"fav.png\"><link rel=\"stylesheet\" href=\"./custom.css\"><link rel=\"stylesheet\" href=\"css/app.c533aa25.css\"><link rel=\"stylesheet\" href=\"css/app.publisher-theme.css\"><style>body{color:red}</style><script src=\"js/app.c533aa25.js\"></script><script defer src=\"https://static.cloudflareinsights.com/beacon.min.js\" data-cf-beacon=\"{}\"></script><script>window.x=1</script></head><body><div id=\"app\"></div><script src=\"js/chunk-vendors.59af3576.js\"></script><script src=\"extra.js\"></script><script>console.log(\"b\")</script></body></html>",
+   "{\"version\": \"2.1\", \"rows\": [{\"t\": \"</script>\"}], \"backpack\": [1], \"n\": 1.5}",
+   "<html><head>\n<script id=\"__icc_offline_data__\">window.__CYOA_PROJECT__={\"version\":\"2.1\",\"rows\":[{\"t\":\"<\\/script>\"}],\"backpack\":[1],\"n\":1.5,\"customFonts\":[],\"groups\":[],\"rowDesignGroups\":[],\"soundEffects\":[],\"variables\":[],\"words\":[],\"categories\":[],\"mdObjects\":[],\"objectDesignGroups\":[],\"globalRequirements\":[],\"googleFonts\":[],\"activated\":[],\"pointTypes\":[],\"barBgColorStack\":[],\"barIconColorStack\":[],\"barTextColorStack\":[],\"bgColorStack\":[],\"bgImageStack\":[],\"exportSiteTitle\":\"My Great CYOA\",\"exportSiteFavicon\":\"fav.png\"};window.__ICCPLUS_DATA__={\"version\":\"2.1\",\"rows\":[{\"t\":\"<\\/script>\"}],\"backpack\":[1],\"n\":1.5,\"customFonts\":[],\"groups\":[],\"rowDesignGroups\":[],\"soundEffects\":[],\"variables\":[],\"words\":[],\"categories\":[],\"mdObjects\":[],\"objectDesignGroups\":[],\"globalRequirements\":[],\"googleFonts\":[],\"activated\":[],\"pointTypes\":[],\"barBgColorStack\":[],\"barIconColorStack\":[],\"barTextColorStack\":[],\"bgColorStack\":[],\"bgImageStack\":[],\"exportSiteTitle\":\"My Great CYOA\",\"exportSiteFavicon\":\"fav.png\"};window.__CYOA_DATA__={\"version\":\"2.1\",\"rows\":[{\"t\":\"<\\/script>\"}],\"backpack\":[1],\"n\":1.5,\"customFonts\":[],\"groups\":[],\"rowDesignGroups\":[],\"soundEffects\":[],\"variables\":[],\"words\":[],\"categories\":[],\"mdObjects\":[],\"objectDesignGroups\":[],\"globalRequirements\":[],\"googleFonts\":[],\"activated\":[],\"pointTypes\":[],\"barBgColorStack\":[],\"barIconColorStack\":[],\"barTextColorStack\":[],\"bgColorStack\":[],\"bgImageStack\":[],\"exportSiteTitle\":\"My Great CYOA\",\"exportSiteFavicon\":\"fav.png\"};</script>\n\n<link rel=\"stylesheet\" href=\"./css/loading.css\">\n<link rel=\"stylesheet\" href=\"./css/smui.css\" media=\"(prefers-color-scheme: light)\" id=\"theme-light\">\n<link rel=\"stylesheet\" href=\"./css/smui-dark.css\" media=\"screen and (prefers-color-scheme: dark)\" id=\"theme-dark\">\n<link rel=\"stylesheet\" href=\"./css/roboto.css\">\n<link rel=\"stylesheet\" href=\"./css/bootstrap.min.css\">\n<link rel=\"stylesheet\" href=\"./css/material-icons.css\">\n<link rel=\"stylesheet\" href=\"./assets/iccplus_viewer.css\">\n<script>window.__ICCPLUS_PLAYABLE_SITE__ = true;</script>\n<script src=\"./js/polyfills.js\"></script>\n<title>  My\n  Great   CYOA </title><meta name=\"description\" content=\"d\"><meta charset=\"utf-8\"><link rel=\"icon\" href=\"fav.png\"><link rel=\"stylesheet\" href=\"./custom.css\"><link rel=\"stylesheet\" href=\"css/app.publisher-theme.css\"><style>body{color:red}</style><script defer src=\"https://static.cloudflareinsights.com/beacon.min.js\" data-cf-beacon=\"{}\"></script><script>window.x=1</script></head><body><div id=\"app\"></div><script src=\"extra.js\"></script><script>console.log(\"b\")</script><script src=\"./app\" defer></script>\n</body></html>"
+  ],
+  [
+   "<html><head><title>  My\n  Great   CYOA </title><meta name=\"description\" content=\"d\"><meta charset=\"utf-8\"><link rel=\"icon\" href=\"fav.png\"><link rel=\"stylesheet\" href=\"./custom.css\"><link rel=\"stylesheet\" href=\"css/app.c533aa25.css\"><link rel=\"stylesheet\" href=\"css/app.publisher-theme.css\"><style>body{color:red}</style><script src=\"js/app.c533aa25.js\"></script><script defer src=\"https://static.cloudflareinsights.com/beacon.min.js\" data-cf-beacon=\"{}\"></script><script>window.x=1</script></head><body><div id=\"app\"></div><script src=\"js/chunk-vendors.59af3576.js\"></script><script src=\"extra.js\"></script><script>console.log(\"b\")</script></body></html>",
+   "{\"rows\": [], \"title\": \"é\"}",
+   "<html><head>\n<script id=\"__icc_offline_data__\">window.__CYOA_PROJECT__={\"rows\":[],\"title\":\"é\",\"exportSiteTitle\":\"My Great CYOA\",\"exportSiteFavicon\":\"fav.png\"};window.__ICCPLUS_DATA__={\"rows\":[],\"title\":\"é\",\"exportSiteTitle\":\"My Great CYOA\",\"exportSiteFavicon\":\"fav.png\"};window.__CYOA_DATA__={\"rows\":[],\"title\":\"é\",\"exportSiteTitle\":\"My Great CYOA\",\"exportSiteFavicon\":\"fav.png\"};</script>\n\n<link rel=\"stylesheet\" href=\"./css/loading.css\">\n<link rel=\"stylesheet\" href=\"./css/smui.css\" media=\"(prefers-color-scheme: light)\" id=\"theme-light\">\n<link rel=\"stylesheet\" href=\"./css/smui-dark.css\" media=\"screen and (prefers-color-scheme: dark)\" id=\"theme-dark\">\n<link rel=\"stylesheet\" href=\"./css/roboto.css\">\n<link rel=\"stylesheet\" href=\"./css/bootstrap.min.css\">\n<link rel=\"stylesheet\" href=\"./css/material-icons.css\">\n<link rel=\"stylesheet\" href=\"./assets/iccplus_viewer.css\">\n<script>window.__ICCPLUS_PLAYABLE_SITE__ = true;</script>\n<script src=\"./js/polyfills.js\"></script>\n<title>  My\n  Great   CYOA </title><meta name=\"description\" content=\"d\"><meta charset=\"utf-8\"><link rel=\"icon\" href=\"fav.png\"><link rel=\"stylesheet\" href=\"./custom.css\"><link rel=\"stylesheet\" href=\"css/app.publisher-theme.css\"><style>body{color:red}</style><script defer src=\"https://static.cloudflareinsights.com/beacon.min.js\" data-cf-beacon=\"{}\"></script><script>window.x=1</script></head><body><div id=\"app\"></div><script src=\"extra.js\"></script><script>console.log(\"b\")</script><script src=\"./app\" defer></script>\n</body></html>"
+  ],
+  [
+   "<html><head><title>  My\n  Great   CYOA </title><meta name=\"description\" content=\"d\"><meta charset=\"utf-8\"><link rel=\"icon\" href=\"fav.png\"><link rel=\"stylesheet\" href=\"./custom.css\"><link rel=\"stylesheet\" href=\"css/app.c533aa25.css\"><link rel=\"stylesheet\" href=\"css/app.publisher-theme.css\"><style>body{color:red}</style><script src=\"js/app.c533aa25.js\"></script><script defer src=\"https://static.cloudflareinsights.com/beacon.min.js\" data-cf-beacon=\"{}\"></script><script>window.x=1</script></head><body><div id=\"app\"></div><script src=\"js/chunk-vendors.59af3576.js\"></script><script src=\"extra.js\"></script><script>console.log(\"b\")</script></body></html>",
+   "{\"version\": 2, \"rows\": []}",
+   "<html><head>\n<script id=\"__icc_offline_data__\">window.__CYOA_PROJECT__={\"version\":2,\"rows\":[],\"exportSiteTitle\":\"My Great CYOA\",\"exportSiteFavicon\":\"fav.png\"};window.__ICCPLUS_DATA__={\"version\":2,\"rows\":[],\"exportSiteTitle\":\"My Great CYOA\",\"exportSiteFavicon\":\"fav.png\"};window.__CYOA_DATA__={\"version\":2,\"rows\":[],\"exportSiteTitle\":\"My Great CYOA\",\"exportSiteFavicon\":\"fav.png\"};</script>\n\n<link rel=\"stylesheet\" href=\"./css/loading.css\">\n<link rel=\"stylesheet\" href=\"./css/smui.css\" media=\"(prefers-color-scheme: light)\" id=\"theme-light\">\n<link rel=\"stylesheet\" href=\"./css/smui-dark.css\" media=\"screen and (prefers-color-scheme: dark)\" id=\"theme-dark\">\n<link rel=\"stylesheet\" href=\"./css/roboto.css\">\n<link rel=\"stylesheet\" href=\"./css/bootstrap.min.css\">\n<link rel=\"stylesheet\" href=\"./css/material-icons.css\">\n<link rel=\"stylesheet\" href=\"./assets/iccplus_viewer.css\">\n<script>window.__ICCPLUS_PLAYABLE_SITE__ = true;</script>\n<script src=\"./js/polyfills.js\"></script>\n<title>  My\n  Great   CYOA </title><meta name=\"description\" content=\"d\"><meta charset=\"utf-8\"><link rel=\"icon\" href=\"fav.png\"><link rel=\"stylesheet\" href=\"./custom.css\"><link rel=\"stylesheet\" href=\"css/app.publisher-theme.css\"><style>body{color:red}</style><script defer src=\"https://static.cloudflareinsights.com/beacon.min.js\" data-cf-beacon=\"{}\"></script><script>window.x=1</script></head><body><div id=\"app\"></div><script src=\"extra.js\"></script><script>console.log(\"b\")</script><script src=\"./app\" defer></script>\n</body></html>"
+  ],
+  [
+   "<HEAD><TITLE>Upper</TITLE><LINK REL=\"shortcut icon\" HREF=\"i.ico\"><SCRIPT SRC='./a.js'></SCRIPT></HEAD><BODY><SCRIPT SRC='a.js'></SCRIPT></BODY>",
+   "{\"version\": \"2.1\", \"rows\": [{\"t\": \"</script>\"}], \"backpack\": [1], \"n\": 1.5}",
+   "<HEAD>\n<script id=\"__icc_offline_data__\">window.__CYOA_PROJECT__={\"version\":\"2.1\",\"rows\":[{\"t\":\"<\\/script>\"}],\"backpack\":[1],\"n\":1.5,\"customFonts\":[],\"groups\":[],\"rowDesignGroups\":[],\"soundEffects\":[],\"variables\":[],\"words\":[],\"categories\":[],\"mdObjects\":[],\"objectDesignGroups\":[],\"globalRequirements\":[],\"googleFonts\":[],\"activated\":[],\"pointTypes\":[],\"barBgColorStack\":[],\"barIconColorStack\":[],\"barTextColorStack\":[],\"bgColorStack\":[],\"bgImageStack\":[],\"exportSiteTitle\":\"Upper\",\"exportSiteFavicon\":\"i.ico\"};window.__ICCPLUS_DATA__={\"version\":\"2.1\",\"rows\":[{\"t\":\"<\\/script>\"}],\"backpack\":[1],\"n\":1.5,\"customFonts\":[],\"groups\":[],\"rowDesignGroups\":[],\"soundEffects\":[],\"variables\":[],\"words\":[],\"categories\":[],\"mdObjects\":[],\"objectDesignGroups\":[],\"globalRequirements\":[],\"googleFonts\":[],\"activated\":[],\"pointTypes\":[],\"barBgColorStack\":[],\"barIconColorStack\":[],\"barTextColorStack\":[],\"bgColorStack\":[],\"bgImageStack\":[],\"exportSiteTitle\":\"Upper\",\"exportSiteFavicon\":\"i.ico\"};window.__CYOA_DATA__={\"version\":\"2.1\",\"rows\":[{\"t\":\"<\\/script>\"}],\"backpack\":[1],\"n\":1.5,\"customFonts\":[],\"groups\":[],\"rowDesignGroups\":[],\"soundEffects\":[],\"variables\":[],\"words\":[],\"categories\":[],\"mdObjects\":[],\"objectDesignGroups\":[],\"globalRequirements\":[],\"googleFonts\":[],\"activated\":[],\"pointTypes\":[],\"barBgColorStack\":[],\"barIconColorStack\":[],\"barTextColorStack\":[],\"bgColorStack\":[],\"bgImageStack\":[],\"exportSiteTitle\":\"Upper\",\"exportSiteFavicon\":\"i.ico\"};</script>\n\n<link rel=\"stylesheet\" href=\"./css/loading.css\">\n<link rel=\"stylesheet\" href=\"./css/smui.css\" media=\"(prefers-color-scheme: light)\" id=\"theme-light\">\n<link rel=\"stylesheet\" href=\"./css/smui-dark.css\" media=\"screen and (prefers-color-scheme: dark)\" id=\"theme-dark\">\n<link rel=\"stylesheet\" href=\"./css/roboto.css\">\n<link rel=\"stylesheet\" href=\"./css/bootstrap.min.css\">\n<link rel=\"stylesheet\" href=\"./css/material-icons.css\">\n<link rel=\"stylesheet\" href=\"./assets/iccplus_viewer.css\">\n<script>window.__ICCPLUS_PLAYABLE_SITE__ = true;</script>\n<script src=\"./js/polyfills.js\"></script>\n<TITLE>Upper</TITLE><LINK REL=\"shortcut icon\" HREF=\"i.ico\"><SCRIPT SRC='./a.js'></SCRIPT></HEAD><BODY><SCRIPT SRC='a.js'></SCRIPT><script src=\"./app\" defer></script>\n</BODY>"
+  ],
+  [
+   "<HEAD><TITLE>Upper</TITLE><LINK REL=\"shortcut icon\" HREF=\"i.ico\"><SCRIPT SRC='./a.js'></SCRIPT></HEAD><BODY><SCRIPT SRC='a.js'></SCRIPT></BODY>",
+   "{\"rows\": [], \"title\": \"é\"}",
+   "<HEAD>\n<script id=\"__icc_offline_data__\">window.__CYOA_PROJECT__={\"rows\":[],\"title\":\"é\",\"exportSiteTitle\":\"Upper\",\"exportSiteFavicon\":\"i.ico\"};window.__ICCPLUS_DATA__={\"rows\":[],\"title\":\"é\",\"exportSiteTitle\":\"Upper\",\"exportSiteFavicon\":\"i.ico\"};window.__CYOA_DATA__={\"rows\":[],\"title\":\"é\",\"exportSiteTitle\":\"Upper\",\"exportSiteFavicon\":\"i.ico\"};</script>\n\n<link rel=\"stylesheet\" href=\"./css/loading.css\">\n<link rel=\"stylesheet\" href=\"./css/smui.css\" media=\"(prefers-color-scheme: light)\" id=\"theme-light\">\n<link rel=\"stylesheet\" href=\"./css/smui-dark.css\" media=\"screen and (prefers-color-scheme: dark)\" id=\"theme-dark\">\n<link rel=\"stylesheet\" href=\"./css/roboto.css\">\n<link rel=\"stylesheet\" href=\"./css/bootstrap.min.css\">\n<link rel=\"stylesheet\" href=\"./css/material-icons.css\">\n<link rel=\"stylesheet\" href=\"./assets/iccplus_viewer.css\">\n<script>window.__ICCPLUS_PLAYABLE_SITE__ = true;</script>\n<script src=\"./js/polyfills.js\"></script>\n<TITLE>Upper</TITLE><LINK REL=\"shortcut icon\" HREF=\"i.ico\"><SCRIPT SRC='./a.js'></SCRIPT></HEAD><BODY><SCRIPT SRC='a.js'></SCRIPT><script src=\"./app\" defer></script>\n</BODY>"
+  ],
+  [
+   "<HEAD><TITLE>Upper</TITLE><LINK REL=\"shortcut icon\" HREF=\"i.ico\"><SCRIPT SRC='./a.js'></SCRIPT></HEAD><BODY><SCRIPT SRC='a.js'></SCRIPT></BODY>",
+   "{\"version\": 2, \"rows\": []}",
+   "<HEAD>\n<script id=\"__icc_offline_data__\">window.__CYOA_PROJECT__={\"version\":2,\"rows\":[],\"exportSiteTitle\":\"Upper\",\"exportSiteFavicon\":\"i.ico\"};window.__ICCPLUS_DATA__={\"version\":2,\"rows\":[],\"exportSiteTitle\":\"Upper\",\"exportSiteFavicon\":\"i.ico\"};window.__CYOA_DATA__={\"version\":2,\"rows\":[],\"exportSiteTitle\":\"Upper\",\"exportSiteFavicon\":\"i.ico\"};</script>\n\n<link rel=\"stylesheet\" href=\"./css/loading.css\">\n<link rel=\"stylesheet\" href=\"./css/smui.css\" media=\"(prefers-color-scheme: light)\" id=\"theme-light\">\n<link rel=\"stylesheet\" href=\"./css/smui-dark.css\" media=\"screen and (prefers-color-scheme: dark)\" id=\"theme-dark\">\n<link rel=\"stylesheet\" href=\"./css/roboto.css\">\n<link rel=\"stylesheet\" href=\"./css/bootstrap.min.css\">\n<link rel=\"stylesheet\" href=\"./css/material-icons.css\">\n<link rel=\"stylesheet\" href=\"./assets/iccplus_viewer.css\">\n<script>window.__ICCPLUS_PLAYABLE_SITE__ = true;</script>\n<script src=\"./js/polyfills.js\"></script>\n<TITLE>Upper</TITLE><LINK REL=\"shortcut icon\" HREF=\"i.ico\"><SCRIPT SRC='./a.js'></SCRIPT></HEAD><BODY><SCRIPT SRC='a.js'></SCRIPT><script src=\"./app\" defer></script>\n</BODY>"
+  ],
+  [
+   "<title>t</title><script src=\"core.js\"></script><script src=\"x/core.js\"></script><script src=\"js/app.js?v=1\"></script><script src=\"polyfills.js\"></script>",
+   "{\"version\": \"2.1\", \"rows\": [{\"t\": \"</script>\"}], \"backpack\": [1], \"n\": 1.5}",
+   "<script id=\"__icc_offline_data__\">window.__CYOA_PROJECT__={\"version\":\"2.1\",\"rows\":[{\"t\":\"<\\/script>\"}],\"backpack\":[1],\"n\":1.5,\"customFonts\":[],\"groups\":[],\"rowDesignGroups\":[],\"soundEffects\":[],\"variables\":[],\"words\":[],\"categories\":[],\"mdObjects\":[],\"objectDesignGroups\":[],\"globalRequirements\":[],\"googleFonts\":[],\"activated\":[],\"pointTypes\":[],\"barBgColorStack\":[],\"barIconColorStack\":[],\"barTextColorStack\":[],\"bgColorStack\":[],\"bgImageStack\":[],\"exportSiteTitle\":\"t\"};window.__ICCPLUS_DATA__={\"version\":\"2.1\",\"rows\":[{\"t\":\"<\\/script>\"}],\"backpack\":[1],\"n\":1.5,\"customFonts\":[],\"groups\":[],\"rowDesignGroups\":[],\"soundEffects\":[],\"variables\":[],\"words\":[],\"categories\":[],\"mdObjects\":[],\"objectDesignGroups\":[],\"globalRequirements\":[],\"googleFonts\":[],\"activated\":[],\"pointTypes\":[],\"barBgColorStack\":[],\"barIconColorStack\":[],\"barTextColorStack\":[],\"bgColorStack\":[],\"bgImageStack\":[],\"exportSiteTitle\":\"t\"};window.__CYOA_DATA__={\"version\":\"2.1\",\"rows\":[{\"t\":\"<\\/script>\"}],\"backpack\":[1],\"n\":1.5,\"customFonts\":[],\"groups\":[],\"rowDesignGroups\":[],\"soundEffects\":[],\"variables\":[],\"words\":[],\"categories\":[],\"mdObjects\":[],\"objectDesignGroups\":[],\"globalRequirements\":[],\"googleFonts\":[],\"activated\":[],\"pointTypes\":[],\"barBgColorStack\":[],\"barIconColorStack\":[],\"barTextColorStack\":[],\"bgColorStack\":[],\"bgImageStack\":[],\"exportSiteTitle\":\"t\"};</script>\n<link rel=\"stylesheet\" href=\"./css/loading.css\">\n<link rel=\"stylesheet\" href=\"./css/smui.css\" media=\"(prefers-color-scheme: light)\" id=\"theme-light\">\n<link rel=\"stylesheet\" href=\"./css/smui-dark.css\" media=\"screen and (prefers-color-scheme: dark)\" id=\"theme-dark\">\n<link rel=\"stylesheet\" href=\"./css/roboto.css\">\n<link rel=\"stylesheet\" href=\"./css/bootstrap.min.css\">\n<link rel=\"stylesheet\" href=\"./css/material-icons.css\">\n<link rel=\"stylesheet\" href=\"./assets/iccplus_viewer.css\">\n<script>window.__ICCPLUS_PLAYABLE_SITE__ = true;</script>\n<script src=\"./js/polyfills.js\"></script>\n<title>t</title><script src=\"x/core.js\"></script><script src=\"polyfills.js\"></script>\n<script src=\"./app\" defer></script>"
+  ],
+  [
+   "<title>t</title><script src=\"core.js\"></script><script src=\"x/core.js\"></script><script src=\"js/app.js?v=1\"></script><script src=\"polyfills.js\"></script>",
+   "{\"rows\": [], \"title\": \"é\"}",
+   "<script id=\"__icc_offline_data__\">window.__CYOA_PROJECT__={\"rows\":[],\"title\":\"é\",\"exportSiteTitle\":\"t\"};window.__ICCPLUS_DATA__={\"rows\":[],\"title\":\"é\",\"exportSiteTitle\":\"t\"};window.__CYOA_DATA__={\"rows\":[],\"title\":\"é\",\"exportSiteTitle\":\"t\"};</script>\n<link rel=\"stylesheet\" href=\"./css/loading.css\">\n<link rel=\"stylesheet\" href=\"./css/smui.css\" media=\"(prefers-color-scheme: light)\" id=\"theme-light\">\n<link rel=\"stylesheet\" href=\"./css/smui-dark.css\" media=\"screen and (prefers-color-scheme: dark)\" id=\"theme-dark\">\n<link rel=\"stylesheet\" href=\"./css/roboto.css\">\n<link rel=\"stylesheet\" href=\"./css/bootstrap.min.css\">\n<link rel=\"stylesheet\" href=\"./css/material-icons.css\">\n<link rel=\"stylesheet\" href=\"./assets/iccplus_viewer.css\">\n<script>window.__ICCPLUS_PLAYABLE_SITE__ = true;</script>\n<script src=\"./js/polyfills.js\"></script>\n<title>t</title><script src=\"x/core.js\"></script><script src=\"polyfills.js\"></script>\n<script src=\"./app\" defer></script>"
+  ],
+  [
+   "<title>t</title><script src=\"core.js\"></script><script src=\"x/core.js\"></script><script src=\"js/app.js?v=1\"></script><script src=\"polyfills.js\"></script>",
+   "{\"version\": 2, \"rows\": []}",
+   "<script id=\"__icc_offline_data__\">window.__CYOA_PROJECT__={\"version\":2,\"rows\":[],\"exportSiteTitle\":\"t\"};window.__ICCPLUS_DATA__={\"version\":2,\"rows\":[],\"exportSiteTitle\":\"t\"};window.__CYOA_DATA__={\"version\":2,\"rows\":[],\"exportSiteTitle\":\"t\"};</script>\n<link rel=\"stylesheet\" href=\"./css/loading.css\">\n<link rel=\"stylesheet\" href=\"./css/smui.css\" media=\"(prefers-color-scheme: light)\" id=\"theme-light\">\n<link rel=\"stylesheet\" href=\"./css/smui-dark.css\" media=\"screen and (prefers-color-scheme: dark)\" id=\"theme-dark\">\n<link rel=\"stylesheet\" href=\"./css/roboto.css\">\n<link rel=\"stylesheet\" href=\"./css/bootstrap.min.css\">\n<link rel=\"stylesheet\" href=\"./css/material-icons.css\">\n<link rel=\"stylesheet\" href=\"./assets/iccplus_viewer.css\">\n<script>window.__ICCPLUS_PLAYABLE_SITE__ = true;</script>\n<script src=\"./js/polyfills.js\"></script>\n<title>t</title><script src=\"x/core.js\"></script><script src=\"polyfills.js\"></script>\n<script src=\"./app\" defer></script>"
+  ],
+  [
+   "<html><head><script src=\"/cdn-cgi/scripts/x.js\"></script><link rel=\"stylesheet\" href=\".//style.css\"></head><body></body></html>",
+   "{\"version\": \"2.1\", \"rows\": [{\"t\": \"</script>\"}], \"backpack\": [1], \"n\": 1.5}",
+   "<html><head>\n<script id=\"__icc_offline_data__\">window.__CYOA_PROJECT__={\"version\":\"2.1\",\"rows\":[{\"t\":\"<\\/script>\"}],\"backpack\":[1],\"n\":1.5,\"customFonts\":[],\"groups\":[],\"rowDesignGroups\":[],\"soundEffects\":[],\"variables\":[],\"words\":[],\"categories\":[],\"mdObjects\":[],\"objectDesignGroups\":[],\"globalRequirements\":[],\"googleFonts\":[],\"activated\":[],\"pointTypes\":[],\"barBgColorStack\":[],\"barIconColorStack\":[],\"barTextColorStack\":[],\"bgColorStack\":[],\"bgImageStack\":[]};window.__ICCPLUS_DATA__={\"version\":\"2.1\",\"rows\":[{\"t\":\"<\\/script>\"}],\"backpack\":[1],\"n\":1.5,\"customFonts\":[],\"groups\":[],\"rowDesignGroups\":[],\"soundEffects\":[],\"variables\":[],\"words\":[],\"categories\":[],\"mdObjects\":[],\"objectDesignGroups\":[],\"globalRequirements\":[],\"googleFonts\":[],\"activated\":[],\"pointTypes\":[],\"barBgColorStack\":[],\"barIconColorStack\":[],\"barTextColorStack\":[],\"bgColorStack\":[],\"bgImageStack\":[]};window.__CYOA_DATA__={\"version\":\"2.1\",\"rows\":[{\"t\":\"<\\/script>\"}],\"backpack\":[1],\"n\":1.5,\"customFonts\":[],\"groups\":[],\"rowDesignGroups\":[],\"soundEffects\":[],\"variables\":[],\"words\":[],\"categories\":[],\"mdObjects\":[],\"objectDesignGroups\":[],\"globalRequirements\":[],\"googleFonts\":[],\"activated\":[],\"pointTypes\":[],\"barBgColorStack\":[],\"barIconColorStack\":[],\"barTextColorStack\":[],\"bgColorStack\":[],\"bgImageStack\":[]};</script>\n\n<link rel=\"stylesheet\" href=\"./css/loading.css\">\n<link rel=\"stylesheet\" href=\"./css/smui.css\" media=\"(prefers-color-scheme: light)\" id=\"theme-light\">\n<link rel=\"stylesheet\" href=\"./css/smui-dark.css\" media=\"screen and (prefers-color-scheme: dark)\" id=\"theme-dark\">\n<link rel=\"stylesheet\" href=\"./css/roboto.css\">\n<link rel=\"stylesheet\" href=\"./css/bootstrap.min.css\">\n<link rel=\"stylesheet\" href=\"./css/material-icons.css\">\n<link rel=\"stylesheet\" href=\"./assets/iccplus_viewer.css\">\n<script>window.__ICCPLUS_PLAYABLE_SITE__ = true;</script>\n<script src=\"./js/polyfills.js\"></script>\n<script src=\"/cdn-cgi/scripts/x.js\"></script><link rel=\"stylesheet\" href=\".//style.css\"></head><body><script src=\"./app\" defer></script>\n</body></html>"
+  ],
+  [
+   "<html><head><script src=\"/cdn-cgi/scripts/x.js\"></script><link rel=\"stylesheet\" href=\".//style.css\"></head><body></body></html>",
+   "{\"rows\": [], \"title\": \"é\"}",
+   "<html><head>\n<script id=\"__icc_offline_data__\">window.__CYOA_PROJECT__={\"rows\":[],\"title\":\"é\"};window.__ICCPLUS_DATA__={\"rows\":[],\"title\":\"é\"};window.__CYOA_DATA__={\"rows\":[],\"title\":\"é\"};</script>\n\n<link rel=\"stylesheet\" href=\"./css/loading.css\">\n<link rel=\"stylesheet\" href=\"./css/smui.css\" media=\"(prefers-color-scheme: light)\" id=\"theme-light\">\n<link rel=\"stylesheet\" href=\"./css/smui-dark.css\" media=\"screen and (prefers-color-scheme: dark)\" id=\"theme-dark\">\n<link rel=\"stylesheet\" href=\"./css/roboto.css\">\n<link rel=\"stylesheet\" href=\"./css/bootstrap.min.css\">\n<link rel=\"stylesheet\" href=\"./css/material-icons.css\">\n<link rel=\"stylesheet\" href=\"./assets/iccplus_viewer.css\">\n<script>window.__ICCPLUS_PLAYABLE_SITE__ = true;</script>\n<script src=\"./js/polyfills.js\"></script>\n<script src=\"/cdn-cgi/scripts/x.js\"></script><link rel=\"stylesheet\" href=\".//style.css\"></head><body><script src=\"./app\" defer></script>\n</body></html>"
+  ],
+  [
+   "<html><head><script src=\"/cdn-cgi/scripts/x.js\"></script><link rel=\"stylesheet\" href=\".//style.css\"></head><body></body></html>",
+   "{\"version\": 2, \"rows\": []}",
+   "<html><head>\n<script id=\"__icc_offline_data__\">window.__CYOA_PROJECT__={\"version\":2,\"rows\":[]};window.__ICCPLUS_DATA__={\"version\":2,\"rows\":[]};window.__CYOA_DATA__={\"version\":2,\"rows\":[]};</script>\n\n<link rel=\"stylesheet\" href=\"./css/loading.css\">\n<link rel=\"stylesheet\" href=\"./css/smui.css\" media=\"(prefers-color-scheme: light)\" id=\"theme-light\">\n<link rel=\"stylesheet\" href=\"./css/smui-dark.css\" media=\"screen and (prefers-color-scheme: dark)\" id=\"theme-dark\">\n<link rel=\"stylesheet\" href=\"./css/roboto.css\">\n<link rel=\"stylesheet\" href=\"./css/bootstrap.min.css\">\n<link rel=\"stylesheet\" href=\"./css/material-icons.css\">\n<link rel=\"stylesheet\" href=\"./assets/iccplus_viewer.css\">\n<script>window.__ICCPLUS_PLAYABLE_SITE__ = true;</script>\n<script src=\"./js/polyfills.js\"></script>\n<script src=\"/cdn-cgi/scripts/x.js\"></script><link rel=\"stylesheet\" href=\".//style.css\"></head><body><script src=\"./app\" defer></script>\n</body></html>"
+  ],
+  [
+   "<html><head><title>R</title><link rel=\"icon\" href=\"f.ico\"><script id=\"__icc_offline_data__\">old</script><script src=\"./app\"></script><script src=\"assets/app.offline.js\"></script><script src=\"js/app.abcdefgh1.js\"></script><script>window.__ICCPLUS_PLAYABLE_SITE__ = true;</script></head><body></body></html>",
+   "{\"version\": \"2.1\", \"rows\": [{\"t\": \"</script>\"}], \"backpack\": [1], \"n\": 1.5}",
+   "<html><head>\n<script id=\"__icc_offline_data__\">window.__CYOA_PROJECT__={\"version\":\"2.1\",\"rows\":[{\"t\":\"<\\/script>\"}],\"backpack\":[1],\"n\":1.5,\"customFonts\":[],\"groups\":[],\"rowDesignGroups\":[],\"soundEffects\":[],\"variables\":[],\"words\":[],\"categories\":[],\"mdObjects\":[],\"objectDesignGroups\":[],\"globalRequirements\":[],\"googleFonts\":[],\"activated\":[],\"pointTypes\":[],\"barBgColorStack\":[],\"barIconColorStack\":[],\"barTextColorStack\":[],\"bgColorStack\":[],\"bgImageStack\":[],\"exportSiteTitle\":\"R\",\"exportSiteFavicon\":\"f.ico\"};window.__ICCPLUS_DATA__={\"version\":\"2.1\",\"rows\":[{\"t\":\"<\\/script>\"}],\"backpack\":[1],\"n\":1.5,\"customFonts\":[],\"groups\":[],\"rowDesignGroups\":[],\"soundEffects\":[],\"variables\":[],\"words\":[],\"categories\":[],\"mdObjects\":[],\"objectDesignGroups\":[],\"globalRequirements\":[],\"googleFonts\":[],\"activated\":[],\"pointTypes\":[],\"barBgColorStack\":[],\"barIconColorStack\":[],\"barTextColorStack\":[],\"bgColorStack\":[],\"bgImageStack\":[],\"exportSiteTitle\":\"R\",\"exportSiteFavicon\":\"f.ico\"};window.__CYOA_DATA__={\"version\":\"2.1\",\"rows\":[{\"t\":\"<\\/script>\"}],\"backpack\":[1],\"n\":1.5,\"customFonts\":[],\"groups\":[],\"rowDesignGroups\":[],\"soundEffects\":[],\"variables\":[],\"words\":[],\"categories\":[],\"mdObjects\":[],\"objectDesignGroups\":[],\"globalRequirements\":[],\"googleFonts\":[],\"activated\":[],\"pointTypes\":[],\"barBgColorStack\":[],\"barIconColorStack\":[],\"barTextColorStack\":[],\"bgColorStack\":[],\"bgImageStack\":[],\"exportSiteTitle\":\"R\",\"exportSiteFavicon\":\"f.ico\"};</script>\n\n<link rel=\"stylesheet\" href=\"./css/loading.css\">\n<link rel=\"stylesheet\" href=\"./css/smui.css\" media=\"(prefers-color-scheme: light)\" id=\"theme-light\">\n<link rel=\"stylesheet\" href=\"./css/smui-dark.css\" media=\"screen and (prefers-color-scheme: dark)\" id=\"theme-dark\">\n<link rel=\"stylesheet\" href=\"./css/roboto.css\">\n<link rel=\"stylesheet\" href=\"./css/bootstrap.min.css\">\n<link rel=\"stylesheet\" href=\"./css/material-icons.css\">\n<link rel=\"stylesheet\" href=\"./assets/iccplus_viewer.css\">\n<script src=\"./js/polyfills.js\"></script>\n<title>R</title><link rel=\"icon\" href=\"f.ico\"><script>window.__ICCPLUS_PLAYABLE_SITE__ = true;</script></head><body><script src=\"./app\" defer></script>\n</body></html>"
+  ],
+  [
+   "<html><head><title>R</title><link rel=\"icon\" href=\"f.ico\"><script id=\"__icc_offline_data__\">old</script><script src=\"./app\"></script><script src=\"assets/app.offline.js\"></script><script src=\"js/app.abcdefgh1.js\"></script><script>window.__ICCPLUS_PLAYABLE_SITE__ = true;</script></head><body></body></html>",
+   "{\"rows\": [], \"title\": \"é\"}",
+   "<html><head>\n<script id=\"__icc_offline_data__\">window.__CYOA_PROJECT__={\"rows\":[],\"title\":\"é\",\"exportSiteTitle\":\"R\",\"exportSiteFavicon\":\"f.ico\"};window.__ICCPLUS_DATA__={\"rows\":[],\"title\":\"é\",\"exportSiteTitle\":\"R\",\"exportSiteFavicon\":\"f.ico\"};window.__CYOA_DATA__={\"rows\":[],\"title\":\"é\",\"exportSiteTitle\":\"R\",\"exportSiteFavicon\":\"f.ico\"};</script>\n\n<link rel=\"stylesheet\" href=\"./css/loading.css\">\n<link rel=\"stylesheet\" href=\"./css/smui.css\" media=\"(prefers-color-scheme: light)\" id=\"theme-light\">\n<link rel=\"stylesheet\" href=\"./css/smui-dark.css\" media=\"screen and (prefers-color-scheme: dark)\" id=\"theme-dark\">\n<link rel=\"stylesheet\" href=\"./css/roboto.css\">\n<link rel=\"stylesheet\" href=\"./css/bootstrap.min.css\">\n<link rel=\"stylesheet\" href=\"./css/material-icons.css\">\n<link rel=\"stylesheet\" href=\"./assets/iccplus_viewer.css\">\n<script src=\"./js/polyfills.js\"></script>\n<title>R</title><link rel=\"icon\" href=\"f.ico\"><script>window.__ICCPLUS_PLAYABLE_SITE__ = true;</script></head><body><script src=\"./app\" defer></script>\n</body></html>"
+  ],
+  [
+   "<html><head><title>R</title><link rel=\"icon\" href=\"f.ico\"><script id=\"__icc_offline_data__\">old</script><script src=\"./app\"></script><script src=\"assets/app.offline.js\"></script><script src=\"js/app.abcdefgh1.js\"></script><script>window.__ICCPLUS_PLAYABLE_SITE__ = true;</script></head><body></body></html>",
+   "{\"version\": 2, \"rows\": []}",
+   "<html><head>\n<script id=\"__icc_offline_data__\">window.__CYOA_PROJECT__={\"version\":2,\"rows\":[],\"exportSiteTitle\":\"R\",\"exportSiteFavicon\":\"f.ico\"};window.__ICCPLUS_DATA__={\"version\":2,\"rows\":[],\"exportSiteTitle\":\"R\",\"exportSiteFavicon\":\"f.ico\"};window.__CYOA_DATA__={\"version\":2,\"rows\":[],\"exportSiteTitle\":\"R\",\"exportSiteFavicon\":\"f.ico\"};</script>\n\n<link rel=\"stylesheet\" href=\"./css/loading.css\">\n<link rel=\"stylesheet\" href=\"./css/smui.css\" media=\"(prefers-color-scheme: light)\" id=\"theme-light\">\n<link rel=\"stylesheet\" href=\"./css/smui-dark.css\" media=\"screen and (prefers-color-scheme: dark)\" id=\"theme-dark\">\n<link rel=\"stylesheet\" href=\"./css/roboto.css\">\n<link rel=\"stylesheet\" href=\"./css/bootstrap.min.css\">\n<link rel=\"stylesheet\" href=\"./css/material-icons.css\">\n<link rel=\"stylesheet\" href=\"./assets/iccplus_viewer.css\">\n<script src=\"./js/polyfills.js\"></script>\n<title>R</title><link rel=\"icon\" href=\"f.ico\"><script>window.__ICCPLUS_PLAYABLE_SITE__ = true;</script></head><body><script src=\"./app\" defer></script>\n</body></html>"
+  ],
+  [
+   "<html><head></head><body><script src=\"app.js\"></script></body></html>",
+   "{\"version\": \"2.1\", \"rows\": [{\"t\": \"</script>\"}], \"backpack\": [1], \"n\": 1.5}",
+   "<html><head>\n<script id=\"__icc_offline_data__\">window.__CYOA_PROJECT__={\"version\":\"2.1\",\"rows\":[{\"t\":\"<\\/script>\"}],\"backpack\":[1],\"n\":1.5,\"customFonts\":[],\"groups\":[],\"rowDesignGroups\":[],\"soundEffects\":[],\"variables\":[],\"words\":[],\"categories\":[],\"mdObjects\":[],\"objectDesignGroups\":[],\"globalRequirements\":[],\"googleFonts\":[],\"activated\":[],\"pointTypes\":[],\"barBgColorStack\":[],\"barIconColorStack\":[],\"barTextColorStack\":[],\"bgColorStack\":[],\"bgImageStack\":[]};window.__ICCPLUS_DATA__={\"version\":\"2.1\",\"rows\":[{\"t\":\"<\\/script>\"}],\"backpack\":[1],\"n\":1.5,\"customFonts\":[],\"groups\":[],\"rowDesignGroups\":[],\"soundEffects\":[],\"variables\":[],\"words\":[],\"categories\":[],\"mdObjects\":[],\"objectDesignGroups\":[],\"globalRequirements\":[],\"googleFonts\":[],\"activated\":[],\"pointTypes\":[],\"barBgColorStack\":[],\"barIconColorStack\":[],\"barTextColorStack\":[],\"bgColorStack\":[],\"bgImageStack\":[]};window.__CYOA_DATA__={\"version\":\"2.1\",\"rows\":[{\"t\":\"<\\/script>\"}],\"backpack\":[1],\"n\":1.5,\"customFonts\":[],\"groups\":[],\"rowDesignGroups\":[],\"soundEffects\":[],\"variables\":[],\"words\":[],\"categories\":[],\"mdObjects\":[],\"objectDesignGroups\":[],\"globalRequirements\":[],\"googleFonts\":[],\"activated\":[],\"pointTypes\":[],\"barBgColorStack\":[],\"barIconColorStack\":[],\"barTextColorStack\":[],\"bgColorStack\":[],\"bgImageStack\":[]};</script>\n\n<link rel=\"stylesheet\" href=\"./css/loading.css\">\n<link rel=\"stylesheet\" href=\"./css/smui.css\" media=\"(prefers-color-scheme: light)\" id=\"theme-light\">\n<link rel=\"stylesheet\" href=\"./css/smui-dark.css\" media=\"screen and (prefers-color-scheme: dark)\" id=\"theme-dark\">\n<link rel=\"stylesheet\" href=\"./css/roboto.css\">\n<link rel=\"stylesheet\" href=\"./css/bootstrap.min.css\">\n<link rel=\"stylesheet\" href=\"./css/material-icons.css\">\n<link rel=\"stylesheet\" href=\"./assets/iccplus_viewer.css\">\n<script>window.__ICCPLUS_PLAYABLE_SITE__ = true;</script>\n<script src=\"./js/polyfills.js\"></script>\n</head><body><script src=\"./app\" defer></script>\n</body></html>"
+  ],
+  [
+   "<html><head></head><body><script src=\"app.js\"></script></body></html>",
+   "{\"rows\": [], \"title\": \"é\"}",
+   "<html><head>\n<script id=\"__icc_offline_data__\">window.__CYOA_PROJECT__={\"rows\":[],\"title\":\"é\"};window.__ICCPLUS_DATA__={\"rows\":[],\"title\":\"é\"};window.__CYOA_DATA__={\"rows\":[],\"title\":\"é\"};</script>\n\n<link rel=\"stylesheet\" href=\"./css/loading.css\">\n<link rel=\"stylesheet\" href=\"./css/smui.css\" media=\"(prefers-color-scheme: light)\" id=\"theme-light\">\n<link rel=\"stylesheet\" href=\"./css/smui-dark.css\" media=\"screen and (prefers-color-scheme: dark)\" id=\"theme-dark\">\n<link rel=\"stylesheet\" href=\"./css/roboto.css\">\n<link rel=\"stylesheet\" href=\"./css/bootstrap.min.css\">\n<link rel=\"stylesheet\" href=\"./css/material-icons.css\">\n<link rel=\"stylesheet\" href=\"./assets/iccplus_viewer.css\">\n<script>window.__ICCPLUS_PLAYABLE_SITE__ = true;</script>\n<script src=\"./js/polyfills.js\"></script>\n</head><body><script src=\"./app\" defer></script>\n</body></html>"
+  ],
+  [
+   "<html><head></head><body><script src=\"app.js\"></script></body></html>",
+   "{\"version\": 2, \"rows\": []}",
+   "<html><head>\n<script id=\"__icc_offline_data__\">window.__CYOA_PROJECT__={\"version\":2,\"rows\":[]};window.__ICCPLUS_DATA__={\"version\":2,\"rows\":[]};window.__CYOA_DATA__={\"version\":2,\"rows\":[]};</script>\n\n<link rel=\"stylesheet\" href=\"./css/loading.css\">\n<link rel=\"stylesheet\" href=\"./css/smui.css\" media=\"(prefers-color-scheme: light)\" id=\"theme-light\">\n<link rel=\"stylesheet\" href=\"./css/smui-dark.css\" media=\"screen and (prefers-color-scheme: dark)\" id=\"theme-dark\">\n<link rel=\"stylesheet\" href=\"./css/roboto.css\">\n<link rel=\"stylesheet\" href=\"./css/bootstrap.min.css\">\n<link rel=\"stylesheet\" href=\"./css/material-icons.css\">\n<link rel=\"stylesheet\" href=\"./assets/iccplus_viewer.css\">\n<script>window.__ICCPLUS_PLAYABLE_SITE__ = true;</script>\n<script src=\"./js/polyfills.js\"></script>\n</head><body><script src=\"./app\" defer></script>\n</body></html>"
+  ]
+ ],
+ "identity": [
+  [
+   "",
+   [
+    "",
+    ""
+   ]
+  ],
+  [
+   "<html><head><title>  My\n  Great   CYOA </title><meta name=\"description\" content=\"d\"><meta charset=\"utf-8\"><link rel=\"icon\" href=\"fav.png\"><link rel=\"stylesheet\" href=\"./custom.css\"><link rel=\"stylesheet\" href=\"css/app.c533aa25.css\"><link rel=\"stylesheet\" href=\"css/app.publisher-theme.css\"><style>body{color:red}</style><script src=\"js/app.c533aa25.js\"></script><script defer src=\"https://static.cloudflareinsights.com/beacon.min.js\" data-cf-beacon=\"{}\"></script><script>window.x=1</script></head><body><div id=\"app\"></div><script src=\"js/chunk-vendors.59af3576.js\"></script><script src=\"extra.js\"></script><script>console.log(\"b\")</script></body></html>",
+   [
+    "My Great CYOA",
+    "fav.png"
+   ]
+  ],
+  [
+   "<HEAD><TITLE>Upper</TITLE><LINK REL=\"shortcut icon\" HREF=\"i.ico\"><SCRIPT SRC='./a.js'></SCRIPT></HEAD><BODY><SCRIPT SRC='a.js'></SCRIPT></BODY>",
+   [
+    "Upper",
+    "i.ico"
+   ]
+  ],
+  [
+   "<title>t</title><script src=\"core.js\"></script><script src=\"x/core.js\"></script><script src=\"js/app.js?v=1\"></script><script src=\"polyfills.js\"></script>",
+   [
+    "t",
+    ""
+   ]
+  ],
+  [
+   "<html><head><script src=\"/cdn-cgi/scripts/x.js\"></script><link rel=\"stylesheet\" href=\".//style.css\"></head><body></body></html>",
+   [
+    "",
+    ""
+   ]
+  ],
+  [
+   "<html><head><link href=\"./_app/immutable/x.css\" rel=\"stylesheet\"><script src=\"./_app/immutable/start.js\"></script><script>__sveltekit_1 = {}; import('./_app/immutable/entry.js')</script><script src=\"js/app.B6d7tc9y.js\"></script><script src=\"app\"></script><link rel=\"stylesheet\" href=\"css/app.12345678.css\"></head><body data-sveltekit-preload-data><div id=\"loading-overlay\"></div><script src=\"./js/app.js\"></script><div id=\"app\"></div></body></html>",
+   [
+    "",
+    ""
+   ]
+  ],
+  [
+   "<html><head><script src=\"__cyoa_offline_project__.js\"></script>\n<script id=\"__cyoa_offline_patch__\">x</script>\n</head><body><main id=\"app\"> </main></body></html>",
+   [
+    "",
+    ""
+   ]
+  ],
+  [
+   "<html><head><link rel=\"stylesheet\" href=\"./css/loading.css\"></head><body></body></html>",
+   [
+    "",
+    ""
+   ]
+  ],
+  [
+   "<html><head><title>R</title><link rel=\"icon\" href=\"f.ico\"><script id=\"__icc_offline_data__\">old</script><script src=\"./app\"></script><script src=\"assets/app.offline.js\"></script><script src=\"js/app.abcdefgh1.js\"></script><script>window.__ICCPLUS_PLAYABLE_SITE__ = true;</script></head><body></body></html>",
+   [
+    "R",
+    "f.ico"
+   ]
+  ],
+  [
+   "<html><head></head><body><script src=\"app.js\"></script></body></html>",
+   [
+    "",
+    ""
+   ]
+  ]
+ ],
+ "hashed": [
+  [
+   "app.c533aa25.js",
+   "js",
+   true
+  ],
+  [
+   "app.B6d7tc9y.js",
+   "js",
+   true
+  ],
+  [
+   "app.publisher-theme.css",
+   "css",
+   false
+  ],
+  [
+   "chunk-vendors.59af3576.js",
+   "js",
+   true
+  ],
+  [
+   "app.abcdefgh.js",
+   "js",
+   false
+  ],
+  [
+   "app.1234567.js",
+   "js",
+   false
+  ],
+  [
+   "APP_12345678.JS",
+   "js",
+   true
+  ],
+  [
+   "app.js",
+   "js",
+   false
+  ],
+  [
+   "app-x1y2z3w4.css",
+   "css",
+   true
+  ]
+ ],
+ "strip": [
+  [
+   "",
+   ""
+  ],
+  [
+   "<html><head><title>  My\n  Great   CYOA </title><meta name=\"description\" content=\"d\"><meta charset=\"utf-8\"><link rel=\"icon\" href=\"fav.png\"><link rel=\"stylesheet\" href=\"./custom.css\"><link rel=\"stylesheet\" href=\"css/app.c533aa25.css\"><link rel=\"stylesheet\" href=\"css/app.publisher-theme.css\"><style>body{color:red}</style><script src=\"js/app.c533aa25.js\"></script><script defer src=\"https://static.cloudflareinsights.com/beacon.min.js\" data-cf-beacon=\"{}\"></script><script>window.x=1</script></head><body><div id=\"app\"></div><script src=\"js/chunk-vendors.59af3576.js\"></script><script src=\"extra.js\"></script><script>console.log(\"b\")</script></body></html>",
+   "<html><head><title>  My\n  Great   CYOA </title><meta name=\"description\" content=\"d\"><meta charset=\"utf-8\"><link rel=\"icon\" href=\"fav.png\"><link rel=\"stylesheet\" href=\"./custom.css\"><link rel=\"stylesheet\" href=\"css/app.c533aa25.css\"><link rel=\"stylesheet\" href=\"css/app.publisher-theme.css\"><style>body{color:red}</style><script src=\"js/app.c533aa25.js\"></script><script defer src=\"https://static.cloudflareinsights.com/beacon.min.js\" data-cf-beacon=\"{}\"></script><script>window.x=1</script></head><body><div id=\"app\"></div><script src=\"js/chunk-vendors.59af3576.js\"></script><script src=\"extra.js\"></script><script>console.log(\"b\")</script></body></html>"
+  ],
+  [
+   "<HEAD><TITLE>Upper</TITLE><LINK REL=\"shortcut icon\" HREF=\"i.ico\"><SCRIPT SRC='./a.js'></SCRIPT></HEAD><BODY><SCRIPT SRC='a.js'></SCRIPT></BODY>",
+   "<HEAD><TITLE>Upper</TITLE><LINK REL=\"shortcut icon\" HREF=\"i.ico\"><SCRIPT SRC='./a.js'></SCRIPT></HEAD><BODY><SCRIPT SRC='a.js'></SCRIPT></BODY>"
+  ],
+  [
+   "<title>t</title><script src=\"core.js\"></script><script src=\"x/core.js\"></script><script src=\"js/app.js?v=1\"></script><script src=\"polyfills.js\"></script>",
+   "<title>t</title><script src=\"core.js\"></script><script src=\"x/core.js\"></script><script src=\"js/app.js?v=1\"></script><script src=\"polyfills.js\"></script>"
+  ],
+  [
+   "<html><head><script src=\"/cdn-cgi/scripts/x.js\"></script><link rel=\"stylesheet\" href=\".//style.css\"></head><body></body></html>",
+   "<html><head><script src=\"/cdn-cgi/scripts/x.js\"></script><link rel=\"stylesheet\" href=\".//style.css\"></head><body></body></html>"
+  ],
+  [
+   "<html><head><link href=\"./_app/immutable/x.css\" rel=\"stylesheet\"><script src=\"./_app/immutable/start.js\"></script><script>__sveltekit_1 = {}; import('./_app/immutable/entry.js')</script><script src=\"js/app.B6d7tc9y.js\"></script><script src=\"app\"></script><link rel=\"stylesheet\" href=\"css/app.12345678.css\"></head><body data-sveltekit-preload-data><div id=\"loading-overlay\"></div><script src=\"./js/app.js\"></script><div id=\"app\"></div></body></html>",
+   "<html><head><link href=\"./_app/immutable/x.css\" rel=\"stylesheet\"><script src=\"./_app/immutable/start.js\"></script><script>__sveltekit_1 = {}; import('./_app/immutable/entry.js')</script><script src=\"js/app.B6d7tc9y.js\"></script><script src=\"app\"></script><link rel=\"stylesheet\" href=\"css/app.12345678.css\"></head><body data-sveltekit-preload-data><div id=\"loading-overlay\"></div><script src=\"./js/app.js\"></script><div id=\"app\"></div></body></html>"
+  ],
+  [
+   "<html><head><script src=\"__cyoa_offline_project__.js\"></script>\n<script id=\"__cyoa_offline_patch__\">x</script>\n</head><body><main id=\"app\"> </main></body></html>",
+   "<html><head></head><body><main id=\"app\"> </main></body></html>"
+  ],
+  [
+   "<html><head><link rel=\"stylesheet\" href=\"./css/loading.css\"></head><body></body></html>",
+   "<html><head><link rel=\"stylesheet\" href=\"./css/loading.css\"></head><body></body></html>"
+  ]
+ ]
+}
