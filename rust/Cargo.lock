@@ -938,6 +938,7 @@ version = "0.1.0"
 dependencies = [
  "csv",
  "cyoa-core",
+ "cyoa-integrations",
  "cyoa-net",
  "cyoa-parse",
  "cyoa-storage",

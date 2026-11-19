@@ -16,6 +16,8 @@ pub mod icc;
 pub mod itch;
 pub mod localize;
 pub mod logfile;
+pub mod offline_viewer;
+mod offline_viewer_consts;
 pub mod output;
 pub mod pipeline;
 pub mod pure;

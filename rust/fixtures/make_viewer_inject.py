@@ -121,6 +121,8 @@ put_viewer("htmlonly.zip", {"index.html": "<p>only</p></html>", "a.js": ""})
 put_viewer("outer.zip", {"pkg/inner.zip": zbytes({"index.html": "<html><head></head><body>in</body></html>",
                                                   "app.js": 'fetch("project.json")'}),
                          "readme.txt": "r"})
+put_viewer("crlf.zip", {"index.html": "<html>\r\n<head>\r\n</head>\r\n<body>\rx\r\n</body></html>\r\n",
+                        "app.js": "a=1;\r\nb=fetch('project.json');\r\n", "keep.bin": b"\r\n\x00\xff"})
 put_viewer("noentry.zip", {"other.html": "x"})
 put_viewer("evil.zip", {"../escape.txt": "bad", "index.html": "<html></html>"})
 put_viewer("localize.zip", {
@@ -225,7 +227,8 @@ run("nohead", V("nohead.zip"), {"app": {"name": "N"}})
 run("htmlonly", V("htmlonly.zip"), PROJECT_PLAIN)
 run("nested", V("outer.zip", inner_archive="pkg/inner.zip"), PROJECT_PLAIN)
 run("nested_missing", V("outer.zip", inner_archive="pkg/none.zip"), PROJECT_PLAIN)
-run("noentry", V("noentry.zip"), PROJECT_PLAIN)
+run("crlf", V("crlf.zip"), PROJECT_PLAIN)
+run("noentry",V("noentry.zip"), PROJECT_PLAIN)
 run("evil_member", V("evil.zip"), PROJECT_PLAIN)
 run("missing_zip", V("absent.zip"), PROJECT_PLAIN)
 run("unsafe_meta", V("../x.zip"), PROJECT_PLAIN)
