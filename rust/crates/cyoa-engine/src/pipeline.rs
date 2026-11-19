@@ -35,6 +35,9 @@ pub struct ProcessOptions {
     /// Write the embedded JSON straight to this file instead of `embed_str`,
     /// so base64 media never has to fit in memory (Python `embedded_file`).
     pub embed_out: Option<PathBuf>,
+    /// YouTube/SoundCloud audio via yt-dlp (image_pipeline.py 422-432).
+    /// None keeps the references untouched without a skip report.
+    pub youtube: Option<crate::audio::AudioConfig>,
 }
 
 impl Default for ProcessOptions {
@@ -47,6 +50,7 @@ impl Default for ProcessOptions {
             download_dir: None,
             report_dir: None,
             site_folder: None,
+            youtube: None,
             source_url: String::new(),
             embed_out: None,
         }
@@ -464,6 +468,50 @@ pub async fn process_images(
         });
     }
 
+    // image_pipeline.py 422-432: yt-dlp audio into <download dir or output
+    // dir>/audio, skip report in the report dir, project patched to the
+    // local files before anything else is rewritten.
+    let patched_input;
+    let input: &str = match &opts.youtube {
+        Some(cfg) if !assets.youtube.is_empty() => {
+            let urls: Vec<String> = assets.youtube.iter().cloned().collect();
+            let audio_root = opts
+                .download_dir
+                .clone()
+                .or_else(|| opts.report_dir.clone())
+                .unwrap_or_default();
+            let log_dir = opts
+                .report_dir
+                .clone()
+                .unwrap_or_else(|| audio_root.clone());
+            let (cfg, source, cancel) = (cfg.clone(), opts.source_url.clone(), ctx.cancel.clone());
+            let map = tokio::task::spawn_blocking(move || {
+                crate::audio::download_youtube_audio(
+                    &urls,
+                    &audio_root,
+                    &log_dir,
+                    &source,
+                    &cfg,
+                    &crate::audio::YtDlpExe {
+                        path: "yt-dlp".into(),
+                    },
+                    &cancel,
+                )
+            })
+            .await
+            .unwrap_or_default();
+            if ctx.cancel.is_cancelled() {
+                return Err(PipelineError::Cancelled);
+            }
+            if map.is_empty() {
+                input
+            } else {
+                patched_input = crate::audio::patch_youtube_refs_in_json(input, &map);
+                &patched_input
+            }
+        }
+        _ => input,
+    };
     let mut completed: HashMap<String, FetchOutcome> = HashMap::new();
     let mut skipped: BTreeMap<String, String> = BTreeMap::new();
     let mut groups: BTreeMap<String, Vec<Asset>> = BTreeMap::new();

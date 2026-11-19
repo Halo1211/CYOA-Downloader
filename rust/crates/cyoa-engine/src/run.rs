@@ -222,6 +222,14 @@ fn discord_refresher(
     }
 }
 
+/// `--no-ytdlp` / `--ytdlp-cookies` for the yt-dlp audio step.
+pub(crate) fn audio_config(opts: &RunOptions) -> crate::audio::AudioConfig {
+    crate::audio::AudioConfig {
+        enabled: opts.integrations.ytdlp,
+        explicit_cookies: opts.integrations.ytdlp_cookies.clone(),
+    }
+}
+
 /// Python `network.proxy._get_active_proxy()`.
 fn active_proxy(cfg: &cyoa_net::proxy::ProxyConfig) -> Option<String> {
     use cyoa_net::proxy::ProxyMode;
@@ -657,6 +665,7 @@ pub async fn run_download(
             cancel: cancel.clone(),
             progress,
             fonts: opts.fonts,
+            audio: audio_config(opts),
         }
         .run()
         .await;
@@ -685,6 +694,7 @@ pub async fn run_download(
         embed_out: embed.then(|| embed_out.clone()),
         source_url: opts.url.clone(),
         report_dir: Some(opts.output_dir.clone()),
+        youtube: Some(audio_config(opts)),
         ..Default::default()
     };
     let processed =

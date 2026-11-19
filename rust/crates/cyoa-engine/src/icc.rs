@@ -43,6 +43,8 @@ pub struct IccRun<'a> {
     /// `--fonts`: project.json fonts into `<site>/fonts/` (viewer fonts are
     /// handled by the mirror), rewritten project fed to image processing.
     pub fonts: bool,
+    /// yt-dlp audio settings (`--no-ytdlp`, `--ytdlp-cookies`).
+    pub audio: crate::audio::AudioConfig,
 }
 
 impl IccRun<'_> {
@@ -107,6 +109,7 @@ impl IccRun<'_> {
             report_dir: Some(site.clone()),
             site_folder: Some(site.clone()),
             source_url: self.entry_url.to_owned(),
+            youtube: Some(self.audio.clone()),
             ..Default::default()
         };
         let processed = pipeline::process_images(
