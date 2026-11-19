@@ -104,6 +104,8 @@ pub struct ClientConfig {
     pub dns: Option<Arc<crate::dns_resolve::CustomResolver>>,
     /// F-018: fail-closed VPN requirement checked before every request.
     pub vpn: Option<Arc<crate::vpn::VpnGuard>>,
+    /// Python `--http2` / `http2_enabled`: off -> HTTP/1.1 only (requests).
+    pub http2: bool,
 }
 
 impl Default for ClientConfig {
@@ -118,6 +120,7 @@ impl Default for ClientConfig {
             proxy: crate::proxy::ProxyConfig::disabled(),
             dns: None,
             vpn: None,
+            http2: false,
         }
     }
 }
@@ -228,6 +231,9 @@ impl FetchClient {
             .user_agent(DEFAULT_USER_AGENT)
             .cookie_store(true)
             .retry(reqwest::retry::never());
+        if !cfg.http2 {
+            builder = builder.http1_only();
+        }
         if let Some(t) = cfg.total_timeout {
             builder = builder.timeout(t);
         }

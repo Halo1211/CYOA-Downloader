@@ -179,6 +179,43 @@ fn output_stem(opts: &RunOptions) -> String {
     }
 }
 
+/// Optional integrations configured per run (Python process globals).
+#[derive(Clone, Debug)]
+pub struct Integrations {
+    /// `_ytdlp_enabled` (`--no-ytdlp` turns it off).
+    pub ytdlp: bool,
+    /// `CYOA_YTDLP_COOKIES`: validated Netscape cookies.txt path.
+    pub ytdlp_cookies: Option<PathBuf>,
+    /// `CYOA_DISCORD_BOT_TOKEN` (session only, never persisted or logged).
+    pub discord_token: Option<String>,
+    /// `CYOA_DISABLE_DISCORD_REFRESH` unset.
+    pub discord_refresh: bool,
+    /// `_set_selenium_enabled` (headless browser image fallback).
+    pub selenium: bool,
+    /// `_set_gallery_dl_mode`: off / smart / force.
+    pub gallery_dl_mode: String,
+    pub gallery_dl_path: String,
+    pub gallery_dl_config: String,
+    /// `_set_itch_enabled`.
+    pub itch: bool,
+}
+
+impl Default for Integrations {
+    fn default() -> Self {
+        Self {
+            ytdlp: true,
+            ytdlp_cookies: None,
+            discord_token: None,
+            discord_refresh: true,
+            selenium: true,
+            gallery_dl_mode: "off".into(),
+            gallery_dl_path: "gallery-dl".into(),
+            gallery_dl_config: String::new(),
+            itch: false,
+        }
+    }
+}
+
 /// Python `engine_mode` (`--cyoap-vue-website/--cyoap-vue-folder` ->
 /// CyoapVue, `--cyoap-vue` -> Auto probe, otherwise Standard).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -234,6 +271,12 @@ pub struct RunOptions {
     pub fonts: bool,
     /// `--bandwidth`: aggregate download limit in KB/s (0 = unlimited).
     pub bandwidth_kbps: f64,
+    /// `--http2` / settings `http2_enabled` (default off: HTTP/1.1).
+    pub http2: bool,
+    /// Session toggles of cli.py (`--no-ytdlp`, `--ytdlp-cookies`,
+    /// `--discord-token`, `--no-discord-refresh`, `--no-selenium`,
+    /// `--gallery-dl*`); consumed by the media/fallback integrations.
+    pub integrations: Integrations,
     /// Python `show_font_analysis`: log the font report.
     pub analyse_fonts: bool,
     /// Python `analysis_only` (CLI `--analyse-fonts` without `--fonts`):
@@ -263,6 +306,8 @@ impl Default for RunOptions {
             engine: Engine::Standard,
             fonts: false,
             bandwidth_kbps: 0.0,
+            http2: false,
+            integrations: Integrations::default(),
             analyse_fonts: false,
             analysis_only: false,
         }
@@ -342,6 +387,7 @@ pub async fn run_download(
         proxy: opts.proxy.clone(),
         dns: opts.dns.clone(),
         vpn: opts.vpn.clone(),
+        http2: opts.http2,
         ..ClientConfig::default()
     })
     .map_err(|e| RunError::OutputDirectory(std::io::Error::other(e.to_string())))?;

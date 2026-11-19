@@ -95,6 +95,44 @@ struct Args {
     /// Local server port used with --serve. 0 means auto-pick a fresh port.
     #[arg(long, default_value_t = 0)]
     serve_port: u16,
+    /// Print Serve-only userscript integration credit/source notes and exit.
+    #[arg(long)]
+    userscript_info: bool,
+    /// CLI/UI language preference. Saved only when explicitly provided.
+    #[arg(long, value_parser = ["id", "en"])]
+    language: Option<String>,
+    /// Use HTTP/2 via httpx for deep-scan asset fetches when available.
+    #[arg(long, overrides_with = "no_http2")]
+    http2: bool,
+    #[arg(long, hide = true, overrides_with = "http2")]
+    no_http2: bool,
+    /// Optional gallery-dl fallback. Default off; smart only uses page/post/gallery URLs; force is advanced.
+    #[arg(long, value_parser = ["off", "smart", "force"])]
+    gallery_dl: Option<String>,
+    /// gallery-dl executable path used with --gallery-dl.
+    #[arg(long)]
+    gallery_dl_path: Option<String>,
+    /// Optional gallery-dl config.json path.
+    #[arg(long)]
+    gallery_dl_config: Option<String>,
+    /// Disable automatic YouTube audio download via yt-dlp.
+    #[arg(long)]
+    no_ytdlp: bool,
+    /// Use an exported Netscape cookies.txt for yt-dlp when YouTube requires sign-in.
+    #[arg(long, value_name = "FILE", default_value = "")]
+    ytdlp_cookies: String,
+    /// Disable the headless browser image fallback (default: on).
+    #[arg(long)]
+    no_selenium: bool,
+    /// Session-only Discord bot token for automatic expired attachment recovery.
+    #[arg(long, value_name = "TOKEN", default_value = "")]
+    discord_token: String,
+    /// Disable automatic Discord attachment URL recovery for this run.
+    #[arg(long)]
+    no_discord_refresh: bool,
+    /// Force GUI.
+    #[arg(long)]
+    gui: bool,
     /// Disable the JS/CSS deep-scan asset pass (default: on).
     #[arg(long)]
     no_deep_scan: bool,
@@ -167,6 +205,22 @@ fn network_setting_updates(
     use serde_json::Value;
     let s = |v: &str| Value::String(v.to_owned());
     let mut out = Vec::new();
+    // cli.py persists these first, in this order.
+    if let Some(v) = &args.language {
+        out.push(("language", s(v)));
+    }
+    if args.http2 || args.no_http2 {
+        out.push(("http2_enabled", Value::Bool(args.http2)));
+    }
+    if let Some(v) = &args.gallery_dl {
+        out.push(("gallery_dl_mode", s(v)));
+    }
+    if let Some(v) = &args.gallery_dl_path {
+        out.push(("gallery_dl_path", s(v)));
+    }
+    if let Some(v) = &args.gallery_dl_config {
+        out.push(("gallery_dl_config", s(v)));
+    }
     if let Some(v) = &args.proxy {
         out.push(("proxy", s(v)));
     }
@@ -271,6 +325,106 @@ fn item_mode(args: &Args, mode: &str) -> Result<OutputMode, String> {
             OutputMode::Embed
         },
     )
+}
+
+/// Python `preview_assets.userscript_integration_report()`.
+fn userscript_integration_report() -> String {
+    let v = cyoa_core::app_version();
+    [
+        format!("CYOA Downloader v{v} userscript integration"),
+        "=".repeat(58),
+        "Name       : IntCyoaEnhancer".into(),
+        "Author     : agreg".into(),
+        "Version    : 0.7".into(),
+        "License    : MIT".into(),
+        "Source     : https://greasyfork.org/en/scripts/438947-intcyoaenhancer".into(),
+        "Remote JS  : https://update.greasyfork.org/scripts/438947/IntCyoaEnhancer.user.js".into(),
+        "Credit     : IntCyoaEnhancer by agreg, MIT License, GreasyFork script 438947".into(),
+        String::new(),
+        "Policy".into(),
+        "------".into(),
+        "- Downloaded CYOA output files are never modified by the userscript integration.".into(),
+        "- Serve preview exposes a bundled localhost helper at /__userscripts__/intcyoaenhancer.user.js.".into(),
+        "- The bundled helper includes a visible Native Cheat Panel; no Tampermonkey menu is required.".into(),
+        "- Local .user.js files can still override the bundled helper for advanced testing.".into(),
+        "- Local file lookup order: served CYOA folder, userscripts/, serve_userscripts/.".into(),
+        "- Native Serve Tools remain available as a fallback through window.$serveTools.".into(),
+        "- Use this for localhost/offline debugging, accessibility, and QoL testing only.".into(),
+    ]
+    .join("\n")
+        + "\n"
+}
+
+/// Python `print(text)` / `_safe_console_print`: trailing newline, text-mode
+/// stdout (CRLF on Windows).
+fn console_print(text: &str) {
+    use std::io::Write;
+    let line = cyoa_engine::reports::os_text(&format!(
+        "{text}
+"
+    ));
+    let mut out = std::io::stdout().lock();
+    let _ = out.write_all(line.as_bytes());
+    let _ = out.flush();
+}
+
+/// Python `launch_gui()`: start the desktop app shipped next to this CLI.
+fn launch_gui() -> ExitCode {
+    let name = if cfg!(windows) {
+        "cyoa-desktop.exe"
+    } else {
+        "cyoa-desktop"
+    };
+    let exe = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join(name)));
+    match exe {
+        Some(path) if path.is_file() => match std::process::Command::new(&path).spawn() {
+            Ok(_) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("error: could not start the GUI: {e}");
+                ExitCode::FAILURE
+            }
+        },
+        _ => {
+            eprintln!("error: GUI executable {name} not found next to the CLI");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Python `_configured_ytdlp_cookie_path`: explicit path must exist; a
+/// missing saved path only warns.
+fn configured_ytdlp_cookie_path(explicit: &str, saved: &str) -> Result<Option<PathBuf>, String> {
+    let raw = if explicit.trim().is_empty() {
+        saved
+    } else {
+        explicit
+    }
+    .trim();
+    if raw.is_empty() {
+        return Ok(None);
+    }
+    let expanded = match raw.strip_prefix('~') {
+        Some(rest) => dirs_home().map(|h| h.join(rest.trim_start_matches(['/', '\\']))),
+        None => None,
+    }
+    .unwrap_or_else(|| PathBuf::from(raw));
+    let path = std::path::absolute(&expanded).unwrap_or(expanded);
+    if path.is_file() {
+        return Ok(Some(path));
+    }
+    if !explicit.trim().is_empty() {
+        return Err(path.display().to_string());
+    }
+    tracing::warn!("Saved yt-dlp cookie file was not found; continuing without it");
+    Ok(None)
+}
+
+fn dirs_home() -> Option<PathBuf> {
+    std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))
+        .map(PathBuf::from)
 }
 
 /// Python `--serve`: serve the last website folder (or the output folder's
@@ -427,6 +581,10 @@ async fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
     let mut args = Args::parse();
+    if args.userscript_info {
+        console_print(&userscript_integration_report());
+        return ExitCode::SUCCESS;
+    }
     // cli.py 477-489: --verify [--write-manifest] runs before anything else.
     if let Some(folder) = &args.verify {
         let (ok, text) = if args.write_manifest {
@@ -434,7 +592,7 @@ async fn main() -> ExitCode {
         } else {
             cyoa_engine::verify::verify_output_package(folder)
         };
-        println!("{text}");
+        console_print(&text);
         return if ok {
             ExitCode::SUCCESS
         } else {
@@ -452,7 +610,7 @@ async fn main() -> ExitCode {
         } else {
             (false, String::new())
         };
-        println!("{msg}");
+        console_print(&msg);
         return if ok {
             ExitCode::SUCCESS
         } else {
@@ -511,6 +669,51 @@ async fn main() -> ExitCode {
         .cloned()
         .unwrap_or_else(|_| cyoa_storage::settings::defaults());
     let lookup = |key: &str| saved.get(key).and_then(|v| v.as_str()).map(str::to_string);
+    let saved_bool = |key: &str, default: bool| {
+        saved
+            .get(key)
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(default)
+    };
+    // cli.py 510-520: validated yt-dlp cookie path (explicit must exist).
+    let ytdlp_cookies = match configured_ytdlp_cookie_path(
+        &args.ytdlp_cookies,
+        &lookup("ytdlp_cookies").unwrap_or_default(),
+    ) {
+        Ok(p) => p,
+        Err(path) => {
+            eprintln!("error: yt-dlp cookie file not found: {path}");
+            return ExitCode::from(2);
+        }
+    };
+    // cli.py: effective session toggles (flags override saved settings).
+    let integrations = cyoa_engine::run::Integrations {
+        ytdlp: !args.no_ytdlp,
+        ytdlp_cookies,
+        discord_token: Some(args.discord_token.trim().to_owned()).filter(|t| !t.is_empty()),
+        discord_refresh: !args.no_discord_refresh,
+        selenium: if args.no_selenium {
+            false
+        } else {
+            saved_bool("selenium_enabled", true)
+        },
+        gallery_dl_mode: args
+            .gallery_dl
+            .clone()
+            .or_else(|| lookup("gallery_dl_mode"))
+            .unwrap_or_else(|| "off".into()),
+        gallery_dl_path: args
+            .gallery_dl_path
+            .clone()
+            .unwrap_or_else(|| "gallery-dl".into()),
+        gallery_dl_config: args.gallery_dl_config.clone().unwrap_or_default(),
+        itch: saved_bool("itch_enabled", false),
+    };
+    let http2 = if args.http2 || args.no_http2 {
+        args.http2
+    } else {
+        saved_bool("http2_enabled", false)
+    };
     let proxy_cfg = match cyoa_net::proxy::resolve_cli(
         &cyoa_net::proxy::ProxyArgs {
             mode: args.proxy_mode.as_deref(),
@@ -597,6 +800,10 @@ async fn main() -> ExitCode {
         if let Err(error) = store.save() {
             tracing::warn!("Could not save network settings: {error}");
         }
+    }
+    // cli.py 741-743: --gui launches the desktop app after settings handling.
+    if args.gui {
+        return launch_gui();
     }
 
     // orchestrator.py: saved `cyoa_mgr_db_path` if it exists, else auto-detect;
@@ -707,6 +914,8 @@ async fn main() -> ExitCode {
             dns: dns.clone(),
             vpn: vpn.clone(),
             deep_scan: !args.no_deep_scan,
+            http2,
+            integrations: integrations.clone(),
             fonts: args.fonts,
             // cli.py: max(0.0, float(args.bandwidth or 0.0)); never persisted.
             bandwidth_kbps: if args.bandwidth.is_finite() {
