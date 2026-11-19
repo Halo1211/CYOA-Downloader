@@ -110,4 +110,4 @@ SEC-2 (2026-11-19): fixed in the Rust preview server (`cyoa_integrations::previe
 ## Sol review 2026-11-19 (preview server, fonts, MediaWiki)
 
 Fixed: preview Host validation (127.0.0.1/localhost:<port>, exactly once; DNS-rebinding guard, divergence from Python), 10 s absolute request-head deadline and 30 s write timeout (slot exhaustion); fonts capped at 500 references, 64 MiB per font (enforced while reading), 512 MiB per run; MediaWiki resolution now also runs on the spooled (streaming) path used by real runs (was unreachable there; regression test added and mutation-checked).
-Open: preview shutdown does not abort in-flight client threads (bounded by the timeouts above); no runtime test for Windows device names (CON/NUL) in preview paths; slowloris test not automated (10 s deadline).
+Open: preview shutdown does not abort in-flight client threads (bounded by the timeouts above); slowloris test not automated (10 s deadline).

@@ -541,6 +541,16 @@ mod tests {
         assert!(h.contains("200 OK"));
     }
 
+    /// Drafted by the offline MiMo worker; reviewed and run by Claude.
+    #[test]
+    fn windows_device_names_are_not_served() {
+        let (_d, s) = server();
+        for p in ["/CON", "/nul", "/COM1.txt", "/aux/x", "/LPT1"] {
+            let (h, _) = get(&s, &format!("GET {p} HTTP/1.1\r\n\r\n"));
+            assert!(!h.contains("200 OK"), "unexpected 200 OK for {p}");
+        }
+    }
+
     #[test]
     fn slow_client_is_served() {
         // The request arrives after accept(): the socket must be blocking.
