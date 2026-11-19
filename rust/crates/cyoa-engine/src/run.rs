@@ -168,7 +168,43 @@ pub(crate) fn build_ctx(
         spool_dir: Some(spool_dir),
         bandwidth: (opts.bandwidth_kbps > 0.0)
             .then(|| cyoa_net::throttle::BandwidthThrottle::new(opts.bandwidth_kbps)),
+        gallery_dl: {
+            let i = &opts.integrations;
+            let mut g = crate::gallery_dl::GalleryDl::new(
+                &i.gallery_dl_mode,
+                &i.gallery_dl_path,
+                &i.gallery_dl_config,
+            );
+            g.proxy = active_proxy(&opts.proxy);
+            if opts.proxy.mode == cyoa_net::proxy::ProxyMode::Manual {
+                g.no_proxy = opts.proxy.no_proxy.clone();
+            }
+            g.enabled().then(|| Arc::new(g))
+        },
     })
+}
+
+/// Python `network.proxy._get_active_proxy()`.
+fn active_proxy(cfg: &cyoa_net::proxy::ProxyConfig) -> Option<String> {
+    use cyoa_net::proxy::ProxyMode;
+    match cfg.mode {
+        ProxyMode::Disabled => None,
+        ProxyMode::Manual => cfg
+            .common
+            .clone()
+            .or_else(|| cfg.https.clone())
+            .or_else(|| cfg.http.clone()),
+        ProxyMode::InheritEnv => [
+            "HTTPS_PROXY",
+            "https_proxy",
+            "HTTP_PROXY",
+            "http_proxy",
+            "ALL_PROXY",
+            "all_proxy",
+        ]
+        .iter()
+        .find_map(|k| std::env::var(k).ok().filter(|v| !v.is_empty())),
+    }
 }
 
 /// orchestrator.py: explicit name, else derived; always cleaned.

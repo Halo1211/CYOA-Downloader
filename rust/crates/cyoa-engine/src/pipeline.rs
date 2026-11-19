@@ -860,6 +860,7 @@ mod tests {
             resolver: Arc::new(|_| vec![IpAddr::V4(Ipv4Addr::LOCALHOST)]),
             spool_dir: None,
             bandwidth: None,
+            gallery_dl: None,
         })
     }
     fn opts() -> ProcessOptions {

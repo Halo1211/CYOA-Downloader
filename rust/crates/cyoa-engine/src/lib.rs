@@ -9,6 +9,7 @@ pub mod embed;
 pub mod fetch;
 pub mod fetch_plan;
 pub mod fonts;
+pub mod gallery_dl;
 pub mod icc;
 pub mod localize;
 pub mod logfile;

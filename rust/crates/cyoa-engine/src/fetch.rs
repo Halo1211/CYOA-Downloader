@@ -41,6 +41,9 @@ pub struct FetchCtx {
     /// `--bandwidth` (KB/s): shared aggregate limiter, Python
     /// `_throttle_bandwidth` after each body / per streamed chunk.
     pub bandwidth: Option<cyoa_net::throttle::BandwidthThrottle>,
+    /// `--gallery-dl smart|force`: tried for project images before the
+    /// direct request (image_pipeline.py 660-670).
+    pub gallery_dl: Option<Arc<crate::gallery_dl::GalleryDl>>,
 }
 
 /// Bytes of a fetched asset: in memory, or spooled to a file owned by the run.
@@ -436,7 +439,25 @@ pub async fn fetch_one(ctx: &FetchCtx, asset_path: &str) -> FetchOutcome {
         }
     }
 
-    // DEFERRED(F-XXX): gallery-dl extraction is not implemented.
+    if let Some(gdl) = &ctx.gallery_dl
+        && ctx.image_paths.contains(asset_path)
+        && let Some(site) = gdl.candidate(&asset_url)
+    {
+        tracing::info!("  [gallery-dl] Trying ({site}): {asset_url}");
+        let (g, url, cancel) = (gdl.clone(), asset_url.clone(), ctx.cancel.clone());
+        match tokio::task::spawn_blocking(move || g.fetch(&url, &cancel)).await {
+            Ok(Ok(Some(data))) => {
+                let mime = guess_mime_from_url(&asset_url).unwrap_or("image/jpeg");
+                let payload = spool(ctx, Bytes::from(data)).await;
+                return outcome(asset_path, Some(payload), mime, &asset_url, "");
+            }
+            Ok(Err(crate::gallery_dl::Cancelled)) => {
+                return outcome(asset_path, None, "", &asset_url, "fetch cancelled");
+            }
+            Ok(Ok(None)) => {}
+            Err(e) => tracing::debug!("[gallery-dl] worker failed: {e}"),
+        }
+    }
     // DEFERRED(F-XXX): headless browser recovery is not implemented.
     // DEFERRED(F-XXX): browser cookie session retry is not implemented; attempt 2 marks it tried.
     // DEFERRED(F-XXX): Discord attachment URL refresh is not implemented.
@@ -730,6 +751,7 @@ mod tests {
             resolver: Arc::new(|_| vec![IpAddr::V4(Ipv4Addr::LOCALHOST)]),
             spool_dir: None,
             bandwidth: None,
+            gallery_dl: None,
         }
     }
 
