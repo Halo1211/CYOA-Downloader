@@ -181,7 +181,45 @@ pub(crate) fn build_ctx(
             }
             g.enabled().then(|| Arc::new(g))
         },
+        discord: discord_refresher(opts, client, project_json),
     })
+}
+
+/// image_pipeline.py 526-551: recovery is set up when the project has
+/// Discord attachment images and refresh is not disabled.
+fn discord_refresher(
+    opts: &RunOptions,
+    client: &FetchClient,
+    project_json: &str,
+) -> Option<Arc<crate::discord::DiscordRefresher>> {
+    let assets = cyoa_parse::deep_scan::collect_project_assets(project_json);
+    let count = assets
+        .images
+        .iter()
+        .filter(|p| crate::discord::is_discord_attachment_url(p))
+        .collect::<HashSet<_>>()
+        .len();
+    if count == 0 || !opts.integrations.discord_refresh {
+        return None;
+    }
+    match crate::discord::resolve_bot_token(opts.integrations.discord_token.as_deref()) {
+        Some(token) => {
+            tracing::info!(
+                "Discord recovery is active for {count} attachment(s); direct download is tried first."
+            );
+            Some(Arc::new(crate::discord::DiscordRefresher::new(
+                &token,
+                &opts.integrations.discord_api_root,
+                client.clone(),
+            )))
+        }
+        None => {
+            tracing::info!(
+                "Discord attachment URL(s) found. Configure a Bot Token in Settings > Discord Attachments to recover expired URLs automatically."
+            );
+            None
+        }
+    }
 }
 
 /// Python `network.proxy._get_active_proxy()`.
@@ -234,6 +272,8 @@ pub struct Integrations {
     pub gallery_dl_config: String,
     /// `_set_itch_enabled`.
     pub itch: bool,
+    /// Discord API root (tests point it at a local mock).
+    pub discord_api_root: String,
 }
 
 impl Default for Integrations {
@@ -248,6 +288,7 @@ impl Default for Integrations {
             gallery_dl_path: "gallery-dl".into(),
             gallery_dl_config: String::new(),
             itch: false,
+            discord_api_root: crate::discord::DEFAULT_API_ROOT.into(),
         }
     }
 }

@@ -10,6 +10,8 @@ use crate::{
     throttle::BandwidthThrottle,
 };
 use bytes::Bytes;
+/// Header types used by `FetchClient` callers.
+pub use reqwest::header;
 use reqwest::{
     StatusCode,
     dns::{Addrs, Name, Resolve, Resolving},
@@ -246,6 +248,58 @@ impl FetchClient {
 
     pub fn budget(&self) -> &RequestBudget {
         &self.cfg.budget
+    }
+
+    /// POST a JSON body (Discord attachment refresh). Same destination,
+    /// VPN, budget and cancellation rules as `get`; redirects are not
+    /// followed. Returns (status, headers, body up to `max` bytes).
+    pub async fn post_json(
+        &self,
+        url: &Url,
+        headers: HeaderMap,
+        body: Vec<u8>,
+        max: u64,
+        cancel: &Cancel,
+    ) -> Result<(u16, HeaderMap, Bytes), E> {
+        let end = self
+            .cfg
+            .total_timeout
+            .and_then(|t| Instant::now().checked_add(t));
+        check(cancel, end)?;
+        self.cfg.policy.check(url)?;
+        if let Some(vpn) = &self.cfg.vpn
+            && !vpn.satisfied_async().await
+        {
+            return Err(E::VpnBlocked);
+        }
+        let _lease = wait(
+            cancel,
+            end,
+            self.cfg.budget.acquire(url.as_str(), 0, cancel),
+        )
+        .await??;
+        let resp = wait(
+            cancel,
+            end,
+            self.http
+                .post(url.clone())
+                .headers(headers)
+                .header(reqwest::header::CONTENT_TYPE, "application/json")
+                .body(body)
+                .send(),
+        )
+        .await??;
+        let status = resp.status().as_u16();
+        let headers = resp.headers().clone();
+        let mut out = Vec::new();
+        let mut resp = resp;
+        while let Some(chunk) = wait(cancel, end, resp.chunk()).await?? {
+            out.extend_from_slice(&chunk);
+            if out.len() as u64 > max {
+                return Err(E::TooLarge);
+            }
+        }
+        Ok((status, headers, Bytes::from(out)))
     }
 
     pub async fn get(

@@ -4,6 +4,7 @@ pub mod batch;
 pub mod cafe;
 pub mod cafe_static;
 pub mod cyoap;
+pub mod discord;
 pub mod discover_net;
 pub mod embed;
 pub mod fetch;

@@ -44,6 +44,9 @@ pub struct FetchCtx {
     /// `--gallery-dl smart|force`: tried for project images before the
     /// direct request (image_pipeline.py 660-670).
     pub gallery_dl: Option<Arc<crate::gallery_dl::GalleryDl>>,
+    /// Discord attachment URL refresher (bot token configured and recovery
+    /// enabled), image_pipeline.py 539-567 / 759-771.
+    pub discord: Option<Arc<crate::discord::DiscordRefresher>>,
 }
 
 /// Bytes of a fetched asset: in memory, or spooled to a file owned by the run.
@@ -399,7 +402,8 @@ async fn fetch_linked_original(ctx: &FetchCtx, original: &str) -> Option<(Bytes,
 
 /// Fetch a direct HTTP asset with bounded retries, cancellation, cache, and SSRF screening.
 pub async fn fetch_one(ctx: &FetchCtx, asset_path: &str) -> FetchOutcome {
-    let asset_url = crate::fetch_plan::resolve_asset_url(asset_path, &ctx.base_url);
+    let mut asset_url = crate::fetch_plan::resolve_asset_url(asset_path, &ctx.base_url);
+    let mut discord_refresh_tried = false;
 
     // DEFERRED(F-XXX): VPN interface guard is not part of this direct HTTP port.
     let blocked =
@@ -565,6 +569,30 @@ pub async fn fetch_one(ctx: &FetchCtx, asset_path: &str) -> FetchOutcome {
                 && !cancel_sleep(delay, &ctx.cancel).await
             {
                 return outcome(asset_path, None, "", &asset_url, "fetch cancelled");
+            }
+            continue;
+        }
+        if crate::discord::REFRESHABLE_STATUSES.contains(&status)
+            && !discord_refresh_tried
+            && crate::discord::is_discord_attachment_url(&asset_url)
+            && let Some(discord) = &ctx.discord
+        {
+            discord_refresh_tried = true;
+            drop(response);
+            let refreshed = discord.refresh(&asset_url, &ctx.cancel).await;
+            if !refreshed.is_empty() && refreshed != asset_url {
+                tracing::info!("  [Discord] Refreshed expired attachment URL");
+                asset_url = refreshed;
+                continue;
+            }
+            last_error = format!("HTTP {status}: asset not found");
+            if status == 404 || status == 410 {
+                return outcome(asset_path, None, "", &asset_url, last_error);
+            }
+            authentication_failed = true;
+            last_error = format!("HTTP {status}: authentication required");
+            if cookie_session_tried {
+                break;
             }
             continue;
         }
@@ -752,6 +780,7 @@ mod tests {
             spool_dir: None,
             bandwidth: None,
             gallery_dl: None,
+            discord: None,
         }
     }
 

@@ -861,6 +861,7 @@ mod tests {
             spool_dir: None,
             bandwidth: None,
             gallery_dl: None,
+            discord: None,
         })
     }
     fn opts() -> ProcessOptions {

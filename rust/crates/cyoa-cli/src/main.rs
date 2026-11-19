@@ -708,6 +708,7 @@ async fn main() -> ExitCode {
             .unwrap_or_else(|| "gallery-dl".into()),
         gallery_dl_config: args.gallery_dl_config.clone().unwrap_or_default(),
         itch: saved_bool("itch_enabled", false),
+        ..cyoa_engine::run::Integrations::default()
     };
     let http2 = if args.http2 || args.no_http2 {
         args.http2
