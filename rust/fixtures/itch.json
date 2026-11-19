@@ -1,0 +1,136 @@
+{
+ "urls": [
+  [
+   "https://itch.io/x",
+   true
+  ],
+  [
+   "https://dev.itch.io/game",
+   true
+  ],
+  [
+   "http://a.itch.zone/b",
+   true
+  ],
+  [
+   "https://itch.zone",
+   true
+  ],
+  [
+   "https://notitch.io/x",
+   false
+  ],
+  [
+   "ftp://dev.itch.io/g",
+   false
+  ],
+  [
+   "https://dev.itch.io.evil.com/",
+   false
+  ],
+  [
+   "itch.io/x",
+   false
+  ],
+  [
+   "",
+   false
+  ]
+ ],
+ "commands": [
+  {
+   "prefix": [
+    "itch-dl"
+   ],
+   "key": null,
+   "mirror": false,
+   "parallel": 1,
+   "cmd": [
+    "itch-dl",
+    "https://dev.itch.io/g",
+    "--download-to",
+    "OUT/itch_assets"
+   ],
+   "redacted": "itch-dl https://dev.itch.io/g --download-to OUT/itch_assets"
+  },
+  {
+   "prefix": [
+    "uvx",
+    "itch-dl"
+   ],
+   "key": "SECRET",
+   "mirror": true,
+   "parallel": 4,
+   "cmd": [
+    "uvx",
+    "itch-dl",
+    "https://dev.itch.io/g",
+    "--download-to",
+    "OUT/itch_assets",
+    "--mirror-web",
+    "--parallel",
+    "4",
+    "--api-key",
+    "SECRET"
+   ],
+   "redacted": "uvx itch-dl https://dev.itch.io/g --download-to OUT/itch_assets --mirror-web --parallel 4 --api-key ***"
+  },
+  {
+   "prefix": [
+    "pipx",
+    "run",
+    "itch-dl"
+   ],
+   "key": "k",
+   "mirror": false,
+   "parallel": 16,
+   "cmd": [
+    "pipx",
+    "run",
+    "itch-dl",
+    "https://dev.itch.io/g",
+    "--download-to",
+    "OUT/itch_assets",
+    "--parallel",
+    "16",
+    "--api-key",
+    "k"
+   ],
+   "redacted": "pipx run itch-dl https://dev.itch.io/g --download-to OUT/itch_assets --parallel 16 --api-***ey ***"
+  }
+ ],
+ "bad_parallel": [
+  [
+   0,
+   "itch-dl parallel must be between 1 and 16"
+  ],
+  [
+   17,
+   "itch-dl parallel must be between 1 and 16"
+  ]
+ ],
+ "redact_extra": [
+  [
+   [
+    "a",
+    "--api_key",
+    "s3",
+    "x s3 y"
+   ],
+   "a --api_key *** x *** y"
+  ],
+  [
+   [
+    "--api-key"
+   ],
+   "--api-key"
+  ],
+  [
+   [
+    "a",
+    "b"
+   ],
+   "a b"
+  ]
+ ]
+}
