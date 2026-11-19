@@ -78,18 +78,27 @@ def sort_downloaded_block(data: bytes) -> bytes:
 
 
 def sort_deep_scan_entries(data: bytes) -> bytes:
-    """Deep-scan failures are appended in candidate-set order (randomised in
-    Python); compare the "[n] deep-scan" entries sorted and renumbered."""
+    """Failure reports list entries in completion order on both sides
+    (Python thread pool / randomised deep-scan sets); compare the
+    "[n] <kind>" entries sorted and renumbered."""
     text = data.replace(b"\r\n", b"\n")
-    if b"Broken Deep-Scan Asset Report" not in text:
+    if b"Asset Report" not in text:
         return data
     head, _, body = text.partition(b"\n\n[1] ")
     if not body:
         return data
     blocks = (b"[1] " + body).strip(b"\n").split(b"\n\n")
-    stripped = sorted(b.split(b"\n", 1)[1] if b"\n" in b else b"" for b in blocks)
-    renumbered = [b"[%d] deep-scan\n" % (i + 1) + s for i, s in enumerate(stripped)]
+    stripped = sorted(b.split(b"] ", 1)[1] if b"] " in b else b for b in blocks)
+    renumbered = [b"[%d] " % (i + 1) + s for i, s in enumerate(stripped)]
     return head + b"\n\n" + b"\n\n".join(renumbered) + b"\n"
+
+
+def sort_failed_lines(data: bytes) -> bytes:
+    """failed_images.txt rows follow completion order on both sides."""
+    lines = data.replace(b"\r\n", b"\n").split(b"\n")
+    head = [l for l in lines if l.startswith(b"#") or not l.strip()]
+    rows = sorted(l for l in lines if l.strip() and not l.startswith(b"#"))
+    return b"\n".join(head + rows)
 
 
 def normalise(rel: str, data: bytes, rust: bool) -> bytes:
@@ -97,6 +106,8 @@ def normalise(rel: str, data: bytes, rust: bool) -> bytes:
         data = sort_downloaded_block(data)
     if rel == "failed_assets.txt":
         data = sort_deep_scan_entries(data)
+    if rel == "failed_images.txt":
+        data = sort_failed_lines(data)
     if rel.endswith(".txt"):
         data = b"\n".join(
             l for l in data.splitlines()
@@ -159,7 +170,9 @@ def main() -> int:
                 # --fonts: ICC (project fonts), pure (viewer fonts), plain ZIP.
                 ("auto", "--icc-folder", "", "--fonts"),
                 ("classic", "--pure-website-folder", "", "--fonts"),
-                ("auto", "--zip", "", "--fonts")]
+                ("auto", "--zip", "", "--fonts"),
+                # CLI overrides of the saved archive settings.
+                ("auto", "--icc-folder", "", "--archive-strategy", "smart", "--archive-max-pages", "2")]
         for strategy, flag, sub, *extra in runs:
             # Python reads settings.json `archive_strategy` (default auto);
             # classic also runs the recovery pass and the deep scan.

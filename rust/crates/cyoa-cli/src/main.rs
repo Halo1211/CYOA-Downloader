@@ -62,6 +62,15 @@ struct Args {
     /// Use dedicated cyoap_vue ICC mode and keep folder output.
     #[arg(long)]
     cyoap_vue_folder: bool,
+    /// Website archive engine: auto fingerprints the site; classic keeps historical behavior; smart crawls story routes; browser captures runtime assets.
+    #[arg(long, value_parser = ["classic", "smart", "browser", "auto"])]
+    archive_strategy: Option<String>,
+    /// Maximum internal HTML routes for Smart/Browser modes (default: 300).
+    #[arg(long, allow_negative_numbers = true)]
+    archive_max_pages: Option<i64>,
+    /// Maximum internal route-link depth for Smart/Browser modes (default: 30).
+    #[arg(long, allow_negative_numbers = true)]
+    archive_max_depth: Option<i64>,
     /// Validate a previously downloaded output FOLDER (read-only integrity check) and exit.
     #[arg(long, value_name = "FOLDER")]
     verify: Option<PathBuf>,
@@ -565,7 +574,21 @@ async fn main() -> ExitCode {
     });
     let manager_db = manager_db.flatten();
     // Python orchestrator: ArchivePolicy from settings (`archive_*`).
-    let archive = cyoa_engine::icc::ArchivePolicy::from_settings(&saved);
+    // cli.py: --archive-* default to the saved settings; given values win
+    // for this run only (not persisted) and get the same bounds.
+    let archive = {
+        let mut effective = saved.clone();
+        if let Some(s) = &args.archive_strategy {
+            effective.insert("archive_strategy".into(), s.clone().into());
+        }
+        if let Some(n) = args.archive_max_pages {
+            effective.insert("archive_max_pages".into(), n.into());
+        }
+        if let Some(n) = args.archive_max_depth {
+            effective.insert("archive_max_depth".into(), n.into());
+        }
+        cyoa_engine::icc::ArchivePolicy::from_settings(&effective)
+    };
     let batch_mode = args.list.is_some();
     let items: Vec<BatchItem> = if let Some(list) = args.list.take() {
         match batch::import_batch_file(&list) {
