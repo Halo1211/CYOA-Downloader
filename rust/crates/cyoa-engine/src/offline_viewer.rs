@@ -39,7 +39,16 @@ pub struct FetchedAsset {
     pub body: Vec<u8>,
 }
 
+/// Largest preserved asset accepted (Python: 256 MiB localization limit).
+pub const LOCALIZE_MAX_BYTES: usize = 256 * 1024 * 1024;
+
 /// Network seam for `_localize_preserved_index_assets` (`None` = request failed).
+///
+/// Contract for production implementations (Sol review): resolve and pin
+/// destinations through the cyoa-net destination policy on every request and
+/// redirect (DNS rebinding / private addresses), and stop reading the decoded
+/// body after `LOCALIZE_MAX_BYTES + 1` bytes. The static origin screen in this
+/// module is only the Python-equivalent first check.
 pub trait AssetFetcher {
     fn fetch(&self, url: &str) -> Option<FetchedAsset>;
 }
@@ -327,6 +336,24 @@ fn limits() -> cyoa_storage::archive::ArchiveLimits {
     }
 }
 
+/// Python: strip a single wrapper folder when every member lives below it.
+fn common_root_prefix(members: &[String]) -> String {
+    let roots: HashSet<&str> = members
+        .iter()
+        .filter(|m| !m.trim_matches('/').is_empty())
+        .map(|m| m.split('/').next().unwrap_or(""))
+        .collect();
+    if roots.len() == 1 {
+        if let Some(root) = roots.iter().next() {
+            let with_slash = format!("{root}/");
+            if members.iter().all(|m| m.starts_with(&with_slash)) {
+                return with_slash;
+            }
+        }
+    }
+    String::new()
+}
+
 fn extract_zip<R: Read + Seek>(z: &mut zip::ZipArchive<R>, site: &Path) -> Result<(), String> {
     let mut members = Vec::with_capacity(z.len());
     for i in 0..z.len() {
@@ -336,20 +363,7 @@ fn extract_zip<R: Read + Seek>(z: &mut zip::ZipArchive<R>, site: &Path) -> Resul
     if members.len() > 10_000 {
         return Err("Viewer archive contains too many members".into());
     }
-    let roots: HashSet<&str> = members
-        .iter()
-        .filter(|m| !m.trim_matches('/').is_empty())
-        .map(|m| m.split('/').next().unwrap_or(""))
-        .collect();
-    let mut strip_prefix = String::new();
-    if roots.len() == 1 {
-        if let Some(root) = roots.iter().next() {
-            let with_slash = format!("{root}/");
-            if members.iter().all(|m| m.starts_with(&with_slash)) {
-                strip_prefix = with_slash;
-            }
-        }
-    }
+    let strip_prefix = common_root_prefix(&members);
     let site_str = site.to_string_lossy();
     let mut total = 0_u64;
     for (i, member) in members.iter().enumerate() {
@@ -395,59 +409,135 @@ fn extract_zip<R: Read + Seek>(z: &mut zip::ZipArchive<R>, site: &Path) -> Resul
     Ok(())
 }
 
-/// RAR viewers: the system `tar` (bsdtar on Windows 10+) like Python's fallback.
-fn extract_rar(archive: &Path, site: &Path) -> Result<(), String> {
-    let listing = std::process::Command::new("tar")
-        .arg("-tf")
-        .arg(archive)
-        .stdin(std::process::Stdio::null())
-        .output()
-        .map_err(|e| format!("system tar unavailable: {e}"))?;
-    if !listing.status.success() {
-        return Err("system tar could not list the RAR viewer".into());
-    }
-    let site_str = site.to_string_lossy();
-    let names: Vec<String> = String::from_utf8_lossy(&listing.stdout)
-        .lines()
-        .map(|l| l.replace('\\', "/"))
-        .collect();
-    if names.len() > 10_000 {
-        return Err("Viewer archive contains too many members".into());
-    }
-    // Validate every member path before anything is written.
-    for n in &names {
-        if !n.is_empty() && !n.ends_with('/') {
-            cyoa_core::paths::safe_archive_join(&site_str, n, false).map_err(|e| e.to_string())?;
+/// Run the system `tar` with a bounded stdout and a deadline (Python:
+/// `subprocess.run([tar, ...], capture_output=True, timeout=180)`).
+fn run_tar_bounded(args: &[&std::ffi::OsStr], limit: u64) -> Result<Vec<u8>, String> {
+    use std::process::{Command, Stdio};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    use std::time::{Duration, Instant};
+    let mut child = Command::new("tar")
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("RAR viewer requires an extractor (unrar, 7z, or tar): {e}"))?;
+    let overflow = Arc::new(AtomicBool::new(false));
+    let mut stdout = child.stdout.take().ok_or("tar stdout unavailable")?;
+    let mut stderr = child.stderr.take().ok_or("tar stderr unavailable")?;
+    let flag = Arc::clone(&overflow);
+    let reader = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let res = (&mut stdout).take(limit + 1).read_to_end(&mut buf);
+        if buf.len() as u64 > limit {
+            flag.store(true, Ordering::SeqCst);
         }
-    }
-    let staging = tempfile_dir(site)?;
-    let status = std::process::Command::new("tar")
-        .arg("-xf")
-        .arg(archive)
-        .arg("-C")
-        .arg(&staging)
-        .stdin(std::process::Stdio::null())
-        .status()
+        res.map(|_| buf)
+    });
+    let err_reader = std::thread::spawn(move || {
+        let mut head = Vec::new();
+        let _ = (&mut stderr).take(4096).read_to_end(&mut head);
+        let _ = std::io::copy(&mut stderr, &mut std::io::sink());
+        head
+    });
+    let deadline = Instant::now() + Duration::from_secs(180);
+    let status = loop {
+        if overflow.load(Ordering::SeqCst) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!(
+                "Viewer archive member too large (more than {limit} bytes)"
+            ));
+        }
+        match child.try_wait() {
+            Ok(Some(s)) => break s,
+            Ok(None) if Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("System tar timed out reading the RAR viewer".into());
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(20)),
+            Err(e) => return Err(e.to_string()),
+        }
+    };
+    let out = reader
+        .join()
+        .map_err(|_| "tar reader failed".to_owned())?
         .map_err(|e| e.to_string())?;
-    if !status.success() {
-        let _ = fs::remove_dir_all(&staging);
-        return Err("system tar could not extract the RAR viewer".into());
+    let err = err_reader.join().unwrap_or_default();
+    if out.len() as u64 > limit {
+        return Err(format!(
+            "Viewer archive member too large (more than {limit} bytes)"
+        ));
     }
-    let report = cyoa_core::paths::copytree_merge_safe(&staging, site, "viewer");
-    let _ = fs::remove_dir_all(&staging);
-    let _ = report;
-    Ok(())
+    if !status.success() {
+        let detail: String = String::from_utf8_lossy(&err)
+            .trim()
+            .chars()
+            .take(200)
+            .collect();
+        return Err(format!("System tar could not read RAR viewer: {detail}"));
+    }
+    Ok(out)
 }
 
-fn tempfile_dir(site: &Path) -> Result<PathBuf, String> {
-    let parent = site.parent().unwrap_or(site);
-    for n in 0..1000 {
-        let p = parent.join(format!(".cyoa_rar_staging_{}_{n}", std::process::id()));
-        if fs::create_dir(&p).is_ok() {
-            return Ok(p);
-        }
+/// RAR viewers through the system `tar` (bsdtar; Windows 10+), owner decision R1.
+/// Like Python's `_read_rar_viewer_member` fallback, every regular member is
+/// read separately with `tar -xOf <archive> -- <member>` and written through the
+/// same containment, wrapper-folder and size rules as ZIP viewers, so archive
+/// symlinks/hardlinks are never materialised.
+fn extract_rar(archive: &Path, site: &Path) -> Result<(), String> {
+    let a = archive.as_os_str();
+    let listing = run_tar_bounded(&[std::ffi::OsStr::new("-tf"), a], 16 * 1024 * 1024)?;
+    let members: Vec<String> = String::from_utf8_lossy(&listing)
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| l.replace('\\', "/"))
+        .collect();
+    if members.len() > 10_000 {
+        return Err("Viewer archive contains too many members".into());
     }
-    Err("could not create a RAR staging folder".into())
+    let strip_prefix = common_root_prefix(&members);
+    let site_str = site.to_string_lossy();
+    // Validate every path before anything is written.
+    let mut plan = Vec::new();
+    for member in &members {
+        let rel = member.get(strip_prefix.len()..).unwrap_or("");
+        if rel.is_empty() || rel.ends_with('/') {
+            continue;
+        }
+        if member.contains(['*', '?', '[']) {
+            // bsdtar treats member arguments as patterns.
+            return Err(format!("Unsupported RAR member name: {member}"));
+        }
+        let target = cyoa_core::paths::safe_archive_join(&site_str, rel, false)
+            .map_err(|e| e.to_string())?;
+        plan.push((member.clone(), target));
+    }
+    let mut total = 0_u64;
+    for (member, target) in plan {
+        let data = run_tar_bounded(
+            &[
+                std::ffi::OsStr::new("-xOf"),
+                a,
+                std::ffi::OsStr::new("--"),
+                std::ffi::OsStr::new(&member),
+            ],
+            MAX_MEMBER,
+        )?;
+        total += data.len() as u64;
+        if total > MAX_TOTAL {
+            return Err("Viewer archive exceeds total decompression budget (4 GB)".into());
+        }
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        cyoa_storage::atomic_io::atomic_write_bytes(&target, &data).map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 // ───────────────────────────── viewerConfig ─────────────────────────────
@@ -765,6 +855,32 @@ fn key(c: Component<'_>) -> String {
     if cfg!(windows) { s.to_lowercase() } else { s }
 }
 
+/// True when any existing component strictly below `root` (up to and including
+/// `candidate`) is a symlink or junction. Python follows such links; Rust
+/// refuses them so reads and rewrites cannot leave the site folder.
+fn has_link_below(root: &Path, candidate: &Path) -> bool {
+    let Ok(rest) = candidate.strip_prefix(root) else {
+        // Case-insensitive match on Windows: walk by component count instead.
+        let skip = root.components().count();
+        let mut cur = PathBuf::new();
+        for (i, c) in candidate.components().enumerate() {
+            cur.push(c.as_os_str());
+            if i >= skip && cyoa_core::paths::is_link_or_junction(&cur) {
+                return true;
+            }
+        }
+        return false;
+    };
+    let mut cur = root.to_path_buf();
+    for c in rest.components() {
+        cur.push(c.as_os_str());
+        if cyoa_core::paths::is_link_or_junction(&cur) {
+            return true;
+        }
+    }
+    false
+}
+
 fn inside(root: &Path, candidate: &Path) -> bool {
     let r: Vec<_> = root.components().map(key).collect();
     let c: Vec<_> = candidate.components().map(key).collect();
@@ -845,7 +961,12 @@ struct Localizer<'a> {
     downloaded: HashMap<String, (String, PathBuf)>,
     processing: HashSet<String>,
     failed: Vec<(String, String, String)>,
+    fetches: usize,
 }
+
+/// Nested CSS/JS dependency depth and total fetches per localization run.
+const MAX_LOCALIZE_DEPTH: usize = 32;
+const MAX_LOCALIZE_FETCHES: usize = 5_000;
 
 impl Localizer<'_> {
     fn fail(&mut self, url: &str, error: &str, kind: &str) {
@@ -874,7 +995,7 @@ impl Localizer<'_> {
         candidates
             .into_iter()
             .map(|c| normpath(&c))
-            .find(|c| inside(&self.root, c) && c.is_file())
+            .find(|c| inside(&self.root, c) && c.is_file() && !has_link_below(&self.root, c))
     }
 
     fn process_css(&mut self, text: &str, css_url: &str, css_path: &Path) -> String {
@@ -1055,7 +1176,7 @@ impl Localizer<'_> {
         let mut relative: Vec<String> = vec!["__source_assets__".into(), safe_host];
         relative.extend(safe);
         let mut destination = normpath(&relative.iter().fold(self.root.clone(), |p, s| p.join(s)));
-        if !inside(&self.root, &destination) {
+        if !inside(&self.root, &destination) || has_link_below(&self.root, &destination) {
             return None;
         }
         if fs::metadata(&destination).is_ok_and(|m| m.is_file() && m.len() > 0) {
@@ -1064,6 +1185,15 @@ impl Localizer<'_> {
                 .insert(absolute_url.to_owned(), entry.clone());
             return Some(entry);
         }
+        // Shared budgets (Rust-only guard; Python recursion is unbounded).
+        if self.processing.len() >= MAX_LOCALIZE_DEPTH || self.fetches >= MAX_LOCALIZE_FETCHES {
+            self.fail(absolute_url, "localization budget exceeded", kind);
+            tracing::warn!(
+                "Could not localize preserved HTML asset {absolute_url}: localization budget exceeded"
+            );
+            return None;
+        }
+        self.fetches += 1;
         self.processing.insert(absolute_url.to_owned());
         let result = self.fetch_into(absolute_url, kind, &mut relative, &mut destination);
         self.processing.remove(absolute_url);
@@ -1094,7 +1224,7 @@ impl Localizer<'_> {
             self.fail(absolute_url, "empty response", kind);
             return None;
         }
-        if resp.body.len() > 256 * 1024 * 1024 {
+        if resp.body.len() > LOCALIZE_MAX_BYTES {
             self.fail(
                 absolute_url,
                 "asset exceeds 256 MiB localization limit",
@@ -1223,6 +1353,7 @@ pub fn localize_preserved_index_assets(
         downloaded: HashMap::new(),
         processing: HashSet::new(),
         failed: Vec::new(),
+        fetches: 0,
     };
 
     let mut paths = Vec::new();
@@ -1716,8 +1847,120 @@ pub fn apply_offline_viewer(opts: ApplyOptions<'_>) -> Option<PathBuf> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    struct Chain;
+    impl AssetFetcher for Chain {
+        fn fetch(&self, url: &str) -> Option<FetchedAsset> {
+            let n: usize = url
+                .rsplit('/')
+                .next()?
+                .trim_end_matches(".css")
+                .parse()
+                .ok()?;
+            Some(FetchedAsset {
+                status: 200,
+                content_type: "text/css".into(),
+                body: format!("@import \"{}.css\";", n + 1).into_bytes(),
+            })
+        }
+    }
+
+    #[test]
+    fn long_css_chain_stops_at_depth_budget() {
+        let tmp = tempfile::tempdir().unwrap();
+        let html =
+            r#"<html><head><link rel="stylesheet" href="https://a.example/0.css"></head></html>"#;
+        let out = localize_preserved_index_assets(html, "", tmp.path(), &Chain, false);
+        assert!(out.contains("__source_assets__/a.example/0.css"));
+        let n = fs::read_dir(tmp.path().join("__source_assets__/a.example"))
+            .unwrap()
+            .count();
+        assert_eq!(n, MAX_LOCALIZE_DEPTH);
+        let report = fs::read_to_string(tmp.path().join("failed_assets.txt")).unwrap();
+        assert!(report.contains("localization budget exceeded"));
+    }
+
+    #[test]
+    fn rar_path_strips_wrapper_folder_and_keeps_regular_files_only() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("src");
+        fs::create_dir_all(src.join("Viewer/js")).unwrap();
+        fs::write(
+            src.join("Viewer/index.html"),
+            "<html><head></head><body></body></html>",
+        )
+        .unwrap();
+        fs::write(src.join("Viewer/js/app.js"), "fetch(\"project.json\")").unwrap();
+        let viewers = tmp.path().join("viewers");
+        fs::create_dir_all(&viewers).unwrap();
+        let ok = std::process::Command::new("tar")
+            .arg("-cf")
+            .arg(viewers.join("v.rar"))
+            .arg("-C")
+            .arg(&src)
+            .arg("Viewer")
+            .status()
+            .is_ok_and(|s| s.success());
+        if !ok {
+            eprintln!("system tar unavailable; skipped");
+            return;
+        }
+        let out = tmp.path().join("out");
+        fs::create_dir_all(&out).unwrap();
+        let mut meta = Map::new();
+        meta.insert("zip_filename".into(), "v.rar".into());
+        let res = apply_offline_viewer(ApplyOptions {
+            viewers_dir: &viewers,
+            output_dir: &out,
+            project_json_str: "{\"rows\":[]}",
+            viewer_meta: &meta,
+            file_name: "p",
+            asset_source_dirs: None,
+            source_html: "",
+            source_url: "",
+            preserved_asset_cache_dir: None,
+            fetcher: &NoNetwork,
+            allow_internal: false,
+        })
+        .unwrap();
+        assert_eq!(res, out.join("p_offline").join("index.html"));
+        let js = fs::read_to_string(out.join("p_offline/js/app.js")).unwrap();
+        assert!(js.starts_with("window.__CYOA_PROJECT__={\"rows\":[]};\n"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn junction_inside_site_is_not_followed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let site = tmp.path().join("site");
+        let outside = tmp.path().join("outside");
+        fs::create_dir_all(&site).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(
+            outside.join("x.css"),
+            "a{background:url(https://h.example/i.png)}",
+        )
+        .unwrap();
+        let made = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(site.join("link"))
+            .arg(&outside)
+            .output()
+            .is_ok_and(|o| o.status.success());
+        if !made {
+            eprintln!("could not create a junction; skipped");
+            return;
+        }
+        let html = r#"<html><head><link rel="stylesheet" href="link/x.css"></head></html>"#;
+        let _ = localize_preserved_index_assets(html, "", &site, &NoNetwork, false);
+        assert_eq!(
+            fs::read_to_string(outside.join("x.css")).unwrap(),
+            "a{background:url(https://h.example/i.png)}"
+        );
+    }
 
     #[test]
     fn py_float_matches_python_repr() {
