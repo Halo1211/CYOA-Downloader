@@ -369,6 +369,46 @@ pub struct RunOptions {
     /// Python `analysis_only` (CLI `--analyse-fonts` without `--fonts`):
     /// stop after the font report.
     pub analysis_only: bool,
+    /// F-037: settings `offline_viewer_json_enabled` (Some = enabled) and
+    /// `offline_viewer_preferred_id`; normal modes only, like orchestrator.py.
+    pub offline_viewer: Option<OfflineViewerOptions>,
+}
+
+/// Offline viewer step of the normal modes (orchestrator.py 797-997).
+#[derive(Clone, Debug)]
+pub struct OfflineViewerOptions {
+    /// `~/.cyoa_downloader/offline_viewers` (shared `viewers.json`).
+    pub viewers_dir: PathBuf,
+    /// `auto` or a registered viewer id.
+    pub preferred_id: String,
+}
+
+impl OfflineViewerOptions {
+    /// Settings `offline_viewer_json_enabled` / `offline_viewer_preferred_id`
+    /// with Python defaults (off, `auto`); `None` when disabled.
+    pub fn from_settings(settings: &serde_json::Map<String, serde_json::Value>) -> Option<Self> {
+        let enabled = settings
+            .get("offline_viewer_json_enabled")
+            .is_some_and(|v| match v {
+                serde_json::Value::Bool(b) => *b,
+                serde_json::Value::Number(n) => n.as_f64().is_some_and(|f| f != 0.0),
+                serde_json::Value::String(s) => !s.is_empty(),
+                serde_json::Value::Array(a) => !a.is_empty(),
+                serde_json::Value::Object(o) => !o.is_empty(),
+                serde_json::Value::Null => false,
+            });
+        if !enabled {
+            return None;
+        }
+        let preferred = match settings.get("offline_viewer_preferred_id") {
+            Some(serde_json::Value::String(s)) if !s.is_empty() => s.clone(),
+            _ => "auto".to_owned(),
+        };
+        Some(Self {
+            viewers_dir: cyoa_integrations::offline_viewers::viewers_dir(),
+            preferred_id: preferred,
+        })
+    }
 }
 
 /// Python default for `image_cache_max_mb`.
@@ -398,6 +438,7 @@ impl Default for RunOptions {
             integrations: Integrations::default(),
             analyse_fonts: false,
             analysis_only: false,
+            offline_viewer: None,
         }
     }
 }
@@ -604,7 +645,12 @@ pub async fn run_download(
     };
 
     // orchestrator.py 628-635: font analysis on the project + viewer HTML.
-    let viewer_html = if opts.fonts || opts.analyse_fonts || opts.analysis_only {
+    // Python always fetches it once; Rust only when a consumer needs it.
+    let viewer_html = if opts.fonts
+        || opts.analyse_fonts
+        || opts.analysis_only
+        || opts.offline_viewer.is_some()
+    {
         discover_net::fetch_page_text(&client, &opts.url, &cancel)
             .await
             .unwrap_or_default()
@@ -674,9 +720,35 @@ pub async fn run_download(
         .run()
         .await;
     }
-    // orchestrator.py 835-839: zip/both download fonts into the package and
-    // feed the rewritten project to image processing.
-    let working = if opts.fonts && download {
+    // orchestrator.py 797-827: pick an offline viewer before image processing;
+    // a selected viewer needs images/audio on disk even in embed-only mode.
+    let viewer_mode = match mode {
+        OutputMode::Both => "both",
+        OutputMode::Zip => "zip",
+        _ => "embed",
+    };
+    let mut viewer_meta = None;
+    if let Some(v) = &opts.offline_viewer {
+        viewer_meta = cyoa_integrations::offline_viewers::get_viewer_for_site(
+            &v.viewers_dir,
+            &viewer_html,
+            viewer_mode,
+            &serde_json::Value::String(source.project_json.clone()),
+            &v.preferred_id,
+        );
+        if let Some(m) = &viewer_meta {
+            log_viewer_selected("Offline viewer selected", m);
+            if !download {
+                tracing::info!(
+                    "Offline viewer detected: enabling disk asset download for playable viewer output."
+                );
+            }
+        }
+    }
+    let download_assets = download || viewer_meta.is_some();
+    // orchestrator.py 835-839: fonts go into the work folder whenever assets
+    // are downloaded, and the rewritten project feeds image processing.
+    let working = if opts.fonts && download_assets {
         crate::fonts::download_fonts_with_client(
             &client,
             &cancel,
@@ -692,9 +764,9 @@ pub async fn run_download(
     };
     let process_opts = ProcessOptions {
         embed,
-        download,
+        download: download_assets,
         max_workers: opts.workers.clamp(1, 64),
-        download_dir: download.then(|| pkg.clone()),
+        download_dir: download_assets.then(|| pkg.clone()),
         embed_out: embed.then(|| embed_out.clone()),
         source_url: opts.url.clone(),
         report_dir: Some(opts.output_dir.clone()),
@@ -722,6 +794,12 @@ pub async fn run_download(
     let embed_changed = processed.embed_changed || working != source.project_json;
     let dl_str = processed.dl_str;
     let stage_cancel = cancel.clone();
+    let viewer_stage = (
+        pkg.clone(),
+        dl_str.clone(),
+        stem.clone(),
+        output_dir.clone(),
+    );
     // Blocking file I/O and compression run off the async runtime. Cancellation is
     // checked before every publication; `temp_guard` cleans the work dir on drop.
     let written_paths = tokio::task::spawn_blocking(move || -> Result<Vec<PathBuf>, RunError> {
@@ -747,6 +825,17 @@ pub async fn run_download(
                     &format!("{stem}_original.json"),
                     &output_dir,
                 )?);
+            }
+            // orchestrator.py 885-893: audio beside the JSON for the viewer.
+            let tmp_audio = pkg.join("audio");
+            if tmp_audio.is_dir() {
+                check()?;
+                let report = cyoa_core::paths::copytree_merge_safe(
+                    &tmp_audio,
+                    &output_dir.join("audio"),
+                    "audio",
+                );
+                tracing::info!("Saved/merged: audio/ ({} file(s))", report.copied);
             }
         }
         if download {
@@ -776,12 +865,135 @@ pub async fn run_download(
     })
     .await
     .map_err(|e| RunError::OutputStage(format!("output worker failed: {e}")))??;
+    let mut written_paths = written_paths;
+    if let Some(v) = opts.offline_viewer.clone() {
+        if cancel.is_cancelled() {
+            return Err(RunError::Cancelled);
+        }
+        let fetch = discover_net::ClientCafeFetch {
+            client: client.clone(),
+            handle: tokio::runtime::Handle::current(),
+            cancel: cancel.clone(),
+        };
+        let url = opts.url.clone();
+        let (pkg, dl_str, stem, output_dir) = viewer_stage;
+        let out = tokio::task::spawn_blocking(move || {
+            offline_viewer_stage(
+                &v,
+                &fetch,
+                viewer_meta,
+                &viewer_html,
+                viewer_mode,
+                &url,
+                &pkg,
+                &dl_str,
+                &stem,
+                &output_dir,
+            )
+        })
+        .await
+        .map_err(|e| RunError::OutputStage(format!("offline viewer worker failed: {e}")))?;
+        written_paths.extend(out);
+    }
     drop(temp_guard);
     Ok(RunReport {
         stem: report_stem,
         written_paths,
         failed_assets: processed.failed,
     })
+}
+
+fn log_viewer_selected(prefix: &str, m: &serde_json::Map<String, serde_json::Value>) {
+    let s = |k: &str| m.get(k).and_then(serde_json::Value::as_str).unwrap_or("");
+    let name = if s("name").is_empty() {
+        s("id")
+    } else {
+        s("name")
+    };
+    let family = if s("detected_family").is_empty() {
+        "unknown"
+    } else {
+        s("detected_family")
+    };
+    let reason = if s("selection_reason").is_empty() {
+        "automatic match"
+    } else {
+        s("selection_reason")
+    };
+    tracing::info!("{prefix}: {name} (family={family}; reason={reason})");
+}
+
+/// orchestrator.py 945-997 (runs on a blocking thread).
+#[allow(clippy::too_many_arguments)]
+fn offline_viewer_stage(
+    v: &OfflineViewerOptions,
+    fetch: &discover_net::ClientCafeFetch,
+    preselected: Option<serde_json::Map<String, serde_json::Value>>,
+    viewer_html: &str,
+    viewer_mode: &str,
+    url: &str,
+    pkg: &std::path::Path,
+    dl_str: &str,
+    stem: &str,
+    output_dir: &std::path::Path,
+) -> Option<PathBuf> {
+    let mut page_html = String::new();
+    let meta = match preselected {
+        Some(m) => m,
+        None => {
+            page_html = fetch
+                .handle
+                .block_on(discover_net::fetch_page_text(
+                    &fetch.client,
+                    url,
+                    &fetch.cancel,
+                ))
+                .unwrap_or_default();
+            let m = cyoa_integrations::offline_viewers::get_viewer_for_site(
+                &v.viewers_dir,
+                &page_html,
+                viewer_mode,
+                &serde_json::Value::String(dl_str.to_owned()),
+                &v.preferred_id,
+            )?;
+            log_viewer_selected("Offline viewer selected after page inspection", &m);
+            m
+        }
+    };
+    let sources: Vec<(String, PathBuf)> = ["images", "audio"]
+        .iter()
+        .map(|n| ((*n).to_owned(), pkg.join(n)))
+        .filter(|(_, p)| p.is_dir())
+        .collect();
+    let source_html = if viewer_html.is_empty() {
+        page_html.as_str()
+    } else {
+        viewer_html
+    };
+    let out = crate::offline_viewer::apply_offline_viewer(crate::offline_viewer::ApplyOptions {
+        viewers_dir: &v.viewers_dir,
+        output_dir,
+        project_json_str: dl_str,
+        viewer_meta: &meta,
+        file_name: stem,
+        asset_source_dirs: Some(&sources),
+        source_html,
+        source_url: url,
+        preserved_asset_cache_dir: None,
+        fetcher: fetch,
+        allow_internal: false,
+    })?;
+    let name = meta
+        .get("name")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("");
+    let rel = out
+        .strip_prefix(output_dir)
+        .unwrap_or(&out)
+        .display()
+        .to_string();
+    tracing::info!("Offline viewer: {name} → {rel}");
+    Some(out)
 }
 
 #[cfg(test)]

@@ -47,6 +47,7 @@ impl AssetFetcher for Fake {
             status: *s,
             content_type: c.clone(),
             body: b.clone(),
+            too_large: false,
         })
     }
 }

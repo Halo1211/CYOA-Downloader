@@ -87,6 +87,16 @@ fn cloudflare_config() -> std::sync::Arc<cyoa_net::cloudflare::CloudflareConfig>
     )
 }
 
+/// Saved offline viewer settings (shared settings.json, Python keys).
+fn offline_viewer_config() -> Option<cyoa_engine::run::OfflineViewerOptions> {
+    let mut store =
+        cyoa_storage::settings::SettingsStore::new(cyoa_storage::settings::default_path());
+    store
+        .load()
+        .ok()
+        .and_then(cyoa_engine::run::OfflineViewerOptions::from_settings)
+}
+
 fn archive_policy() -> Result<cyoa_engine::icc::ArchivePolicy, String> {
     let mut store =
         cyoa_storage::settings::SettingsStore::new(cyoa_storage::settings::default_path());
@@ -441,6 +451,7 @@ impl DownloaderApp {
                     bandwidth_kbps: self.settings.bandwidth_kbps,
                     cloudflare: Some(cloudflare_config()),
                     analyse_fonts: self.settings.analyse_fonts,
+                    offline_viewer: offline_viewer_config(),
                     ..RunOptions::default()
                 };
                 // Python's ICC branch returns before CYOA Manager registration.

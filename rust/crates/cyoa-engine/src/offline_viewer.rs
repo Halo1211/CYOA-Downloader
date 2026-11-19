@@ -37,6 +37,50 @@ pub struct FetchedAsset {
     pub status: u16,
     pub content_type: String,
     pub body: Vec<u8>,
+    /// The body exceeded `LOCALIZE_MAX_BYTES` and was not kept.
+    pub too_large: bool,
+}
+
+/// Production fetcher over the shared client: the cyoa-net policy resolver
+/// pins vetted addresses on every request and redirect, and the body is read
+/// with a streamed `LOCALIZE_MAX_BYTES` cap (Sol review requirement).
+impl AssetFetcher for crate::discover_net::ClientCafeFetch {
+    fn fetch(&self, url: &str) -> Option<FetchedAsset> {
+        let parsed = url::Url::parse(url).ok()?;
+        let mut opts = cyoa_net::client::FetchOptions {
+            return_error_response: true,
+            ..Default::default()
+        };
+        opts.headers.insert(
+            "user-agent",
+            cyoa_net::client::header::HeaderValue::from_static("CYOA-Downloader"),
+        );
+        self.handle.block_on(async {
+            let resp = self.client.get(&parsed, &opts, &self.cancel).await.ok()?;
+            let status = resp.status.as_u16();
+            let content_type = resp
+                .headers
+                .get("content-type")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("")
+                .to_owned();
+            match cyoa_net::client::FetchClient::bytes(resp, LOCALIZE_MAX_BYTES as u64).await {
+                Ok(body) => Some(FetchedAsset {
+                    status,
+                    content_type,
+                    body: body.to_vec(),
+                    too_large: false,
+                }),
+                Err(cyoa_net::client::FetchError::TooLarge) => Some(FetchedAsset {
+                    status,
+                    content_type,
+                    body: Vec::new(),
+                    too_large: true,
+                }),
+                Err(_) => None,
+            }
+        })
+    }
 }
 
 /// Largest preserved asset accepted (Python: 256 MiB localization limit).
@@ -1220,6 +1264,14 @@ impl Localizer<'_> {
             self.fail(absolute_url, &error, kind);
             return None;
         }
+        if resp.too_large {
+            self.fail(
+                absolute_url,
+                "asset exceeds 256 MiB localization limit",
+                kind,
+            );
+            return None;
+        }
         if resp.body.is_empty() {
             self.fail(absolute_url, "empty response", kind);
             return None;
@@ -1864,6 +1916,7 @@ mod tests {
                 status: 200,
                 content_type: "text/css".into(),
                 body: format!("@import \"{}.css\";", n + 1).into_bytes(),
+                too_large: false,
             })
         }
     }

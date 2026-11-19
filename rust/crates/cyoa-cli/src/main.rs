@@ -1188,6 +1188,8 @@ async fn main() -> ExitCode {
             // cli.py: show_font_analysis = -a or -f; analysis_only = -a without -f.
             analyse_fonts: args.analyse_fonts || args.fonts,
             analysis_only: args.analyse_fonts && !args.fonts,
+            // Settings `offline_viewer_json_enabled` / `offline_viewer_preferred_id`.
+            offline_viewer: cyoa_engine::run::OfflineViewerOptions::from_settings(&saved),
             // cli.py: engine per row (cyoap_vue* rows) or from the flags.
             engine: if item.mode.starts_with("cyoap_vue")
                 || args.cyoap_vue_website
