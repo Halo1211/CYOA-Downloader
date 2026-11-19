@@ -967,6 +967,7 @@ dependencies = [
  "cyoa-core",
  "cyoa-net",
  "cyoa-storage",
+ "regex",
  "rusqlite",
  "serde",
  "serde_json",
