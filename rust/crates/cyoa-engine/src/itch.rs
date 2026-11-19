@@ -384,6 +384,12 @@ pub struct ItchResult {
     pub backend: String,
     pub returncode: Option<i32>,
     pub message: String,
+    /// HTML5 ZIP preparation (itch.py `offline_*` keys).
+    pub offline_ready: usize,
+    pub offline_cached: usize,
+    pub offline_failed: usize,
+    pub offline_encrypted: usize,
+    pub offline_entries: Vec<PathBuf>,
 }
 
 fn snapshot(root: &Path) -> HashMap<String, (u64, u128)> {
@@ -425,7 +431,68 @@ fn snapshot(root: &Path) -> HashMap<String, (u64, u128)> {
     found
 }
 
-// DEFERRED(F-037 itch HTML5): ZIP preparation stays outside the Rust port.
+/// itch.py 410-444: expand every saved HTML5 ZIP into an offline folder.
+fn prepare_html5_archives(
+    dest: &Path,
+    after: &HashMap<String, (u64, u128)>,
+    page_url: &str,
+    fetcher: &dyn crate::offline_viewer::AssetFetcher,
+    result: &mut ItchResult,
+) {
+    use crate::itch_html5::{Html5Error, materialize_itch_html5_archive};
+    let mut relatives: Vec<&String> = after.keys().collect();
+    relatives.sort();
+    for relative in relatives {
+        if !relative.to_lowercase().ends_with(".zip") {
+            continue;
+        }
+        let archive = dest.join(relative);
+        match materialize_itch_html5_archive(&archive, page_url, fetcher) {
+            Ok((None, _, _)) => {}
+            Ok((Some(entry), reused, complete)) => {
+                if !complete {
+                    result.offline_failed += 1;
+                    tracing::warn!(
+                        "[itch] HTML5 offline assets incomplete: {}",
+                        entry.display()
+                    );
+                } else if reused {
+                    result.offline_cached += 1;
+                    tracing::info!("[itch] HTML5 offline entry: {}", entry.display());
+                } else {
+                    result.offline_ready += 1;
+                    tracing::info!("[itch] HTML5 offline entry: {}", entry.display());
+                }
+                result.offline_entries.push(entry);
+            }
+            Err(Html5Error::Encrypted) => {
+                result.offline_encrypted += 1;
+                tracing::warn!("[itch] ZIP needs a password; original retained: {relative}");
+            }
+            Err(e) => {
+                result.offline_failed += 1;
+                tracing::warn!("[itch] HTML5 offline preparation failed for {relative}: {e}");
+            }
+        }
+    }
+    if result.offline_failed > 0 {
+        result.ok = false;
+        result.failed = result.offline_failed;
+    }
+    if !result.offline_entries.is_empty()
+        || result.offline_failed > 0
+        || result.offline_encrypted > 0
+    {
+        result.message.push_str(&format!(
+            " HTML5 offline: {} prepared, {} reused, {} failed, {} password-protected ZIP(s) left intact.",
+            result.offline_ready, result.offline_cached, result.offline_failed, result.offline_encrypted
+        ));
+    }
+}
+
+/// itch.py `download_itch_assets`. `html5` is Python's `prepare_html5`:
+/// `Some(fetcher)` expands HTML5 ZIPs into reusable offline folders.
+#[allow(clippy::too_many_arguments)]
 pub fn download_itch_assets(
     page_url: &str,
     output_dir: &Path,
@@ -434,6 +501,7 @@ pub fn download_itch_assets(
     parallel: i32,
     cancel: &CancellationToken,
     backend: &dyn ItchBackend,
+    html5: Option<&dyn crate::offline_viewer::AssetFetcher>,
 ) -> Result<ItchResult, RunError> {
     download_itch_assets_with(
         page_url,
@@ -443,11 +511,13 @@ pub fn download_itch_assets(
         cancel,
         backend,
         &|| resolve_itch_api_key(explicit_key, Some(&OsItchKeyring)),
+        html5,
     )
 }
 
 /// `download_itch_assets` with an injectable key resolver (tests never
 /// read the user's settings or keyring).
+#[allow(clippy::too_many_arguments)]
 pub fn download_itch_assets_with(
     page_url: &str,
     output_dir: &Path,
@@ -456,6 +526,7 @@ pub fn download_itch_assets_with(
     cancel: &CancellationToken,
     backend: &dyn ItchBackend,
     resolve_key: &dyn Fn() -> ResolvedKey,
+    html5: Option<&dyn crate::offline_viewer::AssetFetcher>,
 ) -> Result<ItchResult, RunError> {
     let mut result = ItchResult::default();
     if !is_itch_url(page_url) {
@@ -517,6 +588,9 @@ pub fn download_itch_assets_with(
                         "itch.io: completed via {label}; {} new/updated, {} existing file(s) in itch_assets/ (key source: {}).",
                         result.saved, result.existing, resolved.source
                     );
+                    if let Some(fetcher) = html5 {
+                        prepare_html5_archives(&dest, &after, page_url, fetcher, &mut result);
+                    }
                 }
             } else {
                 result.failed = 1;
@@ -755,6 +829,7 @@ mod tests {
             1,
             &CancellationToken::new(),
             &backend,
+            None,
         )
         .unwrap();
         let second = download_itch_assets(
@@ -765,6 +840,7 @@ mod tests {
             1,
             &CancellationToken::new(),
             &backend,
+            None,
         )
         .unwrap();
         assert_eq!((first.saved, first.existing), (1, 0));
@@ -787,6 +863,7 @@ mod tests {
             1,
             &CancellationToken::new(),
             &empty,
+            None,
         )
         .unwrap();
         assert_eq!(
@@ -809,6 +886,7 @@ mod tests {
                 key: None,
                 source: "none",
             },
+            None,
         )
         .unwrap();
         assert!(result.skipped_auth);

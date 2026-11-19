@@ -1,0 +1,418 @@
+{
+ "archives": {
+  "game.zip": "UEsDBBQAAAAAAEhVc11vTCYGtwAAALcAAAAPAAAAR2FtZS9pbmRleC5odG1s77u/PCFET0NUWVBFIGh0bWw+DQo8aHRtbD48aGVhZD48c2NyaXB0IHNyYz0iaHR0cHM6Ly9jZG4uZXhhbXBsZS5jb20vbGliLmpzIj48L3NjcmlwdD4NCjxsaW5rIHJlbD0ic3R5bGVzaGVldCIgaHJlZj0iaHR0cHM6Ly9jZG4uZXhhbXBsZS5jb20vcy5jc3MiPjwvaGVhZD4NCjxib2R5PmdhbWU8L2JvZHk+PC9odG1sPg0KUEsDBBQAAAAAAEhVc12DFtyMAQAAAAEAAAAMAAAAR2FtZS9qcy94LmpzeFBLAwQUAAAAAABIVXNdQfT9jQYAAAAGAAAAEwAAAEdhbWUvc3ViL2luZGV4Lmh0bWxkZWVwZXJQSwMEFAAAAAAASFVzXQAAAAAAAAAAAAAAAAUAAABHYW1lL1BLAQIUABQAAAAAAEhVc11vTCYGtwAAALcAAAAPAAAAAAAAAAAAAACAAQAAAABHYW1lL2luZGV4Lmh0bWxQSwECFAAUAAAAAABIVXNdgxbcjAEAAAABAAAADAAAAAAAAAAAAAAAgAHkAAAAR2FtZS9qcy94LmpzUEsBAhQAFAAAAAAASFVzXUH0/Y0GAAAABgAAABMAAAAAAAAAAAAAAIABDwEAAEdhbWUvc3ViL2luZGV4Lmh0bWxQSwECFAAUAAAAAABIVXNdAAAAAAAAAAAAAAAABQAAAAAAAAAAABAA/UFGAQAAR2FtZS9QSwUGAAAAAAQABADrAAAAaQEAAAAA",
+  "notgame.zip": "UEsDBBQAAAAAAEhVc120XbtHBwAAAAcAAAAKAAAAcmVhZG1lLnR4dG5vIGh0bWxQSwECFAAUAAAAAABIVXNdtF27RwcAAAAHAAAACgAAAAAAAAAAAAAAgAEAAAAAcmVhZG1lLnR4dFBLBQYAAAAAAQABADgAAAAvAAAAAAA=",
+  "dup.zip": "UEsDBBQAAAAAAEhVc11DvrfoAQAAAAEAAAAKAAAAaW5kZXguaHRtbGFQSwMEFAAAAAAASFVzXbfv3IMBAAAAAQAAAAUAAABBLnR4dDFQSwMEFAAAAAAASFVzXQ2+1RoBAAAAAQAAAAUAAABhLlRYVDJQSwECFAAUAAAAAABIVXNdQ7636AEAAAABAAAACgAAAAAAAAAAAAAAgAEAAAAAaW5kZXguaHRtbFBLAQIUABQAAAAAAEhVc12379yDAQAAAAEAAAAFAAAAAAAAAAAAAACAASkAAABBLnR4dFBLAQIUABQAAAAAAEhVc10NvtUaAQAAAAEAAAAFAAAAAAAAAAAAAACAAU0AAABhLlRYVFBLBQYAAAAAAwADAJ4AAABxAAAAAAA=",
+  "link.zip": "UEsDBBQAAAAAAEhVc11DvrfoAQAAAAEAAAAKAAAAaW5kZXguaHRtbGFQSwMEFAAAAAAAAAAhAPwvb0YGAAAABgAAAAQAAABldmlsdGFyZ2V0UEsBAhQAFAAAAAAASFVzXUO+t+gBAAAAAQAAAAoAAAAAAAAAAAAAAIABAAAAAGluZGV4Lmh0bWxQSwECFAAUAAAAAAAAACEA/C9vRgYAAAAGAAAABAAAAAAAAAAAAAAA/6EpAAAAZXZpbFBLBQYAAAAAAgACAGoAAABRAAAAAAA=",
+  "evil.zip": "UEsDBBQAAAAAAEhVc11DvrfoAQAAAAEAAAAKAAAAaW5kZXguaHRtbGFQSwMEFAAAAAAASFVzXYMW3IwBAAAAAQAAAAgAAAAuLi94LnR4dHhQSwECFAAUAAAAAABIVXNdQ7636AEAAAABAAAACgAAAAAAAAAAAAAAgAEAAAAAaW5kZXguaHRtbFBLAQIUABQAAAAAAEhVc12DFtyMAQAAAAEAAAAIAAAAAAAAAAAAAACAASkAAAAuLi94LnR4dFBLBQYAAAAAAgACAG4AAABQAAAAAAA=",
+  "plain.rar": "cmFy",
+  "flaky.zip": "UEsDBBQAAAAAAEhVc11HrlI4XQAAAF0AAAAKAAAAaW5kZXguaHRtbDxodG1sPjxoZWFkPjxzY3JpcHQgc3JjPSJodHRwczovL2Nkbi5leGFtcGxlLmNvbS9saWIuanMiPjwvc2NyaXB0PjwvaGVhZD48Ym9keT48L2JvZHk+PC9odG1sPlBLAQIUABQAAAAAAEhVc11HrlI4XQAAAF0AAAAKAAAAAAAAAAAAAACAAQAAAABpbmRleC5odG1sUEsFBgAAAAABAAEAOAAAAIUAAAAAAA=="
+ },
+ "web": {
+  "https://cdn.example.com/lib.js": [
+   200,
+   "application/javascript",
+   "dmFyIGxpYj0xOw=="
+  ],
+  "https://cdn.example.com/s.css": [
+   200,
+   "text/css",
+   "Ym9keXtiYWNrZ3JvdW5kOnVybChiZy5wbmcpfQ=="
+  ],
+  "https://cdn.example.com/bg.png": [
+   200,
+   "image/png",
+   "UE5H"
+  ]
+ },
+ "steps": [
+  {
+   "name": "first",
+   "archive": "game.zip",
+   "online": true,
+   "replace": null,
+   "result": {
+    "entry": "game_offline/Game/index.html",
+    "reused": false,
+    "complete": true
+   },
+   "requested": [
+    "https://cdn.example.com/lib.js",
+    "https://cdn.example.com/s.css",
+    "https://cdn.example.com/bg.png"
+   ],
+   "tree": {
+    "game_offline/.cyoa_itch_archive.json": {
+     "text": "{\"sha256\": \"eca1e91b5015027ec56f8baa7c538515bde9856372ba02a62aa6aa7b426d11e8\", \"entry\": \"Game/index.html\", \"complete\": true}"
+    },
+    "game_offline/Game/index.html": {
+     "text": "<!DOCTYPE html>\n\n<html><head><script src=\"./__source_assets__/cdn.example.com/lib.js\"></script>\n<link href=\"./__source_assets__/cdn.example.com/s.css\" rel=\"stylesheet\"/></head>\n<body>game</body></html>\n"
+    },
+    "game_offline/Game/js/x.js": {
+     "text": "x"
+    },
+    "game_offline/Game/sub/index.html": {
+     "text": "deeper"
+    },
+    "game_offline/Game/__source_assets__/cdn.example.com/bg.png": {
+     "text": "PNG"
+    },
+    "game_offline/Game/__source_assets__/cdn.example.com/lib.js": {
+     "text": "var lib=1;"
+    },
+    "game_offline/Game/__source_assets__/cdn.example.com/s.css": {
+     "text": "body{background:url(\"bg.png\")}"
+    }
+   }
+  },
+  {
+   "name": "reuse",
+   "archive": "game.zip",
+   "online": true,
+   "replace": null,
+   "result": {
+    "entry": "game_offline/Game/index.html",
+    "reused": true,
+    "complete": true
+   },
+   "requested": [],
+   "tree": {
+    "game_offline/.cyoa_itch_archive.json": {
+     "text": "{\"sha256\": \"eca1e91b5015027ec56f8baa7c538515bde9856372ba02a62aa6aa7b426d11e8\", \"entry\": \"Game/index.html\", \"complete\": true}"
+    },
+    "game_offline/Game/index.html": {
+     "text": "<!DOCTYPE html>\n\n<html><head><script src=\"./__source_assets__/cdn.example.com/lib.js\"></script>\n<link href=\"./__source_assets__/cdn.example.com/s.css\" rel=\"stylesheet\"/></head>\n<body>game</body></html>\n"
+    },
+    "game_offline/Game/js/x.js": {
+     "text": "x"
+    },
+    "game_offline/Game/sub/index.html": {
+     "text": "deeper"
+    },
+    "game_offline/Game/__source_assets__/cdn.example.com/bg.png": {
+     "text": "PNG"
+    },
+    "game_offline/Game/__source_assets__/cdn.example.com/lib.js": {
+     "text": "var lib=1;"
+    },
+    "game_offline/Game/__source_assets__/cdn.example.com/s.css": {
+     "text": "body{background:url(\"bg.png\")}"
+    }
+   }
+  },
+  {
+   "name": "not_html5",
+   "archive": "notgame.zip",
+   "online": true,
+   "replace": null,
+   "result": {
+    "entry": null,
+    "reused": false,
+    "complete": true
+   },
+   "requested": [],
+   "tree": {
+    "game_offline/.cyoa_itch_archive.json": {
+     "text": "{\"sha256\": \"eca1e91b5015027ec56f8baa7c538515bde9856372ba02a62aa6aa7b426d11e8\", \"entry\": \"Game/index.html\", \"complete\": true}"
+    },
+    "game_offline/Game/index.html": {
+     "text": "<!DOCTYPE html>\n\n<html><head><script src=\"./__source_assets__/cdn.example.com/lib.js\"></script>\n<link href=\"./__source_assets__/cdn.example.com/s.css\" rel=\"stylesheet\"/></head>\n<body>game</body></html>\n"
+    },
+    "game_offline/Game/js/x.js": {
+     "text": "x"
+    },
+    "game_offline/Game/sub/index.html": {
+     "text": "deeper"
+    },
+    "game_offline/Game/__source_assets__/cdn.example.com/bg.png": {
+     "text": "PNG"
+    },
+    "game_offline/Game/__source_assets__/cdn.example.com/lib.js": {
+     "text": "var lib=1;"
+    },
+    "game_offline/Game/__source_assets__/cdn.example.com/s.css": {
+     "text": "body{background:url(\"bg.png\")}"
+    }
+   }
+  },
+  {
+   "name": "duplicate",
+   "archive": "dup.zip",
+   "online": true,
+   "replace": null,
+   "result": {
+    "error": "ValueError",
+    "message": "Archive contains duplicate paths: a.TXT"
+   },
+   "requested": [],
+   "tree": {
+    "game_offline/.cyoa_itch_archive.json": {
+     "text": "{\"sha256\": \"eca1e91b5015027ec56f8baa7c538515bde9856372ba02a62aa6aa7b426d11e8\", \"entry\": \"Game/index.html\", \"complete\": true}"
+    },
+    "game_offline/Game/index.html": {
+     "text": "<!DOCTYPE html>\n\n<html><head><script src=\"./__source_assets__/cdn.example.com/lib.js\"></script>\n<link href=\"./__source_assets__/cdn.example.com/s.css\" rel=\"stylesheet\"/></head>\n<body>game</body></html>\n"
+    },
+    "game_offline/Game/js/x.js": {
+     "text": "x"
+    },
+    "game_offline/Game/sub/index.html": {
+     "text": "deeper"
+    },
+    "game_offline/Game/__source_assets__/cdn.example.com/bg.png": {
+     "text": "PNG"
+    },
+    "game_offline/Game/__source_assets__/cdn.example.com/lib.js": {
+     "text": "var lib=1;"
+    },
+    "game_offline/Game/__source_assets__/cdn.example.com/s.css": {
+     "text": "body{background:url(\"bg.png\")}"
+    }
+   }
+  },
+  {
+   "name": "symlink",
+   "archive": "link.zip",
+   "online": true,
+   "replace": null,
+   "result": {
+    "error": "ValueError",
+    "message": "Archive contains a symbolic link: evil"
+   },
+   "requested": [],
+   "tree": {
+    "game_offline/.cyoa_itch_archive.json": {
+     "text": "{\"sha256\": \"eca1e91b5015027ec56f8baa7c538515bde9856372ba02a62aa6aa7b426d11e8\", \"entry\": \"Game/index.html\", \"complete\": true}"
+    },
+    "game_offline/Game/index.html": {
+     "text": "<!DOCTYPE html>\n\n<html><head><script src=\"./__source_assets__/cdn.example.com/lib.js\"></script>\n<link href=\"./__source_assets__/cdn.example.com/s.css\" rel=\"stylesheet\"/></head>\n<body>game</body></html>\n"
+    },
+    "game_offline/Game/js/x.js": {
+     "text": "x"
+    },
+    "game_offline/Game/sub/index.html": {
+     "text": "deeper"
+    },
+    "game_offline/Game/__source_assets__/cdn.example.com/bg.png": {
+     "text": "PNG"
+    },
+    "game_offline/Game/__source_assets__/cdn.example.com/lib.js": {
+     "text": "var lib=1;"
+    },
+    "game_offline/Game/__source_assets__/cdn.example.com/s.css": {
+     "text": "body{background:url(\"bg.png\")}"
+    }
+   }
+  },
+  {
+   "name": "unsafe",
+   "archive": "evil.zip",
+   "online": true,
+   "replace": null,
+   "result": {
+    "error": "ValueError",
+    "message": "Unsafe archive path rejected: '../x.txt'"
+   },
+   "requested": [],
+   "tree": {
+    "game_offline/.cyoa_itch_archive.json": {
+     "text": "{\"sha256\": \"eca1e91b5015027ec56f8baa7c538515bde9856372ba02a62aa6aa7b426d11e8\", \"entry\": \"Game/index.html\", \"complete\": true}"
+    },
+    "game_offline/Game/index.html": {
+     "text": "<!DOCTYPE html>\n\n<html><head><script src=\"./__source_assets__/cdn.example.com/lib.js\"></script>\n<link href=\"./__source_assets__/cdn.example.com/s.css\" rel=\"stylesheet\"/></head>\n<body>game</body></html>\n"
+    },
+    "game_offline/Game/js/x.js": {
+     "text": "x"
+    },
+    "game_offline/Game/sub/index.html": {
+     "text": "deeper"
+    },
+    "game_offline/Game/__source_assets__/cdn.example.com/bg.png": {
+     "text": "PNG"
+    },
+    "game_offline/Game/__source_assets__/cdn.example.com/lib.js": {
+     "text": "var lib=1;"
+    },
+    "game_offline/Game/__source_assets__/cdn.example.com/s.css": {
+     "text": "body{background:url(\"bg.png\")}"
+    }
+   }
+  },
+  {
+   "name": "rar",
+   "archive": "plain.rar",
+   "online": true,
+   "replace": null,
+   "result": {
+    "entry": null,
+    "reused": false,
+    "complete": true
+   },
+   "requested": [],
+   "tree": {
+    "game_offline/.cyoa_itch_archive.json": {
+     "text": "{\"sha256\": \"eca1e91b5015027ec56f8baa7c538515bde9856372ba02a62aa6aa7b426d11e8\", \"entry\": \"Game/index.html\", \"complete\": true}"
+    },
+    "game_offline/Game/index.html": {
+     "text": "<!DOCTYPE html>\n\n<html><head><script src=\"./__source_assets__/cdn.example.com/lib.js\"></script>\n<link href=\"./__source_assets__/cdn.example.com/s.css\" rel=\"stylesheet\"/></head>\n<body>game</body></html>\n"
+    },
+    "game_offline/Game/js/x.js": {
+     "text": "x"
+    },
+    "game_offline/Game/sub/index.html": {
+     "text": "deeper"
+    },
+    "game_offline/Game/__source_assets__/cdn.example.com/bg.png": {
+     "text": "PNG"
+    },
+    "game_offline/Game/__source_assets__/cdn.example.com/lib.js": {
+     "text": "var lib=1;"
+    },
+    "game_offline/Game/__source_assets__/cdn.example.com/s.css": {
+     "text": "body{background:url(\"bg.png\")}"
+    }
+   }
+  },
+  {
+   "name": "partial",
+   "archive": "flaky.zip",
+   "online": false,
+   "replace": null,
+   "result": {
+    "entry": "flaky_offline/index.html",
+    "reused": false,
+    "complete": false
+   },
+   "requested": [
+    "https://cdn.example.com/lib.js"
+   ],
+   "tree": {
+    "flaky_offline/.cyoa_itch_archive.json": {
+     "text": "{\"sha256\": \"3af84f867488aa3a126f7302df6ab6adde86957443e195b8eb256b2b14ae8526\", \"entry\": \"index.html\", \"complete\": false}"
+    },
+    "flaky_offline/failed_assets.txt": {
+     "text": "Preserved Viewer Asset Download Failures\r\n========================================\r\nGenerated : 2026-11-19 10:42:17\r\nSource    : https://dev.itch.io/game\r\nTotal     : 1\r\n\r\n[1] js\r\n  Path : -\r\n  URL  : https://cdn.example.com/lib.js\r\n  Err  : request failed\r\n"
+    },
+    "flaky_offline/index.html": {
+     "text": "<html><head><script src=\"https://cdn.example.com/lib.js\"></script></head><body></body></html>"
+    },
+    "game_offline/.cyoa_itch_archive.json": {
+     "text": "{\"sha256\": \"eca1e91b5015027ec56f8baa7c538515bde9856372ba02a62aa6aa7b426d11e8\", \"entry\": \"Game/index.html\", \"complete\": true}"
+    },
+    "game_offline/Game/index.html": {
+     "text": "<!DOCTYPE html>\n\n<html><head><script src=\"./__source_assets__/cdn.example.com/lib.js\"></script>\n<link href=\"./__source_assets__/cdn.example.com/s.css\" rel=\"stylesheet\"/></head>\n<body>game</body></html>\n"
+    },
+    "game_offline/Game/js/x.js": {
+     "text": "x"
+    },
+    "game_offline/Game/sub/index.html": {
+     "text": "deeper"
+    },
+    "game_offline/Game/__source_assets__/cdn.example.com/bg.png": {
+     "text": "PNG"
+    },
+    "game_offline/Game/__source_assets__/cdn.example.com/lib.js": {
+     "text": "var lib=1;"
+    },
+    "game_offline/Game/__source_assets__/cdn.example.com/s.css": {
+     "text": "body{background:url(\"bg.png\")}"
+    }
+   }
+  },
+  {
+   "name": "partial_retry",
+   "archive": "flaky.zip",
+   "online": true,
+   "replace": null,
+   "result": {
+    "entry": "flaky_offline/index.html",
+    "reused": false,
+    "complete": true
+   },
+   "requested": [
+    "https://cdn.example.com/lib.js"
+   ],
+   "tree": {
+    "flaky_offline/.cyoa_itch_archive.json": {
+     "text": "{\"sha256\": \"3af84f867488aa3a126f7302df6ab6adde86957443e195b8eb256b2b14ae8526\", \"entry\": \"index.html\", \"complete\": true}"
+    },
+    "flaky_offline/index.html": {
+     "text": "<html><head><script src=\"./__source_assets__/cdn.example.com/lib.js\"></script></head><body></body></html>"
+    },
+    "flaky_offline/__source_assets__/cdn.example.com/lib.js": {
+     "text": "var lib=1;"
+    },
+    "game_offline/.cyoa_itch_archive.json": {
+     "text": "{\"sha256\": \"eca1e91b5015027ec56f8baa7c538515bde9856372ba02a62aa6aa7b426d11e8\", \"entry\": \"Game/index.html\", \"complete\": true}"
+    },
+    "game_offline/Game/index.html": {
+     "text": "<!DOCTYPE html>\n\n<html><head><script src=\"./__source_assets__/cdn.example.com/lib.js\"></script>\n<link href=\"./__source_assets__/cdn.example.com/s.css\" rel=\"stylesheet\"/></head>\n<body>game</body></html>\n"
+    },
+    "game_offline/Game/js/x.js": {
+     "text": "x"
+    },
+    "game_offline/Game/sub/index.html": {
+     "text": "deeper"
+    },
+    "game_offline/Game/__source_assets__/cdn.example.com/bg.png": {
+     "text": "PNG"
+    },
+    "game_offline/Game/__source_assets__/cdn.example.com/lib.js": {
+     "text": "var lib=1;"
+    },
+    "game_offline/Game/__source_assets__/cdn.example.com/s.css": {
+     "text": "body{background:url(\"bg.png\")}"
+    }
+   }
+  },
+  {
+   "name": "changed_archive",
+   "archive": "game.zip",
+   "online": true,
+   "replace": "UEsDBBQAAAAAAEhVc11MSJo/KQAAACkAAAAKAAAAaW5kZXguaHRtbDxodG1sPjxoZWFkPjwvaGVhZD48Ym9keT52MjwvYm9keT48L2h0bWw+UEsBAhQAFAAAAAAASFVzXUxImj8pAAAAKQAAAAoAAAAAAAAAAAAAAIABAAAAAGluZGV4Lmh0bWxQSwUGAAAAAAEAAQA4AAAAUQAAAAAA",
+   "result": {
+    "entry": "game_offline_88f0f4531f74/index.html",
+    "reused": false,
+    "complete": true
+   },
+   "requested": [],
+   "tree": {
+    "flaky_offline/.cyoa_itch_archive.json": {
+     "text": "{\"sha256\": \"3af84f867488aa3a126f7302df6ab6adde86957443e195b8eb256b2b14ae8526\", \"entry\": \"index.html\", \"complete\": true}"
+    },
+    "flaky_offline/index.html": {
+     "text": "<html><head><script src=\"./__source_assets__/cdn.example.com/lib.js\"></script></head><body></body></html>"
+    },
+    "flaky_offline/__source_assets__/cdn.example.com/lib.js": {
+     "text": "var lib=1;"
+    },
+    "game_offline/.cyoa_itch_archive.json": {
+     "text": "{\"sha256\": \"eca1e91b5015027ec56f8baa7c538515bde9856372ba02a62aa6aa7b426d11e8\", \"entry\": \"Game/index.html\", \"complete\": true}"
+    },
+    "game_offline/Game/index.html": {
+     "text": "<!DOCTYPE html>\n\n<html><head><script src=\"./__source_assets__/cdn.example.com/lib.js\"></script>\n<link href=\"./__source_assets__/cdn.example.com/s.css\" rel=\"stylesheet\"/></head>\n<body>game</body></html>\n"
+    },
+    "game_offline/Game/js/x.js": {
+     "text": "x"
+    },
+    "game_offline/Game/sub/index.html": {
+     "text": "deeper"
+    },
+    "game_offline/Game/__source_assets__/cdn.example.com/bg.png": {
+     "text": "PNG"
+    },
+    "game_offline/Game/__source_assets__/cdn.example.com/lib.js": {
+     "text": "var lib=1;"
+    },
+    "game_offline/Game/__source_assets__/cdn.example.com/s.css": {
+     "text": "body{background:url(\"bg.png\")}"
+    },
+    "game_offline_88f0f4531f74/.cyoa_itch_archive.json": {
+     "text": "{\"sha256\": \"88f0f4531f74a7371b87eefaa6e83d02ddaf76f49910d8e2832413fc153a99a5\", \"entry\": \"index.html\", \"complete\": true}"
+    },
+    "game_offline_88f0f4531f74/index.html": {
+     "text": "<html><head></head><body>v2</body></html>"
+    }
+   }
+  }
+ ]
+}

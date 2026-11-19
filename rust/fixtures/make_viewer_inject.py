@@ -206,7 +206,7 @@ def run(case_id, meta, project, *, file_name="proj", pre_existing=(), assets=Non
         "pre_existing": list(pre_existing), "assets": {k: {r: base64.b64encode(v).decode() for r, v in f.items()}
                                                        for k, f in (assets or {}).items()},
         "cache_dir_files": {r: base64.b64encode(v).decode() for r, v in (cache_dir_files or {}).items()},
-        "source_url": source_url,
+        "source_url": source_url, "source_html": source_html,
         "result": os.path.relpath(res, out).replace("\\", "/") if res else None,
         "requested": list(requested), "tree": tree,
     })
@@ -238,6 +238,40 @@ run("array_json", V("nofetch.zip"), None, project_text="[1,2]")
 run("localize", V("localize.zip"), {"app": {"title": "L"}}, source_url="https://site.example.com/page/",
     cache_dir_files={"cdn.example.com/cached.js": b"c"})
 run("localize_nosource", V("localize.zip"), {"app": {"title": "L"}}, source_url="")
+
+# Preserved publisher index (source_html): legacy merge, Remix, Plus 2, and none.
+LEGACY_SOURCE = (
+    '<html><head><title> Pub  Title </title><meta name="author" content="me">'
+    '<link rel="stylesheet" href="./theme.css"><link rel="stylesheet" href="css/app.c533aa25.css">'
+    '<script src="js/app.c533aa25.js"></script><style>h1{color:blue}</style></head>'
+    '<body><div id="app"></div><script src="extra.js"></script></body></html>'
+)
+put_viewer("legacy.zip", {
+    "index.html": "<!DOCTYPE html><html><head><title>Viewer 1.8</title>"
+                  '<script src="js/app.c533aa25.js"></script></head><body><div id="app"></div></body></html>',
+    "js/app.c533aa25.js": "/*! Delete and replace this part with your project */{x:1};boot()",
+})
+put_viewer("plus2view.zip", {
+    "index.html": "<html><head></head><body><div id=\"app\"></div><script src=\"js/app.js\"></script></body></html>",
+    "js/app.js": "/*! Delete and replace this part with your project */{d:1};go()",
+    "js/polyfills.js": "p",
+})
+PLUS2_SOURCE = (
+    '<html><head><title>P2</title><script src="core.js"></script>'
+    '<link rel="stylesheet" href="css/app.12345678.css"><link rel="stylesheet" href="./mine.css"></head>'
+    '<body><div id="app"></div></body></html>'
+)
+run("src_legacy", V("legacy.zip", viewer_type="icc_original"), PROJECT_PLAIN, source_html=LEGACY_SOURCE)
+run("src_legacy_runtime_family", V("legacy.zip", runtime_family="lt_ouroumov"), PROJECT_PLAIN,
+    source_html=LEGACY_SOURCE)
+run("src_remix", V("remix.zip", viewer_type="icc_remix"), PROJECT_REMIX,
+    source_html='<html><head><title>Rx</title><link rel="icon" href="f.png"><script src="./app"></script>'
+                "</head><body><p>pub</p></body></html>")
+run("src_remix_bad_project", V("remix.zip", viewer_type="icc_remix"), None, project_text="[1]",
+    source_html="<html><head></head><body></body></html>")
+run("src_plus2", V("plus2view.zip"), {"version": "2.3", "rows": [], "title": "P"}, source_html=PLUS2_SOURCE)
+run("src_custom_untouched", V("fetch.zip"), PROJECT_PLAIN, source_html=LEGACY_SOURCE)
+run("src_whitespace", V("legacy.zip", viewer_type="icc_original"), PROJECT_PLAIN, source_html="  \n ")
 
 doc = {"viewers": {}, "fake_web": {u: [s, c, base64.b64encode(b).decode()] for u, (s, c, b) in FAKE_WEB.items()},
        "cases": cases, "os_sep_crlf": os.linesep == "\r\n"}

@@ -1016,6 +1016,15 @@ async fn main() -> ExitCode {
             }
         });
         let (out, parallel) = (args.output.clone(), args.itch_parallel);
+        // itch.py prepare_html5=True: HTML5 ZIPs become offline folders.
+        let html5 = cyoa_engine::offline_viewer::NetworkAssetFetcher::new(
+            url.trim(),
+            proxy_cfg.clone(),
+            dns.clone(),
+            vpn.clone(),
+            http2,
+            cancel_c.clone(),
+        );
         let result = tokio::task::spawn_blocking(move || {
             cyoa_engine::itch::download_itch_assets(
                 url.trim(),
@@ -1025,6 +1034,9 @@ async fn main() -> ExitCode {
                 parallel,
                 &cancel_c,
                 &cyoa_engine::itch::SystemItchBackend,
+                html5
+                    .as_ref()
+                    .map(|f| f as &dyn cyoa_engine::offline_viewer::AssetFetcher),
             )
         })
         .await;
@@ -1117,6 +1129,14 @@ async fn main() -> ExitCode {
                 args.itch_parallel,
                 cancel.clone(),
             );
+            let html5 = cyoa_engine::offline_viewer::NetworkAssetFetcher::new(
+                &url,
+                proxy_cfg.clone(),
+                dns.clone(),
+                vpn.clone(),
+                http2,
+                cancel_c.clone(),
+            );
             match tokio::task::spawn_blocking(move || {
                 cyoa_engine::itch::download_itch_assets(
                     &url,
@@ -1126,6 +1146,9 @@ async fn main() -> ExitCode {
                     parallel,
                     &cancel_c,
                     &cyoa_engine::itch::SystemItchBackend,
+                    html5
+                        .as_ref()
+                        .map(|f| f as &dyn cyoa_engine::offline_viewer::AssetFetcher),
                 )
             })
             .await

@@ -47,8 +47,10 @@ pub struct FetchedAsset {
 impl AssetFetcher for crate::discover_net::ClientCafeFetch {
     fn fetch(&self, url: &str) -> Option<FetchedAsset> {
         let parsed = url::Url::parse(url).ok()?;
+        // Python `fetch_response` returns None for HTTP errors, so failures
+        // are reported as "request failed" (not "HTTP 404").
         let mut opts = cyoa_net::client::FetchOptions {
-            return_error_response: true,
+            return_error_response: false,
             ..Default::default()
         };
         opts.headers.insert(
@@ -97,6 +99,49 @@ pub trait AssetFetcher {
     fn fetch(&self, url: &str) -> Option<FetchedAsset>;
 }
 
+/// Network fetcher for callers outside a download run (itch.io HTML5
+/// preparation): same client stack as downloads (proxy, DNS, VPN guard,
+/// destination policy). Build it on a Tokio runtime thread; `fetch` must then
+/// be called from a blocking thread.
+pub struct NetworkAssetFetcher(crate::discover_net::ClientCafeFetch);
+
+impl NetworkAssetFetcher {
+    pub fn new(
+        origin: &str,
+        proxy: cyoa_net::proxy::ProxyConfig,
+        dns: Option<std::sync::Arc<cyoa_net::dns_resolve::CustomResolver>>,
+        vpn: Option<std::sync::Arc<cyoa_net::vpn::VpnGuard>>,
+        http2: bool,
+        cancel: tokio_util::sync::CancellationToken,
+    ) -> Option<Self> {
+        let handle = tokio::runtime::Handle::try_current().ok()?;
+        let client = cyoa_net::client::FetchClient::new(cyoa_net::client::ClientConfig {
+            policy: cyoa_net::policy::DestinationPolicy {
+                origin: url::Url::parse(origin).ok(),
+                allow_internal: cyoa_core::allow_internal_hosts(),
+            },
+            budget: cyoa_net::admission::RequestBudget::new(16, 8),
+            proxy,
+            dns,
+            vpn,
+            http2,
+            ..cyoa_net::client::ClientConfig::default()
+        })
+        .ok()?;
+        Some(Self(crate::discover_net::ClientCafeFetch {
+            client,
+            handle,
+            cancel,
+        }))
+    }
+}
+
+impl AssetFetcher for NetworkAssetFetcher {
+    fn fetch(&self, url: &str) -> Option<FetchedAsset> {
+        self.0.fetch(url)
+    }
+}
+
 /// Fetcher that never reaches the network.
 pub struct NoNetwork;
 impl AssetFetcher for NoNetwork {
@@ -130,6 +175,9 @@ fn fre(p: &str) -> Option<fancy_regex::Regex> {
 }
 
 /// Python truthiness of a JSON value.
+pub(crate) fn py_truthy(v: &Value) -> bool {
+    truthy(v)
+}
 fn truthy(v: &Value) -> bool {
     match v {
         Value::Null => false,
@@ -1787,10 +1835,52 @@ pub fn apply_offline_viewer(opts: ApplyOptions<'_>) -> Option<PathBuf> {
         }
     }
 
+    // Preserve publisher index customizations (injector.py 857-913).
     if !opts.source_html.trim().is_empty() {
-        tracing::warn!(
-            "Preserving source index customizations is not ported yet (F-037 V4); using the viewer index"
-        );
+        use crate::preserved_index::{self as pi, Family};
+        let project_app = match parsed_project.get("app") {
+            Some(Value::Object(a)) => a,
+            _ => &parsed_project,
+        };
+        let version_value = py_or(&[parsed_project.get("version"), project_app.get("version")]);
+        let project_version = pi::version_str(version_value.as_ref());
+        let viewer_type = match meta.get("viewer_type") {
+            None => String::new(),
+            Some(v) => py_str(v),
+        };
+        let runtime_family = py_str_or_empty(meta.get("runtime_family"));
+        let preserved = if viewer_type == "icc_remix" {
+            Some(Family::IccRemix)
+        } else if project_version.starts_with("2.") && site.join("js").join("app.js").is_file() {
+            Some(Family::IccPlus2)
+        } else {
+            None
+        };
+        const LEGACY: [&str; 4] = [
+            "icc_original",
+            "icc_plus_legacy",
+            "icc_legacy",
+            "lt_ouroumov",
+        ];
+        if let Some(family) = preserved {
+            match pi::build_preserved_index(opts.source_html, family, opts.project_json_str) {
+                Ok(h) => {
+                    html = h;
+                    let name = if family == Family::IccRemix {
+                        "icc_remix"
+                    } else {
+                        "icc_plus_2"
+                    };
+                    tracing::info!("Preserved source index customizations for {name}");
+                }
+                Err(e) => tracing::warn!("Could not preserve source index customizations: {e}"),
+            }
+        } else if LEGACY.contains(&runtime_family.as_str())
+            || LEGACY.contains(&viewer_type.as_str())
+        {
+            html = pi::merge_legacy_index_customizations(&html, opts.source_html);
+            tracing::info!("Merged publisher customizations into legacy viewer index");
+        }
     }
 
     html = apply_iccplus_viewer_config_to_html(

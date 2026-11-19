@@ -1,0 +1,1 @@
+{"rows": [{"id": "r1", "title": "Row", "image": "img/a.png", "objects": [{"id": "o1", "title": "Obj", "image": "img/b.jpg"}]}], "pointTypes": [{"name": "Points", "startingSum": 10}], "styling": {"bg": "#fff"}}

@@ -164,7 +164,7 @@ fn apply_offline_viewer_matches_python_trees() {
             } else {
                 Some(&asset_dirs)
             },
-            source_html: "",
+            source_html: case["source_html"].as_str().unwrap_or(""),
             source_url: case["source_url"].as_str().unwrap(),
             preserved_asset_cache_dir: if cache_files.is_empty() {
                 None
