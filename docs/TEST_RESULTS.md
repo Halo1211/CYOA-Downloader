@@ -43,3 +43,7 @@ Fixtures are regenerated from Python with `python rust/fixtures/export_core.py` 
 - `scan_file_for_assets`: 1889/1889 cases identical to Python (`rust/fixtures/export_scan_file.py`). Perf probe: 2.1 MB inputs scan in <150 ms (release) after replacing fancy-regex look-behind/back-reference patterns that stalled for minutes.
 - Deep-scan path helpers: 299/299 identical (`rust/fixtures/export_deep_paths.py`).
 - Local models (graded by compiling): mimo-heretic, deepseek-v4-pro-heretic and qwen2.5-coder:7b all failed the non-trivial Rust port task; none adopted.
+
+## 2026-11-19 test-hygiene incident (keyring)
+
+During a settings export/import differential run, a throwaway test profile contained fake secrets (`discord_bot_token`="SECRET123", `ai_api_key`="k"). Every Rust CLI run loads settings with the native keyring backend (DL-5 migration), so these fake values were written to the real Windows Credential Manager under service `CYOA Downloader` (Rust-only service; the Python app's `cyoa_downloader` / `cyoa_downloader_itch` entries were not touched). Any real value previously stored there by the Rust app would have been overwritten. Not read or deleted by the agent (secrets policy). Owner action: check Credential Manager > Windows Credentials > `CYOA Downloader`. Rule from now on: differential runs use settings without secret keys.

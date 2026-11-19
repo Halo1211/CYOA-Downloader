@@ -61,7 +61,7 @@ Source paths are relative to `cyoa_downloader_app/`.
 
 | ID | Feature | Python source | Rust destination | Stage | Agent | Notes / limits |
 |---|---|---|---|---|---|---|
-| F-001 | Settings load/save, defaults, `.corrupt` backup, portable export/import | `config/settings.py` | cyoa-storage | 1 | L+M | Must stay compatible with `settings.json` keys |
+| F-001 | Settings load/save, defaults, `.corrupt` backup, portable export/import | `config/settings.py` | cyoa-storage | 1 | L+M | Must stay compatible with `settings.json` keys. s6: CLI `--export-settings FILE` / `--import-settings FILE` (`settings::export_settings_file` / `import_settings_file`): messages, counts, export file and merged settings.json identical to Python (differential run, no secrets). Diff (DL-5): a secret present in settings.json is migrated to the keyring when the Rust CLI loads settings, so `ai_key_storage` exports as `keyring` and the token field is blank |
 | F-002 | Secrets (keyring/plain) | `config/secrets.py` | cyoa-storage | 1 | L+S | Owner decision D5 |
 | F-003 | Path sanitization and safe join (reserved names, links, truncate+hash) | `core/paths.py` | cyoa-core | 1 | L+S | Python `strip` semantics |
 | F-004 | URL canonicalization and internal-host policy | `core/url_utils.py` | cyoa-core | 1 | L+S | SEC-1, SEC-6 |

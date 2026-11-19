@@ -568,6 +568,183 @@ impl SettingsStore {
     }
 }
 
+/// Python `config/settings.py::export_settings(path)`: the loaded settings
+/// without secret keys, wrapped with `_meta` (redacted key names only),
+/// `json.dumps(indent=2, ensure_ascii=False) + "\n"`. Returns (ok, message).
+pub fn export_settings_file(store: &mut SettingsStore, path: &Path) -> (bool, String) {
+    let current = match store.load() {
+        Ok(values) => values.clone(),
+        Err(e) => return (false, format!("Settings export failed: {e}")),
+    };
+    let mut safe = Settings::new();
+    let mut redacted = Vec::new();
+    for (k, v) in current {
+        if is_secret_setting_key(&k) {
+            redacted.push(k);
+        } else {
+            safe.insert(k, v);
+        }
+    }
+    redacted.sort();
+    let mut meta = Settings::new();
+    meta.insert("app_version".into(), cyoa_core::app_version().into());
+    meta.insert("schema_version".into(), 4.into());
+    meta.insert("exported_at".into(), utc_now_iso().into());
+    meta.insert("redacted_keys".into(), redacted.clone().into());
+    let mut payload = Settings::new();
+    payload.insert("_meta".into(), meta.into());
+    let count = safe.len();
+    payload.insert("settings".into(), safe.into());
+    let mut text = String::new();
+    if let Err(e) = write_json(&mut text, &Value::Object(payload), 0) {
+        return (false, format!("Settings export failed: {e}"));
+    }
+    text.push('\n');
+    let abs = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    if let Some(parent) = abs.parent()
+        && let Err(e) = fs::create_dir_all(parent)
+    {
+        return (false, format!("Settings export failed: {e}"));
+    }
+    if let Err(e) = crate::atomic_io::atomic_write_text(path, &text) {
+        return (false, format!("Settings export failed: {e}"));
+    }
+    (
+        true,
+        format!(
+            "Settings exported to {} ({count} keys, {} secret keys withheld).",
+            path.display(),
+            redacted.len()
+        ),
+    )
+}
+
+/// Python `import_settings(path)`: merge known, type-checked, non-secret
+/// keys (plus a cleaned `extra` object) into settings.json.
+pub fn import_settings_file(store: &mut SettingsStore, path: &Path) -> (bool, String) {
+    if !path.exists() {
+        return (
+            false,
+            format!("Import failed: file not found: {}", path.display()),
+        );
+    }
+    let bytes = match fs::read(path) {
+        Ok(b) => b,
+        Err(e) => return (false, format!("Import failed: {e}")),
+    };
+    let bytes = bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(&bytes);
+    let raw: Value = match serde_json::from_slice(bytes) {
+        Ok(v) => v,
+        Err(e) => return (false, format!("Import failed: invalid JSON ({e}).")),
+    };
+    let incoming = match raw.as_object() {
+        Some(obj) => match obj.get("settings").and_then(Value::as_object) {
+            Some(settings) => settings.clone(),
+            None => obj.clone(),
+        },
+        None => {
+            return (
+                false,
+                "Import failed: unexpected JSON structure (expected an object).".into(),
+            );
+        }
+    };
+    let defs = defaults();
+    let mut accepted = Settings::new();
+    let (mut secret, mut unknown, mut mismatch, mut redacted) = (0, 0, 0, 0);
+    for (k, v) in &incoming {
+        if k == "extra" {
+            continue;
+        }
+        if v == REDACTED {
+            redacted += 1;
+            continue;
+        }
+        if is_secret_setting_key(k) {
+            secret += 1;
+            continue;
+        }
+        let Some(default) = defs.get(k) else {
+            unknown += 1;
+            continue;
+        };
+        let ok = match default {
+            Value::Bool(_) => v.is_boolean(),
+            Value::Number(n) if n.is_i64() || n.is_u64() => {
+                v.as_number().is_some_and(|n| n.is_i64() || n.is_u64())
+            }
+            Value::String(_) => v.is_string(),
+            _ => true,
+        };
+        if !ok {
+            mismatch += 1;
+            continue;
+        }
+        accepted.insert(k.clone(), v.clone());
+    }
+    if let Some(extra) = incoming.get("extra").and_then(Value::as_object) {
+        let clean: Settings = extra
+            .iter()
+            .filter(|(k, v)| !is_secret_setting_key(k) && *v != REDACTED)
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        if !clean.is_empty() {
+            accepted.insert("extra".into(), clean.into());
+        }
+    }
+    if accepted.is_empty() {
+        return (
+            false,
+            format!(
+                "Import found no safe, known settings to apply (secret={secret}, unknown={unknown}, type-mismatch={mismatch}, redacted={redacted})."
+            ),
+        );
+    }
+    if let Err(e) = store.load() {
+        return (false, format!("Settings import failed: {e}"));
+    }
+    let n = accepted.len();
+    for (k, v) in accepted {
+        store.values_mut().insert(k, v);
+    }
+    if let Err(e) = store.save() {
+        return (false, format!("Settings import failed: {e}"));
+    }
+    (
+        true,
+        format!(
+            "Imported {n} settings (merged). Skipped: {secret} secret, {unknown} unknown, {mismatch} type-mismatch, {redacted} redacted."
+        ),
+    )
+}
+
+const REDACTED: &str = "__REDACTED__";
+
+/// `datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")`.
+fn utc_now_iso() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
+    // Civil-from-days (Howard Hinnant).
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!(
+        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z",
+        rem / 3600,
+        rem % 3600 / 60,
+        rem % 60
+    )
+}
+
 fn read(path: &Path) -> Result<Option<Settings>, SettingsError> {
     let bytes = match fs::read(path) {
         Ok(bytes) => bytes,

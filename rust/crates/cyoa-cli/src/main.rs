@@ -74,6 +74,12 @@ struct Args {
     /// Bandwidth limit in KB/s. 0 means unlimited.
     #[arg(long, default_value_t = 0.0, allow_negative_numbers = true)]
     bandwidth: f64,
+    /// Export current settings (secrets redacted) to FILE and exit.
+    #[arg(long, value_name = "FILE")]
+    export_settings: Option<PathBuf>,
+    /// Merge settings from a prior export FILE (secrets ignored) and exit.
+    #[arg(long, value_name = "FILE")]
+    import_settings: Option<PathBuf>,
     /// Validate a previously downloaded output FOLDER (read-only integrity check) and exit.
     #[arg(long, value_name = "FOLDER")]
     verify: Option<PathBuf>,
@@ -426,6 +432,24 @@ async fn main() -> ExitCode {
             cyoa_engine::verify::verify_output_package(folder)
         };
         println!("{text}");
+        return if ok {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::FAILURE
+        };
+    }
+    // cli.py 491-503: settings export/import run before any download.
+    if args.export_settings.is_some() || args.import_settings.is_some() {
+        let mut store =
+            cyoa_storage::settings::SettingsStore::new(cyoa_storage::settings::default_path());
+        let (ok, msg) = if let Some(path) = &args.export_settings {
+            cyoa_storage::settings::export_settings_file(&mut store, path)
+        } else if let Some(path) = &args.import_settings {
+            cyoa_storage::settings::import_settings_file(&mut store, path)
+        } else {
+            (false, String::new())
+        };
+        println!("{msg}");
         return if ok {
             ExitCode::SUCCESS
         } else {
