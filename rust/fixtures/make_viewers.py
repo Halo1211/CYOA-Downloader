@@ -115,7 +115,24 @@ assets = [
     [{"name": "a_local_1.zip", "browser_download_url": "x"}, {"name": "b_local_1.zip", "browser_download_url": "y"}],
 ]
 
+edge_metas = [
+    {"name": "Viewer 1.8"}, {"name": "viewer18_x"}, {"name": "viewer18é"}, {"name": "xviewer 1.8"},
+    {"name": "Visualiseur ü Viewer--1..8"}, {"name": "ÄÖ new.viewer"}, {"name": "plus  2"},
+    {"name": "plus._-2 x"}, {"name": "v2x"}, {"name": "V2_final"}, {"name": "remix plus2"},
+    {"name": "legacy", "viewer_type": "icc_plus"}, {"name": "日本語 legacy viewer 1.8"},
+    {"name": "v99999999999999999999999 local", "zip_filename": "a.ZIP"},
+    {"name": "v100000000000000000000000 local", "zip_filename": "a.zip"},
+    {"name": "007 1 2 3 4 5", "registered_at": "z"}, {"name": "", "zip_filename": "x.rar"},
+]
+edge = [{"meta": m, "classic": r._classic_viewer_family(m), "family": r._archive_runtime_family(m),
+         "variant": r._archive_viewer_variant(m), "quality": [r._viewer_quality(m)[0], [str(x) for x in r._viewer_quality(m)[1]],
+                                                               r._viewer_quality(m)[2]]} for m in edge_metas]
+big_assets = [{"name": "v99999999999999999999999_local.zip", "browser_download_url": "a"},
+              {"name": "v100000000000000000000000_local.zip", "browser_download_url": "b"}]
+assets.append(big_assets)
+
 doc = {
+    "edge_metas": edge,
     "viewers_files": ARCHIVES,
     "manifest_raw": raw_manifest,
     "manifest_loaded": loaded,

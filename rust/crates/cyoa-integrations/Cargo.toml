@@ -9,6 +9,7 @@ rust-version.workspace = true
 cyoa-core = { path = "../cyoa-core" }
 cyoa-net = { path = "../cyoa-net" }
 cyoa-storage = { path = "../cyoa-storage" }
+regex = "1.13.1"
 rusqlite = { version = "0.43.0", features = ["bundled"] }
 serde = "1.0.229"
 serde_json = { version = "1.0.154", features = ["preserve_order"] }

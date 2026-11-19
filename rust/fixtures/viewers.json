@@ -1,4 +1,267 @@
 {
+ "edge_metas": [
+  {
+   "meta": {
+    "name": "Viewer 1.8"
+   },
+   "classic": "icc_original",
+   "family": "icc_original",
+   "variant": "",
+   "quality": [
+    0,
+    [
+     "1",
+     "8"
+    ],
+    ""
+   ]
+  },
+  {
+   "meta": {
+    "name": "viewer18_x"
+   },
+   "classic": "icc_original",
+   "family": "custom",
+   "variant": "",
+   "quality": [
+    0,
+    [
+     "18"
+    ],
+    ""
+   ]
+  },
+  {
+   "meta": {
+    "name": "viewer18é"
+   },
+   "classic": "icc_original",
+   "family": "custom",
+   "variant": "",
+   "quality": [
+    0,
+    [
+     "18"
+    ],
+    ""
+   ]
+  },
+  {
+   "meta": {
+    "name": "xviewer 1.8"
+   },
+   "classic": "icc_original",
+   "family": "icc_original",
+   "variant": "",
+   "quality": [
+    0,
+    [
+     "1",
+     "8"
+    ],
+    ""
+   ]
+  },
+  {
+   "meta": {
+    "name": "Visualiseur ü Viewer--1..8"
+   },
+   "classic": "icc_original",
+   "family": "custom",
+   "variant": "",
+   "quality": [
+    0,
+    [
+     "1",
+     "8"
+    ],
+    ""
+   ]
+  },
+  {
+   "meta": {
+    "name": "ÄÖ new.viewer"
+   },
+   "classic": "icc_plus_legacy",
+   "family": "custom",
+   "variant": "",
+   "quality": [
+    0,
+    [],
+    ""
+   ]
+  },
+  {
+   "meta": {
+    "name": "plus  2"
+   },
+   "classic": "icc_original",
+   "family": "icc_plus2",
+   "variant": "",
+   "quality": [
+    0,
+    [
+     "2"
+    ],
+    ""
+   ]
+  },
+  {
+   "meta": {
+    "name": "plus._-2 x"
+   },
+   "classic": "icc_original",
+   "family": "icc_plus2",
+   "variant": "",
+   "quality": [
+    0,
+    [
+     "2"
+    ],
+    ""
+   ]
+  },
+  {
+   "meta": {
+    "name": "v2x"
+   },
+   "classic": "icc_original",
+   "family": "custom",
+   "variant": "",
+   "quality": [
+    0,
+    [
+     "2"
+    ],
+    ""
+   ]
+  },
+  {
+   "meta": {
+    "name": "V2_final"
+   },
+   "classic": "icc_original",
+   "family": "icc_plus2",
+   "variant": "",
+   "quality": [
+    0,
+    [
+     "2"
+    ],
+    ""
+   ]
+  },
+  {
+   "meta": {
+    "name": "remix plus2"
+   },
+   "classic": "icc_original",
+   "family": "icc_remix",
+   "variant": "",
+   "quality": [
+    0,
+    [
+     "2"
+    ],
+    ""
+   ]
+  },
+  {
+   "meta": {
+    "name": "legacy",
+    "viewer_type": "icc_plus"
+   },
+   "classic": "icc_plus_legacy",
+   "family": "icc_plus_legacy",
+   "variant": "",
+   "quality": [
+    0,
+    [],
+    ""
+   ]
+  },
+  {
+   "meta": {
+    "name": "日本語 legacy viewer 1.8"
+   },
+   "classic": "icc_original",
+   "family": "icc_original",
+   "variant": "",
+   "quality": [
+    0,
+    [
+     "1",
+     "8"
+    ],
+    ""
+   ]
+  },
+  {
+   "meta": {
+    "name": "v99999999999999999999999 local",
+    "zip_filename": "a.ZIP"
+   },
+   "classic": "icc_original",
+   "family": "custom",
+   "variant": "offline",
+   "quality": [
+    5,
+    [
+     "99999999999999999999999"
+    ],
+    ""
+   ]
+  },
+  {
+   "meta": {
+    "name": "v100000000000000000000000 local",
+    "zip_filename": "a.zip"
+   },
+   "classic": "icc_original",
+   "family": "custom",
+   "variant": "offline",
+   "quality": [
+    5,
+    [
+     "100000000000000000000000"
+    ],
+    ""
+   ]
+  },
+  {
+   "meta": {
+    "name": "007 1 2 3 4 5",
+    "registered_at": "z"
+   },
+   "classic": "icc_original",
+   "family": "custom",
+   "variant": "",
+   "quality": [
+    0,
+    [
+     "7",
+     "1",
+     "2",
+     "3"
+    ],
+    "z"
+   ]
+  },
+  {
+   "meta": {
+    "name": "",
+    "zip_filename": "x.rar"
+   },
+   "classic": "icc_original",
+   "family": "custom",
+   "variant": "",
+   "quality": [
+    0,
+    [],
+    ""
+   ]
+  }
+ ],
  "viewers_files": {
   "remix_pack.zip": [
    "viewer-template.zip",
@@ -4154,6 +4417,22 @@
    {
     "name": "a_local_1.zip",
     "browser_download_url": "x"
+   }
+  ],
+  [
+   [
+    {
+     "name": "v99999999999999999999999_local.zip",
+     "browser_download_url": "a"
+    },
+    {
+     "name": "v100000000000000000000000_local.zip",
+     "browser_download_url": "b"
+    }
+   ],
+   {
+    "name": "v100000000000000000000000_local.zip",
+    "browser_download_url": "b"
    }
   ]
  ]
