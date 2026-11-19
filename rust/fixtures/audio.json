@@ -1,0 +1,191 @@
+{
+ "patch": [
+  {
+   "project": "{\"version\": \"2.0\", \"rows\": [{\"id\": \"r\", \"bgmId\": \"https://www.youtube.com/watch?v=dQw4w9WgXcQ\", \"objects\": [{\"id\": \"o\", \"bgmId\": \"AAAAAAAAAAA\"}]}, {\"id\": \"t\", \"text\": \"<a href=\\\"https://www.youtube.com/watch?v=dQw4w9WgXcQ\\\">song</a> and https://www.youtube.com/watch?v=dQw4w9WgXcQ\", \"script\": \"playVideo('dQw4w9WgXcQ'); playVideo( \\\"AAAAAAAAAAA\\\" )\"}, {\"id\": \"s\", \"bgmId\": \"audio/dQw4w9WgXcQ.mp3\"}, {\"id\": \"u\", \"bgmId\": \"https://www.youtube.com/watch?v=ZZZZZZZZZZZ\"}, {\"id\": \"h\", \"desc\": \"x &amp; https://www.youtube.com/watch?v=dQw4w9WgXcQ\"}, [\"list\", \"https://youtu.be/AAAAAAAAAAA\"]]}",
+   "map": {
+    "https://www.youtube.com/watch?v=dQw4w9WgXcQ": "audio/dQw4w9WgXcQ.mp3",
+    "https://youtu.be/AAAAAAAAAAA": "audio/AAAAAAAAAAA.mp3"
+   },
+   "expected": "{\"version\":\"2.0\",\"rows\":[{\"id\":\"r\",\"bgmId\":\"audio/dQw4w9WgXcQ.mp3\",\"objects\":[{\"id\":\"o\",\"bgmId\":\"audio/AAAAAAAAAAA.mp3\",\"useAudioURL\":true}],\"useAudioURL\":true},{\"id\":\"t\",\"text\":\"<a href=\\\"audio/dQw4w9WgXcQ.mp3\\\">song</a> and audio/dQw4w9WgXcQ.mp3\",\"script\":\"playVideo('audio/dQw4w9WgXcQ.mp3'); playVideo( \\\"audio/AAAAAAAAAAA.mp3\\\" )\"},{\"id\":\"s\",\"bgmId\":\"audio/dQw4w9WgXcQ.mp3\",\"useAudioURL\":true},{\"id\":\"u\",\"bgmId\":\"https://www.youtube.com/watch?v=ZZZZZZZZZZZ\"},{\"id\":\"h\",\"desc\":\"x &amp; audio/dQw4w9WgXcQ.mp3\"},[\"list\",\"audio/AAAAAAAAAAA.mp3\"]],\"useAudioURL\":true}"
+  },
+  {
+   "project": "{\"app\": {\"rows\": []}, \"bgmId\": \"https://youtu.be/AAAAAAAAAAA\"}",
+   "map": {
+    "https://youtu.be/AAAAAAAAAAA": "audio/AAAAAAAAAAA.mp3"
+   },
+   "expected": "{\"app\":{\"rows\":[],\"useAudioURL\":true},\"bgmId\":\"audio/AAAAAAAAAAA.mp3\",\"useAudioURL\":true}"
+  },
+  {
+   "project": "{\"version\":\"1\",\"bgmId\":\"dQw4w9WgXcQ\", broken",
+   "map": {
+    "https://www.youtube.com/watch?v=dQw4w9WgXcQ": "audio/dQw4w9WgXcQ.mp3"
+   },
+   "expected": "{\"version\":\"1\",\"bgmId\":\"audio/dQw4w9WgXcQ.mp3\",\"useAudioURL\":true, broken"
+  },
+  {
+   "project": "{\"rows\": []}",
+   "map": {},
+   "expected": "{\"rows\": []}"
+  },
+  {
+   "project": "{\"bgmId\": \"https://soundcloud.com/artist/some-track\", \"t\": \"playVideo('https://soundcloud.com/artist/some-track')\"}",
+   "map": {
+    "https://soundcloud.com/artist/some-track": "audio/some-track-1a2b3c4d.mp3"
+   },
+   "expected": "{\"bgmId\":\"audio/some-track-1a2b3c4d.mp3\",\"t\":\"playVideo('audio/some-track-1a2b3c4d.mp3')\",\"useAudioURL\":true}"
+  }
+ ],
+ "summaries": [
+  [
+   null,
+   "no output file"
+  ],
+  [
+   "",
+   "no output file"
+  ],
+  [
+   "ERROR: [youtube] x: Sign in to confirm you're not a bot\n  more  text ",
+   "ERROR: [youtube] x: Sign in to confirm you're not a bot more text"
+  ],
+  [
+   "Could not copy Chrome cookie database. ... database is locked",
+   "browser cookie database is locked; close Chrome/Edge/Brave completely and retry, or select an exported Netscape cookies.txt in YouTube cookies"
+  ],
+  [
+   "ERROR: No supported JavaScript runtime could be found",
+   "YouTube now requires a JavaScript runtime for audio extraction; install/update yt-dlp[default], install Deno, and restart CYOA Downloader"
+  ],
+  [
+   "WARNING: Signature solving failed: blah",
+   "YouTube format signatures could not be solved; install/update Deno and yt-dlp, then retry"
+  ],
+  [
+   "ERROR: The provided YouTube account cookies are no longer valid",
+   "YouTube rejected the exported cookies; log in again and export a fresh Netscape cookies.txt"
+  ],
+  [
+   "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  ]
+ ],
+ "flows": [
+  {
+   "urls": [
+    "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    "https://youtu.be/AAAAAAAAAAA",
+    "https://soundcloud.com/artist/some-track"
+   ],
+   "preexisting": [
+    "AAAAAAAAAAA.mp3"
+   ],
+   "result": {
+    "https://www.youtube.com/watch?v=dQw4w9WgXcQ": "audio/dQw4w9WgXcQ.mp3",
+    "https://youtu.be/AAAAAAAAAAA": "audio/AAAAAAAAAAA.mp3",
+    "https://soundcloud.com/artist/some-track": "audio/some-track-89f2d61b.mp3"
+   },
+   "files": {
+    "audio/AAAAAAAAAAA.mp3": "6f6c64",
+    "audio/dQw4w9WgXcQ.mp3": "49443366616b652d6d70332d666f722d68747470733a2f2f7777772e796f75747562652e636f6d2f77617463683f763d6451773477395767586351",
+    "audio/some-track-89f2d61b.mp3": "49443366616b652d6d70332d666f722d68747470733a2f2f736f756e64636c6f75642e636f6d2f6172746973742f736f6d652d747261636b"
+   },
+   "skip_log": "",
+   "attempts": [
+    {
+     "format": "bestaudio[ext=m4a]/bestaudio/best",
+     "postprocessors": [
+      {
+       "key": "FFmpegExtractAudio",
+       "preferredcodec": "mp3",
+       "preferredquality": "192"
+      }
+     ],
+     "retries": 5,
+     "fragment_retries": 5,
+     "socket_timeout": 30,
+     "extractor_args": {
+      "youtube": {
+       "player_client": [
+        "tv",
+        "mweb"
+       ],
+       "formats": [
+        "incomplete"
+       ]
+      }
+     }
+    },
+    {
+     "format": "bestaudio[ext=m4a]/bestaudio/best",
+     "postprocessors": [
+      {
+       "key": "FFmpegExtractAudio",
+       "preferredcodec": "mp3",
+       "preferredquality": "192"
+      }
+     ],
+     "retries": 5,
+     "fragment_retries": 5,
+     "socket_timeout": 30,
+     "extractor_args": {
+      "youtube": {
+       "player_client": [
+        "tv",
+        "mweb"
+       ],
+       "formats": [
+        "incomplete"
+       ]
+      }
+     }
+    }
+   ]
+  },
+  {
+   "urls": [
+    "https://www.youtube.com/watch?v=BBBBBBBBBBB"
+   ],
+   "preexisting": [],
+   "result": {},
+   "files": {},
+   "skip_log": "# Skipped YouTube audio URLs\n# ============================================================\n# WHY these cannot be made offline:\n#   YouTube ToS prohibits downloading streams.\n#   Streams use signed time-limited URLs (DASH/HLS) — no static file.\n#   Old ICC viewer (Vue) creates YT.Player via JavaScript.\n#   The original reference is preserved; no placeholder is generated.\n#\n# WORKAROUND (manual, personal archival only):\n#   1. pip install yt-dlp\n#   2. yt-dlp -x --audio-format mp3 <youtube_url>\n#   3. Place .mp3 in: <output_folder>/audio/\n#   4. Edit project.json: bgmId -> 'audio/filename.mp3', useAudioURL -> true\n#   Respect copyright — for personal use only.\n# ============================================================\n\n# --- TIME ---\n# Source CYOA : https://cyoa.example/\n# Count       : 1\nhttps://www.youtube.com/watch?v=BBBBBBBBBBB\n# Reason      : ERROR: [youtube] BBBBBBBBBBB: Sign in to confirm you're not a bot\n\n",
+   "attempts": [
+    {
+     "format": "bestaudio[ext=m4a]/bestaudio/best",
+     "postprocessors": [
+      {
+       "key": "FFmpegExtractAudio",
+       "preferredcodec": "mp3",
+       "preferredquality": "192"
+      }
+     ],
+     "retries": 5,
+     "fragment_retries": 5,
+     "socket_timeout": 30,
+     "extractor_args": {
+      "youtube": {
+       "player_client": [
+        "tv",
+        "mweb"
+       ],
+       "formats": [
+        "incomplete"
+       ]
+      }
+     }
+    }
+   ]
+  }
+ ],
+ "disabled": {
+  "urls": [
+   "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+   "AAAAAAAAAAA"
+  ],
+  "preexisting": [],
+  "result": {},
+  "files": {},
+  "skip_log": "# Skipped YouTube audio URLs\n# ============================================================\n# WHY these cannot be made offline:\n#   YouTube ToS prohibits downloading streams.\n#   Streams use signed time-limited URLs (DASH/HLS) — no static file.\n#   Old ICC viewer (Vue) creates YT.Player via JavaScript.\n#   The original reference is preserved; no placeholder is generated.\n#\n# WORKAROUND (manual, personal archival only):\n#   1. pip install yt-dlp\n#   2. yt-dlp -x --audio-format mp3 <youtube_url>\n#   3. Place .mp3 in: <output_folder>/audio/\n#   4. Edit project.json: bgmId -> 'audio/filename.mp3', useAudioURL -> true\n#   Respect copyright — for personal use only.\n# ============================================================\n\n# --- TIME ---\n# Source CYOA : https://cyoa.example/\n# Count       : 2\nhttps://www.youtube.com/watch?v=dQw4w9WgXcQ\nAAAAAAAAAAA\n\n",
+  "attempts": []
+ }
+}
