@@ -124,6 +124,9 @@ fn local_or_basename(url: &str, base: &str, content: Option<&[u8]>) -> String {
 /// is per hostname only, so a different port on an internally resolving page
 /// host must be caught here (Sol review s6).
 async fn resolves_internal_cross_origin(url: &str, base: &str) -> bool {
+    if cyoa_core::allow_internal_hosts() {
+        return false;
+    }
     let (Ok(a), Ok(b)) = (Url::parse(url), Url::parse(base)) else {
         return false;
     };

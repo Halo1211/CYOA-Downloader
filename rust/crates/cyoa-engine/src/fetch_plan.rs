@@ -226,7 +226,7 @@ pub fn ssrf_block_cross_origin(
     allow_internal: bool,
     is_internal: impl Fn(&str) -> bool,
 ) -> bool {
-    if allow_internal {
+    if allow_internal || cyoa_core::allow_internal_hosts() {
         return false;
     }
     let Some(asset) = origin(asset_url) else {

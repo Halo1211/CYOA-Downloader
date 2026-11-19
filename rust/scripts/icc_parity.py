@@ -172,7 +172,9 @@ def main() -> int:
                 ("classic", "--pure-website-folder", "", "--fonts"),
                 ("auto", "--zip", "", "--fonts"),
                 # CLI overrides of the saved archive settings.
-                ("auto", "--icc-folder", "", "--archive-strategy", "smart", "--archive-max-pages", "2")]
+                ("auto", "--icc-folder", "", "--archive-strategy", "smart", "--archive-max-pages", "2"),
+                # SSRF screen off: the https://HOST asset is attempted, not blocked.
+                ("auto", "--icc-folder", "", "--allow-internal-hosts")]
         for strategy, flag, sub, *extra in runs:
             # Python reads settings.json `archive_strategy` (default auto);
             # classic also runs the recovery pass and the deep scan.

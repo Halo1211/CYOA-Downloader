@@ -335,7 +335,8 @@ pub async fn run_download(
     let client = FetchClient::new(ClientConfig {
         policy: DestinationPolicy {
             origin: Some(url.clone()),
-            allow_internal: false,
+            // `--allow-internal-hosts` also lifts the connection-level screen.
+            allow_internal: cyoa_core::allow_internal_hosts(),
         },
         budget: RequestBudget::new(16, 8),
         proxy: opts.proxy.clone(),

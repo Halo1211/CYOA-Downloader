@@ -55,6 +55,9 @@ pub fn urljoin(base: &str, rel: &str) -> String {
 
 /// Python `ai_core._ssrf_block_cross_origin(asset, base)` (global opt-out = `allow_internal`).
 pub fn ssrf_block_cross_origin(asset: &str, base: &str, allow_internal: bool) -> bool {
+    if allow_internal || cyoa_core::allow_internal_hosts() {
+        return false;
+    }
     let Ok(a) = Url::parse(asset) else {
         return false;
     };

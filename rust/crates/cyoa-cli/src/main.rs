@@ -71,6 +71,9 @@ struct Args {
     /// Maximum internal route-link depth for Smart/Browser modes (default: 30).
     #[arg(long, allow_negative_numbers = true)]
     archive_max_depth: Option<i64>,
+    /// Allow fetching assets from cross-origin internal/loopback/RFC1918 hosts. Off by default as an SSRF safeguard; enable only for trusted local setups.
+    #[arg(long)]
+    allow_internal_hosts: bool,
     /// Bandwidth limit in KB/s. 0 means unlimited.
     #[arg(long, default_value_t = 0.0, allow_negative_numbers = true)]
     bandwidth: f64,
@@ -456,6 +459,8 @@ async fn main() -> ExitCode {
             ExitCode::FAILURE
         };
     }
+    // cli.py: _set_allow_internal_hosts(bool(args.allow_internal_hosts)).
+    cyoa_core::set_allow_internal_hosts(args.allow_internal_hosts);
     if args.workers == 0 {
         eprintln!("error: --threads must be at least 1");
         return ExitCode::from(2);
