@@ -38,6 +38,9 @@ pub struct FetchCtx {
     /// When set, fetched bodies are moved to files here right after download, so
     /// a run holds at most one body per worker in memory (Python `_spool`).
     pub spool_dir: Option<PathBuf>,
+    /// `--bandwidth` (KB/s): shared aggregate limiter, Python
+    /// `_throttle_bandwidth` after each body / per streamed chunk.
+    pub bandwidth: Option<cyoa_net::throttle::BandwidthThrottle>,
 }
 
 /// Bytes of a fetched asset: in memory, or spooled to a file owned by the run.
@@ -175,7 +178,13 @@ async fn stream_spooled(
     };
     let len = match ctx
         .client
-        .download_to(response, &path, ctx.max_bytes, None, &ctx.cancel)
+        .download_to(
+            response,
+            &path,
+            ctx.max_bytes,
+            ctx.bandwidth.as_ref(),
+            &ctx.cancel,
+        )
         .await
     {
         Ok(len) => len,
@@ -616,6 +625,14 @@ pub async fn fetch_one(ctx: &FetchCtx, asset_path: &str) -> FetchOutcome {
                 break;
             }
         };
+        if let Some(throttle) = &ctx.bandwidth
+            && throttle
+                .consume(data.len() as u64, &ctx.cancel)
+                .await
+                .is_err()
+        {
+            return outcome(asset_path, None, "", &asset_url, "fetch cancelled");
+        }
         if asset_is_error_document(&mime, &data, true) {
             // image_pipeline.py 801-826: a MediaWiki `File:` description page
             // resolves to its explicitly linked original file.
@@ -712,6 +729,7 @@ mod tests {
             cancel,
             resolver: Arc::new(|_| vec![IpAddr::V4(Ipv4Addr::LOCALHOST)]),
             spool_dir: None,
+            bandwidth: None,
         }
     }
 
@@ -847,6 +865,29 @@ mod tests {
         let result = fetch_one(&ctx(&server, None, CancellationToken::new()), "/asset.png").await;
         assert_eq!(result.error, "HTTP 429: rate limited");
         assert_eq!(server.received_requests().await.expect("requests").len(), 4);
+    }
+
+    #[tokio::test]
+    async fn bandwidth_limit_slows_downloads_on_both_paths() {
+        let server = MockServer::start().await;
+        route(&server, 200, vec![7; 2048], "image/png").await;
+        for spooled in [false, true] {
+            let spool = tempfile::tempdir().unwrap();
+            let mut c = ctx(&server, None, CancellationToken::new());
+            c.bandwidth = Some(cyoa_net::throttle::BandwidthThrottle::new(1.0));
+            if spooled {
+                c.spool_dir = Some(spool.path().to_path_buf());
+            }
+            let started = std::time::Instant::now();
+            let result = fetch_one(&c, "/asset.png").await;
+            assert!(result.data.is_some(), "{}", result.error);
+            // 2 KiB at 1 KB/s: about two seconds.
+            assert!(
+                started.elapsed() >= std::time::Duration::from_millis(1500),
+                "spooled={spooled}: {:?}",
+                started.elapsed()
+            );
+        }
     }
 
     #[test]

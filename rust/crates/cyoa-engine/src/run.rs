@@ -166,6 +166,8 @@ pub(crate) fn build_ctx(
         cancel: cancel.clone(),
         resolver,
         spool_dir: Some(spool_dir),
+        bandwidth: (opts.bandwidth_kbps > 0.0)
+            .then(|| cyoa_net::throttle::BandwidthThrottle::new(opts.bandwidth_kbps)),
     })
 }
 
@@ -230,6 +232,8 @@ pub struct RunOptions {
     pub engine: Engine,
     /// `--fonts`: download fonts into the output and rewrite project URLs.
     pub fonts: bool,
+    /// `--bandwidth`: aggregate download limit in KB/s (0 = unlimited).
+    pub bandwidth_kbps: f64,
     /// Python `show_font_analysis`: log the font report.
     pub analyse_fonts: bool,
     /// Python `analysis_only` (CLI `--analyse-fonts` without `--fonts`):
@@ -258,6 +262,7 @@ impl Default for RunOptions {
             archive: crate::icc::ArchivePolicy::default(),
             engine: Engine::Standard,
             fonts: false,
+            bandwidth_kbps: 0.0,
             analyse_fonts: false,
             analysis_only: false,
         }

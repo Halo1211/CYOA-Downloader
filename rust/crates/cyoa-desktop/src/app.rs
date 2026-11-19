@@ -106,6 +106,9 @@ pub struct Settings {
     /// Python GUI "Font analysis" checkbox.
     #[serde(default)]
     pub analyse_fonts: bool,
+    /// Bandwidth limit in KB/s (0 = unlimited), Python GUI `bw`.
+    #[serde(default)]
+    pub bandwidth_kbps: f64,
 }
 
 fn default_true() -> bool {
@@ -124,6 +127,7 @@ impl Default for Settings {
             net: crate::net::NetSettings::default(),
             fonts: true,
             analyse_fonts: false,
+            bandwidth_kbps: 0.0,
         }
     }
 }
@@ -422,6 +426,7 @@ impl DownloaderApp {
                     archive: archive_auto.unwrap_or_default(),
                     engine: mode.engine(),
                     fonts: self.settings.fonts,
+                    bandwidth_kbps: self.settings.bandwidth_kbps,
                     analyse_fonts: self.settings.analyse_fonts,
                     ..RunOptions::default()
                 };
@@ -613,6 +618,13 @@ impl DownloaderApp {
             ui.add(egui::DragValue::new(&mut self.settings.threads).range(1..=64));
             ui.label("Wait (s):");
             ui.add(egui::DragValue::new(&mut self.settings.wait_time).range(0..=3600));
+            ui.label("Limit KB/s:")
+                .on_hover_text("Bandwidth limit for downloads; 0 = unlimited");
+            ui.add(
+                egui::DragValue::new(&mut self.settings.bandwidth_kbps)
+                    .range(0.0..=1_000_000.0)
+                    .speed(10.0),
+            );
             ui.separator();
             if ui.checkbox(&mut self.settings.fonts, "Fonts").changed() {
                 let state = if self.settings.fonts {

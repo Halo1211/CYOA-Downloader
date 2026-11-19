@@ -71,6 +71,9 @@ struct Args {
     /// Maximum internal route-link depth for Smart/Browser modes (default: 30).
     #[arg(long, allow_negative_numbers = true)]
     archive_max_depth: Option<i64>,
+    /// Bandwidth limit in KB/s. 0 means unlimited.
+    #[arg(long, default_value_t = 0.0, allow_negative_numbers = true)]
+    bandwidth: f64,
     /// Validate a previously downloaded output FOLDER (read-only integrity check) and exit.
     #[arg(long, value_name = "FOLDER")]
     verify: Option<PathBuf>,
@@ -676,6 +679,12 @@ async fn main() -> ExitCode {
             vpn: vpn.clone(),
             deep_scan: !args.no_deep_scan,
             fonts: args.fonts,
+            // cli.py: max(0.0, float(args.bandwidth or 0.0)); never persisted.
+            bandwidth_kbps: if args.bandwidth.is_finite() {
+                args.bandwidth.max(0.0)
+            } else {
+                0.0
+            },
             // cli.py: show_font_analysis = -a or -f; analysis_only = -a without -f.
             analyse_fonts: args.analyse_fonts || args.fonts,
             analysis_only: args.analyse_fonts && !args.fonts,
