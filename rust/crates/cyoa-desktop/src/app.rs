@@ -75,6 +75,18 @@ impl From<Mode> for OutputMode {
 
 /// Python `ArchivePolicy` from the shared settings.json (`archive_*`);
 /// the browser strategy (CDP) is not ported and is refused.
+/// Saved Cloudflare/FlareSolverr settings (Python GUI `_load_cloudflare_settings`).
+fn cloudflare_config() -> std::sync::Arc<cyoa_net::cloudflare::CloudflareConfig> {
+    let mut store =
+        cyoa_storage::settings::SettingsStore::new(cyoa_storage::settings::default_path());
+    std::sync::Arc::new(
+        store
+            .load()
+            .map(cyoa_net::cloudflare::CloudflareConfig::from_settings)
+            .unwrap_or_default(),
+    )
+}
+
 fn archive_policy() -> Result<cyoa_engine::icc::ArchivePolicy, String> {
     let mut store =
         cyoa_storage::settings::SettingsStore::new(cyoa_storage::settings::default_path());
@@ -427,6 +439,7 @@ impl DownloaderApp {
                     engine: mode.engine(),
                     fonts: self.settings.fonts,
                     bandwidth_kbps: self.settings.bandwidth_kbps,
+                    cloudflare: Some(cloudflare_config()),
                     analyse_fonts: self.settings.analyse_fonts,
                     ..RunOptions::default()
                 };

@@ -48,6 +48,8 @@ pub enum FetchError {
     Io(#[from] io::Error),
     #[error("VPN guard blocked request: required interface not detected")]
     VpnBlocked,
+    #[error("Cloudflare challenge unresolved")]
+    CloudflareChallenge,
 }
 use FetchError as E;
 
@@ -108,6 +110,7 @@ pub struct ClientConfig {
     pub vpn: Option<Arc<crate::vpn::VpnGuard>>,
     /// Python `--http2` / `http2_enabled`: off -> HTTP/1.1 only (requests).
     pub http2: bool,
+    pub cloudflare: Option<Arc<crate::cloudflare::CloudflareConfig>>,
 }
 
 impl Default for ClientConfig {
@@ -123,6 +126,7 @@ impl Default for ClientConfig {
             dns: None,
             vpn: None,
             http2: false,
+            cloudflare: None,
         }
     }
 }
@@ -194,6 +198,74 @@ impl Resolve for PolicyResolver {
 pub struct FetchClient {
     http: reqwest::Client,
     cfg: ClientConfig,
+    jar: Arc<reqwest::cookie::Jar>,
+    user_agent: Arc<std::sync::RwLock<Option<String>>>,
+    cloudscraper_logged: Arc<std::sync::atomic::AtomicBool>,
+    flaresolverr: Arc<std::sync::OnceLock<Option<Arc<crate::cloudflare::FlareSolverr>>>>,
+}
+
+/// One Cloudflare attempt outcome (Python `_do_request` sentinels).
+enum Attempt {
+    Ok(Box<FetchResponse>),
+    Challenge,
+    Fail(E),
+}
+
+/// Python `_get_active_proxy()` for the FlareSolverr payload/route.
+fn active_proxy(cfg: &crate::proxy::ProxyConfig) -> Option<String> {
+    use crate::proxy::ProxyMode;
+    match cfg.mode {
+        ProxyMode::Disabled => None,
+        ProxyMode::Manual => cfg
+            .common
+            .clone()
+            .or_else(|| cfg.https.clone())
+            .or_else(|| cfg.http.clone()),
+        ProxyMode::InheritEnv => [
+            "HTTPS_PROXY",
+            "https_proxy",
+            "HTTP_PROXY",
+            "http_proxy",
+            "ALL_PROXY",
+            "all_proxy",
+        ]
+        .iter()
+        .find_map(|k| std::env::var(k).ok().filter(|v| !v.is_empty())),
+    }
+}
+
+/// Read up to 8 KiB of a Cloudflare-served html/json body (kept for replay)
+/// and classify it; Ok(None) = challenge page.
+async fn peek_challenge(mut r: FetchResponse) -> Result<Option<FetchResponse>, E> {
+    let ct = r
+        .headers
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_owned();
+    let cloudflare = r.headers.contains_key("cf-ray")
+        || r.headers
+            .get(reqwest::header::SERVER)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|s| s.to_lowercase().contains("cloudflare"));
+    if !cloudflare || !(ct.contains("text/html") || ct.contains("application/json")) {
+        return Ok(Some(r));
+    }
+    let mut sample = Vec::new();
+    while sample.len() < 8192 {
+        let Some(chunk) = wait(&r.cancel, r.end, r.body.chunk()).await?? else {
+            break;
+        };
+        sample.extend_from_slice(&chunk);
+        r.prefix.push_back(chunk);
+    }
+    let text = String::from_utf8_lossy(&sample);
+    let head: String = text.chars().take(8192).collect();
+    if crate::cloudflare::is_cloudflare_challenge(&r.headers, &head) {
+        Ok(None)
+    } else {
+        Ok(Some(r))
+    }
 }
 
 /// Final response; holds the admission lease until the body is consumed or dropped.
@@ -205,6 +277,7 @@ pub struct FetchResponse {
     _lease: RequestLease,
     cancel: Cancel,
     end: Option<Instant>,
+    prefix: std::collections::VecDeque<Bytes>,
 }
 
 impl FetchResponse {
@@ -216,13 +289,18 @@ impl FetchResponse {
     }
 
     async fn chunk(&mut self) -> Result<Option<Bytes>, E> {
+        if let Some(v) = self.prefix.pop_front() {
+            return Ok(Some(v));
+        }
         Ok(wait(&self.cancel, self.end, self.body.chunk()).await??)
     }
 }
 
 impl FetchClient {
     pub fn new(cfg: ClientConfig) -> Result<Self, E> {
-        let mut builder = reqwest::Client::builder()
+        let jar = Arc::new(reqwest::cookie::Jar::default());
+        // Rebuild with an explicit jar so solved cookies can be installed.
+        let mut b = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .dns_resolver(Arc::new(PolicyResolver(
                 cfg.policy.clone(),
@@ -231,18 +309,22 @@ impl FetchClient {
             .connect_timeout(cfg.connect_timeout)
             .read_timeout(cfg.read_timeout)
             .user_agent(DEFAULT_USER_AGENT)
-            .cookie_store(true)
+            .cookie_provider(jar.clone())
             .retry(reqwest::retry::never());
         if !cfg.http2 {
-            builder = builder.http1_only();
+            b = b.http1_only();
         }
         if let Some(t) = cfg.total_timeout {
-            builder = builder.timeout(t);
+            b = b.timeout(t);
         }
-        builder = cfg.proxy.apply(builder)?;
+        b = cfg.proxy.apply(b)?;
         Ok(Self {
-            http: builder.build()?,
+            http: b.build()?,
             cfg,
+            jar,
+            user_agent: Arc::new(std::sync::RwLock::new(None)),
+            cloudscraper_logged: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            flaresolverr: Arc::new(std::sync::OnceLock::new()),
         })
     }
 
@@ -308,6 +390,266 @@ impl FetchClient {
         opts: &FetchOptions,
         cancel: &Cancel,
     ) -> Result<FetchResponse, E> {
+        let Some(cf) = self.cfg.cloudflare.clone() else {
+            return self.get_once(url, opts, cancel).await;
+        };
+        let mode = crate::cloudflare::normalize_cloudflare_mode(&cf.mode);
+        if mode == "off" {
+            return self.get_once(url, opts, cancel).await;
+        }
+        // fetch_base.py: the per-mode attempt list.
+        let labels: &[&str] = match mode.as_str() {
+            "cloudscraper" => &["cloudscraper", "normal"],
+            "flaresolverr" => &["flaresolverr", "normal"],
+            _ => &["normal"],
+        };
+        let mut challenge_seen = false;
+        let mut last_err: Option<E> = None;
+        for label in labels {
+            match self.cf_attempt(label, url, opts, cancel).await {
+                Attempt::Ok(r) => {
+                    if *label != "normal" {
+                        tracing::info!("Downloaded: {url} via {label}");
+                    }
+                    return Ok(*r);
+                }
+                Attempt::Challenge => {
+                    challenge_seen = true;
+                    tracing::warn!("[Cloudflare] Challenge detected: {url}");
+                }
+                Attempt::Fail(E::Cancelled) => return Err(E::Cancelled),
+                Attempt::Fail(e) => last_err = Some(e),
+            }
+        }
+        // Auto: escalate only after a challenge was actually detected.
+        if mode == "auto" && challenge_seen {
+            if cf.priority != "cloudscraper_first" {
+                for label in ["flaresolverr", "cloudscraper"] {
+                    tracing::info!("[Cloudflare] Auto mode: trying {label} fallback...");
+                    match self.cf_attempt(label, url, opts, cancel).await {
+                        Attempt::Ok(r) => {
+                            tracing::info!("Downloaded: {url} via {label}");
+                            return Ok(*r);
+                        }
+                        Attempt::Fail(E::Cancelled) => return Err(E::Cancelled),
+                        _ => {}
+                    }
+                }
+                tracing::warn!("Cloudflare challenge unresolved: {url}");
+                return Err(E::CloudflareChallenge);
+            }
+            tracing::info!("[Cloudflare] Auto mode: trying cloudscraper fallback…");
+            match self.cf_attempt("cloudscraper", url, opts, cancel).await {
+                Attempt::Ok(r) => {
+                    tracing::info!("Downloaded: {url} via cloudscraper");
+                    return Ok(*r);
+                }
+                Attempt::Fail(E::Cancelled) => return Err(E::Cancelled),
+                _ => {}
+            }
+            tracing::info!("[Cloudflare] Auto mode: trying FlareSolverr fallback…");
+            match self.cf_attempt("flaresolverr", url, opts, cancel).await {
+                Attempt::Ok(r) => return Ok(*r),
+                Attempt::Fail(E::Cancelled) => return Err(E::Cancelled),
+                _ => {}
+            }
+        }
+        if challenge_seen {
+            tracing::warn!(
+                "Cloudflare challenge unresolved: {url}\n  GUI: set Cloudflare Mode to Auto or FlareSolverr.\n  CLI: use --cloudflare auto or --cloudflare flaresolverr."
+            );
+            return Err(E::CloudflareChallenge);
+        }
+        Err(last_err.unwrap_or(E::CloudflareChallenge))
+    }
+
+    /// One backend attempt of `base_fetch_response`.
+    async fn cf_attempt(
+        &self,
+        label: &str,
+        url: &Url,
+        opts: &FetchOptions,
+        cancel: &Cancel,
+    ) -> Attempt {
+        match label {
+            "flaresolverr" => self.flaresolverr_attempt(url, opts, cancel).await,
+            "cloudscraper" => {
+                // Python without the cloudscraper package: a plain session.
+                if !self
+                    .cloudscraper_logged
+                    .swap(true, std::sync::atomic::Ordering::Relaxed)
+                {
+                    tracing::debug!(
+                        "cloudscraper is not available in the Rust port; using a normal request"
+                    );
+                }
+                self.normal_attempt(url, opts, cancel).await
+            }
+            _ => self.normal_attempt(url, opts, cancel).await,
+        }
+    }
+
+    /// `_do_request`: a normal request whose final response is screened for
+    /// a challenge page; 403/503 count as a challenge when the caller does
+    /// not want error responses (Python RequestException branch).
+    async fn normal_attempt(&self, url: &Url, opts: &FetchOptions, cancel: &Cancel) -> Attempt {
+        match self.get_once(url, opts, cancel).await {
+            Ok(r) => match peek_challenge(r).await {
+                Ok(Some(r)) => Attempt::Ok(Box::new(r)),
+                Ok(None) => Attempt::Challenge,
+                Err(e) => Attempt::Fail(e),
+            },
+            Err(E::Http(e))
+                if !opts.return_error_response
+                    && e.status().is_some_and(|s| matches!(s.as_u16(), 403 | 503)) =>
+            {
+                Attempt::Challenge
+            }
+            Err(e) => Attempt::Fail(e),
+        }
+    }
+
+    /// `fetch_via_flaresolverr` + `_recover_source_after_flaresolverr`: the
+    /// solution's cookies and user agent are installed, then the origin is
+    /// requested again; the rendered DOM is never returned.
+    async fn flaresolverr_attempt(
+        &self,
+        url: &Url,
+        opts: &FetchOptions,
+        cancel: &Cancel,
+    ) -> Attempt {
+        let Some(fs) = self.flaresolverr() else {
+            return Attempt::Fail(E::CloudflareChallenge);
+        };
+        let mut headers = HeaderMap::new();
+        for (k, v) in get_headers_for_url(url.as_str()) {
+            if let (Ok(k), Ok(v)) = (
+                HeaderName::from_bytes(k.as_bytes()),
+                HeaderValue::from_str(&v),
+            ) {
+                headers.insert(k, v);
+            }
+        }
+        headers.extend(opts.headers.clone());
+        let Some(solution) = fs.solve(url.as_str(), &headers).await else {
+            return Attempt::Fail(E::CloudflareChallenge);
+        };
+        if !solution.is_object() {
+            return Attempt::Fail(E::CloudflareChallenge);
+        }
+        self.apply_solution(&solution, url);
+        let raw = self.normal_attempt(url, opts, cancel).await;
+        if matches!(raw, Attempt::Ok(_)) {
+            tracing::info!(
+                "[FlareSolverr] Challenge session established; preserving raw source: {url}"
+            );
+        } else {
+            tracing::warn!(
+                "[FlareSolverr] Refusing rendered DOM snapshot because raw source could not be recovered: {url}"
+            );
+        }
+        raw
+    }
+
+    /// `_apply_flaresolverr_solution_to_sessions`.
+    fn apply_solution(&self, solution: &serde_json::Value, url: &Url) {
+        let ua = solution
+            .get("userAgent")
+            .or_else(|| solution.get("user-agent"))
+            .and_then(serde_json::Value::as_str)
+            .filter(|s| !s.is_empty());
+        if let Some(ua) = ua
+            && let Ok(mut slot) = self.user_agent.write()
+        {
+            *slot = Some(ua.to_owned());
+        }
+        let host = url.host_str().unwrap_or("");
+        for cookie in solution
+            .get("cookies")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let Some(name) = cookie.get("name").and_then(serde_json::Value::as_str) else {
+                continue;
+            };
+            if name.is_empty() {
+                continue;
+            }
+            let value = match cookie.get("value") {
+                Some(serde_json::Value::String(s)) => s.clone(),
+                Some(serde_json::Value::Null) | None => continue,
+                Some(other) => other.to_string(),
+            };
+            let domain = cookie
+                .get("domain")
+                .and_then(serde_json::Value::as_str)
+                .filter(|d| !d.is_empty())
+                .unwrap_or(host);
+            let path = cookie
+                .get("path")
+                .and_then(serde_json::Value::as_str)
+                .filter(|p| !p.is_empty())
+                .unwrap_or("/");
+            let bare = domain.trim_start_matches('.');
+            // A host-only cookie for the request host; a Domain attribute
+            // only for a parent domain (IP hosts cannot carry one).
+            let text = if bare.eq_ignore_ascii_case(host) {
+                format!("{name}={value}; Path={path}")
+            } else {
+                format!("{name}={value}; Domain={bare}; Path={path}")
+            };
+            let target = if bare.eq_ignore_ascii_case(host) {
+                Some(url.clone())
+            } else {
+                Url::parse(&format!("{}://{bare}/", url.scheme())).ok()
+            };
+            if let Some(target) = target {
+                self.jar.add_cookie_str(&text, &target);
+            }
+        }
+    }
+
+    /// Lazily built FlareSolverr client shared by every request of this
+    /// client (keeps reuse-domain sessions).
+    fn flaresolverr(&self) -> Option<Arc<crate::cloudflare::FlareSolverr>> {
+        let cf = self.cfg.cloudflare.clone()?;
+        self.flaresolverr
+            .get_or_init(|| {
+                let proxy = active_proxy(&self.cfg.proxy);
+                match crate::cloudflare::FlareSolverr::new(
+                    cf,
+                    proxy,
+                    self.cfg.proxy.mode,
+                    &self.cfg.proxy.no_proxy,
+                ) {
+                    Ok(fs) => Some(Arc::new(fs)),
+                    Err(e) => {
+                        tracing::warn!("[FlareSolverr] client could not be created: {e}");
+                        None
+                    }
+                }
+            })
+            .clone()
+    }
+
+    /// `FlareSolverr.test_connection` with this client's settings.
+    pub async fn flaresolverr_test(&self) -> (bool, String) {
+        match self.flaresolverr() {
+            Some(fs) => fs.test_connection().await,
+            None => (
+                false,
+                "Not reachable. Start FlareSolverr and check the URL.".into(),
+            ),
+        }
+    }
+
+    async fn get_once(
+        &self,
+        url: &Url,
+        opts: &FetchOptions,
+        cancel: &Cancel,
+    ) -> Result<FetchResponse, E> {
         let end = self
             .cfg
             .total_timeout
@@ -326,6 +668,16 @@ impl FetchClient {
             headers.insert(k, v);
         }
         headers.extend(opts.headers.clone());
+        if let Ok(ua) = self.user_agent.read()
+            && let Some(ua) = ua.as_ref()
+        {
+            {
+                headers.insert(
+                    reqwest::header::USER_AGENT,
+                    HeaderValue::from_str(ua).map_err(|_| PolicyError::InvalidUrl)?,
+                );
+            }
+        }
         let mut lease = wait(
             cancel,
             end,
@@ -384,6 +736,7 @@ impl FetchClient {
                 _lease: lease,
                 cancel: cancel.clone(),
                 end,
+                prefix: std::collections::VecDeque::new(),
             });
         }
     }
@@ -409,7 +762,7 @@ impl FetchClient {
         let pump = async {
             let mut n = 0u64;
             loop {
-                let chunk = wait(cancel, end, resp.body.chunk()).await??;
+                let chunk = resp.chunk().await?;
                 let Some(chunk) = chunk else { break };
                 n = n
                     .checked_add(chunk.len() as u64)

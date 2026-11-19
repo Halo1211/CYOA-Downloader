@@ -95,6 +95,33 @@ struct Args {
     /// Local server port used with --serve. 0 means auto-pick a fresh port.
     #[arg(long, default_value_t = 0)]
     serve_port: u16,
+    /// Cloudflare handling mode. Auto escalates only after a challenge is detected.
+    #[arg(long, value_parser = ["off", "auto", "cloudscraper", "flaresolverr"])]
+    cloudflare: Option<String>,
+    /// Auto fallback order after a challenge: FlareSolverr first or cloudscraper first.
+    #[arg(long, value_parser = ["flaresolverr-first", "cloudscraper-first"])]
+    cloudflare_priority: Option<String>,
+    /// Legacy alias: force Cloudflare mode to cloudscraper when installed.
+    #[arg(long = "cf-bypass", alias = "cloudscraper")]
+    cf_bypass: bool,
+    /// FlareSolverr API endpoint, e.g. http://localhost:8191/v1.
+    #[arg(long)]
+    flaresolverr_url: Option<String>,
+    /// FlareSolverr session policy. reuse-domain keeps cookies per domain.
+    #[arg(long, value_parser = ["temporary", "reuse-domain", "manual"])]
+    flaresolverr_session: Option<String>,
+    /// FlareSolverr solve timeout in seconds.
+    #[arg(long, allow_negative_numbers = true)]
+    flaresolverr_timeout: Option<i64>,
+    /// Seconds FlareSolverr waits after page load before returning content.
+    #[arg(long, allow_negative_numbers = true)]
+    flaresolverr_wait: Option<i64>,
+    /// Whether FlareSolverr should inherit the app proxy for target requests.
+    #[arg(long, value_parser = ["inherit", "none"])]
+    flaresolverr_proxy: Option<String>,
+    /// Test the configured FlareSolverr API and exit.
+    #[arg(long)]
+    flaresolverr_test: bool,
     /// Print Serve-only userscript integration credit/source notes and exit.
     #[arg(long)]
     userscript_info: bool,
@@ -710,6 +737,81 @@ async fn main() -> ExitCode {
         itch: saved_bool("itch_enabled", false),
         ..cyoa_engine::run::Integrations::default()
     };
+    // cli.py 645-680: Cloudflare config; argparse defaults come from the
+    // saved settings; any explicit flag persists the whole normalized set.
+    let cloudflare = {
+        let text = |k: &str, d: &str| lookup(k).unwrap_or_else(|| d.to_owned());
+        let int = |k: &str, d: i64| {
+            saved
+                .get(k)
+                .and_then(|v| {
+                    v.as_i64()
+                        .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+                })
+                .filter(|v| *v != 0)
+                .unwrap_or(d)
+        };
+        let mode = if args.cf_bypass {
+            "cloudscraper".to_owned()
+        } else {
+            args.cloudflare
+                .clone()
+                .unwrap_or_else(|| text("cloudflare_mode", "auto"))
+        };
+        let priority = args
+            .cloudflare_priority
+            .clone()
+            .unwrap_or_else(|| text("cloudflare_priority", "flaresolverr_first").replace('_', "-"));
+        let cfg = cyoa_net::cloudflare::CloudflareConfig::new(
+            &mode,
+            &priority,
+            &args
+                .flaresolverr_url
+                .clone()
+                .unwrap_or_else(|| text("flaresolverr_url", "http://localhost:8191/v1")),
+            &args
+                .flaresolverr_session
+                .clone()
+                .unwrap_or_else(|| text("flaresolverr_session_policy", "reuse-domain")),
+            args.flaresolverr_timeout
+                .unwrap_or_else(|| int("flaresolverr_timeout", 60)),
+            args.flaresolverr_wait
+                .unwrap_or_else(|| int("flaresolverr_wait_after", 3)),
+            &args
+                .flaresolverr_proxy
+                .clone()
+                .unwrap_or_else(|| text("flaresolverr_proxy_mode", "inherit")),
+        );
+        let explicit = args.cf_bypass
+            || args.cloudflare.is_some()
+            || args.cloudflare_priority.is_some()
+            || args.flaresolverr_url.is_some()
+            || args.flaresolverr_session.is_some()
+            || args.flaresolverr_timeout.is_some()
+            || args.flaresolverr_wait.is_some()
+            || args.flaresolverr_proxy.is_some();
+        if explicit {
+            let values = store.values_mut();
+            for (k, v) in [
+                ("cloudflare_mode", serde_json::Value::from(cfg.mode.clone())),
+                ("cloudflare_priority", cfg.priority.clone().into()),
+                ("flaresolverr_url", cfg.flaresolverr_url.clone().into()),
+                (
+                    "flaresolverr_session_policy",
+                    cfg.session_policy.clone().into(),
+                ),
+                ("flaresolverr_timeout", cfg.timeout_s.into()),
+                ("flaresolverr_wait_after", cfg.wait_after_s.into()),
+                ("flaresolverr_proxy_mode", cfg.proxy_mode.clone().into()),
+            ] {
+                values.insert(k.to_owned(), v);
+            }
+            if let Err(e) = store.save() {
+                tracing::debug!("Could not save Cloudflare settings: {e}");
+            }
+        }
+        std::sync::Arc::new(cfg)
+    };
     let http2 = if args.http2 || args.no_http2 {
         args.http2
     } else {
@@ -801,6 +903,27 @@ async fn main() -> ExitCode {
         if let Err(error) = store.save() {
             tracing::warn!("Could not save network settings: {error}");
         }
+    }
+    // cli.py 674-679: --flaresolverr-test.
+    if args.flaresolverr_test {
+        let client = match cyoa_net::client::FetchClient::new(cyoa_net::client::ClientConfig {
+            proxy: proxy_cfg.clone(),
+            cloudflare: Some(cloudflare.clone()),
+            ..Default::default()
+        }) {
+            Ok(c) => c,
+            Err(e) => {
+                console_print(&format!("ERROR: {e}"));
+                return ExitCode::FAILURE;
+            }
+        };
+        let (ok, msg) = client.flaresolverr_test().await;
+        console_print(&format!("{}{msg}", if ok { "OK: " } else { "ERROR: " }));
+        return if ok {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::FAILURE
+        };
     }
     // cli.py 741-743: --gui launches the desktop app after settings handling.
     if args.gui {
@@ -916,6 +1039,7 @@ async fn main() -> ExitCode {
             vpn: vpn.clone(),
             deep_scan: !args.no_deep_scan,
             http2,
+            cloudflare: Some(cloudflare.clone()),
             integrations: integrations.clone(),
             fonts: args.fonts,
             // cli.py: max(0.0, float(args.bandwidth or 0.0)); never persisted.

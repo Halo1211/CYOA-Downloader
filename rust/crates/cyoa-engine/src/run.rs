@@ -358,6 +358,8 @@ pub struct RunOptions {
     pub bandwidth_kbps: f64,
     /// `--http2` / settings `http2_enabled` (default off: HTTP/1.1).
     pub http2: bool,
+    /// Cloudflare handling (`--cloudflare*`, `--flaresolverr-*`, settings).
+    pub cloudflare: Option<Arc<cyoa_net::cloudflare::CloudflareConfig>>,
     /// Session toggles of cli.py (`--no-ytdlp`, `--ytdlp-cookies`,
     /// `--discord-token`, `--no-discord-refresh`, `--no-selenium`,
     /// `--gallery-dl*`); consumed by the media/fallback integrations.
@@ -392,6 +394,7 @@ impl Default for RunOptions {
             fonts: false,
             bandwidth_kbps: 0.0,
             http2: false,
+            cloudflare: None,
             integrations: Integrations::default(),
             analyse_fonts: false,
             analysis_only: false,
@@ -473,6 +476,7 @@ pub async fn run_download(
         dns: opts.dns.clone(),
         vpn: opts.vpn.clone(),
         http2: opts.http2,
+        cloudflare: opts.cloudflare.clone(),
         ..ClientConfig::default()
     })
     .map_err(|e| RunError::OutputDirectory(std::io::Error::other(e.to_string())))?;

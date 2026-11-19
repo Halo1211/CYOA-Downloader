@@ -9,6 +9,8 @@ rust-version.workspace = true
 bytes = "1.12.1"
 cyoa-core = { path = "../cyoa-core" }
 futures-util = "0.3.34"
+serde_json = "1.0.154"
+sha2 = "0.11.1"
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "stream", "socks", "cookies", "http2", "gzip", "brotli", "deflate", "charset"] }
 thiserror = "2.0.21"
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "io-util", "net"] }
