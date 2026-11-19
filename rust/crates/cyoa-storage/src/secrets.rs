@@ -69,6 +69,13 @@ pub trait KeyringApi: Send + Sync {
 
 struct NativeKeyring;
 
+/// The OS credential store with an explicit (service, account), for
+/// integrations that Python stores under their own service (itch.io:
+/// `cyoa_downloader_itch` / `itch_api_key`).
+pub fn native_keyring() -> Arc<dyn KeyringApi> {
+    Arc::new(NativeKeyring)
+}
+
 // Do not render backend errors: BadEncoding and platform errors can contain
 // credential bytes. Failure never falls back to writing a plaintext secret.
 fn keyring_error(error: keyring::Error) -> SecretError {

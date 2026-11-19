@@ -122,6 +122,21 @@ struct Args {
     /// Test the configured FlareSolverr API and exit.
     #[arg(long)]
     flaresolverr_test: bool,
+    /// Enable the optional itch.io asset downloader for itch.io URLs (default: off).
+    #[arg(long)]
+    itch: bool,
+    /// Download an itch.io URL with itch-dl only; skip CYOA parsing and mirror web assets.
+    #[arg(long)]
+    itch_only: bool,
+    /// Test itch.io backend (itch-dl) + connectivity and exit.
+    #[arg(long)]
+    itch_test: bool,
+    /// Mirror linked web builds; downloaded HTML5 ZIPs are prepared offline automatically.
+    #[arg(long)]
+    itch_mirror_web: bool,
+    /// itch-dl game download workers (default: 1, maximum: 16).
+    #[arg(long, default_value_t = 1, value_name = "1-16", value_parser = clap::value_parser!(i32).range(1..=16))]
+    itch_parallel: i32,
     /// Print Serve-only userscript integration credit/source notes and exit.
     #[arg(long)]
     userscript_info: bool,
@@ -734,7 +749,8 @@ async fn main() -> ExitCode {
             .clone()
             .unwrap_or_else(|| "gallery-dl".into()),
         gallery_dl_config: args.gallery_dl_config.clone().unwrap_or_default(),
-        itch: saved_bool("itch_enabled", false),
+        // cli.py: _set_itch_enabled(args.itch or saved itch_enabled).
+        itch: args.itch || saved_bool("itch_enabled", false),
         ..cyoa_engine::run::Integrations::default()
     };
     // cli.py 645-680: Cloudflare config; argparse defaults come from the
@@ -925,6 +941,34 @@ async fn main() -> ExitCode {
             ExitCode::FAILURE
         };
     }
+    // cli.py 680-685: --itch-test.
+    if args.itch_test {
+        let client = match cyoa_net::client::FetchClient::new(cyoa_net::client::ClientConfig {
+            proxy: proxy_cfg.clone(),
+            dns: dns.clone(),
+            vpn: vpn.clone(),
+            ..Default::default()
+        }) {
+            Ok(c) => c,
+            Err(e) => {
+                console_print(&format!("ERROR: {e}"));
+                return ExitCode::FAILURE;
+            }
+        };
+        let env_key = std::env::var("ITCH_API_KEY").unwrap_or_default();
+        let (ok, msg) = cyoa_engine::itch::itch_test_connection(
+            Some(env_key.as_str()).filter(|k| !k.is_empty()),
+            &client,
+            &cyoa_engine::itch::SystemItchBackend,
+        )
+        .await;
+        console_print(&format!("{}{msg}", if ok { "OK: " } else { "ERROR: " }));
+        return if ok {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::FAILURE
+        };
+    }
     // cli.py 741-743: --gui launches the desktop app after settings handling.
     if args.gui {
         return launch_gui();
@@ -953,6 +997,57 @@ async fn main() -> ExitCode {
         cyoa_engine::icc::ArchivePolicy::from_settings(&effective)
     };
     let batch_mode = args.list.is_some();
+    // cli.py 762-771: --itch-only runs itch-dl alone (mirror web) and exits.
+    if args.itch_only {
+        let url = args
+            .url_option
+            .clone()
+            .or_else(|| args.url.clone())
+            .unwrap_or_default();
+        if batch_mode || !cyoa_engine::itch::is_itch_url(url.trim()) {
+            eprintln!("error: --itch-only requires one http(s) itch.io URL and no --list.");
+            return ExitCode::from(2);
+        }
+        let cancel_c = CancellationToken::new();
+        let on_ctrl_c = cancel_c.clone();
+        tokio::spawn(async move {
+            if tokio::signal::ctrl_c().await.is_ok() {
+                on_ctrl_c.cancel();
+            }
+        });
+        let (out, parallel) = (args.output.clone(), args.itch_parallel);
+        let result = tokio::task::spawn_blocking(move || {
+            cyoa_engine::itch::download_itch_assets(
+                url.trim(),
+                &out,
+                None,
+                true,
+                parallel,
+                &cancel_c,
+                &cyoa_engine::itch::SystemItchBackend,
+            )
+        })
+        .await;
+        return match result {
+            Ok(Ok(r)) => {
+                tracing::info!("[itch] {}", r.message);
+                if r.ok {
+                    ExitCode::SUCCESS
+                } else {
+                    ExitCode::FAILURE
+                }
+            }
+            Ok(Err(e)) => {
+                eprintln!("error: {e}");
+                ExitCode::FAILURE
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+    let mut itch_seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     let items: Vec<BatchItem> = if let Some(list) = args.list.take() {
         match batch::import_batch_file(&list) {
             Ok(items) if !items.is_empty() => {
@@ -1005,6 +1100,48 @@ async fn main() -> ExitCode {
         }
         if batch_mode {
             eprintln!("Batch {}/{total}: {}", idx + 1, item.url);
+        }
+        // cli.py 783-797 / 896-905: the optional itch-dl backend runs first
+        // for itch.io URLs (once per URL); it never affects the CYOA result.
+        if integrations.itch
+            && cyoa_engine::itch::is_itch_url(&item.url)
+            && itch_seen.insert(item.url.clone())
+        {
+            if !batch_mode {
+                tracing::info!("itch.io downloader enabled — invoking itch-dl backend.");
+            }
+            let (url, out, mirror, parallel, cancel_c) = (
+                item.url.clone(),
+                args.output.clone(),
+                args.itch_mirror_web,
+                args.itch_parallel,
+                cancel.clone(),
+            );
+            match tokio::task::spawn_blocking(move || {
+                cyoa_engine::itch::download_itch_assets(
+                    &url,
+                    &out,
+                    None,
+                    mirror,
+                    parallel,
+                    &cancel_c,
+                    &cyoa_engine::itch::SystemItchBackend,
+                )
+            })
+            .await
+            {
+                Ok(Ok(r)) => tracing::info!("[itch] {}", r.message),
+                Ok(Err(e)) if batch_mode => {
+                    tracing::warn!("[itch] Optional backend failed: {e}");
+                }
+                Ok(Err(e)) => {
+                    tracing::warn!("[itch] downloader error (CYOA result unaffected): {e}");
+                }
+                Err(e) => tracing::warn!("[itch] Optional backend failed: {e}"),
+            }
+            if cancel.is_cancelled() {
+                break;
+            }
         }
         let mode = match item_mode(&args, &item.mode).and_then(|m| {
             if matches!(
