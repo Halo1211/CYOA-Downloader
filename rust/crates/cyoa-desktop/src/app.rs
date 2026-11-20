@@ -518,7 +518,7 @@ impl DownloaderApp {
             .spawn(move || {
                 // Dialog and file parsing both stay off the UI thread.
                 let picked = rfd::FileDialog::new()
-                    .add_filter("Batch list", &["txt", "csv"])
+                    .add_filter("Batch list", &["txt", "csv", "xlsx", "xls"])
                     .pick_file();
                 let result = picked.map(|path| match batch::import_batch_file(&path) {
                     Ok(items) if items.is_empty() => {
@@ -570,7 +570,7 @@ impl DownloaderApp {
             if ui
                 .add_enabled(self.list_pick.is_none(), egui::Button::new("Import list…"))
                 .on_hover_text(
-                    ".txt (url | filename | mode) or .csv with url/filename/mode columns",
+                    ".txt (url | filename | mode), or .csv/.xlsx/.xls with url/filename/mode columns",
                 )
                 .clicked()
             {

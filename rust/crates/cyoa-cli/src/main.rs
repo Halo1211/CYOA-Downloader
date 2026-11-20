@@ -26,7 +26,7 @@ struct Args {
     /// Output directory (default: current directory)
     #[arg(short = 'o', long = "output", default_value_os_t = std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))]
     output: PathBuf,
-    /// Batch list file (.txt: `url | filename | mode` per line, or .csv with url/filename/mode columns)
+    /// Batch list file (.txt: `url | filename | mode` per line, or .csv/.xlsx/.xls with url/filename/mode columns)
     #[arg(short = 'L', long = "list")]
     list: Option<PathBuf>,
     /// Save as ZIP with external images

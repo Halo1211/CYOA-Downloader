@@ -3,7 +3,7 @@
 //! with `dtype=str, keep_default_na=False, on_bad_lines="skip"`, which is what
 //! Python uses when pandas is installed — it is in requirements.txt).
 //!
-//! DEFERRED: `.xlsx/.xls` (pandas+openpyxl) and remote/Google Sheets lists.
+//! `.xlsx/.xls` via calamine (pandas `read_excel` semantics). DEFERRED: remote/Google Sheets lists.
 
 use cyoa_core::url::is_probable_url;
 use std::{fs, path::Path};
@@ -136,7 +136,65 @@ fn parse_csv(text: &str) -> Vec<BatchItem> {
         .has_headers(false)
         .flexible(true)
         .from_reader(text.as_bytes());
-    let mut records = reader.records().filter_map(Result::ok);
+    let rows = reader
+        .records()
+        .filter_map(Result::ok)
+        .map(|r| r.iter().map(str::to_owned).collect::<Vec<String>>());
+    items_from_rows(rows, true)
+}
+
+/// pandas `read_excel(dtype=str, keep_default_na=False)` cell text.
+fn excel_cell(c: &calamine::Data) -> String {
+    use calamine::Data;
+    match c {
+        Data::Empty => String::new(),
+        Data::String(s) => s.clone(),
+        Data::Int(i) => i.to_string(),
+        // openpyxl returns whole numbers as int ("12345"), others as float.
+        Data::Float(f) if f.fract() == 0.0 && f.abs() < 1e15 => format!("{}", *f as i64),
+        Data::Float(f) => f.to_string(),
+        Data::Bool(b) => {
+            if *b {
+                "True".into()
+            } else {
+                "False".into()
+            }
+        }
+        other => other.to_string(),
+    }
+}
+
+/// `.xlsx` / `.xls`: first worksheet, row 1 is the header (pandas default).
+fn parse_excel(path: &Path) -> Vec<BatchItem> {
+    use calamine::Reader;
+    let mut book = match calamine::open_workbook_auto(path) {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::error!("Failed reading batch file {}: {e}", path.display());
+            return Vec::new();
+        }
+    };
+    let Some(Ok(range)) = book.worksheet_range_at(0) else {
+        return Vec::new();
+    };
+    // Calamine starts the range at the first used cell; pandas starts at A1.
+    let (r0, c0) = range.start().unwrap_or((0, 0));
+    let width = range.width() + c0 as usize;
+    let mut rows: Vec<Vec<String>> = vec![vec![String::new(); width]; r0 as usize];
+    for row in range.rows() {
+        let mut v = vec![String::new(); c0 as usize];
+        v.extend(row.iter().map(excel_cell));
+        rows.push(v);
+    }
+    items_from_rows(rows.into_iter(), false)
+}
+
+/// Shared column lookup and row filtering (pandas DataFrame iteration).
+/// `skip_overlong`: CSV `on_bad_lines="skip"`.
+fn items_from_rows(
+    mut records: impl Iterator<Item = Vec<String>>,
+    skip_overlong: bool,
+) -> Vec<BatchItem> {
     let Some(header) = records.next() else {
         return Vec::new();
     };
@@ -151,13 +209,13 @@ fn parse_csv(text: &str) -> Vec<BatchItem> {
     let mut items = Vec::new();
     for rec in records {
         // pandas skip_blank_lines + on_bad_lines="skip" (more fields than header).
-        if rec.len() == 1 && rec.get(0).is_some_and(str::is_empty) {
+        if skip_overlong && rec.len() == 1 && rec.first().is_some_and(String::is_empty) {
             continue;
         }
-        if rec.len() > header.len() {
+        if skip_overlong && rec.len() > header.len() {
             continue;
         }
-        let field = |i: Option<usize>| i.and_then(|i| rec.get(i)).unwrap_or("").trim();
+        let field = |i: Option<usize>| i.and_then(|i| rec.get(i)).map_or("", |s| s.trim());
         let url = field(Some(url_col));
         if url.is_empty() || !is_probable_url(url) {
             continue;
@@ -181,6 +239,9 @@ pub fn import_batch_file(path: &Path) -> Result<Vec<BatchItem>, BatchError> {
     if !path.is_file() {
         return Ok(Vec::new());
     }
+    if ext == "xlsx" || ext == "xls" {
+        return Ok(parse_excel(path));
+    }
     let Ok(bytes) = fs::read(path) else {
         return Ok(Vec::new());
     };
@@ -191,8 +252,6 @@ pub fn import_batch_file(path: &Path) -> Result<Vec<BatchItem>, BatchError> {
     match ext.as_str() {
         "txt" => Ok(parse_txt(&text)),
         "csv" => Ok(parse_csv(&text)),
-        // Python: .xlsx/.xls via pandas (DEFERRED); anything else → [].
-        "xlsx" | "xls" => Err(BatchError::Unsupported(ext)),
         _ => Ok(Vec::new()),
     }
 }

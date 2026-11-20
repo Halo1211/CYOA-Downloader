@@ -73,6 +73,28 @@
    "mode": ""
   }
  ],
+ "basic.xlsx": [
+  {
+   "url": "https://a.example/cyoa/",
+   "filename": "Alpha",
+   "mode": "zip"
+  },
+  {
+   "url": "https://b.example/x/",
+   "filename": "",
+   "mode": "website_folder"
+  },
+  {
+   "url": "https://c.example/",
+   "filename": "12345",
+   "mode": ""
+  },
+  {
+   "url": "https://d.example/",
+   "filename": "1.5",
+   "mode": ""
+  }
+ ],
  "bom.csv": [
   {
    "url": "https://bom.example/c",
@@ -100,6 +122,7 @@
   }
  ],
  "empty.txt": [],
+ "empty.xlsx": [],
  "link.csv": [
   {
    "url": "https://l.example/1",
@@ -112,7 +135,20 @@
    "mode": ""
   }
  ],
+ "link_dup.xlsx": [
+  {
+   "url": "https://e.example/",
+   "filename": "First",
+   "mode": "cyoap_vue_folder"
+  },
+  {
+   "url": "https://f.example/",
+   "filename": "",
+   "mode": ""
+  }
+ ],
  "nourl.csv": [],
+ "nourl.xlsx": [],
  "unknown.ext": [],
  "utf16.txt": [
   {
