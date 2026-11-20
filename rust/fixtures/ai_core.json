@@ -1,0 +1,1155 @@
+{
+ "normalize_provider": {
+  "": "anthropic",
+  "Anthropic": "anthropic",
+  "claude": "anthropic",
+  "anthropic-claude": "anthropic",
+  "open ai": "openai",
+  "GPT": "openai",
+  "google": "gemini",
+  "Google Gemini": "gemini",
+  "local": "ollama",
+  "ollama-local": "ollama",
+  "deep-seek": "deepseek",
+  "dashscope": "qwen",
+  "aliyun": "qwen",
+  "alibaba": "qwen",
+  "groq": "groq",
+  "openrouter": "openrouter",
+  "custom": "custom",
+  "qwen_dashscope": "qwen",
+  "bogus": "anthropic",
+  "  OpenAI  ": "openai"
+ },
+ "normalize_mode": {
+  "": "auto_fallback",
+  "off": "off",
+  "Diagnostics": "diagnostics",
+  "diagnostics-only": "diagnostics",
+  "auto": "auto_fallback",
+  "aggressive": "aggressive_recovery",
+  "aggressive-recovery": "aggressive_recovery",
+  "auto_fallback": "auto_fallback",
+  "nope": "auto_fallback"
+ },
+ "normalize_key_storage": {
+  "": "session",
+  "session": "session",
+  "Environment Variable": "env",
+  "os credential manager": "keyring",
+  "credential-manager": "keyring",
+  "os_keyring": "keyring",
+  "settings": "plain",
+  "settings.json": "session",
+  "plain settings json": "plain",
+  "session only": "session",
+  "keyring": "keyring",
+  "plain": "plain",
+  "env": "env",
+  "weird": "session"
+ },
+ "mode_allows": {
+  "diagnostics|off": false,
+  "diagnostics|Diagnostics": true,
+  "diagnostics|diagnostics-only": true,
+  "diagnostics|auto": true,
+  "diagnostics|aggressive": true,
+  "diagnostics|aggressive-recovery": true,
+  "diagnostics|auto_fallback": true,
+  "diagnostics|nope": true,
+  "project_detect|off": false,
+  "project_detect|Diagnostics": false,
+  "project_detect|diagnostics-only": false,
+  "project_detect|auto": true,
+  "project_detect|aggressive": true,
+  "project_detect|aggressive-recovery": true,
+  "project_detect|auto_fallback": true,
+  "project_detect|nope": true,
+  "asset_scan|off": false,
+  "asset_scan|Diagnostics": false,
+  "asset_scan|diagnostics-only": false,
+  "asset_scan|auto": false,
+  "asset_scan|aggressive": true,
+  "asset_scan|aggressive-recovery": true,
+  "asset_scan|auto_fallback": false,
+  "asset_scan|nope": false,
+  "other|off": false,
+  "other|Diagnostics": false,
+  "other|diagnostics-only": false,
+  "other|auto": false,
+  "other|aggressive": false,
+  "other|aggressive-recovery": false,
+  "other|auto_fallback": false,
+  "other|nope": false
+ },
+ "providers": {
+  "anthropic": {
+   "label": "Anthropic Claude",
+   "env_vars": [
+    "ANTHROPIC_API_KEY"
+   ],
+   "primary_env_var": "ANTHROPIC_API_KEY",
+   "models": [
+    "claude-sonnet-5",
+    "claude-opus-5-5",
+    "claude-haiku-4-5-20251001"
+   ],
+   "default_model": "claude-sonnet-5",
+   "needs_key": true,
+   "plain_key_setting": "ai_api_key_anthropic",
+   "keyring_username": "anthropic_api_key",
+   "available_without_key": false,
+   "available_with_key": true
+  },
+  "custom": {
+   "label": "Custom (OpenAI-compatible)",
+   "env_vars": [
+    "CUSTOM_AI_API_KEY",
+    "OPENAI_API_KEY"
+   ],
+   "primary_env_var": "CUSTOM_AI_API_KEY",
+   "models": [
+    "gpt-4o-mini"
+   ],
+   "default_model": "gpt-4o-mini",
+   "needs_key": true,
+   "plain_key_setting": "ai_api_key_custom",
+   "keyring_username": "custom_api_key",
+   "available_without_key": false,
+   "available_with_key": true
+  },
+  "deepseek": {
+   "label": "DeepSeek",
+   "env_vars": [
+    "DEEPSEEK_API_KEY"
+   ],
+   "primary_env_var": "DEEPSEEK_API_KEY",
+   "models": [
+    "deepseek-v4-flash",
+    "deepseek-v4-pro"
+   ],
+   "default_model": "deepseek-v4-flash",
+   "needs_key": true,
+   "plain_key_setting": "ai_api_key_deepseek",
+   "keyring_username": "deepseek_api_key",
+   "available_without_key": false,
+   "available_with_key": true
+  },
+  "gemini": {
+   "label": "Google Gemini",
+   "env_vars": [
+    "GEMINI_API_KEY",
+    "GOOGLE_API_KEY"
+   ],
+   "primary_env_var": "GEMINI_API_KEY",
+   "models": [
+    "gemini-3.8-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3.7-flash"
+   ],
+   "default_model": "gemini-3.8-flash",
+   "needs_key": true,
+   "plain_key_setting": "ai_api_key_gemini",
+   "keyring_username": "gemini_api_key",
+   "available_without_key": false,
+   "available_with_key": true
+  },
+  "groq": {
+   "label": "Groq",
+   "env_vars": [
+    "GROQ_API_KEY"
+   ],
+   "primary_env_var": "GROQ_API_KEY",
+   "models": [
+    "openai/gpt-oss-20b",
+    "openai/gpt-oss-120b",
+    "qwen/qwen3.8-27b"
+   ],
+   "default_model": "openai/gpt-oss-20b",
+   "needs_key": true,
+   "plain_key_setting": "ai_api_key_groq",
+   "keyring_username": "groq_api_key",
+   "available_without_key": false,
+   "available_with_key": true
+  },
+  "ollama": {
+   "label": "Ollama / Local",
+   "env_vars": [],
+   "primary_env_var": "",
+   "models": [
+    "qwen3.5",
+    "gemma3",
+    "llama3.1",
+    "qwen2.5-coder"
+   ],
+   "default_model": "qwen3.5",
+   "needs_key": false,
+   "plain_key_setting": "ai_api_key_ollama",
+   "keyring_username": "ollama_api_key",
+   "available_without_key": true,
+   "available_with_key": true
+  },
+  "openai": {
+   "label": "OpenAI",
+   "env_vars": [
+    "OPENAI_API_KEY"
+   ],
+   "primary_env_var": "OPENAI_API_KEY",
+   "models": [
+    "gpt-6-luna",
+    "gpt-6-sol",
+    "gpt-6-astra"
+   ],
+   "default_model": "gpt-6-luna",
+   "needs_key": true,
+   "plain_key_setting": "ai_api_key_openai",
+   "keyring_username": "openai_api_key",
+   "available_without_key": false,
+   "available_with_key": true
+  },
+  "openrouter": {
+   "label": "OpenRouter",
+   "env_vars": [
+    "OPENROUTER_API_KEY"
+   ],
+   "primary_env_var": "OPENROUTER_API_KEY",
+   "models": [
+    "openai/gpt-6-luna",
+    "anthropic/claude-sonnet-5",
+    "google/gemini-3.8-flash"
+   ],
+   "default_model": "openai/gpt-6-luna",
+   "needs_key": true,
+   "plain_key_setting": "ai_api_key_openrouter",
+   "keyring_username": "openrouter_api_key",
+   "available_without_key": false,
+   "available_with_key": true
+  },
+  "qwen": {
+   "label": "Qwen / DashScope",
+   "env_vars": [
+    "DASHSCOPE_API_KEY",
+    "QWEN_API_KEY",
+    "ALIYUN_API_KEY"
+   ],
+   "primary_env_var": "DASHSCOPE_API_KEY",
+   "models": [
+    "qwen3.8-flash",
+    "qwen3.7-plus",
+    "qwen3.8-max"
+   ],
+   "default_model": "qwen3.8-flash",
+   "needs_key": true,
+   "plain_key_setting": "ai_api_key_qwen",
+   "keyring_username": "qwen_api_key",
+   "available_without_key": false,
+   "available_with_key": true
+  }
+ },
+ "get_model": [
+  {
+   "provider": "anthropic",
+   "saved": "",
+   "model": "claude-sonnet-5"
+  },
+  {
+   "provider": "anthropic",
+   "saved": "  ",
+   "model": "claude-sonnet-5"
+  },
+  {
+   "provider": "anthropic",
+   "saved": "my-model",
+   "model": "my-model"
+  },
+  {
+   "provider": "anthropic",
+   "saved": "deepseek-chat",
+   "model": "deepseek-chat"
+  },
+  {
+   "provider": "anthropic",
+   "saved": "llama-3.3-70b-versatile",
+   "model": "llama-3.3-70b-versatile"
+  },
+  {
+   "provider": "anthropic",
+   "saved": "gpt-6-luna",
+   "model": "claude-sonnet-5"
+  },
+  {
+   "provider": "anthropic",
+   "saved": "claude-sonnet-5",
+   "model": "claude-sonnet-5"
+  },
+  {
+   "provider": "anthropic",
+   "saved": "qwen3.5",
+   "model": "claude-sonnet-5"
+  },
+  {
+   "provider": "deepseek",
+   "saved": "",
+   "model": "deepseek-v4-flash"
+  },
+  {
+   "provider": "deepseek",
+   "saved": "  ",
+   "model": "deepseek-v4-flash"
+  },
+  {
+   "provider": "deepseek",
+   "saved": "my-model",
+   "model": "my-model"
+  },
+  {
+   "provider": "deepseek",
+   "saved": "deepseek-chat",
+   "model": "deepseek-v4-flash"
+  },
+  {
+   "provider": "deepseek",
+   "saved": "llama-3.3-70b-versatile",
+   "model": "llama-3.3-70b-versatile"
+  },
+  {
+   "provider": "deepseek",
+   "saved": "gpt-6-luna",
+   "model": "deepseek-v4-flash"
+  },
+  {
+   "provider": "deepseek",
+   "saved": "claude-sonnet-5",
+   "model": "deepseek-v4-flash"
+  },
+  {
+   "provider": "deepseek",
+   "saved": "qwen3.5",
+   "model": "deepseek-v4-flash"
+  },
+  {
+   "provider": "groq",
+   "saved": "",
+   "model": "openai/gpt-oss-20b"
+  },
+  {
+   "provider": "groq",
+   "saved": "  ",
+   "model": "openai/gpt-oss-20b"
+  },
+  {
+   "provider": "groq",
+   "saved": "my-model",
+   "model": "my-model"
+  },
+  {
+   "provider": "groq",
+   "saved": "deepseek-chat",
+   "model": "deepseek-chat"
+  },
+  {
+   "provider": "groq",
+   "saved": "llama-3.3-70b-versatile",
+   "model": "openai/gpt-oss-20b"
+  },
+  {
+   "provider": "groq",
+   "saved": "gpt-6-luna",
+   "model": "openai/gpt-oss-20b"
+  },
+  {
+   "provider": "groq",
+   "saved": "claude-sonnet-5",
+   "model": "openai/gpt-oss-20b"
+  },
+  {
+   "provider": "groq",
+   "saved": "qwen3.5",
+   "model": "openai/gpt-oss-20b"
+  },
+  {
+   "provider": "openai",
+   "saved": "",
+   "model": "gpt-6-luna"
+  },
+  {
+   "provider": "openai",
+   "saved": "  ",
+   "model": "gpt-6-luna"
+  },
+  {
+   "provider": "openai",
+   "saved": "my-model",
+   "model": "my-model"
+  },
+  {
+   "provider": "openai",
+   "saved": "deepseek-chat",
+   "model": "deepseek-chat"
+  },
+  {
+   "provider": "openai",
+   "saved": "llama-3.3-70b-versatile",
+   "model": "llama-3.3-70b-versatile"
+  },
+  {
+   "provider": "openai",
+   "saved": "gpt-6-luna",
+   "model": "gpt-6-luna"
+  },
+  {
+   "provider": "openai",
+   "saved": "claude-sonnet-5",
+   "model": "gpt-6-luna"
+  },
+  {
+   "provider": "openai",
+   "saved": "qwen3.5",
+   "model": "gpt-6-luna"
+  },
+  {
+   "provider": "ollama",
+   "saved": "",
+   "model": "qwen3.5"
+  },
+  {
+   "provider": "ollama",
+   "saved": "  ",
+   "model": "qwen3.5"
+  },
+  {
+   "provider": "ollama",
+   "saved": "my-model",
+   "model": "my-model"
+  },
+  {
+   "provider": "ollama",
+   "saved": "deepseek-chat",
+   "model": "deepseek-chat"
+  },
+  {
+   "provider": "ollama",
+   "saved": "llama-3.3-70b-versatile",
+   "model": "llama-3.3-70b-versatile"
+  },
+  {
+   "provider": "ollama",
+   "saved": "gpt-6-luna",
+   "model": "qwen3.5"
+  },
+  {
+   "provider": "ollama",
+   "saved": "claude-sonnet-5",
+   "model": "qwen3.5"
+  },
+  {
+   "provider": "ollama",
+   "saved": "qwen3.5",
+   "model": "qwen3.5"
+  }
+ ],
+ "extract_single_ai_url": [
+  {
+   "in": "",
+   "out": null
+  },
+  {
+   "in": "NONE",
+   "out": null
+  },
+  {
+   "in": "  null ",
+   "out": null
+  },
+  {
+   "in": "n/a",
+   "out": null
+  },
+  {
+   "in": "No",
+   "out": null
+  },
+  {
+   "in": "not found",
+   "out": null
+  },
+  {
+   "in": "https://a.test/p.json",
+   "out": "https://a.test/p.json"
+  },
+  {
+   "in": "'https://a.test/p.json'",
+   "out": "https://a.test/p.json"
+  },
+  {
+   "in": "The data is at https://a.test/data/project.json, enjoy.",
+   "out": "https://a.test/data/project.json,"
+  },
+  {
+   "in": "./project.json",
+   "out": "./project.json"
+  },
+  {
+   "in": "../data/x.json?v=2",
+   "out": "../data/x.json?v=2"
+  },
+  {
+   "in": "/abs/path/project.json",
+   "out": "/abs/path/project.json"
+  },
+  {
+   "in": "project.json",
+   "out": "project.json"
+  },
+  {
+   "in": "data/sub/project.txt",
+   "out": "data/sub/project.txt"
+  },
+  {
+   "in": "javascript:alert(1)",
+   "out": null
+  },
+  {
+   "in": "file:///etc/passwd",
+   "out": null
+  },
+  {
+   "in": "ftp://x/y.json",
+   "out": null
+  },
+  {
+   "in": "//cdn.test/x.json",
+   "out": "//cdn.test/x.json"
+  },
+  {
+   "in": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "out": null
+  },
+  {
+   "in": "see `https://a.test/q.json` here",
+   "out": "https://a.test/q.json"
+  },
+  {
+   "in": "data: https://a.test/x.json",
+   "out": null
+  },
+  {
+   "in": "http://h/a b.json",
+   "out": "http://h/a"
+  }
+ ],
+ "sanitize_candidate": [
+  {
+   "in": "",
+   "out": null
+  },
+  {
+   "in": "NONE",
+   "out": null
+  },
+  {
+   "in": "[]",
+   "out": null
+  },
+  {
+   "in": "https://a.test/p.json",
+   "out": "https://a.test/p.json"
+  },
+  {
+   "in": "http://127.0.0.1/x.json",
+   "out": null
+  },
+  {
+   "in": "http://10.0.0.5/p.json",
+   "out": null
+  },
+  {
+   "in": "https://[::1]/p.json",
+   "out": null
+  },
+  {
+   "in": "http://localhost/p.json",
+   "out": null
+  },
+  {
+   "in": "https://foo.local/p.json",
+   "out": null
+  },
+  {
+   "in": "//127.0.0.1/x.json",
+   "out": null
+  },
+  {
+   "in": "//cdn.example.invalid/x.json",
+   "out": "//cdn.example.invalid/x.json"
+  },
+  {
+   "in": "javascript:alert(1)",
+   "out": null
+  },
+  {
+   "in": "file:///c:/x",
+   "out": null
+  },
+  {
+   "in": "data:text/plain,hi",
+   "out": null
+  },
+  {
+   "in": "mailto:a@b",
+   "out": null
+  },
+  {
+   "in": "C:\\x\\y.json",
+   "out": null
+  },
+  {
+   "in": "\\\\srv\\share",
+   "out": null
+  },
+  {
+   "in": "///x",
+   "out": null
+  },
+  {
+   "in": "./p.json",
+   "out": "./p.json"
+  },
+  {
+   "in": "p.json",
+   "out": "p.json"
+  },
+  {
+   "in": "a\tb",
+   "out": null
+  },
+  {
+   "in": "https://a.test/with space.json",
+   "out": null
+  },
+  {
+   "in": "chrome://settings",
+   "out": null
+  },
+  {
+   "in": "about:blank",
+   "out": null
+  },
+  {
+   "in": "custom-scheme:x",
+   "out": null
+  },
+  {
+   "in": "https://a.test:99999/p.json",
+   "out": null
+  },
+  {
+   "in": "http://169.254.169.254/latest",
+   "out": null
+  },
+  {
+   "in": "https://example.invalid/p.json",
+   "out": "https://example.invalid/p.json"
+  },
+  {
+   "in": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "out": null
+  }
+ ],
+ "int_setting": [
+  {
+   "raw": null,
+   "value": 8000
+  },
+  {
+   "raw": 0,
+   "value": 8000
+  },
+  {
+   "raw": 5,
+   "value": 1000
+  },
+  {
+   "raw": "7",
+   "value": 1000
+  },
+  {
+   "raw": "abc",
+   "value": 8000
+  },
+  {
+   "raw": 999999,
+   "value": 50000
+  },
+  {
+   "raw": -3,
+   "value": 1000
+  },
+  {
+   "raw": 2.9,
+   "value": 1000
+  },
+  {
+   "raw": "",
+   "value": 8000
+  }
+ ],
+ "budget": [
+  {
+   "max": 0,
+   "seq": [
+    true,
+    true,
+    true,
+    true,
+    true
+   ]
+  },
+  {
+   "max": 1,
+   "seq": [
+    true,
+    false,
+    false,
+    false,
+    false
+   ]
+  },
+  {
+   "max": 3,
+   "seq": [
+    true,
+    true,
+    true,
+    false,
+    false
+   ]
+  },
+  {
+   "max": -1,
+   "seq": [
+    true,
+    true,
+    true,
+    true,
+    true
+   ]
+  },
+  {
+   "setting": null,
+   "max_calls": 3
+  },
+  {
+   "setting": 0,
+   "max_calls": 3
+  },
+  {
+   "setting": 2,
+   "max_calls": 2
+  },
+  {
+   "setting": 99,
+   "max_calls": 50
+  },
+  {
+   "setting": "abc",
+   "max_calls": 3
+  },
+  {
+   "setting": -5,
+   "max_calls": 0
+  }
+ ],
+ "resolve_key": {
+  "env": {
+   "ANTHROPIC_API_KEY": " envA ",
+   "GOOGLE_API_KEY": "envG2",
+   "OPENAI_API_KEY": "envO"
+  },
+  "settings": {
+   "ai_api_key": " legacyA ",
+   "ai_api_key_openai": "plainO",
+   "ai_api_key_gemini": ""
+  },
+  "cases": [
+   {
+    "provider": "anthropic",
+    "storage": "session",
+    "explicit": "",
+    "session": "",
+    "key": ""
+   },
+   {
+    "provider": "anthropic",
+    "storage": "session",
+    "explicit": "",
+    "session": " sess ",
+    "key": "sess"
+   },
+   {
+    "provider": "anthropic",
+    "storage": "session",
+    "explicit": " expl ",
+    "session": "sess",
+    "key": "expl"
+   },
+   {
+    "provider": "anthropic",
+    "storage": "env",
+    "explicit": "",
+    "session": "",
+    "key": "envA"
+   },
+   {
+    "provider": "anthropic",
+    "storage": "env",
+    "explicit": "",
+    "session": " sess ",
+    "key": "envA"
+   },
+   {
+    "provider": "anthropic",
+    "storage": "env",
+    "explicit": " expl ",
+    "session": "sess",
+    "key": "expl"
+   },
+   {
+    "provider": "anthropic",
+    "storage": "plain",
+    "explicit": "",
+    "session": "",
+    "key": "legacyA"
+   },
+   {
+    "provider": "anthropic",
+    "storage": "plain",
+    "explicit": "",
+    "session": " sess ",
+    "key": "legacyA"
+   },
+   {
+    "provider": "anthropic",
+    "storage": "plain",
+    "explicit": " expl ",
+    "session": "sess",
+    "key": "expl"
+   },
+   {
+    "provider": "openai",
+    "storage": "session",
+    "explicit": "",
+    "session": "",
+    "key": ""
+   },
+   {
+    "provider": "openai",
+    "storage": "session",
+    "explicit": "",
+    "session": " sess ",
+    "key": "sess"
+   },
+   {
+    "provider": "openai",
+    "storage": "session",
+    "explicit": " expl ",
+    "session": "sess",
+    "key": "expl"
+   },
+   {
+    "provider": "openai",
+    "storage": "env",
+    "explicit": "",
+    "session": "",
+    "key": "envO"
+   },
+   {
+    "provider": "openai",
+    "storage": "env",
+    "explicit": "",
+    "session": " sess ",
+    "key": "envO"
+   },
+   {
+    "provider": "openai",
+    "storage": "env",
+    "explicit": " expl ",
+    "session": "sess",
+    "key": "expl"
+   },
+   {
+    "provider": "openai",
+    "storage": "plain",
+    "explicit": "",
+    "session": "",
+    "key": "plainO"
+   },
+   {
+    "provider": "openai",
+    "storage": "plain",
+    "explicit": "",
+    "session": " sess ",
+    "key": "plainO"
+   },
+   {
+    "provider": "openai",
+    "storage": "plain",
+    "explicit": " expl ",
+    "session": "sess",
+    "key": "expl"
+   },
+   {
+    "provider": "gemini",
+    "storage": "session",
+    "explicit": "",
+    "session": "",
+    "key": ""
+   },
+   {
+    "provider": "gemini",
+    "storage": "session",
+    "explicit": "",
+    "session": " sess ",
+    "key": "sess"
+   },
+   {
+    "provider": "gemini",
+    "storage": "session",
+    "explicit": " expl ",
+    "session": "sess",
+    "key": "expl"
+   },
+   {
+    "provider": "gemini",
+    "storage": "env",
+    "explicit": "",
+    "session": "",
+    "key": "envG2"
+   },
+   {
+    "provider": "gemini",
+    "storage": "env",
+    "explicit": "",
+    "session": " sess ",
+    "key": "envG2"
+   },
+   {
+    "provider": "gemini",
+    "storage": "env",
+    "explicit": " expl ",
+    "session": "sess",
+    "key": "expl"
+   },
+   {
+    "provider": "gemini",
+    "storage": "plain",
+    "explicit": "",
+    "session": "",
+    "key": ""
+   },
+   {
+    "provider": "gemini",
+    "storage": "plain",
+    "explicit": "",
+    "session": " sess ",
+    "key": ""
+   },
+   {
+    "provider": "gemini",
+    "storage": "plain",
+    "explicit": " expl ",
+    "session": "sess",
+    "key": "expl"
+   },
+   {
+    "provider": "custom",
+    "storage": "session",
+    "explicit": "",
+    "session": "",
+    "key": ""
+   },
+   {
+    "provider": "custom",
+    "storage": "session",
+    "explicit": "",
+    "session": " sess ",
+    "key": "sess"
+   },
+   {
+    "provider": "custom",
+    "storage": "session",
+    "explicit": " expl ",
+    "session": "sess",
+    "key": "expl"
+   },
+   {
+    "provider": "custom",
+    "storage": "env",
+    "explicit": "",
+    "session": "",
+    "key": "envO"
+   },
+   {
+    "provider": "custom",
+    "storage": "env",
+    "explicit": "",
+    "session": " sess ",
+    "key": "envO"
+   },
+   {
+    "provider": "custom",
+    "storage": "env",
+    "explicit": " expl ",
+    "session": "sess",
+    "key": "expl"
+   },
+   {
+    "provider": "custom",
+    "storage": "plain",
+    "explicit": "",
+    "session": "",
+    "key": ""
+   },
+   {
+    "provider": "custom",
+    "storage": "plain",
+    "explicit": "",
+    "session": " sess ",
+    "key": ""
+   },
+   {
+    "provider": "custom",
+    "storage": "plain",
+    "explicit": " expl ",
+    "session": "sess",
+    "key": "expl"
+   },
+   {
+    "provider": "ollama",
+    "storage": "session",
+    "explicit": "",
+    "session": "",
+    "key": ""
+   },
+   {
+    "provider": "ollama",
+    "storage": "session",
+    "explicit": "",
+    "session": " sess ",
+    "key": ""
+   },
+   {
+    "provider": "ollama",
+    "storage": "session",
+    "explicit": " expl ",
+    "session": "sess",
+    "key": ""
+   },
+   {
+    "provider": "ollama",
+    "storage": "env",
+    "explicit": "",
+    "session": "",
+    "key": ""
+   },
+   {
+    "provider": "ollama",
+    "storage": "env",
+    "explicit": "",
+    "session": " sess ",
+    "key": ""
+   },
+   {
+    "provider": "ollama",
+    "storage": "env",
+    "explicit": " expl ",
+    "session": "sess",
+    "key": ""
+   },
+   {
+    "provider": "ollama",
+    "storage": "plain",
+    "explicit": "",
+    "session": "",
+    "key": ""
+   },
+   {
+    "provider": "ollama",
+    "storage": "plain",
+    "explicit": "",
+    "session": " sess ",
+    "key": ""
+   },
+   {
+    "provider": "ollama",
+    "storage": "plain",
+    "explicit": " expl ",
+    "session": "sess",
+    "key": ""
+   },
+   {
+    "provider": "qwen",
+    "storage": "session",
+    "explicit": "",
+    "session": "",
+    "key": ""
+   },
+   {
+    "provider": "qwen",
+    "storage": "session",
+    "explicit": "",
+    "session": " sess ",
+    "key": "sess"
+   },
+   {
+    "provider": "qwen",
+    "storage": "session",
+    "explicit": " expl ",
+    "session": "sess",
+    "key": "expl"
+   },
+   {
+    "provider": "qwen",
+    "storage": "env",
+    "explicit": "",
+    "session": "",
+    "key": ""
+   },
+   {
+    "provider": "qwen",
+    "storage": "env",
+    "explicit": "",
+    "session": " sess ",
+    "key": ""
+   },
+   {
+    "provider": "qwen",
+    "storage": "env",
+    "explicit": " expl ",
+    "session": "sess",
+    "key": "expl"
+   },
+   {
+    "provider": "qwen",
+    "storage": "plain",
+    "explicit": "",
+    "session": "",
+    "key": ""
+   },
+   {
+    "provider": "qwen",
+    "storage": "plain",
+    "explicit": "",
+    "session": " sess ",
+    "key": ""
+   },
+   {
+    "provider": "qwen",
+    "storage": "plain",
+    "explicit": " expl ",
+    "session": "sess",
+    "key": "expl"
+   }
+  ]
+ }
+}
