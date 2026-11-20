@@ -284,6 +284,9 @@ pub struct DownloaderApp {
     library: Option<crate::library::LibraryPanel>,
     /// Offline viewer settings panel (F-037 V5).
     viewers: Option<crate::viewers::ViewerPanel>,
+    /// F-043 AI Assist panel and the session AI state (key never persisted).
+    ai_panel: Option<crate::ai_panel::AiPanel>,
+    ai_session: crate::ai_panel::AiSession,
     /// App/history update checks (F-052).
     updates: Option<crate::updates_panel::UpdatesPanel>,
     /// Python "Filename" entry next to the URL.
@@ -391,6 +394,11 @@ impl DownloaderApp {
                 .to_owned();
         let cf_mode =
             cyoa_net::cloudflare::normalize_cloudflare_mode(&saved_str("cloudflare_mode", "auto"));
+        let ai_enabled = cyoa_storage::settings::SettingsStore::new(&shared_path)
+            .load()
+            .ok()
+            .and_then(|s| s.get("ai_enabled").and_then(serde_json::Value::as_bool))
+            .unwrap_or(false);
         let shared = Some((shared_path, settings.net.clone()));
         let worker = match WorkerHandle::spawn(Box::new(move || ctx.request_repaint())) {
             Ok(w) => Some(w),
@@ -417,6 +425,11 @@ impl DownloaderApp {
             preview: None,
             library: None,
             viewers: None,
+            ai_panel: None,
+            ai_session: crate::ai_panel::AiSession {
+                enabled: ai_enabled,
+                key: String::new(),
+            },
             updates: None,
             fn_input: String::new(),
             theme_mode,
@@ -620,6 +633,10 @@ impl DownloaderApp {
                     cloudflare: Some(cloudflare_config()),
                     analyse_fonts: self.settings.analyse_fonts,
                     offline_viewer: offline_viewer_config(),
+                    ai: crate::ai_panel::run_config(
+                        self.shared.as_ref().map(|(p, _)| p.as_path()),
+                        &self.ai_session,
+                    ),
                     http2: self.settings.http2,
                     integrations: cyoa_engine::run::Integrations {
                         ytdlp: self.settings.ytdlp,
@@ -858,6 +875,15 @@ impl eframe::App for DownloaderApp {
                 self.viewers = None;
             }
         }
+        if let Some(panel) = &mut self.ai_panel {
+            panel.ui(ui.ctx());
+            if let Some(session) = panel.updated.take() {
+                self.ai_session = session;
+            }
+            if !panel.open {
+                self.ai_panel = None;
+            }
+        }
         // While a job runs, the worker's waker drives repaints; no idle polling.
         if self.worker.is_some() && self.running_job().is_some() {
             ui.ctx().request_repaint_after(Duration::from_millis(250));
@@ -949,6 +975,8 @@ mod tests {
             preview: None,
             library: None,
             viewers: None,
+            ai_panel: None,
+            ai_session: crate::ai_panel::AiSession::default(),
             updates: None,
             fn_input: String::new(),
             theme_mode: "System".into(),

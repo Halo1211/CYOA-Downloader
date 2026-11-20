@@ -1264,6 +1264,18 @@ impl DownloaderApp {
                 {
                     self.viewers = Some(crate::viewers::ViewerPanel::open(path.clone()));
                 }
+                ui.separator();
+                ui.label(bold(tr("AI Assist"), 10.0));
+                if ui
+                    .add_enabled(self.ai_panel.is_none(), egui::Button::new("AI Assist…"))
+                    .clicked()
+                    && let Some((path, _)) = &self.shared
+                {
+                    self.ai_panel = Some(crate::ai_panel::AiPanel::open(
+                        path.clone(),
+                        &self.ai_session,
+                    ));
+                }
             });
         if let Some(v) = new_pref {
             self.auto_pref = v.to_owned();
