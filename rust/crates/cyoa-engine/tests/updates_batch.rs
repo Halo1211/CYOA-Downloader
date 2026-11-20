@@ -13,12 +13,22 @@ async fn batch_check_compares_probe_with_history() {
         .and(path("/same.json"))
         .and(header("range", "bytes=0-0"))
         .and(header("accept-encoding", "identity"))
-        .respond_with(ResponseTemplate::new(206).insert_header("etag", "\"a\"").insert_header("content-range", "bytes 0-0/10").set_body_string("x"))
+        .respond_with(
+            ResponseTemplate::new(206)
+                .insert_header("etag", "\"a\"")
+                .insert_header("content-range", "bytes 0-0/10")
+                .set_body_string("x"),
+        )
         .mount(&server)
         .await;
     Mock::given(method("GET"))
         .and(path("/changed.json"))
-        .respond_with(ResponseTemplate::new(206).insert_header("etag", "\"b\"").insert_header("content-range", "bytes 0-0/11").set_body_string("x"))
+        .respond_with(
+            ResponseTemplate::new(206)
+                .insert_header("etag", "\"b\"")
+                .insert_header("content-range", "bytes 0-0/11")
+                .set_body_string("x"),
+        )
         .mount(&server)
         .await;
     Mock::given(method("GET"))
@@ -35,7 +45,10 @@ async fn batch_check_compares_probe_with_history() {
     }))
     .unwrap();
     let client = cyoa_net::client::FetchClient::new(cyoa_net::client::ClientConfig {
-        policy: cyoa_net::policy::DestinationPolicy { origin: None, allow_internal: true },
+        policy: cyoa_net::policy::DestinationPolicy {
+            origin: None,
+            allow_internal: true,
+        },
         ..Default::default()
     })
     .unwrap();
@@ -47,10 +60,17 @@ async fn batch_check_compares_probe_with_history() {
     })
     .await;
     results.sort_by(|a, b| a.name.cmp(&b.name));
-    let got: Vec<(&str, &str, &str)> = results.iter().map(|r| (r.name.as_str(), r.status.as_str(), r.reason.as_str())).collect();
+    let got: Vec<(&str, &str, &str)> = results
+        .iter()
+        .map(|r| (r.name.as_str(), r.status.as_str(), r.reason.as_str()))
+        .collect();
     assert_eq!(
         got,
-        vec![("Changed", "updated", "ETag, size 10→11"), ("Gone", "unreachable", "HTTP 404"), ("Same", "current", "")]
+        vec![
+            ("Changed", "updated", "ETag, size 10→11"),
+            ("Gone", "unreachable", "HTTP 404"),
+            ("Same", "current", "")
+        ]
     );
     assert_eq!(seen.load(std::sync::atomic::Ordering::Relaxed), 3);
 }
