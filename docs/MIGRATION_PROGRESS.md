@@ -96,4 +96,4 @@ After approval: Stage 0 (workspace skeleton plus a Python golden-fixture exporte
 - Pre-flight Check: own window, CTk default grey background.
 - Unchecked checkboxes are rounded squares like CTk.
 - Dropdowns use a CTkOptionMenu-style chevron segment; CYOA Manager Library restyled (own window, pager, CTk-blue buttons).
-- Not done yet: Retry dialogs comparison.
+- Retry Assets/Images/Audio: both use native OS message boxes with the same titles and texts (verified in code).
