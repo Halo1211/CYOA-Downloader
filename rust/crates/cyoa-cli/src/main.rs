@@ -89,6 +89,15 @@ struct Args {
     /// With --verify: write a cyoa_manifest.json checksum sidecar into the folder, then exit.
     #[arg(long)]
     write_manifest: bool,
+    /// Copy a local CYOA library and make recognized ICC viewers work directly through file://.
+    #[arg(long, value_name = "FOLDER")]
+    modernize_library: Option<PathBuf>,
+    /// Viewer template collection used with --modernize-library.
+    #[arg(long, value_name = "FOLDER")]
+    viewer_collection: Option<PathBuf>,
+    /// Destination for --modernize-library (default: <library>/_edited). Must be empty or absent.
+    #[arg(long, value_name = "FOLDER")]
+    modernize_output: Option<PathBuf>,
     /// Start local HTTP server for the output directory after download.
     #[arg(long)]
     serve: bool,
@@ -399,6 +408,94 @@ fn userscript_integration_report() -> String {
 
 /// Python `print(text)` / `_safe_console_print`: trailing newline, text-mode
 /// stdout (CRLF on Windows).
+/// argparse `parser.error`: usage line, message, exit status 2.
+fn parser_error(msg: &str) -> ExitCode {
+    use clap::CommandFactory;
+    let usage = Args::command().render_usage();
+    eprintln!("{usage}\nerror: {msg}");
+    ExitCode::from(2)
+}
+
+fn absolute(p: &std::path::Path) -> PathBuf {
+    let p = std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf());
+    std::fs::canonicalize(&p)
+        .map(|c| PathBuf::from(c.to_string_lossy().trim_start_matches(r"\\?\")))
+        .unwrap_or(p)
+}
+
+/// cli.py `--modernize-library` (F-037 V4).
+async fn modernize_library(
+    library: &std::path::Path,
+    collection: Option<&std::path::Path>,
+    output: Option<&std::path::Path>,
+) -> ExitCode {
+    let Some(collection) = collection else {
+        return parser_error("--viewer-collection is required with --modernize-library");
+    };
+    let library = absolute(library);
+    let collection = absolute(collection);
+    let output = output.map_or_else(|| library.join("_edited"), absolute);
+    if !library.is_dir() {
+        return parser_error(&format!(
+            "CYOA library folder not found: {}",
+            library.display()
+        ));
+    }
+    if !collection.is_dir() {
+        return parser_error(&format!(
+            "Viewer collection folder not found: {}",
+            collection.display()
+        ));
+    }
+    if output.exists() && std::fs::read_dir(&output).map_or(true, |mut d| d.next().is_some()) {
+        return parser_error(&format!(
+            "Modernize output must be empty or absent: {}",
+            output.display()
+        ));
+    }
+    let fetcher = cyoa_engine::offline_viewer::NetworkAssetFetcher::new(
+        "",
+        cyoa_net::proxy::ProxyConfig::default(),
+        None,
+        None,
+        false,
+        tokio_util::sync::CancellationToken::new(),
+    );
+    let out = output.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let no_net = cyoa_engine::offline_viewer::NoNetwork;
+        let fetcher: &dyn cyoa_engine::offline_viewer::AssetFetcher = match &fetcher {
+            Some(f) => f,
+            None => &no_net,
+        };
+        cyoa_engine::modernizer::modernize_collection(
+            &library,
+            &out,
+            &collection,
+            &mut |pos, total, name| console_print(&format!("[{pos}/{total}] {name}")),
+            fetcher,
+        )
+    })
+    .await;
+    let report = match result {
+        Ok(Ok(r)) => r,
+        Ok(Err(e)) => return parser_error(&format!("Could not modernize library: {e}")),
+        Err(e) => return parser_error(&format!("Could not modernize library: {e}")),
+    };
+    console_print(&format!(
+        "Modernization complete: {} modernized, {} copied unchanged, {} failed. Report: {}",
+        report.modernized,
+        report.copied,
+        report.failed,
+        output.join("conversion_report.json").display()
+    ));
+    if report.failed > 0 {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
 fn console_print(text: &str) {
     use std::io::Write;
     let line = cyoa_engine::reports::os_text(&format!(
@@ -623,6 +720,15 @@ async fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
     let mut args = Args::parse();
+    // cli.py 422-458: --modernize-library runs right after parsing.
+    if let Some(library) = args.modernize_library.clone() {
+        return modernize_library(
+            &library,
+            args.viewer_collection.as_deref(),
+            args.modernize_output.as_deref(),
+        )
+        .await;
+    }
     if args.userscript_info {
         console_print(&userscript_integration_report());
         return ExitCode::SUCCESS;

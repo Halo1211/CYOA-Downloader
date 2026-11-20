@@ -103,7 +103,7 @@ pub trait AssetFetcher {
 /// preparation): same client stack as downloads (proxy, DNS, VPN guard,
 /// destination policy). Build it on a Tokio runtime thread; `fetch` must then
 /// be called from a blocking thread.
-pub struct NetworkAssetFetcher(crate::discover_net::ClientCafeFetch);
+pub struct NetworkAssetFetcher(pub(crate) crate::discover_net::ClientCafeFetch);
 
 impl NetworkAssetFetcher {
     pub fn new(

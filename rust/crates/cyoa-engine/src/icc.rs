@@ -189,7 +189,47 @@ impl IccRun<'_> {
         } else {
             tracing::info!("Deep scan disabled by toggle — skipping JS/CSS asset pass.");
         }
-        tracing::info!("Offline website modernization is disabled in Settings.");
+        // orchestrator.py 742-765: opt-in full-site modernization (F-037 V4).
+        let website_enabled = {
+            let mut store =
+                cyoa_storage::settings::SettingsStore::new(cyoa_storage::settings::default_path());
+            store
+                .load()
+                .ok()
+                .and_then(|m| m.get("offline_viewer_website_enabled").cloned())
+        }
+        .is_some_and(|v| v.as_bool().unwrap_or(false));
+        if website_enabled {
+            let fetcher =
+                crate::offline_viewer::NetworkAssetFetcher(crate::discover_net::ClientCafeFetch {
+                    client: self.client.clone(),
+                    handle: tokio::runtime::Handle::current(),
+                    cancel: self.cancel.clone(),
+                });
+            let (site_c, base) = (site.clone(), self.source.base_url.clone());
+            let outcome = tokio::task::spawn_blocking(move || {
+                let templates = crate::modernizer::resolve_registered_viewer_templates(
+                    &cyoa_integrations::offline_viewers::viewers_dir(),
+                );
+                crate::modernizer::modernize_site(
+                    &site_c, &site_c, None, &templates, &base, &fetcher,
+                )
+            })
+            .await
+            .map_err(|e| e.to_string())
+            .and_then(|r| r);
+            match outcome {
+                Ok(m) => tracing::info!(
+                    "Offline website modernization: family={} strategy={} status={}",
+                    m.family.value(),
+                    m.strategy,
+                    m.status
+                ),
+                Err(e) => tracing::warn!("Offline website modernization skipped: {e}"),
+            }
+        } else {
+            tracing::info!("Offline website modernization is disabled in Settings.");
+        }
         if self.cancel.is_cancelled() {
             return Err(RunError::Cancelled);
         }

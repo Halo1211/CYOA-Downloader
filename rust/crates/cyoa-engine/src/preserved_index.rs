@@ -148,7 +148,7 @@ fn ffind<'t>(r: &Option<FRegex>, text: &'t str) -> Option<fancy_regex::Captures<
 }
 
 /// modernizer `_inject_into_head` (markup followed by a newline).
-fn inject_into_head(html: &str, markup: &str) -> String {
+pub(crate) fn inject_into_head(html: &str, markup: &str) -> String {
     match HEAD_OPEN.as_ref().and_then(|r| r.find(html)) {
         Some(m) => format!("{}\n{markup}\n{}", &html[..m.end()], &html[m.end()..]),
         None => format!("{markup}\n{html}"),
@@ -478,7 +478,7 @@ pub(crate) fn version_str(v: Option<&Value>) -> String {
 }
 
 /// modernizer `_compact_project`; `Err` where Python raises.
-fn compact_project(
+pub(crate) fn compact_project(
     project_text: &str,
     export_title: &str,
     export_favicon: &str,
@@ -524,7 +524,11 @@ fn compact_project(
     Ok(py_json(&Value::Object(map), true).replace("</", "<\\/"))
 }
 
-fn remix_data_script(project_text: &str, title: &str, favicon: &str) -> Result<String, String> {
+pub(crate) fn remix_data_script(
+    project_text: &str,
+    title: &str,
+    favicon: &str,
+) -> Result<String, String> {
     let data = compact_project(project_text, title, favicon)?;
     Ok(format!(
         "<script id=\"__icc_offline_data__\">window.__CYOA_PROJECT__={data};window.__ICCPLUS_DATA__={data};window.__CYOA_DATA__={data};</script>"

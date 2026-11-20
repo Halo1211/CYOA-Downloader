@@ -1,0 +1,624 @@
+{
+ "analyze": {
+  "Broken": {
+   "confidence": 98,
+   "family": "icc_original",
+   "index": "index.html",
+   "marker": "js/app.11111111.js",
+   "project": "project.json",
+   "reasons": [
+    "ICC project schema",
+    "JavaScript injection marker"
+   ],
+   "strategy": "patch_existing"
+  },
+  "Classic": {
+   "confidence": 98,
+   "family": "icc_original",
+   "index": "index.html",
+   "marker": "js/app.abc12345.js",
+   "project": "project.json",
+   "reasons": [
+    "ICC project schema",
+    "JavaScript injection marker"
+   ],
+   "strategy": "patch_existing"
+  },
+  "Landing": {
+   "confidence": 92,
+   "family": "custom_html",
+   "index": "index.html",
+   "marker": null,
+   "project": "project.json",
+   "reasons": [
+    "ICC data beside an HTML page without a viewer mount/runtime"
+   ],
+   "strategy": "copy_only"
+  },
+  "Landing/play": {
+   "confidence": 90,
+   "family": "custom_html",
+   "index": "index.html",
+   "marker": null,
+   "project": null,
+   "reasons": [
+    "HTML site without ICC project"
+   ],
+   "strategy": "copy_only"
+  },
+  "Lt": {
+   "confidence": 98,
+   "family": "lt_ouroumov",
+   "index": "index.html",
+   "marker": "js/app.d3103a3b.js",
+   "project": "project.json",
+   "reasons": [
+    "ICC project schema",
+    "JavaScript injection marker"
+   ],
+   "strategy": "patch_existing"
+  },
+  "Nested": {
+   "confidence": 90,
+   "family": "custom_html",
+   "index": "index.html",
+   "marker": null,
+   "project": null,
+   "reasons": [
+    "HTML site without ICC project"
+   ],
+   "strategy": "copy_only"
+  },
+  "Nested/game": {
+   "confidence": 95,
+   "family": "icc_plus_2",
+   "index": "index.html",
+   "marker": "js/app.js",
+   "project": "project.json",
+   "reasons": [
+    "local bundle injection marker"
+   ],
+   "strategy": "patch_existing"
+  },
+  "No Index": {
+   "confidence": 0,
+   "family": "unknown",
+   "index": null,
+   "marker": null,
+   "project": "project.json",
+   "reasons": [
+    "index.html missing"
+   ],
+   "strategy": "copy_only"
+  },
+  "Plain Html": {
+   "confidence": 90,
+   "family": "custom_html",
+   "index": "index.html",
+   "marker": null,
+   "project": null,
+   "reasons": [
+    "HTML site without ICC project"
+   ],
+   "strategy": "copy_only"
+  },
+  "Plus2 Online": {
+   "confidence": 95,
+   "family": "icc_plus_2",
+   "index": "index.html",
+   "marker": null,
+   "project": "project.json",
+   "reasons": [
+    "ICC project version 2.1",
+    "online core.js loader"
+   ],
+   "strategy": "replace_viewer"
+  },
+  "Remix Done": {
+   "confidence": 95,
+   "family": "icc_remix",
+   "index": "index.html",
+   "marker": null,
+   "project": "project.json",
+   "reasons": [
+    "ICC Remix template/runtime marker"
+   ],
+   "strategy": "patch_existing"
+  },
+  "Remix Replace": {
+   "confidence": 95,
+   "family": "icc_remix",
+   "index": "index.html",
+   "marker": null,
+   "project": "project.json",
+   "reasons": [
+    "ICC Remix template/runtime marker"
+   ],
+   "strategy": "replace_viewer"
+  },
+  "Remix Template": {
+   "confidence": 95,
+   "family": "icc_remix",
+   "index": "index.html",
+   "marker": null,
+   "project": "project.json",
+   "reasons": [
+    "ICC Remix template/runtime marker"
+   ],
+   "strategy": "patch_existing"
+  },
+  "Unknown": {
+   "confidence": 45,
+   "family": "unknown",
+   "index": "index.html",
+   "marker": null,
+   "project": "project.json",
+   "reasons": [
+    "ICC-shaped project with an unknown runtime"
+   ],
+   "strategy": "copy_only"
+  }
+ },
+ "hook": {
+  "changed": [
+   "favicon.ico",
+   "css/roboto.css",
+   "css/smui.css",
+   "js/app.js",
+   "js/polyfills.js",
+   "__original_site__/index.html",
+   "index.html"
+  ],
+  "family": "icc_plus_2",
+  "message": "ICC project version 2.1; online core.js loader",
+  "status": "modernized",
+  "strategy": "replace_viewer",
+  "tree": {
+   "__original_site__/index.html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>My  Plus\n2</title><link rel=\"icon\" href=\"fav.png\"><link rel=\"stylesheet\" href=\"css/app.publisher-theme.css\"><link rel=\"stylesheet\" href=\"css/app.1a2b3c4d.css\"><script src=\"https://cdn.example.com/core.js\"></script></head><body><div id=\"app\"></div><script src=\"js/app.c533aa25.js\"></script><p>custom footer</p></body></html>",
+   "css/app.publisher-theme.css": "body{color:red}",
+   "css/loading.css": "/*publisher loading*/",
+   "css/roboto.css": "@font-face{font-family:R;src:url(\"../fonts/r.woff2\")}",
+   "css/smui.css": ".smui{}",
+   "failed_assets.txt": "Preserved Viewer Asset Download Failures\r\n========================================\r\nGenerated : 2026-11-20 17:01:09\r\nSource    : https://example.com/cyoa/\r\nTotal     : 4\r\n\r\n[1] css\r\n  Path : -\r\n  URL  : https://example.com/cyoa/css/smui-dark.css\r\n  Err  : request failed\r\n\r\n[2] css\r\n  Path : -\r\n  URL  : https://example.com/cyoa/css/bootstrap.min.css\r\n  Err  : request failed\r\n\r\n[3] css\r\n  Path : -\r\n  URL  : https://example.com/cyoa/css/material-icons.css\r\n  Err  : request failed\r\n\r\n[4] js\r\n  Path : -\r\n  URL  : https://cdn.example.com/core.js\r\n  Err  : request failed\r\n",
+   "fav.png": "PNG",
+   "favicon.ico": "ICO-T",
+   "fonts/r.woff2": "FONT-PUBLISHER",
+   "index.html": "<!DOCTYPE html>\n<html><head>\n<link href=\"./css/loading.css\" rel=\"stylesheet\"/>\n<link href=\"./css/smui.css\" id=\"theme-light\" media=\"(prefers-color-scheme: light)\" rel=\"stylesheet\"/>\n<link href=\"./css/smui-dark.css\" id=\"theme-dark\" media=\"screen and (prefers-color-scheme: dark)\" rel=\"stylesheet\"/>\n<link href=\"./css/roboto.css\" rel=\"stylesheet\"/>\n<link href=\"./css/bootstrap.min.css\" rel=\"stylesheet\"/>\n<link href=\"./css/material-icons.css\" rel=\"stylesheet\"/>\n<script src=\"./js/polyfills.js\"></script>\n<link as=\"script\" href=\"./js/app.js\" rel=\"preload\"/>\n<meta charset=\"utf-8\"/><title>My  Plus\n2</title><link href=\"fav.png\" rel=\"icon\"/><link href=\"css/app.publisher-theme.css\" rel=\"stylesheet\"/><script src=\"https://cdn.example.com/core.js\"></script></head><body><div id=\"app\"></div><p>custom footer</p><script src=\"./js/app.js\"></script>\n</body></html>",
+   "js/app.js": "/*! Delete and replace this part with your project */{\"rows\":[{\"id\":\"r1\",\"objects\":[{\"id\":\"o1\"},{\"id\":\"o2\"}]}],\"pointTypes\":[],\"styling\":{\"a\":1},\"version\":\"2.1\",\"backpack\":[],\"customFonts\":[],\"groups\":[],\"rowDesignGroups\":[],\"soundEffects\":[],\"variables\":[],\"words\":[],\"categories\":[],\"mdObjects\":[],\"objectDesignGroups\":[],\"globalRequirements\":[],\"googleFonts\":[],\"activated\":[],\"barBgColorStack\":[],\"barIconColorStack\":[],\"barTextColorStack\":[],\"bgColorStack\":[],\"bgImageStack\":[]};boot()",
+   "js/polyfills.js": "/*poly*/",
+   "project.json": "{\"rows\": [{\"id\": \"r1\", \"objects\": [{\"id\": \"o1\"}, {\"id\": \"o2\"}]}], \"pointTypes\": [], \"styling\": {\"a\": 1}, \"version\": \"2.1\"}"
+  }
+ },
+ "inputs": {
+  "collection": {
+   "ICC Plus 2 local viewer v2.0.zip": [
+    "UEsDBBQAAAAAACSIdF37B4jDfQAAAH0AAAARAAAAdmlld2VyL2luZGV4Lmh0bWw8IURPQ1RZUEUgaHRtbD48aHRtbD48aGVhZD48dGl0bGU+VDwvdGl0bGU+PC9oZWFkPjxib2R5PjxkaXYgaWQ9ImFwcCI+PC9kaXY+PHNjcmlwdCBzcmM9Ii4vanMvYXBwLmpzIj48L3NjcmlwdD48L2JvZHk+PC9odG1sPlBLAwQUAAAAAAAkiHRdQ7+mowIAAAACAAAAHQAAAHZpZXdlci90ZW1wbGF0ZS1tZXRhZGF0YS5qc29ue31QSwMEFAAAAAAAJIh0XcAaDnNTAAAAUwAAABAAAAB2aWV3ZXIvanMvYXBwLmpzLyohIERlbGV0ZSBhbmQgcmVwbGFjZSB0aGlzIHBhcnQgd2l0aCB5b3VyIHByb2plY3QgKi97ImRlZmF1bHQiOnsiYSI6WzEsMl19fTtib290KClQSwMEFAAAAAAAJIh0XQnOk9AIAAAACAAAABYAAAB2aWV3ZXIvanMvcG9seWZpbGxzLmpzLypwb2x5Ki9QSwMEFAAAAAAAJIh0XeXW5bYUAAAAFAAAABYAAAB2aWV3ZXIvY3NzL2xvYWRpbmcuY3NzLyp0ZW1wbGF0ZSBsb2FkaW5nKi9QSwMEFAAAAAAAJIh0XZFcYhcHAAAABwAAABMAAAB2aWV3ZXIvY3NzL3NtdWkuY3NzLnNtdWl7fVBLAwQUAAAAAAAkiHRdM7hJSjMAAAAzAAAAFQAAAHZpZXdlci9jc3Mvcm9ib3RvLmNzc0Bmb250LWZhY2V7Zm9udC1mYW1pbHk6UjtzcmM6dXJsKC4uL2ZvbnRzL3Iud29mZjIpfVBLAwQUAAAAAAAkiHRdKuEy7gYAAAAGAAAAFAAAAHZpZXdlci9mb250cy9yLndvZmYyRk9OVC1UUEsDBBQAAAAAACSIdF0JP4otBQAAAAUAAAASAAAAdmlld2VyL2Zhdmljb24uaWNvSUNPLVRQSwECFAAUAAAAAAAkiHRd+weIw30AAAB9AAAAEQAAAAAAAAAAAAAAgAEAAAAAdmlld2VyL2luZGV4Lmh0bWxQSwECFAAUAAAAAAAkiHRdQ7+mowIAAAACAAAAHQAAAAAAAAAAAAAAgAGsAAAAdmlld2VyL3RlbXBsYXRlLW1ldGFkYXRhLmpzb25QSwECFAAUAAAAAAAkiHRdwBoOc1MAAABTAAAAEAAAAAAAAAAAAAAAgAHpAAAAdmlld2VyL2pzL2FwcC5qc1BLAQIUABQAAAAAACSIdF0JzpPQCAAAAAgAAAAWAAAAAAAAAAAAAACAAWoBAAB2aWV3ZXIvanMvcG9seWZpbGxzLmpzUEsBAhQAFAAAAAAAJIh0XeXW5bYUAAAAFAAAABYAAAAAAAAAAAAAAIABpgEAAHZpZXdlci9jc3MvbG9hZGluZy5jc3NQSwECFAAUAAAAAAAkiHRdkVxiFwcAAAAHAAAAEwAAAAAAAAAAAAAAgAHuAQAAdmlld2VyL2Nzcy9zbXVpLmNzc1BLAQIUABQAAAAAACSIdF0zuElKMwAAADMAAAAVAAAAAAAAAAAAAACAASYCAAB2aWV3ZXIvY3NzL3JvYm90by5jc3NQSwECFAAUAAAAAAAkiHRdKuEy7gYAAAAGAAAAFAAAAAAAAAAAAAAAgAGMAgAAdmlld2VyL2ZvbnRzL3Iud29mZjJQSwECFAAUAAAAAAAkiHRdCT+KLQUAAAAFAAAAEgAAAAAAAAAAAAAAgAHEAgAAdmlld2VyL2Zhdmljb24uaWNvUEsFBgAAAAAJAAkAVgIAAPkCAAAAAA==",
+    1700000000
+   ],
+   "Viewer 1.8 [Original].rar": [
+    "UmFyIQ==",
+    1700000001
+   ],
+   "notes.txt": [
+    "aWdub3JlZA==",
+    1700000002
+   ],
+   "old remix.zip": [
+    "UEsDBBQAAAAAACSIdF3l1F0/AwAAAAMAAAAKAAAAaW5kZXguaHRtbG9sZFBLAQIUABQAAAAAACSIdF3l1F0/AwAAAAMAAAAKAAAAAAAAAAAAAACAAQAAAABpbmRleC5odG1sUEsFBgAAAAABAAEAOAAAACsAAAAAAA==",
+    1700000003
+   ],
+   "sub/ICC_Remix pack.zip": [
+    "UEsDBBQAAAAAACSIdF2DFtyMAQAAAAEAAAAKAAAAcmVhZG1lLnR4dHhQSwMEFAAAAAAAJIh0Xb1xiMMhAgAAIQIAABkAAABpbm5lci92aWV3ZXItdGVtcGxhdGUuemlwUEsDBBQAAAAAACSIdF3MqDAKSwAAAEsAAAAKAAAAaW5kZXguaHRtbDxodG1sPjxoZWFkPjx0aXRsZT5SPC90aXRsZT48L2hlYWQ+PGJvZHk+PGRpdiBpZD0iYXBwIj48L2Rpdj48L2JvZHk+PC9odG1sPlBLAwQUAAAAAAAkiHRdhO55HQ0AAAANAAAAAwAAAGFwcC8qcmVtaXggYXBwKi9QSwMEFAAAAAAAJIh0XcdvATUIAAAACAAAABkAAABhc3NldHMvaWNjcGx1c192aWV3ZXIuY3NzLnJlbWl4e31QSwMEFAAAAAAAJIh0XQeUv1gRAAAAEQAAAA8AAABjc3MvbG9hZGluZy5jc3MvKnJlbWl4IGxvYWRpbmcqL1BLAQIUABQAAAAAACSIdF3MqDAKSwAAAEsAAAAKAAAAAAAAAAAAAACAAQAAAABpbmRleC5odG1sUEsBAhQAFAAAAAAAJIh0XYTueR0NAAAADQAAAAMAAAAAAAAAAAAAAIABcwAAAGFwcFBLAQIUABQAAAAAACSIdF3HbwE1CAAAAAgAAAAZAAAAAAAAAAAAAACAAaEAAABhc3NldHMvaWNjcGx1c192aWV3ZXIuY3NzUEsBAhQAFAAAAAAAJIh0XQeUv1gRAAAAEQAAAA8AAAAAAAAAAAAAAIAB4AAAAGNzcy9sb2FkaW5nLmNzc1BLBQYAAAAABAAEAO0AAAAeAQAAAABQSwECFAAUAAAAAAAkiHRdgxbcjAEAAAABAAAACgAAAAAAAAAAAAAAgAEAAAAAcmVhZG1lLnR4dFBLAQIUABQAAAAAACSIdF29cYjDIQIAACECAAAZAAAAAAAAAAAAAACAASkAAABpbm5lci92aWV3ZXItdGVtcGxhdGUuemlwUEsFBgAAAAACAAIAfwAAAIECAAAAAA==",
+    1795168868
+   ]
+  },
+  "library": {
+   "Broken": {
+    "index.html": "PGh0bWw+PGJvZHk+PGRpdiBpZD0iYXBwIj48L2Rpdj48L2JvZHk+PC9odG1sPg==",
+    "js/app.11111111.js": "LyohIERlbGV0ZSBhbmQgcmVwbGFjZSB0aGlzIHBhcnQgd2l0aCB5b3VyIHByb2plY3QgKi97cm93czpb",
+    "project.json": "eyJyb3dzIjogW3siaWQiOiAicjEiLCAib2JqZWN0cyI6IFt7ImlkIjogIm8xIn0sIHsiaWQiOiAibzIifV19XSwgInBvaW50VHlwZXMiOiBbXSwgInN0eWxpbmciOiB7ImEiOiAxfX0="
+   },
+   "Classic": {
+    "index.html": "PGh0bWw+PGhlYWQ+PHNjcmlwdCBzcmM9ImpzL2xvYWRlci5qcyI+PC9zY3JpcHQ+PC9oZWFkPjxib2R5PjxkaXYgaWQ9ImFwcCI+PC9kaXY+PHNjcmlwdCBzcmM9ImpzL2FwcC5hYmMxMjM0NS5qcyI+PC9zY3JpcHQ+PC9ib2R5PjwvaHRtbD4=",
+    "js/app.abc12345.js": "dmFyIGE9MTsvKiEgRGVsZXRlIGFuZCByZXBsYWNlIHRoaXMgcGFydCB3aXRoIHlvdXIgcHJvamVjdCAqL3tyb3dzOltdLHg6e3k6J30nfX07dmFyIHI9bmV3IFhNTEh0dHBSZXF1ZXN0KCk7ci5vcGVuKCdHRVQnLCdwcm9qZWN0Lmpzb24nKTtkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnbG0nKTtkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgiaW5kaWNhdG9yIik7",
+    "js/loader.js": "Y29uc3QgcmVzb3VyY2VzID0gWydhLmNzcycsJ2IuanMnXTsKbGV0IGxvYWRlZFJlc291cmNlcyA9IDA7CiAgcmVzb3VyY2VzLmZvckVhY2goZnVuY3Rpb24gKHIpIHsKICAgIHZhciB4ID0gbmV3IFhNTEh0dHBSZXF1ZXN0KCk7IHgub3BlbignR0VUJywgcik7IGxvYWRlZFJlc291cmNlcysrOwogIH0pOwo=",
+    "project.json": "eyJyb3dzIjogW3siaWQiOiAicjEiLCAib2JqZWN0cyI6IFt7ImlkIjogIm8xIn0sIHsiaWQiOiAibzIifV19XSwgInBvaW50VHlwZXMiOiBbXSwgInN0eWxpbmciOiB7ImEiOiAxfX0="
+   },
+   "Landing": {
+    "index.html": "PGh0bWw+PGJvZHk+PGEgaHJlZj0ncGxheS8nPlBsYXk8L2E+PC9ib2R5PjwvaHRtbD4=",
+    "play/index.html": "PGh0bWw+PGJvZHk+bmVzdGVkIG5vbi1zaXRlPC9ib2R5PjwvaHRtbD4=",
+    "project.json": "eyJyb3dzIjogW3siaWQiOiAicjEiLCAib2JqZWN0cyI6IFt7ImlkIjogIm8xIn0sIHsiaWQiOiAibzIifV19XSwgInBvaW50VHlwZXMiOiBbXSwgInN0eWxpbmciOiB7ImEiOiAxfX0="
+   },
+   "Lt": {
+    "index.html": "PGh0bWw+PGJvZHk+PGRpdiBpZD0nYXBwJz48L2Rpdj48L2JvZHk+PC9odG1sPg==",
+    "js/app.d3103a3b.js": "Ly8gRGVsZXRlIGFuZCByZXBsYWNlIHRoaXMgcGFydAp7cm93czpbXX07",
+    "project.json": "eyJyb3dzIjogW3siaWQiOiAicjEiLCAib2JqZWN0cyI6IFt7ImlkIjogIm8xIn0sIHsiaWQiOiAibzIifV19XSwgInBvaW50VHlwZXMiOiBbXSwgInN0eWxpbmciOiB7ImEiOiAxfX0="
+   },
+   "Nested": {
+    "game/index.html": "PGh0bWw+PGJvZHk+PGRpdiBpZD0iYXBwIj48L2Rpdj48L2JvZHk+PC9odG1sPg==",
+    "game/js/app.js": "Ly8gRGVsZXRlIGFuZCByZXBsYWNlIHRoaXMgcGFydAp7cm93czpbMV19Ow==",
+    "game/js/polyfills.js": "",
+    "game/project.json": "eyJyb3dzIjogW3siaWQiOiAicjEiLCAib2JqZWN0cyI6IFt7ImlkIjogIm8xIn0sIHsiaWQiOiAibzIifV19XSwgInBvaW50VHlwZXMiOiBbXSwgInN0eWxpbmciOiB7ImEiOiAxfX0=",
+    "index.html": "PGh0bWw+PGJvZHk+bWVudTwvYm9keT48L2h0bWw+"
+   },
+   "No Index": {
+    "project.json": "eyJyb3dzIjogW3siaWQiOiAicjEiLCAib2JqZWN0cyI6IFt7ImlkIjogIm8xIn0sIHsiaWQiOiAibzIifV19XSwgInBvaW50VHlwZXMiOiBbXSwgInN0eWxpbmciOiB7ImEiOiAxfX0=",
+    "readme.txt": "cg=="
+   },
+   "Plain Html": {
+    "img.png": "iVBOR/8A",
+    "index.html": "PGh0bWw+PGJvZHk+aGk8L2JvZHk+PC9odG1sPg=="
+   },
+   "Plus2 Online": {
+    "css/app.publisher-theme.css": "Ym9keXtjb2xvcjpyZWR9",
+    "css/loading.css": "LypwdWJsaXNoZXIgbG9hZGluZyov",
+    "fav.png": "UE5H",
+    "fonts/r.woff2": "Rk9OVC1QVUJMSVNIRVI=",
+    "index.html": "PCFET0NUWVBFIGh0bWw+PGh0bWw+PGhlYWQ+PG1ldGEgY2hhcnNldD0idXRmLTgiPjx0aXRsZT5NeSAgUGx1cwoyPC90aXRsZT48bGluayByZWw9Imljb24iIGhyZWY9ImZhdi5wbmciPjxsaW5rIHJlbD0ic3R5bGVzaGVldCIgaHJlZj0iY3NzL2FwcC5wdWJsaXNoZXItdGhlbWUuY3NzIj48bGluayByZWw9InN0eWxlc2hlZXQiIGhyZWY9ImNzcy9hcHAuMWEyYjNjNGQuY3NzIj48c2NyaXB0IHNyYz0iaHR0cHM6Ly9jZG4uZXhhbXBsZS5jb20vY29yZS5qcyI+PC9zY3JpcHQ+PC9oZWFkPjxib2R5PjxkaXYgaWQ9ImFwcCI+PC9kaXY+PHNjcmlwdCBzcmM9ImpzL2FwcC5jNTMzYWEyNS5qcyI+PC9zY3JpcHQ+PHA+Y3VzdG9tIGZvb3RlcjwvcD48L2JvZHk+PC9odG1sPg==",
+    "project.json": "eyJyb3dzIjogW3siaWQiOiAicjEiLCAib2JqZWN0cyI6IFt7ImlkIjogIm8xIn0sIHsiaWQiOiAibzIifV19XSwgInBvaW50VHlwZXMiOiBbXSwgInN0eWxpbmciOiB7ImEiOiAxfSwgInZlcnNpb24iOiAiMi4xIn0="
+   },
+   "Remix Done": {
+    "app": "LyphcHAqLw==",
+    "assets/iccplus_viewer.css": "",
+    "index.html": "PGh0bWw+PGhlYWQ+PHNjcmlwdCBpZD0iX19pY2Nfb2ZmbGluZV9kYXRhX18iPndpbmRvdy5fX0NZT0FfUFJPSkVDVF9fPXt9Ozwvc2NyaXB0PjwvaGVhZD48Ym9keT48ZGl2IGlkPSJhcHAiPjwvZGl2PjwvYm9keT48L2h0bWw+",
+    "project.json": "eyJyb3dzIjogW3siaWQiOiAicjEiLCAib2JqZWN0cyI6IFt7ImlkIjogIm8xIn0sIHsiaWQiOiAibzIifV19XSwgInBvaW50VHlwZXMiOiBbXSwgInN0eWxpbmciOiB7ImEiOiAxfSwgInZlcnNpb24iOiAiMi4wIn0="
+   },
+   "Remix Replace": {
+    "index.html": "PGh0bWw+PGhlYWQ+PHNjcmlwdD53aW5kb3cuX19JQ0NfUkVNSVhfXz0xPC9zY3JpcHQ+PHNjcmlwdCBzcmM9ImFwcC5qcyI+PC9zY3JpcHQ+PC9oZWFkPjxib2R5PjxkaXYgaWQ9ImFwcCI+PC9kaXY+PC9ib2R5PjwvaHRtbD4=",
+    "project.json": "eyJyb3dzIjogW3siaWQiOiAicjEiLCAib2JqZWN0cyI6IFt7ImlkIjogIm8xIn0sIHsiaWQiOiAibzIifV19XSwgInBvaW50VHlwZXMiOiBbXSwgInN0eWxpbmciOiB7ImEiOiAxfX0="
+   },
+   "Remix Template": {
+    "index.html": "PGh0bWw+PGhlYWQ+PHRpdGxlPlJlbWl4IFRpdGxlPC90aXRsZT48bGluayByZWw9InNob3J0Y3V0IGljb24iIGhyZWY9ImYuaWNvIj57e0lDQ19QUk9KRUNUX0RBVEFfU0NSSVBUfX08L2hlYWQ+PGJvZHk+c2l6ZT17e0lDQ19QUk9KRUNUX1NJWkV9fSB7e0lDQ19TSVRFX1RJVExFfX17e0lDQ19GQVZJQ09OX1RBR319PC9ib2R5PjwvaHRtbD4=",
+    "project.json": "eyJyb3dzIjogW3siaWQiOiAicjEiLCAib2JqZWN0cyI6IFt7ImlkIjogIm8xIn0sIHsiaWQiOiAibzIifV19XSwgInBvaW50VHlwZXMiOiBbXSwgInN0eWxpbmciOiB7ImEiOiAxfSwgInZlcnNpb24iOiAiMi4wIiwgInRpdGxlIjogIjwvc2NyaXB0PsOpIn0="
+   },
+   "Unknown": {
+    "index.html": "PGh0bWw+PGJvZHk+PGRpdiBpZD0iYXBwIj48L2Rpdj48L2JvZHk+PC9odG1sPg==",
+    "project.json": "eyJyb3dzIjogW3siaWQiOiAicjEiLCAib2JqZWN0cyI6IFt7ImlkIjogIm8xIn0sIHsiaWQiOiAibzIifV19XSwgInBvaW50VHlwZXMiOiBbXSwgInN0eWxpbmciOiB7ImEiOiAxfX0="
+   }
+  },
+  "viewers": {
+   "localviewer v2.zip": [
+    "UEsDBBQAAAAAACSIdF37B4jDfQAAAH0AAAAKAAAAaW5kZXguaHRtbDwhRE9DVFlQRSBodG1sPjxodG1sPjxoZWFkPjx0aXRsZT5UPC90aXRsZT48L2hlYWQ+PGJvZHk+PGRpdiBpZD0iYXBwIj48L2Rpdj48c2NyaXB0IHNyYz0iLi9qcy9hcHAuanMiPjwvc2NyaXB0PjwvYm9keT48L2h0bWw+UEsDBBQAAAAAACSIdF1Dv6ajAgAAAAIAAAAWAAAAdGVtcGxhdGUtbWV0YWRhdGEuanNvbnt9UEsDBBQAAAAAACSIdF3AGg5zUwAAAFMAAAAJAAAAanMvYXBwLmpzLyohIERlbGV0ZSBhbmQgcmVwbGFjZSB0aGlzIHBhcnQgd2l0aCB5b3VyIHByb2plY3QgKi97ImRlZmF1bHQiOnsiYSI6WzEsMl19fTtib290KClQSwMEFAAAAAAAJIh0XQnOk9AIAAAACAAAAA8AAABqcy9wb2x5ZmlsbHMuanMvKnBvbHkqL1BLAwQUAAAAAAAkiHRd5dblthQAAAAUAAAADwAAAGNzcy9sb2FkaW5nLmNzcy8qdGVtcGxhdGUgbG9hZGluZyovUEsDBBQAAAAAACSIdF2RXGIXBwAAAAcAAAAMAAAAY3NzL3NtdWkuY3NzLnNtdWl7fVBLAwQUAAAAAAAkiHRdM7hJSjMAAAAzAAAADgAAAGNzcy9yb2JvdG8uY3NzQGZvbnQtZmFjZXtmb250LWZhbWlseTpSO3NyYzp1cmwoLi4vZm9udHMvci53b2ZmMil9UEsDBBQAAAAAACSIdF0q4TLuBgAAAAYAAAANAAAAZm9udHMvci53b2ZmMkZPTlQtVFBLAwQUAAAAAAAkiHRdCT+KLQUAAAAFAAAACwAAAGZhdmljb24uaWNvSUNPLVRQSwECFAAUAAAAAAAkiHRd+weIw30AAAB9AAAACgAAAAAAAAAAAAAAgAEAAAAAaW5kZXguaHRtbFBLAQIUABQAAAAAACSIdF1Dv6ajAgAAAAIAAAAWAAAAAAAAAAAAAACAAaUAAAB0ZW1wbGF0ZS1tZXRhZGF0YS5qc29uUEsBAhQAFAAAAAAAJIh0XcAaDnNTAAAAUwAAAAkAAAAAAAAAAAAAAIAB2wAAAGpzL2FwcC5qc1BLAQIUABQAAAAAACSIdF0JzpPQCAAAAAgAAAAPAAAAAAAAAAAAAACAAVUBAABqcy9wb2x5ZmlsbHMuanNQSwECFAAUAAAAAAAkiHRd5dblthQAAAAUAAAADwAAAAAAAAAAAAAAgAGKAQAAY3NzL2xvYWRpbmcuY3NzUEsBAhQAFAAAAAAAJIh0XZFcYhcHAAAABwAAAAwAAAAAAAAAAAAAAIABywEAAGNzcy9zbXVpLmNzc1BLAQIUABQAAAAAACSIdF0zuElKMwAAADMAAAAOAAAAAAAAAAAAAACAAfwBAABjc3Mvcm9ib3RvLmNzc1BLAQIUABQAAAAAACSIdF0q4TLuBgAAAAYAAAANAAAAAAAAAAAAAACAAVsCAABmb250cy9yLndvZmYyUEsBAhQAFAAAAAAAJIh0XQk/ii0FAAAABQAAAAsAAAAAAAAAAAAAAIABjAIAAGZhdmljb24uaWNvUEsFBgAAAAAJAAkAFwIAALoCAAAAAA==",
+    1795168869
+   ],
+   "online v2.zip": [
+    "UEsDBBQAAAAAACSIdF2DFtyMAQAAAAEAAAAKAAAAaW5kZXguaHRtbHhQSwMEFAAAAAAAJIh0XQAAAAAAAAAAAAAAAAcAAABjb3JlLmpzUEsBAhQAFAAAAAAAJIh0XYMW3IwBAAAAAQAAAAoAAAAAAAAAAAAAAIABAAAAAGluZGV4Lmh0bWxQSwECFAAUAAAAAAAkiHRdAAAAAAAAAAAAAAAABwAAAAAAAAAAAAAAgAEpAAAAY29yZS5qc1BLBQYAAAAAAgACAG0AAABOAAAAAAA=",
+    1795168869
+   ],
+   "viewers.json": [
+    "eyJhIjogeyJuYW1lIjogIlBsdXMgMiIsICJ6aXBfZmlsZW5hbWUiOiAibG9jYWx2aWV3ZXIgdjIuemlwIiwgInZpZXdlcl90eXBlIjogImljY19wbHVzIn0sICJiIjogeyJuYW1lIjogIlBsdXMgMiB3ZWIiLCAiemlwX2ZpbGVuYW1lIjogIm9ubGluZSB2Mi56aXAiLCAidmlld2VyX3R5cGUiOiAiaWNjX3BsdXMyIn0sICJjIjogeyJuYW1lIjogIm1pc3NpbmciLCAiemlwX2ZpbGVuYW1lIjogImdvbmUuemlwIiwgInZpZXdlcl90eXBlIjogImljY19yZW1peCJ9fQ==",
+    1795168869
+   ]
+  }
+ },
+ "progress": [
+  [
+   1,
+   13,
+   "Broken"
+  ],
+  [
+   2,
+   13,
+   "Classic"
+  ],
+  [
+   3,
+   13,
+   "Landing"
+  ],
+  [
+   4,
+   13,
+   "Lt"
+  ],
+  [
+   5,
+   13,
+   "Nested"
+  ],
+  [
+   6,
+   13,
+   "No Index"
+  ],
+  [
+   7,
+   13,
+   "Plain Html"
+  ],
+  [
+   8,
+   13,
+   "Plus2 Online"
+  ],
+  [
+   9,
+   13,
+   "Remix Done"
+  ],
+  [
+   10,
+   13,
+   "Remix Replace"
+  ],
+  [
+   11,
+   13,
+   "Remix Template"
+  ],
+  [
+   12,
+   13,
+   "Unknown"
+  ],
+  [
+   13,
+   13,
+   "zz-file.txt-dir-sibling"
+  ]
+ ],
+ "registered": {
+  "icc_plus_2": [
+   "localviewer v2.zip",
+   ""
+  ]
+ },
+ "report": {
+  "destination": "<dst>",
+  "sites": [
+   {
+    "changed_files": [],
+    "destination": "<dst>/Broken",
+    "family": "unknown",
+    "message": "default project object is unbalanced in <dst>/Broken/js/app.11111111.js",
+    "source": "<src>/Broken",
+    "status": "failed",
+    "strategy": "error"
+   },
+   {
+    "changed_files": [
+     "__original_site__/js/app.abc12345.js",
+     "js/app.abc12345.js",
+     "__original_site__/index.html",
+     "index.html",
+     "__original_site__/js/loader.js",
+     "js/loader.js"
+    ],
+    "destination": "<dst>/Classic",
+    "family": "icc_original",
+    "message": "ICC project schema; JavaScript injection marker",
+    "source": "<src>/Classic",
+    "status": "modernized",
+    "strategy": "patch_existing"
+   },
+   {
+    "changed_files": [],
+    "destination": "<dst>/Landing",
+    "family": "custom_html",
+    "message": "ICC data beside an HTML page without a viewer mount/runtime",
+    "source": "<src>/Landing",
+    "status": "copied",
+    "strategy": "copy_only"
+   },
+   {
+    "changed_files": [
+     "__original_site__/js/app.d3103a3b.js",
+     "js/app.d3103a3b.js"
+    ],
+    "destination": "<dst>/Lt",
+    "family": "lt_ouroumov",
+    "message": "ICC project schema; JavaScript injection marker",
+    "source": "<src>/Lt",
+    "status": "modernized",
+    "strategy": "patch_existing"
+   },
+   {
+    "changed_files": [],
+    "destination": "<dst>/Nested",
+    "family": "custom_html",
+    "message": "HTML site without ICC project",
+    "source": "<src>/Nested",
+    "status": "copied",
+    "strategy": "copy_only"
+   },
+   {
+    "changed_files": [
+     "__original_site__/js/app.js",
+     "js/app.js"
+    ],
+    "destination": "<dst>/Nested/game",
+    "family": "icc_plus_2",
+    "message": "local bundle injection marker",
+    "source": "<src>/Nested/game",
+    "status": "modernized",
+    "strategy": "patch_existing"
+   },
+   {
+    "changed_files": [],
+    "destination": "<dst>/No Index",
+    "family": "unknown",
+    "message": "No index.html found.",
+    "source": "<src>/No Index",
+    "status": "copied",
+    "strategy": "copy_only"
+   },
+   {
+    "changed_files": [],
+    "destination": "<dst>/Plain Html",
+    "family": "custom_html",
+    "message": "HTML site without ICC project",
+    "source": "<src>/Plain Html",
+    "status": "copied",
+    "strategy": "copy_only"
+   },
+   {
+    "changed_files": [
+     "favicon.ico",
+     "css/roboto.css",
+     "css/smui.css",
+     "js/app.js",
+     "js/polyfills.js",
+     "__original_site__/index.html",
+     "index.html"
+    ],
+    "destination": "<dst>/Plus2 Online",
+    "family": "icc_plus_2",
+    "message": "ICC project version 2.1; online core.js loader",
+    "source": "<src>/Plus2 Online",
+    "status": "modernized",
+    "strategy": "replace_viewer"
+   },
+   {
+    "changed_files": [
+     "__original_site__/index.html",
+     "index.html"
+    ],
+    "destination": "<dst>/Remix Done",
+    "family": "icc_remix",
+    "message": "ICC Remix template/runtime marker",
+    "source": "<src>/Remix Done",
+    "status": "modernized",
+    "strategy": "patch_existing"
+   },
+   {
+    "changed_files": [
+     "app",
+     "assets/iccplus_viewer.css",
+     "css/loading.css",
+     "__original_site__/index.html",
+     "index.html"
+    ],
+    "destination": "<dst>/Remix Replace",
+    "family": "icc_remix",
+    "message": "ICC Remix template/runtime marker",
+    "source": "<src>/Remix Replace",
+    "status": "modernized",
+    "strategy": "replace_viewer"
+   },
+   {
+    "changed_files": [
+     "__original_site__/index.html",
+     "index.html"
+    ],
+    "destination": "<dst>/Remix Template",
+    "family": "icc_remix",
+    "message": "ICC Remix template/runtime marker",
+    "source": "<src>/Remix Template",
+    "status": "modernized",
+    "strategy": "patch_existing"
+   },
+   {
+    "changed_files": [],
+    "destination": "<dst>/Unknown",
+    "family": "unknown",
+    "message": "ICC-shaped project with an unknown runtime",
+    "source": "<src>/Unknown",
+    "status": "copied",
+    "strategy": "copy_only"
+   },
+   {
+    "changed_files": [],
+    "destination": "<dst>/zz-file.txt-dir-sibling",
+    "family": "unknown",
+    "message": "No index.html found.",
+    "source": "<src>/zz-file.txt-dir-sibling",
+    "status": "copied",
+    "strategy": "copy_only"
+   }
+  ],
+  "source": "<src>",
+  "summary": {
+   "copied": 5,
+   "failed": 1,
+   "modernized": 7,
+   "total_items": 13
+  }
+ },
+ "requested": [
+  "https://cdn.example.com/core.js",
+  "https://example.com/cyoa/css/smui-dark.css",
+  "https://example.com/cyoa/css/bootstrap.min.css",
+  "https://example.com/cyoa/css/material-icons.css",
+  "https://cdn.example.com/core.js"
+ ],
+ "summary": [
+  13,
+  7,
+  5,
+  1
+ ],
+ "templates": {
+  "icc_original": [
+   "Viewer 1.8 [Original].rar",
+   ""
+  ],
+  "icc_plus_2": [
+   "ICC Plus 2 local viewer v2.0.zip",
+   ""
+  ],
+  "icc_remix": [
+   "sub/ICC_Remix pack.zip",
+   "inner/viewer-template.zip"
+  ]
+ },
+ "tree": {
+  "Broken/__original_site__/js/app.11111111.js": "/*! Delete and replace this part with your project */{rows:[",
+  "Broken/index.html": "<html><body><div id=\"app\"></div></body></html>",
+  "Broken/js/app.11111111.js": "/*! Delete and replace this part with your project */{rows:[",
+  "Broken/project.json": "{\"rows\": [{\"id\": \"r1\", \"objects\": [{\"id\": \"o1\"}, {\"id\": \"o2\"}]}], \"pointTypes\": [], \"styling\": {\"a\": 1}}",
+  "Classic/__original_site__/index.html": "<html><head><script src=\"js/loader.js\"></script></head><body><div id=\"app\"></div><script src=\"js/app.abc12345.js\"></script></body></html>",
+  "Classic/__original_site__/js/app.abc12345.js": "var a=1;/*! Delete and replace this part with your project */{rows:[],x:{y:'}'}};var r=new XMLHttpRequest();r.open('GET','project.json');document.getElementById('lm');document.getElementById(\"indicator\");",
+  "Classic/__original_site__/js/loader.js": "const resources = ['a.css','b.js'];\nlet loadedResources = 0;\n  resources.forEach(function (r) {\n    var x = new XMLHttpRequest(); x.open('GET', r); loadedResources++;\n  });\n",
+  "Classic/index.html": "<html><head>\n<script id=\"__cyoa_legacy_progress_compat__\">(function(){var specs=[[\"lm\",\"div\"],[\"indicator\",\"span\"]];function ensure(){var host=document.body||document.documentElement;if(!host)return;var wrap=document.querySelector('[data-cyoa-runtime-compat=\"legacy-progress\"]');if(!wrap){wrap=document.createElement(\"div\");wrap.hidden=true;wrap.setAttribute(\"aria-hidden\",\"true\");wrap.setAttribute(\"data-cyoa-runtime-compat\",\"legacy-progress\");host.appendChild(wrap);}specs.forEach(function(spec){if(!document.getElementById(spec[0])){var node=document.createElement(spec[1]);node.id=spec[0];wrap.appendChild(node);}});}if(document.readyState===\"loading\")document.addEventListener(\"DOMContentLoaded\",ensure);else ensure();new MutationObserver(ensure).observe(document.documentElement,{childList:true,subtree:true});})();</script>\n<script src=\"js/loader.js\"></script></head><body><div id=\"app\"></div><script src=\"js/app.abc12345.js\"></script></body></html>",
+  "Classic/js/app.abc12345.js": "var a=1;/*! Delete and replace this part with your project */{\"rows\":[{\"id\":\"r1\",\"objects\":[{\"id\":\"o1\"},{\"id\":\"o2\"}]}],\"pointTypes\":[],\"styling\":{\"a\":1}};var r=new XMLHttpRequest();r.open('GET','project.json');document.getElementById('lm');document.getElementById(\"indicator\");",
+  "Classic/js/loader.js": "const resources = ['a.css','b.js'];\nlet loadedResources = window.location.protocol === 'file:' ? resources.length : 0;\n  if (window.location.protocol !== 'file:') resources.forEach(function (r) {\n    var x = new XMLHttpRequest(); x.open('GET', r); loadedResources++;\n  });\n",
+  "Classic/project.json": "{\"rows\": [{\"id\": \"r1\", \"objects\": [{\"id\": \"o1\"}, {\"id\": \"o2\"}]}], \"pointTypes\": [], \"styling\": {\"a\": 1}}",
+  "Landing/index.html": "<html><body><a href='play/'>Play</a></body></html>",
+  "Landing/play/index.html": "<html><body>nested non-site</body></html>",
+  "Landing/project.json": "{\"rows\": [{\"id\": \"r1\", \"objects\": [{\"id\": \"o1\"}, {\"id\": \"o2\"}]}], \"pointTypes\": [], \"styling\": {\"a\": 1}}",
+  "Lt/__original_site__/js/app.d3103a3b.js": "// Delete and replace this part\n{rows:[]};",
+  "Lt/index.html": "<html><body><div id='app'></div></body></html>",
+  "Lt/js/app.d3103a3b.js": "// Delete and replace this part\n{\"rows\":[{\"id\":\"r1\",\"objects\":[{\"id\":\"o1\"},{\"id\":\"o2\"}]}],\"pointTypes\":[],\"styling\":{\"a\":1}};",
+  "Lt/project.json": "{\"rows\": [{\"id\": \"r1\", \"objects\": [{\"id\": \"o1\"}, {\"id\": \"o2\"}]}], \"pointTypes\": [], \"styling\": {\"a\": 1}}",
+  "Nested/game/__original_site__/js/app.js": "// Delete and replace this part\n{rows:[1]};",
+  "Nested/game/index.html": "<html><body><div id=\"app\"></div></body></html>",
+  "Nested/game/js/app.js": "// Delete and replace this part\n{\"rows\":[{\"id\":\"r1\",\"objects\":[{\"id\":\"o1\"},{\"id\":\"o2\"}]}],\"pointTypes\":[],\"styling\":{\"a\":1}};",
+  "Nested/game/js/polyfills.js": "",
+  "Nested/game/project.json": "{\"rows\": [{\"id\": \"r1\", \"objects\": [{\"id\": \"o1\"}, {\"id\": \"o2\"}]}], \"pointTypes\": [], \"styling\": {\"a\": 1}}",
+  "Nested/index.html": "<html><body>menu</body></html>",
+  "No Index/project.json": "{\"rows\": [{\"id\": \"r1\", \"objects\": [{\"id\": \"o1\"}, {\"id\": \"o2\"}]}], \"pointTypes\": [], \"styling\": {\"a\": 1}}",
+  "No Index/readme.txt": "r",
+  "Plain Html/img.png": "b64:iVBOR/8A",
+  "Plain Html/index.html": "<html><body>hi</body></html>",
+  "Plus2 Online/__original_site__/index.html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>My  Plus\n2</title><link rel=\"icon\" href=\"fav.png\"><link rel=\"stylesheet\" href=\"css/app.publisher-theme.css\"><link rel=\"stylesheet\" href=\"css/app.1a2b3c4d.css\"><script src=\"https://cdn.example.com/core.js\"></script></head><body><div id=\"app\"></div><script src=\"js/app.c533aa25.js\"></script><p>custom footer</p></body></html>",
+  "Plus2 Online/css/app.publisher-theme.css": "body{color:red}",
+  "Plus2 Online/css/loading.css": "/*publisher loading*/",
+  "Plus2 Online/css/roboto.css": "@font-face{font-family:R;src:url(\"../fonts/r.woff2\")}",
+  "Plus2 Online/css/smui.css": ".smui{}",
+  "Plus2 Online/failed_assets.txt": "Preserved Viewer Asset Download Failures\r\n========================================\r\nGenerated : 2026-11-20 17:01:09\r\nSource    : -\r\nTotal     : 1\r\n\r\n[1] js\r\n  Path : -\r\n  URL  : https://cdn.example.com/core.js\r\n  Err  : request failed\r\n",
+  "Plus2 Online/fav.png": "PNG",
+  "Plus2 Online/favicon.ico": "ICO-T",
+  "Plus2 Online/fonts/r.woff2": "FONT-PUBLISHER",
+  "Plus2 Online/index.html": "<!DOCTYPE html>\n<html><head>\n<link href=\"./css/loading.css\" rel=\"stylesheet\"/>\n<link href=\"./css/smui.css\" id=\"theme-light\" media=\"(prefers-color-scheme: light)\" rel=\"stylesheet\"/>\n<link href=\"./css/smui-dark.css\" id=\"theme-dark\" media=\"screen and (prefers-color-scheme: dark)\" rel=\"stylesheet\"/>\n<link href=\"./css/roboto.css\" rel=\"stylesheet\"/>\n<link href=\"./css/bootstrap.min.css\" rel=\"stylesheet\"/>\n<link href=\"./css/material-icons.css\" rel=\"stylesheet\"/>\n<script src=\"./js/polyfills.js\"></script>\n<link as=\"script\" href=\"./js/app.js\" rel=\"preload\"/>\n<meta charset=\"utf-8\"/><title>My  Plus\n2</title><link href=\"fav.png\" rel=\"icon\"/><link href=\"css/app.publisher-theme.css\" rel=\"stylesheet\"/><script src=\"https://cdn.example.com/core.js\"></script></head><body><div id=\"app\"></div><p>custom footer</p><script src=\"./js/app.js\"></script>\n</body></html>",
+  "Plus2 Online/js/app.js": "/*! Delete and replace this part with your project */{\"rows\":[{\"id\":\"r1\",\"objects\":[{\"id\":\"o1\"},{\"id\":\"o2\"}]}],\"pointTypes\":[],\"styling\":{\"a\":1},\"version\":\"2.1\",\"backpack\":[],\"customFonts\":[],\"groups\":[],\"rowDesignGroups\":[],\"soundEffects\":[],\"variables\":[],\"words\":[],\"categories\":[],\"mdObjects\":[],\"objectDesignGroups\":[],\"globalRequirements\":[],\"googleFonts\":[],\"activated\":[],\"barBgColorStack\":[],\"barIconColorStack\":[],\"barTextColorStack\":[],\"bgColorStack\":[],\"bgImageStack\":[]};boot()",
+  "Plus2 Online/js/polyfills.js": "/*poly*/",
+  "Plus2 Online/project.json": "{\"rows\": [{\"id\": \"r1\", \"objects\": [{\"id\": \"o1\"}, {\"id\": \"o2\"}]}], \"pointTypes\": [], \"styling\": {\"a\": 1}, \"version\": \"2.1\"}",
+  "Remix Done/__original_site__/index.html": "<html><head><script id=\"__icc_offline_data__\">window.__CYOA_PROJECT__={};</script></head><body><div id=\"app\"></div></body></html>",
+  "Remix Done/app": "/*app*/",
+  "Remix Done/assets/iccplus_viewer.css": "",
+  "Remix Done/index.html": "<html><head>\n<script id=\"__icc_offline_data__\">window.__CYOA_PROJECT__={\"rows\":[{\"id\":\"r1\",\"objects\":[{\"id\":\"o1\"},{\"id\":\"o2\"}]}],\"pointTypes\":[],\"styling\":{\"a\":1},\"version\":\"2.0\",\"backpack\":[],\"customFonts\":[],\"groups\":[],\"rowDesignGroups\":[],\"soundEffects\":[],\"variables\":[],\"words\":[],\"categories\":[],\"mdObjects\":[],\"objectDesignGroups\":[],\"globalRequirements\":[],\"googleFonts\":[],\"activated\":[],\"barBgColorStack\":[],\"barIconColorStack\":[],\"barTextColorStack\":[],\"bgColorStack\":[],\"bgImageStack\":[]};window.__ICCPLUS_DATA__={\"rows\":[{\"id\":\"r1\",\"objects\":[{\"id\":\"o1\"},{\"id\":\"o2\"}]}],\"pointTypes\":[],\"styling\":{\"a\":1},\"version\":\"2.0\",\"backpack\":[],\"customFonts\":[],\"groups\":[],\"rowDesignGroups\":[],\"soundEffects\":[],\"variables\":[],\"words\":[],\"categories\":[],\"mdObjects\":[],\"objectDesignGroups\":[],\"globalRequirements\":[],\"googleFonts\":[],\"activated\":[],\"barBgColorStack\":[],\"barIconColorStack\":[],\"barTextColorStack\":[],\"bgColorStack\":[],\"bgImageStack\":[]};window.__CYOA_DATA__={\"rows\":[{\"id\":\"r1\",\"objects\":[{\"id\":\"o1\"},{\"id\":\"o2\"}]}],\"pointTypes\":[],\"styling\":{\"a\":1},\"version\":\"2.0\",\"backpack\":[],\"customFonts\":[],\"groups\":[],\"rowDesignGroups\":[],\"soundEffects\":[],\"variables\":[],\"words\":[],\"categories\":[],\"mdObjects\":[],\"objectDesignGroups\":[],\"globalRequirements\":[],\"googleFonts\":[],\"activated\":[],\"barBgColorStack\":[],\"barIconColorStack\":[],\"barTextColorStack\":[],\"bgColorStack\":[],\"bgImageStack\":[]};</script>\n\n<link rel=\"stylesheet\" href=\"./css/loading.css\">\n<link rel=\"stylesheet\" href=\"./css/smui.css\" media=\"(prefers-color-scheme: light)\" id=\"theme-light\">\n<link rel=\"stylesheet\" href=\"./css/smui-dark.css\" media=\"screen and (prefers-color-scheme: dark)\" id=\"theme-dark\">\n<link rel=\"stylesheet\" href=\"./css/roboto.css\">\n<link rel=\"stylesheet\" href=\"./css/bootstrap.min.css\">\n<link rel=\"stylesheet\" href=\"./css/material-icons.css\">\n<link rel=\"stylesheet\" href=\"./assets/iccplus_viewer.css\">\n<script>window.__ICCPLUS_PLAYABLE_SITE__ = true;</script>\n<script src=\"./js/polyfills.js\"></script>\n</head><body><div id=\"app\"></div><script src=\"./app\" defer></script>\n</body></html>",
+  "Remix Done/project.json": "{\"rows\": [{\"id\": \"r1\", \"objects\": [{\"id\": \"o1\"}, {\"id\": \"o2\"}]}], \"pointTypes\": [], \"styling\": {\"a\": 1}, \"version\": \"2.0\"}",
+  "Remix Replace/__original_site__/index.html": "<html><head><script>window.__ICC_REMIX__=1</script><script src=\"app.js\"></script></head><body><div id=\"app\"></div></body></html>",
+  "Remix Replace/app": "/*remix app*/",
+  "Remix Replace/assets/iccplus_viewer.css": ".remix{}",
+  "Remix Replace/css/loading.css": "/*remix loading*/",
+  "Remix Replace/index.html": "<html><head>\n<script id=\"__icc_offline_data__\">window.__CYOA_PROJECT__={\"rows\":[{\"id\":\"r1\",\"objects\":[{\"id\":\"o1\"},{\"id\":\"o2\"}]}],\"pointTypes\":[],\"styling\":{\"a\":1}};window.__ICCPLUS_DATA__={\"rows\":[{\"id\":\"r1\",\"objects\":[{\"id\":\"o1\"},{\"id\":\"o2\"}]}],\"pointTypes\":[],\"styling\":{\"a\":1}};window.__CYOA_DATA__={\"rows\":[{\"id\":\"r1\",\"objects\":[{\"id\":\"o1\"},{\"id\":\"o2\"}]}],\"pointTypes\":[],\"styling\":{\"a\":1}};</script>\n<link href=\"./css/loading.css\" rel=\"stylesheet\"/>\n<link href=\"./css/smui.css\" id=\"theme-light\" media=\"(prefers-color-scheme: light)\" rel=\"stylesheet\"/>\n<link href=\"./css/smui-dark.css\" id=\"theme-dark\" media=\"screen and (prefers-color-scheme: dark)\" rel=\"stylesheet\"/>\n<link href=\"./css/roboto.css\" rel=\"stylesheet\"/>\n<link href=\"./css/bootstrap.min.css\" rel=\"stylesheet\"/>\n<link href=\"./css/material-icons.css\" rel=\"stylesheet\"/>\n<link href=\"./assets/iccplus_viewer.css\" rel=\"stylesheet\"/>\n<script>window.__ICCPLUS_PLAYABLE_SITE__ = true;</script>\n<script src=\"./js/polyfills.js\"></script>\n<script>window.__ICC_REMIX__=1</script></head><body><div id=\"app\"></div><script defer=\"\" src=\"./app\"></script>\n</body></html>",
+  "Remix Replace/project.json": "{\"rows\": [{\"id\": \"r1\", \"objects\": [{\"id\": \"o1\"}, {\"id\": \"o2\"}]}], \"pointTypes\": [], \"styling\": {\"a\": 1}}",
+  "Remix Template/__original_site__/index.html": "<html><head><title>Remix Title</title><link rel=\"shortcut icon\" href=\"f.ico\">{{ICC_PROJECT_DATA_SCRIPT}}</head><body>size={{ICC_PROJECT_SIZE}} {{ICC_SITE_TITLE}}{{ICC_FAVICON_TAG}}</body></html>",
+  "Remix Template/index.html": "<html><head><title>Remix Title</title><link rel=\"shortcut icon\" href=\"f.ico\"><script id=\"__icc_offline_data__\">window.__CYOA_PROJECT__={\"rows\":[{\"id\":\"r1\",\"objects\":[{\"id\":\"o1\"},{\"id\":\"o2\"}]}],\"pointTypes\":[],\"styling\":{\"a\":1},\"version\":\"2.0\",\"title\":\"<\\/script>é\",\"backpack\":[],\"customFonts\":[],\"groups\":[],\"rowDesignGroups\":[],\"soundEffects\":[],\"variables\":[],\"words\":[],\"categories\":[],\"mdObjects\":[],\"objectDesignGroups\":[],\"globalRequirements\":[],\"googleFonts\":[],\"activated\":[],\"barBgColorStack\":[],\"barIconColorStack\":[],\"barTextColorStack\":[],\"bgColorStack\":[],\"bgImageStack\":[],\"exportSiteTitle\":\"Remix Title\",\"exportSiteFavicon\":\"f.ico\"};window.__ICCPLUS_DATA__={\"rows\":[{\"id\":\"r1\",\"objects\":[{\"id\":\"o1\"},{\"id\":\"o2\"}]}],\"pointTypes\":[],\"styling\":{\"a\":1},\"version\":\"2.0\",\"title\":\"<\\/script>é\",\"backpack\":[],\"customFonts\":[],\"groups\":[],\"rowDesignGroups\":[],\"soundEffects\":[],\"variables\":[],\"words\":[],\"categories\":[],\"mdObjects\":[],\"objectDesignGroups\":[],\"globalRequirements\":[],\"googleFonts\":[],\"activated\":[],\"barBgColorStack\":[],\"barIconColorStack\":[],\"barTextColorStack\":[],\"bgColorStack\":[],\"bgImageStack\":[],\"exportSiteTitle\":\"Remix Title\",\"exportSiteFavicon\":\"f.ico\"};window.__CYOA_DATA__={\"rows\":[{\"id\":\"r1\",\"objects\":[{\"id\":\"o1\"},{\"id\":\"o2\"}]}],\"pointTypes\":[],\"styling\":{\"a\":1},\"version\":\"2.0\",\"title\":\"<\\/script>é\",\"backpack\":[],\"customFonts\":[],\"groups\":[],\"rowDesignGroups\":[],\"soundEffects\":[],\"variables\":[],\"words\":[],\"categories\":[],\"mdObjects\":[],\"objectDesignGroups\":[],\"globalRequirements\":[],\"googleFonts\":[],\"activated\":[],\"barBgColorStack\":[],\"barIconColorStack\":[],\"barTextColorStack\":[],\"bgColorStack\":[],\"bgImageStack\":[],\"exportSiteTitle\":\"Remix Title\",\"exportSiteFavicon\":\"f.ico\"};</script></head><body>size=146 CYOA</body></html>",
+  "Remix Template/project.json": "{\"rows\": [{\"id\": \"r1\", \"objects\": [{\"id\": \"o1\"}, {\"id\": \"o2\"}]}], \"pointTypes\": [], \"styling\": {\"a\": 1}, \"version\": \"2.0\", \"title\": \"</script>é\"}",
+  "Unknown/index.html": "<html><body><div id=\"app\"></div></body></html>",
+  "Unknown/project.json": "{\"rows\": [{\"id\": \"r1\", \"objects\": [{\"id\": \"o1\"}, {\"id\": \"o2\"}]}], \"pointTypes\": [], \"styling\": {\"a\": 1}}"
+ }
+}

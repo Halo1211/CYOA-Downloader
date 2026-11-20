@@ -18,6 +18,7 @@ pub mod itch_html5;
 pub mod localize;
 pub mod logfile;
 pub mod manager_serve;
+pub mod modernizer;
 pub mod offline_viewer;
 mod offline_viewer_consts;
 pub mod output;
