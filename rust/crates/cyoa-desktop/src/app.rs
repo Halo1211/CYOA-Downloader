@@ -265,6 +265,8 @@ pub struct DownloaderApp {
     library: Option<crate::library::LibraryPanel>,
     /// Offline viewer settings panel (F-037 V5).
     viewers: Option<crate::viewers::ViewerPanel>,
+    /// App/history update checks (F-052).
+    updates: Option<crate::updates_panel::UpdatesPanel>,
 }
 
 type ListPick = std::sync::mpsc::Receiver<Option<Result<Vec<BatchItem>, String>>>;
@@ -333,6 +335,7 @@ impl DownloaderApp {
             preview: None,
             library: None,
             viewers: None,
+            updates: None,
             manager,
         }
     }
@@ -604,6 +607,13 @@ impl DownloaderApp {
                 && let Some((path, _)) = &self.shared
             {
                 self.viewers = Some(crate::viewers::ViewerPanel::open(path.clone()));
+            }
+            if ui
+                .add_enabled(self.updates.is_none(), egui::Button::new("Updates…"))
+                .on_hover_text("Check for a new app release or changed downloaded CYOAs")
+                .clicked()
+            {
+                self.updates = Some(crate::updates_panel::UpdatesPanel::new());
             }
         });
         if let Some(e) = self.url_error {
@@ -885,6 +895,15 @@ impl eframe::App for DownloaderApp {
             self.log_view(ui);
         });
         self.library_ui(ui.ctx());
+        if let Some(mut panel) = self.updates.take() {
+            let requeue = panel.ui(ui.ctx(), || self.net_runtime());
+            for (url, name) in requeue {
+                self.enqueue_one(url, name, Ok(self.settings.mode));
+            }
+            if panel.open {
+                self.updates = Some(panel);
+            }
+        }
         if let Some(panel) = &mut self.viewers {
             panel.ui(ui.ctx());
             if !panel.open {
@@ -980,6 +999,7 @@ mod tests {
             preview: None,
             library: None,
             viewers: None,
+            updates: None,
         }
     }
 

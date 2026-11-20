@@ -115,9 +115,9 @@ pub fn dependency_check_report() -> String {
             "Lenient JSON5 parsing fallback",
         ),
         (
-            "CSV/TXT import",
+            "CSV/XLSX import",
             "optional-batch",
-            "CSV/TXT queue import (XLSX/XLS not yet ported)",
+            "CSV/TXT/XLSX/XLS queue import",
         ),
         (
             "SOCKS proxy",

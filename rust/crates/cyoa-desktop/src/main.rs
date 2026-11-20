@@ -3,6 +3,7 @@
 mod app;
 mod library;
 mod net;
+mod updates_panel;
 mod viewers;
 mod worker;
 
