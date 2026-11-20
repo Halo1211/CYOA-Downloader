@@ -1,0 +1,208 @@
+{
+ "exports": [
+  {
+   "name": "basic.csv",
+   "items": [
+    {
+     "url": "https://a.example/x",
+     "filename": "Alpha",
+     "mode": "zip"
+    },
+    {
+     "url": " https://b.example/ ",
+     "filename": "",
+     "mode": ""
+    },
+    {
+     "url": "",
+     "filename": "skip"
+    },
+    {
+     "url": "https://c.example/,q",
+     "filename": "Quote \"x\"",
+     "mode": "website_folder",
+     "_queue_id": "7"
+    }
+   ],
+   "count": 3,
+   "bytes": "77u/dXJsLGZpbGVuYW1lLG1vZGUNCmh0dHBzOi8vYS5leGFtcGxlL3gsQWxwaGEsemlwDQpodHRwczovL2IuZXhhbXBsZS8sLGF1dG8NCiJodHRwczovL2MuZXhhbXBsZS8scSIsIlF1b3RlICIieCIiIix3ZWJzaXRlX2ZvbGRlcg0K"
+  },
+  {
+   "name": "basic.txt",
+   "items": [
+    {
+     "url": "https://a.example/x",
+     "filename": "Alpha",
+     "mode": "zip"
+    },
+    {
+     "url": "https://b.example/",
+     "filename": "",
+     "mode": ""
+    },
+    {
+     "url": "https://c.example/",
+     "filename": "Only name"
+    }
+   ],
+   "count": 3,
+   "bytes": "aHR0cHM6Ly9hLmV4YW1wbGUveCB8IEFscGhhIHwgemlwCmh0dHBzOi8vYi5leGFtcGxlLyB8ICB8IGF1dG8KaHR0cHM6Ly9jLmV4YW1wbGUvIHwgT25seSBuYW1lIHwgYXV0bwo="
+  },
+  {
+   "name": "pipe.txt",
+   "items": [
+    {
+     "url": "https://a.example/",
+     "filename": "a|b",
+     "mode": "zip"
+    }
+   ],
+   "error": "TXT cannot preserve pipes or line breaks in queue fields; export as CSV instead"
+  },
+  {
+   "name": "bad.json",
+   "items": [
+    {
+     "url": "https://a.example/"
+    }
+   ],
+   "error": "Queue export supports .csv and .txt files only"
+  },
+  {
+   "name": "empty.csv",
+   "items": [],
+   "count": 0,
+   "bytes": "77u/dXJsLGZpbGVuYW1lLG1vZGUNCg=="
+  }
+ ],
+ "remote": [
+  {
+   "source": "https://lists.example/list.csv",
+   "items": [
+    {
+     "url": "https://a.example/",
+     "filename": "A",
+     "mode": "zip"
+    },
+    {
+     "url": "https://b.example/",
+     "filename": "",
+     "mode": ""
+    }
+   ],
+   "requested": [
+    "https://lists.example/list.csv"
+   ]
+  },
+  {
+   "source": "https://lists.example/plain.csv",
+   "items": [
+    {
+     "url": "https://a.example/",
+     "filename": "First",
+     "mode": "both"
+    },
+    {
+     "url": "https://b.example/",
+     "filename": "",
+     "mode": ""
+    },
+    {
+     "url": "https://c.example/",
+     "filename": "",
+     "mode": "website_folder"
+    }
+   ],
+   "requested": [
+    "https://lists.example/plain.csv"
+   ]
+  },
+  {
+   "source": "https://lists.example/list.txt",
+   "items": [
+    {
+     "url": "https://a.example/",
+     "filename": "Name",
+     "mode": "zip"
+    },
+    {
+     "url": "https://b.example/?a=1,2",
+     "filename": "",
+     "mode": ""
+    },
+    {
+     "url": "https://c.example/",
+     "filename": "C",
+     "mode": "both"
+    }
+   ],
+   "requested": [
+    "https://lists.example/list.txt"
+   ]
+  },
+  {
+   "source": "https://lists.example/header.txt",
+   "items": [
+    {
+     "url": "https://a.example/",
+     "filename": "A",
+     "mode": ""
+    }
+   ],
+   "requested": [
+    "https://lists.example/header.txt"
+   ]
+  },
+  {
+   "source": "https://docs.google.com/spreadsheets/d/AbC-1_x/edit#gid=456",
+   "items": [
+    {
+     "url": "https://g.example/",
+     "filename": "G",
+     "mode": "cyoap_vue_folder"
+    }
+   ],
+   "requested": [
+    "https://docs.google.com/spreadsheets/d/AbC-1_x/export?format=csv&gid=456"
+   ]
+  },
+  {
+   "source": "https://docs.google.com/spreadsheets/d/AbC-1_x/edit",
+   "items": [
+    {
+     "url": "https://g0.example/",
+     "filename": "",
+     "mode": ""
+    }
+   ],
+   "requested": [
+    "https://docs.google.com/spreadsheets/d/AbC-1_x/export?format=csv&gid=0"
+   ]
+  },
+  {
+   "source": "https://lists.example/missing.csv",
+   "items": [],
+   "requested": [
+    "https://lists.example/missing.csv"
+   ]
+  },
+  {
+   "source": "not a url",
+   "items": [],
+   "requested": []
+  },
+  {
+   "source": "",
+   "items": [],
+   "requested": []
+  }
+ ],
+ "remote_bodies": {
+  "https://lists.example/list.csv": "url,filename,mode\nhttps://a.example/,A,zip\n#https://skip.example/,x,\nnot a url,,\nhttps://b.example/,,bogus\n",
+  "https://lists.example/plain.csv": "https://a.example/,First,both\nhttps://b.example/\n\nhttps://c.example/,,website_folder\n",
+  "https://lists.example/list.txt": "# comment\nhttps://a.example/ | Name | zip\nhttps://b.example/?a=1,2\nhttps://c.example/,C,both\nurl\n",
+  "https://lists.example/header.txt": "url,filename\nhttps://a.example/,A\n",
+  "https://docs.google.com/spreadsheets/d/AbC-1_x/export?format=csv&gid=456": "Link,Title,Type\nhttps://g.example/,G,cyoap_vue_folder\n",
+  "https://docs.google.com/spreadsheets/d/AbC-1_x/export?format=csv&gid=0": "url\nhttps://g0.example/\n"
+ }
+}

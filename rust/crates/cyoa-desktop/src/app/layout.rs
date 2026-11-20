@@ -323,7 +323,7 @@ impl DownloaderApp {
                     } else if dark {
                         Color32::from_rgb(0xe2, 0xe8, 0xf0)
                     } else {
-                        p.fg
+                        Color32::from_rgb(0x47, 0x55, 0x69)
                     };
                     painter.text(
                         card.min + vec2(52.0, 15.0),
@@ -578,8 +578,9 @@ impl DownloaderApp {
         // Row 3: list actions (right aligned).
         ui.horizontal(|ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                theme::flat(ui, RichText::new("Export List…").size(10.5).color(p.muted), p.surface2, vec2(208.0, 26.0), false)
-                    .on_disabled_hover_text(NOT_PORTED);
+                if theme::flat(ui, RichText::new("Export List…").size(10.5).color(p.muted), p.surface2, vec2(208.0, 26.0), true).clicked() {
+                    self.export_list();
+                }
                 if theme::flat(ui, RichText::new("Import List…").size(10.5).color(p.muted), p.surface2, vec2(208.0, 26.0), self.list_pick.is_none())
                     .on_hover_text(".txt (url | filename | mode), or .csv/.xlsx/.xls with url/filename/mode columns")
                     .clicked()
@@ -1160,6 +1161,61 @@ impl DownloaderApp {
             self.save_shared_key("auto_detect_output", v.into());
         }
         self.show_settings = open;
+    }
+
+    /// Python `_export_list`: Save As (CSV default), then a result dialog.
+    /// Dialogs and the write run on a helper thread so the UI keeps painting.
+    fn export_list(&mut self) {
+        let items: Vec<cyoa_engine::batch::BatchItem> = self
+            .jobs
+            .iter()
+            .map(|j| cyoa_engine::batch::BatchItem {
+                url: j.url.clone(),
+                filename: j.filename.clone(),
+                mode: j
+                    .mode
+                    .as_ref()
+                    .map(|m| theme::mode_entry(*m).key.to_owned())
+                    .unwrap_or_default(),
+            })
+            .collect();
+        let _ = std::thread::Builder::new()
+            .name("export-list".into())
+            .spawn(move || {
+                if items.is_empty() {
+                    rfd::MessageDialog::new()
+                        .set_level(rfd::MessageLevel::Warning)
+                        .set_title("Export List")
+                        .set_description("Queue is empty. Add at least one URL before exporting.")
+                        .show();
+                    return;
+                }
+                let Some(path) = rfd::FileDialog::new()
+                    .set_file_name("cyoa_queue.csv")
+                    .add_filter("CSV list", &["csv"])
+                    .add_filter("Text list", &["txt"])
+                    .add_filter("All files", &["*"])
+                    .save_file()
+                else {
+                    return;
+                };
+                match cyoa_engine::batch::export_queue_items(&items, &path) {
+                    Ok(n) => {
+                        tracing::info!("Exported {n} queue item(s) to {}", path.display());
+                        rfd::MessageDialog::new()
+                            .set_title("Export Complete")
+                            .set_description(format!("Exported {n} item(s)."))
+                            .show();
+                    }
+                    Err(e) => {
+                        rfd::MessageDialog::new()
+                            .set_level(rfd::MessageLevel::Error)
+                            .set_title("Export Failed")
+                            .set_description(e)
+                            .show();
+                    }
+                }
+            });
     }
 
     pub(super) fn open_library(&mut self, ctx: &egui::Context) {

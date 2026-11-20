@@ -3,7 +3,7 @@
 //! with `dtype=str, keep_default_na=False, on_bad_lines="skip"`, which is what
 //! Python uses when pandas is installed — it is in requirements.txt).
 //!
-//! `.xlsx/.xls` via calamine (pandas `read_excel` semantics). DEFERRED: remote/Google Sheets lists.
+//! `.xlsx/.xls` via calamine; remote CSV/TXT and Google Sheets lists; queue export.
 
 use cyoa_core::url::is_probable_url;
 use std::{fs, path::Path};
@@ -253,6 +253,257 @@ pub fn import_batch_file(path: &Path) -> Result<Vec<BatchItem>, BatchError> {
         "txt" => Ok(parse_txt(&text)),
         "csv" => Ok(parse_csv(&text)),
         _ => Ok(Vec::new()),
+    }
+}
+
+/// `export_queue_items_to_file`: CSV (UTF-8 BOM, CRLF, minimal quoting) or
+/// TXT (`url | filename | mode`). Returns the number of rows written.
+pub fn export_queue_items(items: &[BatchItem], path: &Path) -> Result<usize, String> {
+    let rows: Vec<[String; 3]> = items
+        .iter()
+        .filter(|i| !i.url.trim().is_empty())
+        .map(|i| {
+            let mode = i.mode.trim();
+            [
+                i.url.trim().to_owned(),
+                i.filename.trim().to_owned(),
+                if mode.is_empty() {
+                    "auto".into()
+                } else {
+                    mode.to_owned()
+                },
+            ]
+        })
+        .collect();
+    let ext = path
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    let bytes = match ext.as_str() {
+        "txt" => {
+            let mut out = String::new();
+            for [url, filename, mode] in &rows {
+                if [url, filename, mode]
+                    .iter()
+                    .any(|v| v.contains(['|', '\r', '\n']))
+                {
+                    return Err(
+                        "TXT cannot preserve pipes or line breaks in queue fields; export as CSV instead".into(),
+                    );
+                }
+                let mut fields = vec![url.as_str()];
+                if !filename.is_empty() || !mode.is_empty() {
+                    fields.push(filename);
+                }
+                if !mode.is_empty() {
+                    fields.push(mode);
+                }
+                out.push_str(&fields.join(" | "));
+                out.push('\n');
+            }
+            out.into_bytes()
+        }
+        "csv" => {
+            let mut w = csv::WriterBuilder::new()
+                .terminator(csv::Terminator::CRLF)
+                .from_writer(b"\xef\xbb\xbf".to_vec());
+            w.write_record(["url", "filename", "mode"])
+                .map_err(|e| e.to_string())?;
+            for r in &rows {
+                w.write_record(r).map_err(|e| e.to_string())?;
+            }
+            w.into_inner().map_err(|e| e.to_string())?
+        }
+        _ => return Err("Queue export supports .csv and .txt files only".into()),
+    };
+    cyoa_storage::atomic_io::atomic_write_bytes(path, &bytes).map_err(|e| e.to_string())?;
+    Ok(rows.len())
+}
+
+/// `_google_sheet_csv_export_url`.
+pub fn google_sheet_csv_export_url(url: &str) -> String {
+    static ID: std::sync::LazyLock<Option<regex::Regex>> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"/spreadsheets/d/([a-zA-Z0-9\-_]+)").ok());
+    static GID: std::sync::LazyLock<Option<regex::Regex>> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"[?&#]gid=(\d+)").ok());
+    let Some(id) = ID
+        .as_ref()
+        .and_then(|r| r.captures(url))
+        .and_then(|c| c.get(1))
+    else {
+        return url.to_owned();
+    };
+    let gid = GID
+        .as_ref()
+        .and_then(|r| r.captures(url))
+        .and_then(|c| c.get(1))
+        .map_or("0", |m| m.as_str());
+    format!(
+        "https://docs.google.com/spreadsheets/d/{}/export?format=csv&gid={gid}",
+        id.as_str()
+    )
+}
+
+fn csv_line(line: &str) -> Vec<String> {
+    csv::ReaderBuilder::new()
+        .has_headers(false)
+        .flexible(true)
+        .from_reader(line.as_bytes())
+        .records()
+        .next()
+        .and_then(Result::ok)
+        .map(|r| r.iter().map(str::to_owned).collect())
+        .unwrap_or_default()
+}
+
+/// The parsing half of `import_queue_items_from_source` for a fetched body.
+pub fn parse_remote_list(url: &str, text: &str) -> Vec<BatchItem> {
+    let path = url::Url::parse(url)
+        .map(|u| u.path().to_owned())
+        .unwrap_or_default();
+    let is_txt = Path::new(&path)
+        .extension()
+        .is_some_and(|e| e.to_string_lossy().to_lowercase() == "txt");
+    let mut rows: Vec<Vec<String>> = Vec::new();
+    if is_txt {
+        for raw in text.lines() {
+            let line = raw.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if line.contains('|') {
+                rows.push(line.splitn(3, '|').map(|f| f.trim().to_owned()).collect());
+                continue;
+            }
+            let literal = is_probable_url(line);
+            let csv_row = csv_line(line);
+            let csv_header = rows.first().is_some_and(|r| {
+                r.iter()
+                    .any(|f| URL_COLS.contains(&f.trim().to_lowercase().as_str()))
+            });
+            let csv_mode = csv_row
+                .get(2)
+                .map(|m| m.trim().to_lowercase().replace(['-', ' '], "_"))
+                .unwrap_or_default();
+            let comma_in_url = literal
+                && url::Url::parse(line).is_ok_and(|u| {
+                    u.query().is_some_and(|q| q.contains(','))
+                        || u.fragment().is_some_and(|f| f.contains(','))
+                });
+            if !csv_header && !BATCH_VALID_MODES.contains(&csv_mode.as_str()) && comma_in_url {
+                rows.push(vec![line.to_owned()]);
+            } else {
+                rows.push(csv_row);
+            }
+        }
+    } else {
+        let mut reader = csv::ReaderBuilder::new()
+            .has_headers(false)
+            .flexible(true)
+            .from_reader(text.as_bytes());
+        rows = reader
+            .records()
+            .filter_map(Result::ok)
+            .map(|r| r.iter().map(str::to_owned).collect())
+            .collect();
+    }
+    let Some(first) = rows.first() else {
+        return Vec::new();
+    };
+    let header: Vec<String> = first.iter().map(|c| c.trim().to_lowercase()).collect();
+    let mut items = Vec::new();
+    let mut add = |url: &str, filename: &str, mode: &str| {
+        let (url, filename) = (url.trim(), filename.trim());
+        if url.starts_with('#') || !is_probable_url(url) {
+            return;
+        }
+        items.push(BatchItem {
+            url: url.into(),
+            filename: filename.into(),
+            mode: normalize_batch_mode(mode),
+        });
+    };
+    let get = |row: &[String], i: Option<usize>| {
+        i.and_then(|i| row.get(i))
+            .map_or("", String::as_str)
+            .to_owned()
+    };
+    if header.iter().any(|h| URL_COLS.contains(&h.as_str())) {
+        let find = |names: &[&str]| header.iter().position(|h| names.contains(&h.as_str()));
+        let (u, f, m) = (find(URL_COLS).or(Some(0)), find(NAME_COLS), find(MODE_COLS));
+        for row in rows.iter().skip(1).filter(|r| !r.is_empty()) {
+            add(&get(row, u), &get(row, f), &get(row, m));
+        }
+    } else {
+        for row in rows.iter().filter(|r| !r.is_empty()) {
+            add(&get(row, Some(0)), &get(row, Some(1)), &get(row, Some(2)));
+        }
+    }
+    items
+}
+
+/// Python `_REMOTE_BATCH_MAX_BYTES`.
+pub const REMOTE_BATCH_MAX_BYTES: u64 = 32 * 1024 * 1024;
+
+/// `import_queue_items_from_source`: a local file, or an http(s) list
+/// (remote CSV/TXT, Google Sheets share links). Errors read as an empty list.
+pub async fn import_batch_source(
+    client: &cyoa_net::client::FetchClient,
+    source: &str,
+    cancel: &tokio_util::sync::CancellationToken,
+) -> Vec<BatchItem> {
+    let source = source.trim();
+    if source.is_empty() {
+        return Vec::new();
+    }
+    if Path::new(source).is_file() {
+        return import_batch_file(Path::new(source)).unwrap_or_default();
+    }
+    if !is_probable_url(source) {
+        return Vec::new();
+    }
+    let url = if source.contains("docs.google.com/spreadsheets") {
+        google_sheet_csv_export_url(source)
+    } else {
+        source.to_owned()
+    };
+    let text = async {
+        use cyoa_net::client::header::{CONTENT_TYPE, HeaderValue, USER_AGENT};
+        let parsed = url::Url::parse(&url).map_err(|e| e.to_string())?;
+        let mut opts = cyoa_net::client::FetchOptions::default();
+        opts.headers
+            .insert(USER_AGENT, HeaderValue::from_static("Mozilla/5.0"));
+        let resp = client
+            .get(&parsed, &opts, cancel)
+            .await
+            .map_err(|e| e.to_string())?;
+        let charset = resp
+            .headers
+            .get(CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|ct| {
+                ct.split(';')
+                    .find_map(|p| p.trim().strip_prefix("charset=").map(str::to_owned))
+            })
+            .unwrap_or_default();
+        let body = cyoa_net::client::FetchClient::bytes(resp, REMOTE_BATCH_MAX_BYTES)
+            .await
+            .map_err(|e| e.to_string())?;
+        let ignored = ["iso-8859-1", "iso8859-1", "latin-1", "latin1", ""];
+        let preferred = if ignored.contains(&charset.to_lowercase().as_str()) {
+            ""
+        } else {
+            charset.as_str()
+        };
+        Ok::<_, String>(cyoa_parse::project::try_decode_bytes(&body, preferred))
+    }
+    .await;
+    match text {
+        Ok(t) => parse_remote_list(&url, &t),
+        Err(e) => {
+            tracing::error!("Failed to import remote list: {e}");
+            Vec::new()
+        }
     }
 }
 

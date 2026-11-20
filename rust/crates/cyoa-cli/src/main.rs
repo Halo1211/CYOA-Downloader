@@ -1186,9 +1186,35 @@ async fn main() -> ExitCode {
     }
     let mut itch_seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     let items: Vec<BatchItem> = if let Some(list) = args.list.take() {
-        match batch::import_batch_file(&list) {
+        // cli.py: import_queue_items_from_source (local file or http(s) list,
+        // including Google Sheets share links).
+        let source = list.to_string_lossy().into_owned();
+        let imported = if list.is_file() {
+            batch::import_batch_file(&list).map_err(|e| e.to_string())
+        } else {
+            match cyoa_net::client::FetchClient::new(cyoa_net::client::ClientConfig {
+                policy: cyoa_net::policy::DestinationPolicy {
+                    origin: None,
+                    allow_internal: cyoa_core::allow_internal_hosts(),
+                },
+                proxy: proxy_cfg.clone(),
+                dns: dns.clone(),
+                vpn: vpn.clone(),
+                http2,
+                ..Default::default()
+            }) {
+                Ok(client) => {
+                    Ok(
+                        batch::import_batch_source(&client, &source, &CancellationToken::new())
+                            .await,
+                    )
+                }
+                Err(e) => Err(e.to_string()),
+            }
+        };
+        match imported {
             Ok(items) if !items.is_empty() => {
-                eprintln!("Batch file    : {}", list.display());
+                eprintln!("Batch file    : {source}");
                 eprintln!("Items         : {}", items.len());
                 items
             }
