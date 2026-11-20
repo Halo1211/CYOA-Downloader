@@ -69,6 +69,8 @@ pub struct DeepScan<'a> {
     /// Absolute local path -> remote document base (`source_urls`); extended
     /// with the effective URLs of newly saved files.
     pub source_urls: &'a mut HashMap<PathBuf, String>,
+    /// F-043: AI Assist runtime for the Aggressive Recovery final round.
+    pub ai: Option<Arc<crate::ai_run::AiRuntime>>,
 }
 
 /// `os.path.splitext(name)[1].lower()`.
@@ -485,6 +487,53 @@ impl DeepScan<'_> {
         }
     }
 
+    /// AI-assisted final round (`aggressive_recovery` only): JS files over
+    /// 500 characters are sent to the configured provider, and suggested
+    /// URLs not seen yet are fetched and saved.
+    async fn ai_round(&mut self, st: &mut State) {
+        let Some(ai) = self.ai.clone() else { return };
+        if !cyoa_integrations::ai::mode_allows("asset_scan", ai.mode())
+            || self.cancel.is_cancelled()
+        {
+            return;
+        }
+        let folder = self.folder.to_path_buf();
+        let js = tokio::task::spawn_blocking(move || crate::ai_run::AiRuntime::collect_js(&folder))
+            .await
+            .unwrap_or_default();
+        if js.is_empty() {
+            return;
+        }
+        let candidates = ai
+            .js_asset_candidates(&js, self.base_url, self.cancel)
+            .await;
+        let fresh: Vec<String> = candidates
+            .iter()
+            .map(|c| canonical_scan_url(c))
+            .filter(|c| !st.known.contains(c) && !st.downloaded.contains_key(c))
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        if fresh.is_empty() {
+            return;
+        }
+        tracing::info!(
+            "[AI scan] {} new candidate(s) from AI analysis",
+            fresh.len()
+        );
+        st.known.extend(fresh.iter().cloned());
+        let mut saved = 0;
+        for f in self.fetch_many(fresh).await {
+            if self.cancel.is_cancelled() {
+                break;
+            }
+            if f.content.is_some() && self.save(st, &f, "AI ✓") {
+                saved += 1;
+            }
+        }
+        tracing::info!("[AI scan] Done — {saved} new asset(s)");
+    }
+
     /// Run the BFS. Returns downloaded files and failures (also reported via
     /// `write_asset_failure_summary` in the site folder).
     pub async fn run(mut self) -> DeepScanOutcome {
@@ -645,6 +694,7 @@ impl DeepScan<'_> {
                 st.downloaded.len()
             );
         }
+        self.ai_round(&mut st).await;
         if !st.failed.is_empty() {
             let items: Vec<crate::reports::FailedItem<'_>> = st
                 .failed
@@ -747,6 +797,7 @@ mod tests {
             skip_urls: &BTreeSet::new(),
             exclude_relative_paths: &["project.json"],
             source_urls: &mut sources,
+            ai: None,
         }
         .run()
         .await;

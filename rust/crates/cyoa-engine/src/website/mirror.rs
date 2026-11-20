@@ -110,6 +110,8 @@ pub struct MirrorSink {
     browser_preferred: bool,
     /// `use_runtime_responses`: completed runtime-capture bodies to reuse.
     runtime_store: Option<crate::browser::CapturedStore>,
+    /// F-043 AI Assist runtime (deep-scan AI round).
+    pub ai: Option<Arc<crate::ai_run::AiRuntime>>,
 }
 
 impl MirrorSink {
@@ -154,6 +156,7 @@ impl MirrorSink {
             browser: None,
             browser_preferred: false,
             runtime_store: None,
+            ai: None,
         }
     }
 
@@ -767,6 +770,7 @@ impl MirrorSink {
                 skip_urls: &skip,
                 exclude_relative_paths: &[],
                 source_urls: &mut sources,
+                ai: self.ai.clone(),
             }
             .run(),
         );

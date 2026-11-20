@@ -77,11 +77,13 @@ impl PureRun<'_> {
         );
         let (deep, workers, policy) = (self.deep_scan, self.workers, self.policy.clone());
         let handle = tokio::runtime::Handle::current();
+        let ai_rt = crate::run::ai_runtime(&self.run_opts);
         let mirrored = tokio::task::spawn_blocking(move || -> Result<Mirrored, String> {
             let base = crate::website::js::directory_base_url(&url);
             let mut sink = MirrorSink::new(site_c, &url, &base, client, handle, cancel, 512 << 20);
             sink.workers = workers;
             sink.archive_strategy = policy.strategy.clone();
+            sink.ai = ai_rt;
             let (profile, effective) = if auto {
                 let p = sink.download_site_auto(deep)?;
                 let eff = p.effective_strategy.clone();

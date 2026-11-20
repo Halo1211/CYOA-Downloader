@@ -51,6 +51,8 @@ pub struct FetchCtx {
     pub browser: Option<Arc<crate::browser::BrowserTransport>>,
     /// One browser probe per transport-failed domain.
     pub headless_gate: Arc<HeadlessGate>,
+    /// F-043 AI Assist runtime (deep-scan AI round).
+    pub ai: Option<Arc<crate::ai_run::AiRuntime>>,
 }
 
 /// `transport_headless_events` / `transport_headless_failed_domains`: after a
@@ -868,6 +870,7 @@ mod tests {
             discord: None,
             browser: None,
             headless_gate: Arc::default(),
+            ai: None,
         }
     }
 

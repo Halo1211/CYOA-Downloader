@@ -61,11 +61,13 @@ impl IccRun<'_> {
         let pre_deep_scan = !auto && self.deep_scan;
         let policy = self.policy.clone();
         let workers = self.workers;
+        let ai_rt = self.ctx.ai.clone();
         let sink = tokio::task::spawn_blocking(move || {
             let mut sink =
                 MirrorSink::new(site_c, &entry, &base, client, handle, cancel, 512 << 20);
             sink.workers = workers;
             sink.archive_strategy = policy.strategy.clone();
+            sink.ai = ai_rt;
             let result = sink.download_site(pre_deep_scan).map(|()| {
                 // run_archive_extensions: Smart crawls same-story routes,
                 // Browser also captures runtime assets.
@@ -169,6 +171,7 @@ impl IccRun<'_> {
                 self.workers,
             );
             let handle = tokio::runtime::Handle::current();
+            let ai = self.ctx.ai.clone();
             tokio::task::spawn_blocking(move || {
                 let mut sources = HashMap::new();
                 handle.block_on(
@@ -181,6 +184,7 @@ impl IccRun<'_> {
                         skip_urls: &skip,
                         exclude_relative_paths: &["project.json"],
                         source_urls: &mut sources,
+                        ai,
                     }
                     .run(),
                 )

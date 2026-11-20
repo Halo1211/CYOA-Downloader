@@ -912,6 +912,7 @@ mod tests {
             discord: None,
             browser: None,
             headless_gate: Default::default(),
+            ai: None,
         })
     }
     fn opts() -> ProcessOptions {

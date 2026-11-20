@@ -1,5 +1,6 @@
 pub const CRATE_NAME: &str = "cyoa-engine";
 
+pub mod ai_run;
 pub mod audio;
 pub mod audio_retry;
 pub mod auto_detect;

@@ -1122,6 +1122,7 @@ version = "0.1.0"
 dependencies = [
  "cyoa-core",
  "cyoa-net",
+ "cyoa-parse",
  "cyoa-storage",
  "percent-encoding",
  "regex",

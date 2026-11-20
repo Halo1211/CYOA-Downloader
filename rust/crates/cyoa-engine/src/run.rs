@@ -182,6 +182,7 @@ pub(crate) fn build_ctx(
             g.enabled().then(|| Arc::new(g))
         },
         discord: discord_refresher(opts, client, project_json),
+        ai: ai_runtime(opts),
         browser: (opts.integrations.selenium && crate::browser::chromium_executable().is_some())
             .then(|| crate::browser::BrowserTransport::new(client.clone())),
         headless_gate: Arc::default(),
@@ -375,6 +376,15 @@ pub struct RunOptions {
     /// F-037: settings `offline_viewer_json_enabled` (Some = enabled) and
     /// `offline_viewer_preferred_id`; normal modes only, like orchestrator.py.
     pub offline_viewer: Option<OfflineViewerOptions>,
+    /// F-043: AI Assist (None = off).
+    pub ai: Option<crate::ai_run::AiRunConfig>,
+}
+
+/// The download's AI runtime, if AI Assist is configured and has a key.
+pub(crate) fn ai_runtime(opts: &RunOptions) -> Option<Arc<crate::ai_run::AiRuntime>> {
+    opts.ai
+        .as_ref()?
+        .runtime(&opts.proxy, opts.dns.clone(), opts.vpn.clone())
 }
 
 /// Offline viewer step of the normal modes (orchestrator.py 797-997).
@@ -442,6 +452,7 @@ impl Default for RunOptions {
             analyse_fonts: false,
             analysis_only: false,
             offline_viewer: None,
+            ai: None,
         }
     }
 }
@@ -605,18 +616,39 @@ pub async fn run_download(
             ),
         }
     }
-    let source = match discover_net::get_project_source(&client, &opts.url, &cancel).await {
-        Ok(s) => s,
+    let discovered = match discover_net::get_project_source(&client, &opts.url, &cancel).await {
         Err(DiscoverError::Fetch(cyoa_net::client::FetchError::Cancelled)) => {
             return Err(RunError::Cancelled);
         }
         Err(e) => {
+            // discover.py Phase 5: AI-assisted project detection.
+            let ai = ai_runtime(opts);
+            let mut found = None;
+            if let Some(ai) = &ai {
+                let page = discover_net::fetch_page_text(&client, &opts.url, &cancel)
+                    .await
+                    .unwrap_or_default();
+                found = ai.detect_project(&client, &opts.url, &page, &cancel).await;
+            }
+            match found {
+                Some(s) => Ok(s),
+                None => Err((e, ai)),
+            }
+        }
+        Ok(s) => Ok(s),
+    };
+    let source = match discovered {
+        Ok(s) => s,
+        Err((e, ai)) => {
             tracing::warn!("project discovery failed: {e}");
             // orchestrator.py 484-527: an HTML page without a project payload
             // is archived as a custom viewer website (any output mode).
             let page = discover_net::fetch_page_text(&client, &opts.url, &cancel)
                 .await
                 .unwrap_or_default();
+            if let Some(ai) = &ai {
+                ai.viewer_diagnostics(&page, &opts.url, &cancel).await;
+            }
             if !page.to_lowercase().contains("<html") {
                 return Err(RunError::ProjectUnresolved);
             }
