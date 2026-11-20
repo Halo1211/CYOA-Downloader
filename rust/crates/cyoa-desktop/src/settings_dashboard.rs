@@ -259,6 +259,17 @@ pub struct SettingsDashboard {
     cache_status: String,
     confirm_clear: bool,
     file_job: Option<Job>,
+    cf_mode: String,
+    cf_priority: String,
+    cf_session: String,
+    cf_proxy: String,
+    cf_url: String,
+    cf_timeout: String,
+    cf_wait: String,
+    cf_status: String,
+    cf_job: Option<Job>,
+    /// Saved Cloudflare mode for the main-window selector.
+    pub cf_mode_changed: Option<String>,
 }
 
 impl Default for SettingsDashboard {
@@ -283,6 +294,16 @@ impl Default for SettingsDashboard {
             cache_status: String::new(),
             confirm_clear: false,
             file_job: None,
+            cf_mode: "Auto".into(),
+            cf_priority: "FlareSolverr first".into(),
+            cf_session: "reuse-domain".into(),
+            cf_proxy: "inherit".into(),
+            cf_url: "http://localhost:8191/v1".into(),
+            cf_timeout: "60".into(),
+            cf_wait: "3".into(),
+            cf_status: String::new(),
+            cf_job: None,
+            cf_mode_changed: None,
         }
     }
 }
@@ -341,6 +362,14 @@ impl SettingsDashboard {
         if !self.discord.is_empty() {
             self.discord_status = "Token loaded and hidden.".into();
         }
+        let cf = cyoa_net::cloudflare::CloudflareConfig::from_settings(&st);
+        self.cf_mode = cyoa_net::cloudflare::display_cloudflare_mode(&cf.mode);
+        self.cf_priority = cyoa_net::cloudflare::display_cloudflare_priority(&cf.priority);
+        self.cf_session = cf.session_policy.clone();
+        self.cf_proxy = cf.proxy_mode.clone();
+        self.cf_url = cf.flaresolverr_url.clone();
+        self.cf_timeout = cf.timeout_s.to_string();
+        self.cf_wait = cf.wait_after_s.to_string();
         self.refresh_cache();
         self.loaded = true;
     }
@@ -359,6 +388,7 @@ impl SettingsDashboard {
         for (job, slot) in [
             (&mut self.discord_job, &mut self.discord_status),
             (&mut self.file_job, &mut self.status),
+            (&mut self.cf_job, &mut self.cf_status),
         ] {
             if let Some(rx) = job {
                 match rx.try_recv() {
@@ -591,6 +621,7 @@ impl SettingsDashboard {
 
     pub fn integration_cards(&mut self, ui: &mut egui::Ui, path: &Path, ctx: &egui::Context) {
         self.poll();
+        self.cloudflare_card(ui, path, ctx);
         card(
             ui,
             "gallery-dl config",
@@ -635,6 +666,169 @@ impl SettingsDashboard {
             }
         });
         ui.label(egui::RichText::new(&self.discord_status).weak());
+    }
+
+    /// Python `_settings_inline_cloudflare`.
+    fn cloudflare_card(&mut self, ui: &mut egui::Ui, path: &Path, ctx: &egui::Context) {
+        card(
+            ui,
+            "Cloudflare / FlareSolverr",
+            "Challenge-solving behavior for protected websites.",
+        );
+        egui::Grid::new("cf-grid")
+            .num_columns(4)
+            .spacing([12.0, 4.0])
+            .show(ui, |ui| {
+                ui.label("Mode")
+                    .on_hover_text("Auto selects a solver only when challenged.");
+                combo(
+                    ui,
+                    "cf-mode",
+                    &mut self.cf_mode,
+                    &["Off", "Auto", "cloudscraper", "FlareSolverr"],
+                );
+                ui.label("Auto priority")
+                    .on_hover_text("Solver attempted first in Auto mode.");
+                combo(
+                    ui,
+                    "cf-prio",
+                    &mut self.cf_priority,
+                    &["FlareSolverr first", "cloudscraper first"],
+                );
+                ui.end_row();
+                ui.label("Session")
+                    .on_hover_text("Controls challenge-cookie reuse.");
+                combo(
+                    ui,
+                    "cf-session",
+                    &mut self.cf_session,
+                    &["temporary", "reuse-domain", "manual"],
+                );
+                ui.label("Proxy")
+                    .on_hover_text("Inherit uses the proxy from the main form.");
+                combo(ui, "cf-proxy", &mut self.cf_proxy, &["inherit", "none"]);
+                ui.end_row();
+                ui.label("FlareSolverr API URL")
+                    .on_hover_text("Address of the running FlareSolverr service.");
+                ui.add(egui::TextEdit::singleline(&mut self.cf_url).desired_width(240.0));
+                ui.end_row();
+                ui.label("Timeout (s)")
+                    .on_hover_text("Maximum time allowed to solve a challenge.");
+                ui.add(egui::TextEdit::singleline(&mut self.cf_timeout).desired_width(60.0));
+                ui.label("Wait after solve (s)")
+                    .on_hover_text("Extra delay for the solved page to stabilize.");
+                ui.add(egui::TextEdit::singleline(&mut self.cf_wait).desired_width(60.0));
+                ui.end_row();
+            });
+        ui.horizontal(|ui| {
+            if ui.button("Clear sessions").clicked() {
+                self.cf_status = "Clearing sessions…".into();
+                if let Some(cfg) = self.apply_cf(path) {
+                    self.spawn_cf(ctx, cfg, false);
+                }
+            }
+            if ui
+                .add_enabled(self.cf_job.is_none(), egui::Button::new("Test"))
+                .clicked()
+                && let Some(cfg) = self.apply_cf(path)
+            {
+                self.cf_status = "Testing FlareSolverr…".into();
+                self.spawn_cf(ctx, cfg, true);
+            }
+            if ui.button("Save").clicked() && self.apply_cf(path).is_some() {
+                self.cf_status = "Saved.".into();
+                self.status = "Cloudflare settings saved.".into();
+            }
+            ui.label(egui::RichText::new(&self.cf_status).weak());
+        });
+    }
+
+    /// Python `_apply_cf`: parse, normalize and persist.
+    fn apply_cf(&mut self, path: &Path) -> Option<cyoa_net::cloudflare::CloudflareConfig> {
+        let int = |t: &str, d: i64| -> Result<i64, String> {
+            let t = t.trim();
+            if t.is_empty() {
+                return Ok(d);
+            }
+            t.parse::<i64>()
+                .map_err(|_| format!("invalid literal for int() with base 10: '{t}'"))
+        };
+        let (timeout, wait) = match (int(&self.cf_timeout, 60), int(&self.cf_wait, 3)) {
+            (Ok(t), Ok(w)) => (t.max(1), w.max(0)),
+            (Err(e), _) | (_, Err(e)) => {
+                self.cf_status = e;
+                return None;
+            }
+        };
+        let cfg = cyoa_net::cloudflare::CloudflareConfig::new(
+            &self.cf_mode,
+            &self.cf_priority,
+            self.cf_url.trim(),
+            &self.cf_session,
+            timeout,
+            wait,
+            &self.cf_proxy,
+        );
+        let c = cfg.clone();
+        if let Err(e) = update(path, |m| {
+            m.insert("cloudflare_mode".into(), c.mode.clone().into());
+            m.insert("cloudflare_priority".into(), c.priority.clone().into());
+            m.insert("flaresolverr_url".into(), c.flaresolverr_url.clone().into());
+            m.insert(
+                "flaresolverr_session_policy".into(),
+                c.session_policy.clone().into(),
+            );
+            m.insert("flaresolverr_timeout".into(), c.timeout_s.into());
+            m.insert("flaresolverr_wait_after".into(), c.wait_after_s.into());
+            m.insert(
+                "flaresolverr_proxy_mode".into(),
+                c.proxy_mode.clone().into(),
+            );
+        }) {
+            self.cf_status = e;
+            return None;
+        }
+        self.cf_mode_changed = Some(cfg.mode.clone());
+        Some(cfg)
+    }
+
+    fn spawn_cf(
+        &mut self,
+        ctx: &egui::Context,
+        cfg: cyoa_net::cloudflare::CloudflareConfig,
+        test: bool,
+    ) {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let ctx = ctx.clone();
+        let spawned = std::thread::Builder::new()
+            .name("flaresolverr".into())
+            .spawn(move || {
+                let msg = (|| -> Result<String, String> {
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .map_err(|e| e.to_string())?;
+                    let fs = cyoa_net::cloudflare::FlareSolverr::new(
+                        std::sync::Arc::new(cfg),
+                        None,
+                        cyoa_net::proxy::ProxyMode::InheritEnv,
+                        "",
+                    )
+                    .map_err(|e| e.to_string())?;
+                    Ok(if test {
+                        let (ok, message) = rt.block_on(fs.test_connection());
+                        format!("{}{message}", if ok { "OK: " } else { "Error: " })
+                    } else {
+                        format!("Cleared {} session(s).", rt.block_on(fs.destroy_sessions()))
+                    })
+                })()
+                .unwrap_or_else(|e| format!("Error: {e}"));
+                let _ = tx.send(msg);
+                ctx.request_repaint();
+            });
+        if spawned.is_ok() {
+            self.cf_job = Some(rx);
+        }
     }
 
     fn test_discord(&mut self, ctx: &egui::Context) {

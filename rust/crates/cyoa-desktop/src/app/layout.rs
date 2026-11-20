@@ -1363,6 +1363,9 @@ impl DownloaderApp {
                 ui.separator();
                 ui.label(RichText::new(&self.dash.status).weak());
             });
+        if let Some(mode) = self.dash.cf_mode_changed.take() {
+            self.cf_mode = mode;
+        }
         if !open {
             self.dash.closed();
         }
