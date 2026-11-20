@@ -27,6 +27,7 @@ pub mod offline_viewer;
 mod offline_viewer_consts;
 pub mod output;
 pub mod pipeline;
+pub mod preflight;
 pub mod preserved_index;
 pub mod pure;
 pub mod reports;

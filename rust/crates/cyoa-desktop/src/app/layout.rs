@@ -786,14 +786,21 @@ impl DownloaderApp {
             {
                 self.download_all();
             }
-            theme::flat(
+            let idle = !self
+                .jobs
+                .iter()
+                .any(|j| matches!(j.status, Status::Running { .. } | Status::Queued));
+            if theme::flat(
                 ui,
                 RichText::new("🔍 Preview").size(10.5).color(p.muted),
                 p.surface2,
                 vec2(90.0, h),
-                false,
+                idle && self.preflight.is_none(),
             )
-            .on_disabled_hover_text(NOT_PORTED);
+            .clicked()
+            {
+                self.open_preflight(ui.ctx());
+            }
             let active = self
                 .jobs
                 .iter()
@@ -1537,6 +1544,31 @@ impl DownloaderApp {
             });
         if spawned.is_ok() {
             self.retry_rx = Some(rx);
+        }
+    }
+
+    /// Python `_preview_queue`.
+    fn open_preflight(&mut self, ctx: &egui::Context) {
+        if self.jobs.is_empty() {
+            let _ = std::thread::Builder::new()
+                .name("preflight-info".into())
+                .spawn(|| {
+                    rfd::MessageDialog::new()
+                        .set_level(rfd::MessageLevel::Warning)
+                        .set_title("Queue Empty")
+                        .set_description("Add at least one URL.")
+                        .show();
+                });
+            return;
+        }
+        match self.net_runtime() {
+            Ok(net) => {
+                let urls = self.jobs.iter().map(|j| j.url.clone()).collect();
+                self.preflight = Some(crate::preflight_panel::PreflightPanel::start(
+                    urls, net, ctx,
+                ));
+            }
+            Err(e) => self.log.push(e),
         }
     }
 

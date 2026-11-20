@@ -318,6 +318,7 @@ pub struct DownloaderApp {
     /// Failed assets reported by finished/running jobs (Reports Center).
     asset_failures: Vec<crate::reports_panel::ResultRow>,
     reports: Option<crate::reports_panel::ReportsPanel>,
+    preflight: Option<crate::preflight_panel::PreflightPanel>,
 }
 
 type ListPick = std::sync::mpsc::Receiver<Option<Result<Vec<BatchItem>, String>>>;
@@ -426,6 +427,7 @@ impl DownloaderApp {
             retry_rx: None,
             asset_failures: Vec::new(),
             reports: None,
+            preflight: None,
             manager,
         }
     }
@@ -828,6 +830,14 @@ impl eframe::App for DownloaderApp {
                 self.updates = Some(panel);
             }
         }
+        if let Some(mut panel) = self.preflight.take() {
+            if panel.ui(ui.ctx()) {
+                self.download_all();
+            }
+            if panel.open {
+                self.preflight = Some(panel);
+            }
+        }
         if let Some(panel) = &mut self.reports {
             panel.ui(ui.ctx());
             if !panel.open {
@@ -949,6 +959,7 @@ mod tests {
             retry_rx: None,
             asset_failures: Vec::new(),
             reports: None,
+            preflight: None,
         }
     }
 

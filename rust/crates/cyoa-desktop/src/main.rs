@@ -3,6 +3,7 @@
 mod app;
 mod library;
 mod net;
+mod preflight_panel;
 mod reports_panel;
 mod theme;
 mod updates_panel;
