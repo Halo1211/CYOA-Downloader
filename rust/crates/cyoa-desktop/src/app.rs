@@ -261,6 +261,8 @@ pub struct DownloaderApp {
     last_preview: Option<PathBuf>,
     /// Running local preview server (Serve).
     preview: Option<cyoa_integrations::preview::PreviewServer>,
+    /// CYOA Manager library panel (Python `open_library_panel`).
+    library: Option<crate::library::LibraryPanel>,
 }
 
 type ListPick = std::sync::mpsc::Receiver<Option<Result<Vec<BatchItem>, String>>>;
@@ -327,6 +329,7 @@ impl DownloaderApp {
             manager_synced: manager.clone(),
             last_preview: None,
             preview: None,
+            library: None,
             manager,
         }
     }
@@ -570,6 +573,27 @@ impl DownloaderApp {
             {
                 self.start_list_import(ui.ctx());
             }
+            if ui
+                .add_enabled(self.library.is_none(), egui::Button::new("Library…"))
+                .on_hover_text(
+                    "Browse the CYOA Manager library: queue URLs or serve a local project",
+                )
+                .clicked()
+            {
+                let serve_enabled = self
+                    .shared
+                    .as_ref()
+                    .and_then(|(p, _)| {
+                        let mut store = cyoa_storage::settings::SettingsStore::new(p);
+                        store.load().ok()?.get("serve_enabled")?.as_bool()
+                    })
+                    .unwrap_or(true);
+                self.library = Some(crate::library::LibraryPanel::open(
+                    self.manager.db_path.clone(),
+                    serve_enabled,
+                    ui.ctx(),
+                ));
+            }
         });
         if let Some(e) = self.url_error {
             ui.colored_label(ui.visuals().error_fg_color, e);
@@ -690,6 +714,34 @@ impl DownloaderApp {
             Err(e) => self
                 .log
                 .push(format!("[Server] Could not start preview: {e}")),
+        }
+    }
+
+    fn library_ui(&mut self, ctx: &egui::Context) {
+        let Some(mut panel) = self.library.take() else {
+            return;
+        };
+        let action = panel.ui(ctx, || self.net_runtime());
+        match action {
+            Some(crate::library::LibraryAction::Queue(records, skipped)) => {
+                let n = records.len();
+                for (url, name) in records {
+                    self.enqueue_one(url, name, Ok(self.settings.mode));
+                }
+                self.log
+                    .push(format!("{n} URL queued; {skipped} local-only skipped."));
+            }
+            Some(crate::library::LibraryAction::Serve(folder)) => {
+                if self.preview.take().is_some() {
+                    self.log.push("[Server] Preview stopped.".to_owned());
+                }
+                self.last_preview = Some(folder);
+                self.start_preview();
+            }
+            None => {}
+        }
+        if panel.open {
+            self.library = Some(panel);
         }
     }
 
@@ -821,6 +873,7 @@ impl eframe::App for DownloaderApp {
             ui.heading("Log");
             self.log_view(ui);
         });
+        self.library_ui(ui.ctx());
         // While a job runs, the worker's waker drives repaints; no idle polling.
         if self.worker.is_some() && self.running_job().is_some() {
             ui.ctx().request_repaint_after(Duration::from_millis(250));
@@ -908,6 +961,7 @@ mod tests {
             manager_synced: crate::net::ManagerPrefs::default(),
             last_preview: None,
             preview: None,
+            library: None,
         }
     }
 
