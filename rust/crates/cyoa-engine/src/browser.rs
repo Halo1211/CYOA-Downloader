@@ -48,6 +48,8 @@ const STORE_MAX_ENTRIES: usize = 128;
 /// `BrowserFetchSession` page recycling limits.
 const PAGE_REQUEST_LIMIT: usize = 8;
 const PAGE_BYTE_LIMIT: usize = 32 * 1024 * 1024;
+/// Request metadata tracked per rendered page (runtime capture).
+const MAX_TRACKED_REQUESTS: usize = 20_000;
 
 /// The job was cancelled while the browser was working.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1449,7 +1451,9 @@ fn spawn_listeners(
         while let Some(ev) = will_send.next().await {
             with(&s, |st| {
                 let id = ev.request_id.inner().clone();
-                st.methods.insert(id.clone(), ev.request.method.clone());
+                if st.methods.len() < MAX_TRACKED_REQUESTS {
+                    st.methods.insert(id.clone(), ev.request.method.clone());
+                }
                 // The archive excludes telemetry; its long polls must not
                 // keep a ready story gate waiting.
                 if !crate::website::page::is_archive_noise_url(&ev.request.url) {
@@ -1475,10 +1479,12 @@ fn spawn_listeners(
                 {
                     st.observed.push((url.clone(), content_type.clone()));
                 }
-                st.responses.insert(
-                    ev.request_id.inner().clone(),
-                    (url, ev.response.status, headers),
-                );
+                if st.responses.len() < MAX_TRACKED_REQUESTS {
+                    st.responses.insert(
+                        ev.request_id.inner().clone(),
+                        (url, ev.response.status, headers),
+                    );
+                }
             });
         }
     }));
@@ -1666,6 +1672,11 @@ pub async fn capture_runtime_assets(
             // Navigation ends the previous route's settling phase.
             with(&shared, |s| {
                 s.pending.clear();
+                // The previous page's queue was drained above; its request
+                // metadata is no longer needed (bounded memory per page).
+                s.responses.clear();
+                s.methods.clear();
+                s.queue.clear();
                 s.armed = false;
             });
             let rendered: Result<(), String> = async {
