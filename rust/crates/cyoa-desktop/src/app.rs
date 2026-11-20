@@ -9,6 +9,8 @@ use cyoa_engine::{
 use eframe::egui;
 use std::{collections::VecDeque, path::PathBuf, time::Duration};
 
+mod layout;
+
 /// Python defaults (`cyoa_downloader_app/app_info.py`).
 pub const DEFAULT_MAX_WORKERS: usize = 4;
 pub const DEFAULT_WAIT_TIME: u64 = 60;
@@ -224,9 +226,16 @@ impl RingLog {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Status {
+    /// Added to the queue; starts on "Download All" (Python queue rows).
+    Pending,
     Queued,
-    Running { done: usize, total: usize },
-    Done { failed_assets: usize },
+    Running {
+        done: usize,
+        total: usize,
+    },
+    Done {
+        failed_assets: usize,
+    },
     Failed(String),
     Cancelled,
 }
@@ -236,6 +245,9 @@ pub struct Job {
     pub url: String,
     pub status: Status,
     pub current: String,
+    /// Output filename (empty: derived) and resolved mode for a pending row.
+    pub filename: String,
+    pub mode: Result<Mode, String>,
 }
 
 pub struct DownloaderApp {
@@ -267,6 +279,15 @@ pub struct DownloaderApp {
     viewers: Option<crate::viewers::ViewerPanel>,
     /// App/history update checks (F-052).
     updates: Option<crate::updates_panel::UpdatesPanel>,
+    /// Python "Filename" entry next to the URL.
+    fn_input: String,
+    /// Python `theme_mode` (System / Light / Dark), saved to settings.json.
+    theme_mode: String,
+    show_settings: bool,
+    show_credits: bool,
+    show_help: bool,
+    show_diagnostics: bool,
+    diag_report: Option<String>,
 }
 
 type ListPick = std::sync::mpsc::Receiver<Option<Result<Vec<BatchItem>, String>>>;
@@ -309,6 +330,16 @@ impl DownloaderApp {
             .load()
             .map(crate::net::ManagerPrefs::from_python)
             .unwrap_or_default();
+        let theme_mode = cyoa_storage::settings::SettingsStore::new(&shared_path)
+            .load()
+            .ok()
+            .and_then(|m| {
+                m.get("theme_mode")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_owned)
+            })
+            .unwrap_or_else(|| "System".into());
+        crate::theme::install(&cc.egui_ctx, &theme_mode);
         let shared = Some((shared_path, settings.net.clone()));
         let worker = match WorkerHandle::spawn(Box::new(move || ctx.request_repaint())) {
             Ok(w) => Some(w),
@@ -336,6 +367,13 @@ impl DownloaderApp {
             library: None,
             viewers: None,
             updates: None,
+            fn_input: String::new(),
+            theme_mode,
+            show_settings: false,
+            show_credits: false,
+            show_help: false,
+            show_diagnostics: false,
+            diag_report: None,
             manager,
         }
     }
@@ -426,26 +464,70 @@ impl DownloaderApp {
             Err(e) => self.url_error = Some(e),
             Ok(url) => {
                 self.url_error = None;
-                self.enqueue_one(url, String::new(), Ok(self.settings.mode));
+                let filename = self.fn_input.trim().to_owned();
+                self.enqueue_one(url, filename, Ok(self.settings.mode));
                 self.url_input.clear();
+                self.fn_input.clear();
             }
         }
     }
 
+    /// Python "Add URL" / queue import: the row waits for "Download All".
     fn enqueue_one(&mut self, url: String, filename: String, mode: Result<Mode, String>) {
         let id = self.next_id;
         self.next_id += 1;
+        let status = match &mode {
+            Err(e) => Status::Failed(e.clone()),
+            Ok(_) => Status::Pending,
+        };
+        self.jobs.push(Job {
+            id,
+            url,
+            status,
+            current: String::new(),
+            filename,
+            mode,
+        });
+    }
+
+    /// Python "▶ Download All": hand every pending row to the worker.
+    fn download_all(&mut self) {
+        let pending: Vec<usize> = (0..self.jobs.len())
+            .filter(|&i| self.jobs[i].status == Status::Pending)
+            .collect();
+        if pending.is_empty() {
+            self.log
+                .push("Queue is empty — add a URL first.".to_owned());
+            return;
+        }
+        for i in pending {
+            let (id, url, filename, mode) = {
+                let j = &self.jobs[i];
+                (j.id, j.url.clone(), j.filename.clone(), j.mode.clone())
+            };
+            let status = self.start_job(id, url, filename, mode);
+            self.jobs[i].status = status;
+        }
+    }
+
+    fn start_job(
+        &mut self,
+        id: JobId,
+        url: String,
+        filename: String,
+        mode: Result<Mode, String>,
+    ) -> Status {
         let net = self.net_runtime();
         // ICC jobs follow the shared `archive_strategy` setting.
         let archive = match &mode {
             Ok(m) if m.is_icc() => archive_policy().map(Some),
             _ => Ok(None),
         };
-        let status = match (mode, net, archive) {
+        match (mode, net, archive) {
             (Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => Status::Failed(e),
             (Ok(mode), Ok(net), Ok(archive_auto)) => {
                 let opts = RunOptions {
-                    url: url.clone(),
+                    url,
                     output_dir: PathBuf::from(&self.settings.output_dir),
                     mode: mode.into(),
                     workers: self.settings.threads,
@@ -483,13 +565,7 @@ impl DownloaderApp {
                     Status::Failed("download worker unavailable or queue full".into())
                 }
             }
-        };
-        self.jobs.push(Job {
-            id,
-            url,
-            status,
-            current: String::new(),
-        });
+        }
     }
 
     fn poll_list_import(&mut self) {
@@ -538,7 +614,6 @@ impl DownloaderApp {
         }
     }
 
-    /// Drop finished jobs from the visible queue (bounded history on demand).
     /// Validated network objects; rebuilt only when the settings changed so
     /// jobs share one DNS cache / VPN status cache.
     fn net_runtime(&mut self) -> Result<crate::net::NetRuntime, String> {
@@ -550,171 +625,6 @@ impl DownloaderApp {
         let rt = self.settings.net.build()?;
         self.net_cache = Some((self.settings.net.clone(), rt.clone()));
         Ok(rt)
-    }
-
-    fn clear_finished(&mut self) {
-        self.jobs
-            .retain(|j| matches!(j.status, Status::Queued | Status::Running { .. }));
-        self.selected = None;
-    }
-
-    fn controls(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            ui.label("Project URL:");
-            let r = ui.add(
-                egui::TextEdit::singleline(&mut self.url_input)
-                    .hint_text("https://example.com/cyoa/")
-                    .desired_width(ui.available_width() - 120.0),
-            );
-            let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-            if ui.button("Add to queue").clicked() || enter {
-                self.enqueue();
-            }
-            if ui
-                .add_enabled(self.list_pick.is_none(), egui::Button::new("Import list…"))
-                .on_hover_text(
-                    ".txt (url | filename | mode), or .csv/.xlsx/.xls with url/filename/mode columns",
-                )
-                .clicked()
-            {
-                self.start_list_import(ui.ctx());
-            }
-            if ui
-                .add_enabled(self.library.is_none(), egui::Button::new("Library…"))
-                .on_hover_text(
-                    "Browse the CYOA Manager library: queue URLs or serve a local project",
-                )
-                .clicked()
-            {
-                let serve_enabled = self
-                    .shared
-                    .as_ref()
-                    .and_then(|(p, _)| {
-                        let mut store = cyoa_storage::settings::SettingsStore::new(p);
-                        store.load().ok()?.get("serve_enabled")?.as_bool()
-                    })
-                    .unwrap_or(true);
-                self.library = Some(crate::library::LibraryPanel::open(
-                    self.manager.db_path.clone(),
-                    serve_enabled,
-                    ui.ctx(),
-                ));
-            }
-            if ui
-                .add_enabled(self.viewers.is_none(), egui::Button::new("Viewers…"))
-                .on_hover_text("Offline viewer automation and registered viewer archives")
-                .clicked()
-                && let Some((path, _)) = &self.shared
-            {
-                self.viewers = Some(crate::viewers::ViewerPanel::open(path.clone()));
-            }
-            if ui
-                .add_enabled(self.updates.is_none(), egui::Button::new("Updates…"))
-                .on_hover_text("Check for a new app release or changed downloaded CYOAs")
-                .clicked()
-            {
-                self.updates = Some(crate::updates_panel::UpdatesPanel::new());
-            }
-        });
-        if let Some(e) = self.url_error {
-            ui.colored_label(ui.visuals().error_fg_color, e);
-        }
-        ui.horizontal(|ui| {
-            ui.label("Output folder:");
-            ui.add(
-                egui::TextEdit::singleline(&mut self.settings.output_dir)
-                    .desired_width(ui.available_width() - 120.0),
-            );
-            let picking = self.folder_pick.is_some();
-            if ui
-                .add_enabled(!picking, egui::Button::new("Browse…"))
-                .clicked()
-            {
-                // The native dialog runs on its own thread so the UI keeps
-                // repainting and draining worker events while it is open.
-                let (tx, rx) = std::sync::mpsc::channel();
-                let start = self.settings.output_dir.clone();
-                let ctx = ui.ctx().clone();
-                let spawned = std::thread::Builder::new()
-                    .name("folder-dialog".into())
-                    .spawn(move || {
-                        let picked = rfd::FileDialog::new().set_directory(start).pick_folder();
-                        let _ = tx.send(picked);
-                        ctx.request_repaint();
-                    });
-                if spawned.is_ok() {
-                    self.folder_pick = Some(rx);
-                }
-            }
-            if let Some(rx) = &self.folder_pick {
-                match rx.try_recv() {
-                    Ok(picked) => {
-                        if let Some(dir) = picked {
-                            self.settings.output_dir = dir.display().to_string();
-                        }
-                        self.folder_pick = None;
-                    }
-                    Err(std::sync::mpsc::TryRecvError::Disconnected) => self.folder_pick = None,
-                    Err(std::sync::mpsc::TryRecvError::Empty) => {}
-                }
-            }
-        });
-        ui.horizontal(|ui| {
-            ui.label("Format:");
-            ui.radio_value(&mut self.settings.mode, Mode::Embed, "Embedded JSON");
-            ui.radio_value(&mut self.settings.mode, Mode::Zip, "ZIP");
-            ui.radio_value(&mut self.settings.mode, Mode::Both, "Both");
-            ui.radio_value(&mut self.settings.mode, Mode::IccZip, "ICC website (ZIP)");
-            ui.radio_value(
-                &mut self.settings.mode,
-                Mode::IccFolder,
-                "ICC website (folder)",
-            );
-            ui.radio_value(&mut self.settings.mode, Mode::PureZip, "Pure website (ZIP)");
-            ui.radio_value(
-                &mut self.settings.mode,
-                Mode::PureFolder,
-                "Pure website (folder)",
-            );
-            ui.radio_value(&mut self.settings.mode, Mode::CyoapZip, "CYOAP Vue (ZIP)");
-            ui.radio_value(
-                &mut self.settings.mode,
-                Mode::CyoapFolder,
-                "CYOAP Vue (folder)",
-            );
-            ui.separator();
-            ui.label("Threads:");
-            ui.add(egui::DragValue::new(&mut self.settings.threads).range(1..=64));
-            ui.label("Wait (s):");
-            ui.add(egui::DragValue::new(&mut self.settings.wait_time).range(0..=3600));
-            ui.label("Limit KB/s:")
-                .on_hover_text("Bandwidth limit for downloads; 0 = unlimited");
-            ui.add(
-                egui::DragValue::new(&mut self.settings.bandwidth_kbps)
-                    .range(0.0..=1_000_000.0)
-                    .speed(10.0),
-            );
-            ui.separator();
-            if ui.checkbox(&mut self.settings.fonts, "Fonts").changed() {
-                let state = if self.settings.fonts {
-                    "enabled"
-                } else {
-                    "disabled"
-                };
-                self.log.push(format!("[Feature] Font download: {state}"));
-            }
-            if ui
-                .checkbox(&mut self.settings.analyse_fonts, "Font analysis")
-                .changed()
-            {
-                let state = if self.settings.analyse_fonts {
-                    "enabled"
-                } else {
-                    "disabled"
-                };
-                self.log.push(format!("[Feature] Font analysis: {state}"));
-            }
-        });
     }
 
     fn start_preview(&mut self) {
@@ -772,128 +682,40 @@ impl DownloaderApp {
             .rev()
             .find(|j| matches!(j.status, Status::Running { .. }))
     }
-
-    fn status_bar(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            if let Some(j) = self.running_job() {
-                if let Status::Running { done, total } = j.status {
-                    let frac = if total == 0 {
-                        0.0
-                    } else {
-                        done as f32 / total as f32
-                    };
-                    ui.add(
-                        egui::ProgressBar::new(frac)
-                            .desired_width(240.0)
-                            .text(format!("{done}/{total}")),
-                    );
-                    ui.label(egui::RichText::new(&j.current).monospace());
-                }
-            } else {
-                ui.label("Idle");
-            }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("Clear finished").clicked() {
-                    self.clear_finished();
-                }
-                if self.preview.is_some() {
-                    if ui.button("Stop serve").clicked() {
-                        self.preview = None;
-                        self.log.push("[Server] Preview stopped.".to_owned());
-                    }
-                } else if ui
-                    .add_enabled(self.last_preview.is_some(), egui::Button::new("Serve"))
-                    .on_hover_text("Serve the last website folder on 127.0.0.1 and open it")
-                    .clicked()
-                {
-                    self.start_preview();
-                }
-                if ui.button("Cancel all").clicked()
-                    && let Some(w) = &self.worker
-                {
-                    w.cancel_all();
-                }
-                let sel = self.selected.and_then(|i| self.jobs.get(i)).map(|j| j.id);
-                if ui
-                    .add_enabled(sel.is_some(), egui::Button::new("Cancel selected"))
-                    .clicked()
-                    && let (Some(id), Some(w)) = (sel, &self.worker)
-                {
-                    w.cancel(id);
-                }
-            });
-        });
-    }
-
-    fn queue(&mut self, ui: &mut egui::Ui) {
-        let row_h = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
-        let total = self.jobs.len();
-        egui::ScrollArea::vertical()
-            .id_salt("queue")
-            .auto_shrink([false, false])
-            .max_height(ui.available_height() * 0.55)
-            .show_rows(ui, row_h, total, |ui, range| {
-                for i in range {
-                    let Some(job) = self.jobs.get(i) else {
-                        continue;
-                    };
-                    let status = match &job.status {
-                        Status::Queued => "Queued".to_owned(),
-                        Status::Running { done, total } => format!("Running {done}/{total}"),
-                        Status::Done { failed_assets: 0 } => "Done".to_owned(),
-                        Status::Done { failed_assets } => {
-                            format!("Done ({failed_assets} failed)")
-                        }
-                        Status::Failed(e) => format!("Failed: {e}"),
-                        Status::Cancelled => "Cancelled".to_owned(),
-                    };
-                    let selected = self.selected == Some(i);
-                    if ui
-                        .selectable_label(
-                            selected,
-                            format!("#{}  {}  —  {status}", job.id, job.url),
-                        )
-                        .clicked()
-                    {
-                        self.selected = Some(i);
-                    }
-                }
-            });
-    }
-
-    fn log_view(&self, ui: &mut egui::Ui) {
-        let row_h = ui.text_style_height(&egui::TextStyle::Monospace);
-        egui::ScrollArea::vertical()
-            .id_salt("log")
-            .auto_shrink([false, false])
-            .stick_to_bottom(true)
-            .show_rows(ui, row_h, self.log.len(), |ui, range| {
-                for i in range {
-                    if let Some(line) = self.log.get(i) {
-                        ui.label(egui::RichText::new(line).monospace());
-                    }
-                }
-            });
-    }
 }
 
 impl eframe::App for DownloaderApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.drain_events();
         self.poll_list_import();
-        egui::Frame::central_panel(ui.style()).show(ui, |ui| {
-            self.controls(ui);
-            self.settings.net.ui(ui);
-            self.manager.ui(ui);
-            ui.separator();
-            self.status_bar(ui);
-            ui.separator();
-            ui.heading("Queue");
-            self.queue(ui);
-            ui.separator();
-            ui.heading("Log");
-            self.log_view(ui);
-        });
+        let p = crate::theme::palette(ui);
+        egui::Panel::top("titlebar")
+            .exact_size(84.0)
+            .frame(egui::Frame::new().fill(p.panel))
+            .show(ui, |ui| self.titlebar(ui));
+        egui::Panel::left("sidebar")
+            .exact_size(248.0)
+            .resizable(false)
+            .frame(egui::Frame::new().fill(p.sidebar))
+            .show(ui, |ui| self.sidebar(ui));
+        egui::Panel::bottom("log_panel")
+            .default_size(180.0)
+            .min_size(90.0)
+            .resizable(true)
+            .frame(
+                egui::Frame::new()
+                    .fill(p.log_bg)
+                    .inner_margin(egui::Margin::symmetric(14, 6)),
+            )
+            .show(ui, |ui| self.log_panel(ui));
+        egui::CentralPanel::default()
+            .frame(
+                egui::Frame::new()
+                    .fill(p.bg)
+                    .inner_margin(egui::Margin::symmetric(14, 10)),
+            )
+            .show(ui, |ui| self.main_area(ui));
+        self.dialogs(ui.ctx());
         self.library_ui(ui.ctx());
         if let Some(mut panel) = self.updates.take() {
             let requeue = panel.ui(ui.ctx(), || self.net_runtime());
@@ -983,6 +805,8 @@ mod tests {
                         Status::Queued
                     },
                     current: String::new(),
+                    filename: String::new(),
+                    mode: Ok(Mode::Embed),
                 })
                 .collect(),
             selected: None,
@@ -1000,6 +824,13 @@ mod tests {
             library: None,
             viewers: None,
             updates: None,
+            fn_input: String::new(),
+            theme_mode: "System".into(),
+            show_settings: false,
+            show_credits: false,
+            show_help: false,
+            show_diagnostics: false,
+            diag_report: None,
         }
     }
 
@@ -1008,6 +839,9 @@ mod tests {
     #[test]
     fn hundred_thousand_row_queue_frame_time() {
         let mut app = headless_app(100_000, LOG_CAPACITY);
+        app.show_help = true;
+        app.show_credits = true;
+        app.show_settings = true;
         let ctx = egui::Context::default();
         let input = || egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
@@ -1018,10 +852,11 @@ mod tests {
         };
         let frame = |app: &mut DownloaderApp| {
             let mut out = ctx.run_ui(input(), |ui| {
-                app.controls(ui);
-                app.status_bar(ui);
-                app.queue(ui);
-                app.log_view(ui);
+                app.titlebar(ui);
+                app.sidebar(ui);
+                app.main_area(ui);
+                app.log_panel(ui);
+                app.dialogs(ui.ctx());
             });
             // No GPU here: tessellate (part of real frame cost) and discard textures.
             let _ = ctx.tessellate(std::mem::take(&mut out.shapes), out.pixels_per_point);

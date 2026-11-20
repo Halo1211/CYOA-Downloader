@@ -3,6 +3,7 @@
 mod app;
 mod library;
 mod net;
+mod theme;
 mod updates_panel;
 mod viewers;
 mod worker;
@@ -13,8 +14,8 @@ fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title("CYOA Downloader")
-            .with_inner_size([1000.0, 700.0])
-            .with_min_inner_size([900.0, 600.0]),
+            .with_inner_size([1360.0, 860.0])
+            .with_min_inner_size([1100.0, 700.0]),
         renderer: eframe::Renderer::Glow,
         ..Default::default()
     };
