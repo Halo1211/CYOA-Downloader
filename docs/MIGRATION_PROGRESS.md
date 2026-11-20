@@ -98,3 +98,4 @@ After approval: Stage 0 (workspace skeleton plus a Python golden-fixture exporte
 - Dropdowns use a CTkOptionMenu-style chevron segment; CYOA Manager Library restyled (own window, pager, CTk-blue buttons).
 - Retry Assets/Images/Audio: both use native OS message boxes with the same titles and texts (verified in code).
 - New `rust/scripts/gui_e2e.sh`: drives the desktop app's real Add URL and Download All handlers (`CYOA_DESKTOP_E2E`) against the fixture site. Embed, Zip and Both outputs are byte-identical to the Python CLI; ZIP contents are identical (3 modes OK, 2026-11-21).
+- `ICC_GUI=1 python rust/scripts/icc_parity.py` runs the ICC/Pure cases through the desktop GUI handlers instead of the CLI. The Python side gets `--fonts`, because the GUI Fonts box defaults on in both apps. All 10 cases are OK, including the Browser strategy (2026-11-21).

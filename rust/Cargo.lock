@@ -1073,6 +1073,7 @@ dependencies = [
  "cyoa-net",
  "cyoa-storage",
  "eframe",
+ "png",
  "rfd",
  "serde",
  "serde_json",

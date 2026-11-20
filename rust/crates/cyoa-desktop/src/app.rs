@@ -1212,7 +1212,7 @@ mod tests {
     }
 }
 
-/// Developer aid: `CYOA_DESKTOP_E2E="<url>|<output dir>|<Mode>"` drives the
+/// Developer aid: `CYOA_DESKTOP_E2E="<url>|<output dir>|<Mode>[|<filename>]"` drives the
 /// real "Add URL" and "Download All" handlers once, then writes
 /// `<output dir>/gui_e2e_status.txt` and closes when every job finished.
 #[derive(Default)]
@@ -1226,8 +1226,12 @@ impl DownloaderApp {
         let Ok(spec) = std::env::var("CYOA_DESKTOP_E2E") else {
             return;
         };
-        let parts: Vec<&str> = spec.splitn(3, '|').collect();
-        let [url, out, mode] = parts[..] else { return };
+        let parts: Vec<&str> = spec.splitn(4, '|').collect();
+        let (url, out, mode, name) = match parts[..] {
+            [u, o, m] => (u, o, m, ""),
+            [u, o, m, n] => (u, o, m, n),
+            _ => return,
+        };
         if !self.e2e.started {
             self.e2e.started = true;
             self.settings.output_dir = out.to_owned();
@@ -1235,6 +1239,7 @@ impl DownloaderApp {
                 self.settings.mode = m;
             }
             self.url_input = url.to_owned();
+            self.fn_input = name.to_owned();
             self.enqueue();
             self.download_all();
             return;
