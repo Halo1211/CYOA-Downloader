@@ -20,6 +20,8 @@ const SETTINGS_KEY: &str = "cyoa-settings";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Mode {
+    /// Python "Auto (detect)": resolved per job (cyoap_vue or ICC website).
+    Auto,
     Embed,
     Zip,
     Both,
@@ -41,7 +43,8 @@ impl Mode {
     pub fn is_icc(self) -> bool {
         matches!(
             self,
-            Mode::IccZip
+            Mode::Auto
+                | Mode::IccZip
                 | Mode::IccFolder
                 | Mode::PureZip
                 | Mode::PureFolder
@@ -62,6 +65,8 @@ impl Mode {
 impl From<Mode> for OutputMode {
     fn from(m: Mode) -> Self {
         match m {
+            // Placeholder; the worker replaces it with the detected mode.
+            Mode::Auto => OutputMode::IccFolder,
             Mode::Embed => OutputMode::Embed,
             Mode::Zip => OutputMode::Zip,
             Mode::Both => OutputMode::Both,
@@ -133,6 +138,12 @@ pub struct Settings {
     /// Bandwidth limit in KB/s (0 = unlimited), Python GUI `bw`.
     #[serde(default)]
     pub bandwidth_kbps: f64,
+    /// Python "HTTP/2" checkbox (`http2_enabled`).
+    #[serde(default)]
+    pub http2: bool,
+    /// Python "YT Audio" checkbox (yt-dlp audio recovery, default on).
+    #[serde(default = "default_true")]
+    pub ytdlp: bool,
 }
 
 fn default_true() -> bool {
@@ -145,13 +156,15 @@ impl Default for Settings {
             output_dir: std::env::current_dir()
                 .map(|p| p.display().to_string())
                 .unwrap_or_default(),
-            mode: Mode::Embed,
+            mode: Mode::Auto,
             threads: DEFAULT_MAX_WORKERS,
             wait_time: DEFAULT_WAIT_TIME,
             net: crate::net::NetSettings::default(),
             fonts: true,
             analyse_fonts: false,
             bandwidth_kbps: 0.0,
+            http2: false,
+            ytdlp: true,
         }
     }
 }
@@ -288,6 +301,16 @@ pub struct DownloaderApp {
     show_help: bool,
     show_diagnostics: bool,
     diag_report: Option<String>,
+    /// Python `auto_detect_output` ("folder" / "zip").
+    auto_pref: String,
+    /// Python `cloudflare_mode` selector value.
+    cf_mode: String,
+    /// DNS "Custom…" row visible.
+    dns_custom: bool,
+    /// Progress card "Show Details".
+    show_details: bool,
+    logo_dark: Option<egui::TextureHandle>,
+    logo_light: Option<egui::TextureHandle>,
 }
 
 type ListPick = std::sync::mpsc::Receiver<Option<Result<Vec<BatchItem>, String>>>;
@@ -340,6 +363,18 @@ impl DownloaderApp {
             })
             .unwrap_or_else(|| "System".into());
         crate::theme::install(&cc.egui_ctx, &theme_mode);
+        let saved_str = |k: &str, d: &str| {
+            cyoa_storage::settings::SettingsStore::new(&shared_path)
+                .load()
+                .ok()
+                .and_then(|m| m.get(k).and_then(|v| v.as_str()).map(str::to_owned))
+                .unwrap_or_else(|| d.to_owned())
+        };
+        let auto_pref =
+            cyoa_engine::auto_detect::normalize_pref(&saved_str("auto_detect_output", "folder"))
+                .to_owned();
+        let cf_mode =
+            cyoa_net::cloudflare::normalize_cloudflare_mode(&saved_str("cloudflare_mode", "auto"));
         let shared = Some((shared_path, settings.net.clone()));
         let worker = match WorkerHandle::spawn(Box::new(move || ctx.request_repaint())) {
             Ok(w) => Some(w),
@@ -374,6 +409,12 @@ impl DownloaderApp {
             show_help: false,
             show_diagnostics: false,
             diag_report: None,
+            auto_pref,
+            cf_mode,
+            dns_custom: false,
+            show_details: false,
+            logo_dark: None,
+            logo_light: None,
             manager,
         }
     }
@@ -543,6 +584,11 @@ impl DownloaderApp {
                     cloudflare: Some(cloudflare_config()),
                     analyse_fonts: self.settings.analyse_fonts,
                     offline_viewer: offline_viewer_config(),
+                    http2: self.settings.http2,
+                    integrations: cyoa_engine::run::Integrations {
+                        ytdlp: self.settings.ytdlp,
+                        ..RunOptions::default().integrations
+                    },
                     ..RunOptions::default()
                 };
                 // Python's ICC branch returns before CYOA Manager registration.
@@ -558,7 +604,12 @@ impl DownloaderApp {
                 } else {
                     None
                 };
-                let spec = crate::worker::JobSpec { opts, manager_db };
+                let auto = (mode == Mode::Auto).then(cyoa_engine::auto_detect::saved_pref);
+                let spec = crate::worker::JobSpec {
+                    opts,
+                    manager_db,
+                    auto,
+                };
                 if self.worker.as_ref().is_some_and(|w| w.start(id, spec)) {
                     Status::Queued
                 } else {
@@ -690,31 +741,43 @@ impl eframe::App for DownloaderApp {
         self.poll_list_import();
         let p = crate::theme::palette(ui);
         egui::Panel::top("titlebar")
-            .exact_size(84.0)
+            .exact_size(90.0)
             .frame(egui::Frame::new().fill(p.panel))
             .show(ui, |ui| self.titlebar(ui));
         egui::Panel::left("sidebar")
-            .exact_size(248.0)
+            .exact_size(256.0)
             .resizable(false)
             .frame(egui::Frame::new().fill(p.sidebar))
             .show(ui, |ui| self.sidebar(ui));
-        egui::Panel::bottom("log_panel")
-            .default_size(180.0)
-            .min_size(90.0)
-            .resizable(true)
-            .frame(
-                egui::Frame::new()
-                    .fill(p.log_bg)
-                    .inner_margin(egui::Margin::symmetric(14, 6)),
-            )
-            .show(ui, |ui| self.log_panel(ui));
+        // Pinned bottom: tool pills, then progress card + LOG (Python rowB + workspace).
+        egui::Panel::bottom("workspace")
+            .exact_size(214.0)
+            .frame(egui::Frame::new().fill(p.panel).inner_margin(egui::Margin {
+                left: 0,
+                right: 8,
+                top: 6,
+                bottom: 8,
+            }))
+            .show(ui, |ui| {
+                self.tool_strip(ui);
+                ui.add_space(8.0);
+                self.bottom_area(ui);
+            });
+        egui::Panel::bottom("action_row")
+            .exact_size(54.0)
+            .frame(egui::Frame::new().fill(p.bg))
+            .show(ui, |ui| self.action_row(ui));
+        egui::Panel::top("input")
+            .frame(egui::Frame::new().fill(p.bg).inner_margin(egui::Margin {
+                left: 10,
+                right: 14,
+                top: 14,
+                bottom: 8,
+            }))
+            .show(ui, |ui| self.input_section(ui));
         egui::CentralPanel::default()
-            .frame(
-                egui::Frame::new()
-                    .fill(p.bg)
-                    .inner_margin(egui::Margin::symmetric(14, 10)),
-            )
-            .show(ui, |ui| self.main_area(ui));
+            .frame(egui::Frame::new().fill(p.bg))
+            .show(ui, |ui| self.queue_section(ui));
         self.dialogs(ui.ctx());
         self.library_ui(ui.ctx());
         if let Some(mut panel) = self.updates.take() {
@@ -831,6 +894,12 @@ mod tests {
             show_help: false,
             show_diagnostics: false,
             diag_report: None,
+            auto_pref: "folder".into(),
+            cf_mode: "auto".into(),
+            dns_custom: false,
+            show_details: false,
+            logo_dark: None,
+            logo_light: None,
         }
     }
 
@@ -854,8 +923,11 @@ mod tests {
             let mut out = ctx.run_ui(input(), |ui| {
                 app.titlebar(ui);
                 app.sidebar(ui);
-                app.main_area(ui);
-                app.log_panel(ui);
+                app.input_section(ui);
+                app.queue_section(ui);
+                app.action_row(ui);
+                app.tool_strip(ui);
+                app.bottom_area(ui);
                 app.dialogs(ui.ctx());
             });
             // No GPU here: tessellate (part of real frame cost) and discard textures.

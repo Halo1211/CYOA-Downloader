@@ -342,6 +342,8 @@ pub struct JobSpec {
     pub opts: RunOptions,
     /// Register the result in this CYOA Manager library (Python GUI toggle).
     pub manager_db: Option<std::path::PathBuf>,
+    /// "Auto (detect)": resolve the concrete mode first (`auto_detect_output`).
+    pub auto: Option<&'static str>,
 }
 
 impl From<RunOptions> for JobSpec {
@@ -349,13 +351,55 @@ impl From<RunOptions> for JobSpec {
         Self {
             opts,
             manager_db: None,
+            auto: None,
         }
     }
 }
 
+/// Python `_detect_auto` before the job, then the concrete mode's options.
+async fn resolve_auto(opts: &mut RunOptions, pref: &str, cancel: &CancellationToken) {
+    use cyoa_engine::run::{Engine, OutputMode};
+    let client = cyoa_net::client::FetchClient::new(cyoa_net::client::ClientConfig {
+        policy: cyoa_net::policy::DestinationPolicy {
+            origin: url::Url::parse(&opts.url).ok(),
+            allow_internal: cyoa_core::allow_internal_hosts(),
+        },
+        proxy: opts.proxy.clone(),
+        dns: opts.dns.clone(),
+        vpn: opts.vpn.clone(),
+        ..Default::default()
+    });
+    let mode = match client {
+        Ok(c) => {
+            let d = cyoa_engine::auto_detect::detect_auto(&c, &opts.url, pref, cancel).await;
+            opts.url = d.effective_url;
+            d.mode
+        }
+        Err(e) => {
+            eprintln!("[Auto-detect] Error for {}: {e}", opts.url);
+            cyoa_engine::auto_detect::output_variant("website", pref)
+        }
+    };
+    let (out, engine) = match mode {
+        "website_zip" => (OutputMode::IccZip, Engine::Standard),
+        "cyoap_vue_zip" => (OutputMode::IccZip, Engine::CyoapVue),
+        "cyoap_vue_folder" => (OutputMode::IccFolder, Engine::CyoapVue),
+        _ => (OutputMode::IccFolder, Engine::Standard),
+    };
+    opts.mode = out;
+    opts.engine = engine;
+}
+
 async fn run_job(job: JobId, spec: JobSpec, cancel: CancellationToken, link: Arc<Link>) {
-    let JobSpec { opts, manager_db } = spec;
+    let JobSpec {
+        mut opts,
+        manager_db,
+        auto,
+    } = spec;
     link.lifecycle(Event::Started { job }).await;
+    if let Some(pref) = auto {
+        resolve_auto(&mut opts, pref, &cancel).await;
+    }
     // Python GUI: setup_file_logging(outdir) when a download starts (off the UI thread).
     let dir = opts.output_dir.clone();
     let _ =

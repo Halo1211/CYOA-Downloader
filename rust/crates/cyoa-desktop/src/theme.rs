@@ -24,7 +24,6 @@ pub struct Palette {
     pub separator: Color32,
     pub sidebar: Color32,
     pub input_bg: Color32,
-    pub log_bg: Color32,
     pub log_fg: Color32,
     pub sel_row: Color32,
     pub sel_bar: Color32,
@@ -53,7 +52,6 @@ pub const DARK: Palette = Palette {
     separator: hex(0x202a3a),
     sidebar: hex(0x0a0d13),
     input_bg: hex(0x141922),
-    log_bg: hex(0x0a0d13),
     log_fg: hex(0x475569),
     sel_row: hex(0x0f1729),
     sel_bar: hex(0x3b82f6),
@@ -82,7 +80,6 @@ pub const LIGHT: Palette = Palette {
     separator: hex(0xd7dee8),
     sidebar: hex(0xf8fafc),
     input_bg: hex(0xffffff),
-    log_bg: hex(0xf8fafc),
     log_fg: hex(0x475569),
     sel_row: hex(0xdbeafe),
     sel_bar: hex(0x3b82f6),
@@ -111,27 +108,33 @@ fn visuals(p: &Palette, dark: bool) -> egui::Visuals {
     v.panel_fill = p.bg;
     v.window_fill = p.panel;
     v.extreme_bg_color = p.input_bg;
+    v.text_edit_bg_color = Some(p.input_bg);
     v.faint_bg_color = p.surface;
-    v.override_text_color = Some(p.fg);
+    v.weak_text_color = Some(p.muted);
     v.hyperlink_color = p.accent;
     v.selection.bg_fill = p.accent;
     v.selection.stroke = Stroke::new(1.0, Color32::WHITE);
     v.window_corner_radius = CornerRadius::same(12);
     v.window_stroke = Stroke::new(1.0, p.border);
-    let r = CornerRadius::same(7);
-    for (w, fill) in [
-        (&mut v.widgets.noninteractive, p.panel),
-        (&mut v.widgets.inactive, p.surface2),
-        (&mut v.widgets.hovered, p.muted2),
-        (&mut v.widgets.active, p.accent),
-        (&mut v.widgets.open, p.surface2),
+    let r = CornerRadius::same(6);
+    let hover = if dark { hex(0x263046) } else { hex(0xb6c2d2) };
+    for (w, fill, text) in [
+        (&mut v.widgets.noninteractive, p.panel, p.fg),
+        (&mut v.widgets.inactive, p.surface2, p.fg),
+        (&mut v.widgets.hovered, hover, p.fg),
+        (&mut v.widgets.active, p.accent, Color32::WHITE),
+        (&mut v.widgets.open, p.surface2, p.fg),
     ] {
         w.corner_radius = r;
         w.bg_fill = fill;
         w.weak_bg_fill = fill;
+        w.fg_stroke = Stroke::new(1.0, text);
+        w.expansion = 0.0;
     }
     v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, p.separator);
-    v.widgets.inactive.bg_stroke = Stroke::NONE;
+    v.widgets.inactive.bg_stroke = Stroke::new(1.0, p.border);
+    v.widgets.hovered.bg_stroke = Stroke::new(1.0, p.muted2);
+    v.widgets.active.bg_stroke = Stroke::new(1.0, p.accent);
     v
 }
 
@@ -142,9 +145,29 @@ pub fn install(ctx: &egui::Context, theme_mode: &str) {
     apply_theme_mode(ctx, theme_mode);
     let mut fonts = egui::FontDefinitions::default();
     let windir = std::env::var("WINDIR").unwrap_or_else(|_| r"C:\Windows".into());
-    for (name, file, family) in [
-        ("segoe-ui", "segoeui.ttf", egui::FontFamily::Proportional),
-        ("consolas", "consola.ttf", egui::FontFamily::Monospace),
+    // Primary faces first; Segoe UI Symbol as the icon fallback right after
+    // them (Tk renders the sidebar and button icons through Segoe symbols).
+    for (name, file, family, first) in [
+        (
+            "segoe-ui",
+            "segoeui.ttf",
+            egui::FontFamily::Proportional,
+            true,
+        ),
+        ("consolas", "consola.ttf", egui::FontFamily::Monospace, true),
+        // Tk draws icons with Segoe UI Emoji's monochrome (outline) glyphs.
+        (
+            "segoe-emoji",
+            "seguiemj.ttf",
+            egui::FontFamily::Proportional,
+            false,
+        ),
+        (
+            "segoe-symbol",
+            "seguisym.ttf",
+            egui::FontFamily::Proportional,
+            false,
+        ),
     ] {
         let path = std::path::Path::new(&windir).join("Fonts").join(file);
         if let Ok(bytes) = std::fs::read(&path) {
@@ -152,11 +175,18 @@ pub fn install(ctx: &egui::Context, theme_mode: &str) {
                 name.into(),
                 std::sync::Arc::new(egui::FontData::from_owned(bytes)),
             );
-            fonts
-                .families
-                .entry(family)
-                .or_default()
-                .insert(0, name.into());
+            let fam = fonts.families.entry(family).or_default();
+            if first {
+                fam.insert(0, name.into());
+            } else {
+                // After Segoe UI and any earlier symbol fallback.
+                let at = fam
+                    .iter()
+                    .position(|f| f == "segoe-emoji")
+                    .map_or(1, |i| i + 1)
+                    .min(fam.len());
+                fam.insert(at, name.into());
+            }
         }
     }
     let bold = std::path::Path::new(&windir)
@@ -189,6 +219,26 @@ pub fn install(ctx: &egui::Context, theme_mode: &str) {
             .insert(egui::FontFamily::Name("bold".into()), prop);
     }
     ctx.set_fonts(fonts);
+    ctx.all_styles_mut(|style| {
+        use egui::{FontFamily, FontId, TextStyle};
+        style.text_styles = [
+            (
+                TextStyle::Heading,
+                FontId::new(14.0, FontFamily::Proportional),
+            ),
+            (TextStyle::Body, FontId::new(10.5, FontFamily::Proportional)),
+            (
+                TextStyle::Button,
+                FontId::new(10.5, FontFamily::Proportional),
+            ),
+            (TextStyle::Small, FontId::new(8.5, FontFamily::Proportional)),
+            (
+                TextStyle::Monospace,
+                FontId::new(10.0, FontFamily::Monospace),
+            ),
+        ]
+        .into();
+    });
 }
 
 /// Python `theme_mode` ("System" / "Light" / "Dark").
@@ -217,6 +267,25 @@ pub struct ModeEntry {
     pub desc: &'static str,
 }
 
+/// Sidebar descriptions as the Python GUI renders them (English).
+pub fn sidebar_desc(e: &ModeEntry, auto_pref: &str) -> &'static str {
+    match e.key {
+        "auto" => {
+            if auto_pref == "zip" {
+                "Default: ZIP output"
+            } else {
+                "Default: Folder output"
+            }
+        }
+        "website_zip" => "Offline viewer archive",
+        "website_folder" => "Offline viewer folder",
+        "pure_website_folder" => "Viewer folder, no project scan",
+        "cyoap_vue_zip" => "cyoap_vue engine archive",
+        "cyoap_vue_folder" => "cyoap_vue engine folder",
+        _ => e.desc,
+    }
+}
+
 pub const MODES: &[ModeEntry] = &[
     ModeEntry {
         mode: None,
@@ -226,7 +295,7 @@ pub const MODES: &[ModeEntry] = &[
         desc: "",
     },
     ModeEntry {
-        mode: None,
+        mode: Some(Mode::Auto),
         key: "auto",
         icon: "⚡",
         name: "Auto (detect)",
@@ -328,6 +397,7 @@ pub fn mode_entry(mode: Mode) -> &'static ModeEntry {
 /// Python `BADGE_COLORS` (background, text).
 pub fn badge(mode: Mode) -> (Color32, Color32) {
     match mode {
+        Mode::Auto => (hex(0x1e3a8a), hex(0x93c5fd)),
         Mode::Embed => (hex(0x1e3a5f), hex(0x60a5fa)),
         Mode::Zip => (hex(0x1e1e3b), hex(0xa78bfa)),
         Mode::Both => (hex(0x374151), hex(0xd1d5db)),
@@ -347,7 +417,7 @@ pub fn pill(
 ) -> egui::Response {
     let text = egui::RichText::new(format!("{icon} {label}"))
         .color(colors.1)
-        .size(12.0);
+        .size(9.0);
     ui.add_enabled(
         enabled,
         egui::Button::new(text)
@@ -357,24 +427,76 @@ pub fn pill(
     )
 }
 
-/// Outlined header button (Credits / Diagnostics / Help).
-pub fn outline(ui: &mut egui::Ui, p: &Palette, label: &str) -> egui::Response {
-    ui.add(
-        egui::Button::new(egui::RichText::new(label).color(p.muted).size(12.0))
-            .fill(Color32::TRANSPARENT)
-            .stroke(Stroke::new(1.0, p.muted2))
-            .corner_radius(CornerRadius::same(7))
-            .min_size(egui::vec2(0.0, 26.0)),
-    )
+/// Python CTkCheckBox: rounded box, filled with `color` when checked.
+pub fn checkbox(
+    ui: &mut egui::Ui,
+    p: &Palette,
+    on: &mut bool,
+    label: &str,
+    color: Color32,
+    enabled: bool,
+) -> egui::Response {
+    let font = egui::FontId::proportional(11.0);
+    let galley =
+        ui.painter()
+            .layout_no_wrap(label.to_owned(), font, if enabled { p.fg } else { p.muted });
+    let size = egui::vec2(18.0 + 6.0 + galley.size().x, 20.0);
+    let (rect, mut resp) = ui.allocate_exact_size(
+        size,
+        if enabled {
+            egui::Sense::click()
+        } else {
+            egui::Sense::hover()
+        },
+    );
+    if enabled && resp.clicked() {
+        *on = !*on;
+        resp.mark_changed();
+    }
+    let boxr = egui::Rect::from_center_size(
+        egui::pos2(rect.min.x + 11.0, rect.center().y),
+        egui::vec2(20.0, 20.0),
+    );
+    let painter = ui.painter();
+    if *on && enabled {
+        painter.rect_filled(boxr, CornerRadius::same(5), color);
+        let pts = [
+            boxr.min + egui::vec2(4.0, 8.5),
+            boxr.min + egui::vec2(7.0, 11.5),
+            boxr.min + egui::vec2(12.5, 5.0),
+        ];
+        painter.line_segment([pts[0], pts[1]], Stroke::new(1.8, Color32::WHITE));
+        painter.line_segment([pts[1], pts[2]], Stroke::new(1.8, Color32::WHITE));
+    } else {
+        painter.rect_stroke(
+            boxr,
+            CornerRadius::same(10),
+            Stroke::new(2.5, p.muted2),
+            egui::StrokeKind::Inside,
+        );
+    }
+    painter.galley(
+        egui::pos2(rect.min.x + 24.0, rect.center().y - galley.size().y / 2.0),
+        galley,
+        p.fg,
+    );
+    resp
 }
 
-/// Filled primary button.
-pub fn primary(ui: &mut egui::Ui, label: &str, fill: Color32, enabled: bool) -> egui::Response {
+/// Flat filled button (Python CTkButton with `fg_color`).
+pub fn flat(
+    ui: &mut egui::Ui,
+    label: impl Into<egui::WidgetText>,
+    fill: Color32,
+    size: egui::Vec2,
+    enabled: bool,
+) -> egui::Response {
     ui.add_enabled(
         enabled,
-        egui::Button::new(bold(label, 13.0).color(Color32::WHITE))
+        egui::Button::new(label)
             .fill(fill)
-            .corner_radius(CornerRadius::same(7))
-            .min_size(egui::vec2(0.0, 32.0)),
+            .stroke(Stroke::NONE)
+            .corner_radius(CornerRadius::same(6))
+            .min_size(size),
     )
 }
