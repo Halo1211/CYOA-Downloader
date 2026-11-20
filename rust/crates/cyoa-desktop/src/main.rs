@@ -1,6 +1,7 @@
 ﻿#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod i18n;
 mod library;
 mod net;
 mod preflight_panel;

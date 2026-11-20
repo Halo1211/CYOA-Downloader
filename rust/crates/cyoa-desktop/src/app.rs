@@ -343,6 +343,19 @@ pub fn batch_item_mode(default: Mode, mode: &str) -> Result<Mode, String> {
     }
 }
 
+/// Saved Python `language` (default "en").
+fn saved_str_lang(path: &std::path::Path) -> String {
+    cyoa_storage::settings::SettingsStore::new(path)
+        .load()
+        .ok()
+        .and_then(|m| {
+            m.get("language")
+                .and_then(|v| v.as_str())
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| "en".into())
+}
+
 impl DownloaderApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let mut settings: Settings = cc
@@ -371,6 +384,7 @@ impl DownloaderApp {
             })
             .unwrap_or_else(|| "System".into());
         crate::theme::install(&cc.egui_ctx, &theme_mode);
+        crate::i18n::set_language(&saved_str_lang(&shared_path));
         let saved_str = |k: &str, d: &str| {
             cyoa_storage::settings::SettingsStore::new(&shared_path)
                 .load()

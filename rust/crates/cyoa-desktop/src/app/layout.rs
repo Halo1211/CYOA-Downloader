@@ -3,6 +3,7 @@
 //! queue, primary action row, tool pills, progress card and LOG.
 
 use super::{DownloaderApp, Job, Status};
+use crate::i18n::tr;
 use crate::theme::{self, MODES, Palette, bold};
 use eframe::egui::{self, Color32, CornerRadius, Frame, Margin, RichText, Stroke, vec2};
 
@@ -171,10 +172,10 @@ impl DownloaderApp {
             ui.add_space(26.0);
             ui.vertical(|ui| {
                 ui.add_space(20.0);
-                ui.label(bold("CYOA Downloader", 16.0).color(p.fg));
+                ui.label(bold(tr("CYOA Downloader"), 16.0).color(p.fg));
                 ui.add_space(6.0);
                 ui.label(
-                    RichText::new("ICC backup · serve preview · diagnostics")
+                    RichText::new(tr("ICC backup · serve preview · diagnostics"))
                         .size(8.5)
                         .color(p.muted),
                 );
@@ -188,20 +189,24 @@ impl DownloaderApp {
                     .show(ui, |ui| {
                         ui.spacing_mut().item_spacing.x = 2.0;
                         ui.horizontal(|ui| {
-                            theme::flat(
-                                ui,
-                                RichText::new("EN").size(10.0).color(Color32::WHITE),
-                                p.accent,
-                                vec2(28.0, 26.0),
-                                true,
-                            );
-                            ui.add_enabled(
-                                false,
-                                egui::Button::new(RichText::new("ID").size(10.0))
-                                    .fill(Color32::TRANSPARENT)
-                                    .min_size(vec2(28.0, 26.0)),
-                            )
-                            .on_disabled_hover_text("Indonesian UI text is not ported yet");
+                            // right-to-left parent: EN first so it reads ID · EN.
+                            for lang in ["en", "id"] {
+                                let on = crate::i18n::is_indonesian() == (lang == "id");
+                                let (fill, color) = if on {
+                                    (p.accent, Color32::WHITE)
+                                } else {
+                                    (Color32::TRANSPARENT, p.fg)
+                                };
+                                let text =
+                                    RichText::new(lang.to_uppercase()).size(10.0).color(color);
+                                if theme::flat(ui, text, fill, vec2(28.0, 26.0), true).clicked()
+                                    && !on
+                                {
+                                    // Python `_apply_language` + saved `language`.
+                                    crate::i18n::set_language(lang);
+                                    self.save_shared_key("language", lang.into());
+                                }
+                            }
                         });
                     });
                 ui.add_space(8.0);
@@ -267,7 +272,7 @@ impl DownloaderApp {
                         ui.add_space(4.0);
                         ui.horizontal(|ui| {
                             ui.add_space(12.0);
-                            ui.label(bold(entry.name, 8.0).color(p.muted2));
+                            ui.label(bold(tr(entry.name), 8.0).color(p.muted2));
                         });
                         ui.add_space(0.0);
                         ui.horizontal(|ui| {
@@ -328,14 +333,17 @@ impl DownloaderApp {
                     painter.text(
                         card.min + vec2(52.0, 15.0),
                         egui::Align2::LEFT_CENTER,
-                        entry.name,
+                        tr(entry.name),
                         egui::FontId::new(10.5, egui::FontFamily::Name("bold".into())),
                         name_color,
                     );
                     painter.text(
                         card.min + vec2(52.0, 33.0),
                         egui::Align2::LEFT_CENTER,
-                        theme::sidebar_desc(entry, &auto_pref),
+                        {
+                            let d = theme::sidebar_desc(entry, &auto_pref);
+                            if entry.key == "auto" { d } else { tr(d) }
+                        },
                         egui::FontId::proportional(8.0),
                         if selected {
                             p.sel_desc
@@ -358,7 +366,7 @@ impl DownloaderApp {
         ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
         ui.horizontal(|ui| {
             ui.add_space(4.0);
-            ui.label(bold("Input", 12.0).color(p.accent));
+            ui.label(bold(tr("Input"), 12.0).color(p.accent));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let hdr = |ui: &mut egui::Ui, t: &str, w: f32| {
                     theme::flat(
@@ -369,17 +377,17 @@ impl DownloaderApp {
                         true,
                     )
                 };
-                if hdr(ui, "❔ Help / Guide", 116.0).clicked() {
+                if hdr(ui, tr("❔ Help / Guide"), 116.0).clicked() {
                     self.show_help = true;
                 }
-                if hdr(ui, "🩺 Diagnostics", 112.0).clicked() {
+                if hdr(ui, tr("🩺 Diagnostics"), 112.0).clicked() {
                     self.show_diagnostics = true;
                     if self.diag_report.is_none() {
                         self.diag_report =
                             Some(cyoa_engine::diagnostics::dependency_check_report());
                     }
                 }
-                if hdr(ui, "© Credits", 96.0).clicked() {
+                if hdr(ui, tr("© Credits"), 96.0).clicked() {
                     self.show_credits = true;
                 }
             });
@@ -389,7 +397,7 @@ impl DownloaderApp {
             ui.add_space(14.0);
             ui.add_sized(
                 vec2(50.0, 34.0),
-                egui::Label::new(bold("URL", 10.5).color(p.muted)),
+                egui::Label::new(bold(tr("URL"), 10.5).color(p.muted)),
             );
             let rest = ui.available_width();
             let fn_w = (rest * 0.27).clamp(160.0, 300.0);
@@ -397,14 +405,14 @@ impl DownloaderApp {
             let r = entry(ui, &mut self.url_input, "", url_w, 34.0, false);
             ui.add_sized(
                 vec2(72.0, 34.0),
-                egui::Label::new(bold("Filename", 10.5).color(p.muted)),
+                egui::Label::new(bold(tr("Filename"), 10.5).color(p.muted)),
             );
             let r2 = entry(ui, &mut self.fn_input, "", fn_w, 34.0, false);
             let enter = (r.lost_focus() || r2.lost_focus())
                 && ui.input(|i| i.key_pressed(egui::Key::Enter));
             let add = theme::flat(
                 ui,
-                bold("➕  Add URL", 10.5).color(Color32::WHITE),
+                bold(tr("➕  Add URL"), 10.5).color(Color32::WHITE),
                 p.accent,
                 vec2(ui.available_width(), 34.0),
                 true,
@@ -422,13 +430,13 @@ impl DownloaderApp {
         // Row 1: numerics, proxy, DNS.
         ui.horizontal(|ui| {
             ui.add_space(14.0);
-            label(ui, &p, "Threads:");
+            label(ui, &p, tr("Threads:"));
             number(ui, &mut self.settings.threads, 1..=64);
-            label(ui, &p, "Retry (s):");
+            label(ui, &p, tr("Retry (s):"));
             number(ui, &mut self.settings.wait_time, 0..=3600);
-            label(ui, &p, "BW (KB/s):");
+            label(ui, &p, tr("BW (KB/s):"));
             number(ui, &mut self.settings.bandwidth_kbps, 0.0..=1_000_000.0);
-            label(ui, &p, "Proxy:");
+            label(ui, &p, tr("Proxy:"));
             let before = self.settings.net.proxy.clone();
             entry(
                 ui,
@@ -446,7 +454,7 @@ impl DownloaderApp {
                     .any(|v| !v.trim().is_empty());
                 n.proxy_mode = if any { "manual" } else { "disabled" }.into();
             }
-            label(ui, &p, "DNS:");
+            label(ui, &p, tr("DNS:"));
             let current = DNS_PRESETS
                 .iter()
                 .find(|(_, v)| *v == self.settings.net.dns && *v != "__custom__")
@@ -484,7 +492,7 @@ impl DownloaderApp {
         if self.dns_custom || current_is_custom(&self.settings.net.dns) {
             ui.horizontal(|ui| {
                 ui.add_space(14.0);
-                label(ui, &p, "Custom DNS:");
+                label(ui, &p, tr("Custom DNS:"));
                 let before = self.settings.net.dns.clone();
                 entry(
                     ui,
@@ -507,7 +515,15 @@ impl DownloaderApp {
         // Row 2: checkboxes and Cloudflare.
         ui.horizontal(|ui| {
             ui.add_space(14.0);
-            if theme::checkbox(ui, &p, &mut self.settings.fonts, "Fonts", p.accent, true).changed()
+            if theme::checkbox(
+                ui,
+                &p,
+                &mut self.settings.fonts,
+                tr("Fonts"),
+                p.accent,
+                true,
+            )
+            .changed()
             {
                 let state = if self.settings.fonts {
                     "enabled"
@@ -521,7 +537,7 @@ impl DownloaderApp {
                 ui,
                 &p,
                 &mut self.settings.analyse_fonts,
-                "Font Analysis",
+                tr("Font Analysis"),
                 p.accent,
                 true,
             )
@@ -535,7 +551,7 @@ impl DownloaderApp {
                 self.log.push(format!("[Feature] Font analysis: {state}"));
             }
             ui.add_space(20.0);
-            label(ui, &p, "Cloudflare:");
+            label(ui, &p, tr("Cloudflare:"));
             let current = CF_MODES
                 .iter()
                 .find(|(_, v)| *v == self.cf_mode)
@@ -556,7 +572,15 @@ impl DownloaderApp {
                 self.save_shared_key("cloudflare_mode", v.into());
             }
             ui.add_space(14.0);
-            if theme::checkbox(ui, &p, &mut self.settings.http2, "HTTP/2", p.accent, true).changed()
+            if theme::checkbox(
+                ui,
+                &p,
+                &mut self.settings.http2,
+                tr("HTTP/2"),
+                p.accent,
+                true,
+            )
+            .changed()
             {
                 let v = self.settings.http2;
                 self.save_shared_key("http2_enabled", v.into());
@@ -566,22 +590,22 @@ impl DownloaderApp {
                 ui,
                 &p,
                 &mut self.settings.ytdlp,
-                "YT Audio",
+                tr("YT Audio"),
                 Color32::from_rgb(0xef, 0x44, 0x44),
                 true,
             );
             ui.add_space(40.0);
             let mut off = false;
-            theme::checkbox(ui, &p, &mut off, "🤖 AI Assist", p.accent, false)
+            theme::checkbox(ui, &p, &mut off, tr("🤖 AI Assist"), p.accent, false)
                 .on_hover_text(NOT_PORTED);
         });
         // Row 3: list actions (right aligned).
         ui.horizontal(|ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if theme::flat(ui, RichText::new("Export List…").size(10.5).color(p.muted), p.surface2, vec2(208.0, 26.0), true).clicked() {
+                if theme::flat(ui, RichText::new(tr("Export List…")).size(10.5).color(p.muted), p.surface2, vec2(208.0, 26.0), true).clicked() {
                     self.export_list();
                 }
-                if theme::flat(ui, RichText::new("Import List…").size(10.5).color(p.muted), p.surface2, vec2(208.0, 26.0), self.list_pick.is_none())
+                if theme::flat(ui, RichText::new(tr("Import List…")).size(10.5).color(p.muted), p.surface2, vec2(208.0, 26.0), self.list_pick.is_none())
                     .on_hover_text(".txt (url | filename | mode), or .csv/.xlsx/.xls with url/filename/mode columns")
                     .clicked()
                 {
@@ -594,14 +618,18 @@ impl DownloaderApp {
             ui.add_space(24.0);
             ui.add_sized(
                 vec2(100.0, 30.0),
-                egui::Label::new(RichText::new("Output folder:").size(10.5).color(p.muted)),
+                egui::Label::new(
+                    RichText::new(tr("Output folder:"))
+                        .size(10.5)
+                        .color(p.muted),
+                ),
             );
             let w = ui.available_width() - 120.0 - 8.0;
             entry(ui, &mut self.settings.output_dir, "", w, 30.0, false);
             let picking = self.folder_pick.is_some();
             if theme::flat(
                 ui,
-                RichText::new("Browse…").size(10.5).color(p.muted),
+                RichText::new(tr("Browse…")).size(10.5).color(p.muted),
                 p.surface2,
                 vec2(ui.available_width(), 30.0),
                 !picking,
@@ -644,12 +672,22 @@ impl DownloaderApp {
         ui.add_space(10.0);
         ui.horizontal(|ui| {
             ui.add_space(20.0);
-            ui.label(bold(format!("QUEUE — {} ITEMS", self.jobs.len()), 10.5).color(p.muted));
+            ui.label(
+                bold(
+                    format!(
+                        "QUEUE — {} ITEM{}",
+                        self.jobs.len(),
+                        if self.jobs.len() == 1 { "" } else { "S" }
+                    ),
+                    10.5,
+                )
+                .color(p.muted),
+            );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(12.0);
                 if theme::flat(
                     ui,
-                    RichText::new("Clear All").size(10.5).color(p.muted),
+                    RichText::new(tr("Clear All")).size(10.5).color(p.muted),
                     p.surface2,
                     vec2(72.0, 26.0),
                     true,
@@ -665,7 +703,7 @@ impl DownloaderApp {
                     .and_then(|i| self.jobs.get(i).map(|j| (i, j.id, j.status.clone())));
                 if theme::flat(
                     ui,
-                    RichText::new("Remove").size(10.5).color(p.muted),
+                    RichText::new(tr("Remove")).size(10.5).color(p.muted),
                     p.surface2,
                     vec2(66.0, 26.0),
                     sel.is_some(),
@@ -777,7 +815,7 @@ impl DownloaderApp {
             let h = 32.0;
             if theme::flat(
                 ui,
-                bold("▶  Download All", 11.0).color(Color32::WHITE),
+                bold(tr("▶  Download All"), 11.0).color(Color32::WHITE),
                 p.accent,
                 vec2(126.0, h),
                 true,
@@ -792,7 +830,7 @@ impl DownloaderApp {
                 .any(|j| matches!(j.status, Status::Running { .. } | Status::Queued));
             if theme::flat(
                 ui,
-                RichText::new("🔍 Preview").size(10.5).color(p.muted),
+                RichText::new(tr("🔍 Preview")).size(10.5).color(p.muted),
                 p.surface2,
                 vec2(90.0, h),
                 idle && self.preflight.is_none(),
@@ -835,7 +873,7 @@ impl DownloaderApp {
             if self.preview.is_some() {
                 if theme::flat(
                     ui,
-                    RichText::new("■ Stop Serve").size(10.5).color(p.srv_fg),
+                    RichText::new(tr("■ Stop Serve")).size(10.5).color(p.srv_fg),
                     p.surface2,
                     vec2(112.0, h),
                     true,
@@ -847,7 +885,9 @@ impl DownloaderApp {
                 }
             } else if theme::flat(
                 ui,
-                RichText::new("⚡ Start Serve").size(10.5).color(p.srv_fg),
+                RichText::new(tr("⚡ Start Serve"))
+                    .size(10.5)
+                    .color(p.srv_fg),
                 p.surface2,
                 vec2(112.0, h),
                 self.last_preview.is_some(),
@@ -859,7 +899,7 @@ impl DownloaderApp {
             }
             if theme::flat(
                 ui,
-                RichText::new("📁 Folder").size(10.5).color(p.muted),
+                RichText::new(tr("📁 Folder")).size(10.5).color(p.muted),
                 p.surface2,
                 vec2(84.0, h),
                 true,
@@ -884,13 +924,13 @@ impl DownloaderApp {
                     .jobs
                     .iter()
                     .any(|j| matches!(j.status, Status::Running { .. } | Status::Queued));
-            if theme::pill(ui, "↺", "Retry Assets", p.retry_asset, !busy).clicked() {
+            if theme::pill(ui, "↺", tr("Retry Assets"), p.retry_asset, !busy).clicked() {
                 self.retry_assets(ui.ctx());
             }
             if theme::pill(
                 ui,
                 "🖼",
-                "Retry Images",
+                tr("Retry Images"),
                 p.retry_image,
                 self.retry_rx.is_none(),
             )
@@ -901,7 +941,7 @@ impl DownloaderApp {
             if theme::pill(
                 ui,
                 "🎵",
-                "Retry Audio",
+                tr("Retry Audio"),
                 p.retry_audio,
                 self.retry_rx.is_none(),
             )
@@ -909,13 +949,13 @@ impl DownloaderApp {
             {
                 self.retry_audio(ui.ctx());
             }
-            if theme::pill(ui, "🛠", "Settings", p.settings, true).clicked() {
+            if theme::pill(ui, "🛠", tr("Settings"), p.settings, true).clicked() {
                 self.show_settings = true;
             }
             if theme::pill(
                 ui,
                 "📋",
-                "Reports",
+                tr("Reports"),
                 (p.surface2, p.muted),
                 self.reports.is_none(),
             )
@@ -935,7 +975,7 @@ impl DownloaderApp {
             if theme::pill(
                 ui,
                 "🔄",
-                "Updates",
+                tr("Updates"),
                 (p.accentbg, p.accent),
                 self.updates.is_none(),
             )
@@ -1058,7 +1098,7 @@ impl DownloaderApp {
         ui.horizontal(|ui| {
             if theme::flat(
                 ui,
-                RichText::new("Cancel").size(11.5).color(Color32::WHITE),
+                RichText::new(tr("Cancel")).size(11.5).color(Color32::WHITE),
                 Color32::from_rgb(0xb9, 0x1c, 0x1c),
                 vec2(80.0, 30.0),
                 true,
@@ -1074,7 +1114,7 @@ impl DownloaderApp {
             });
             if theme::flat(
                 ui,
-                RichText::new("Copy Error").size(11.5).color(p.fg),
+                RichText::new(tr("Copy Error")).size(11.5).color(p.fg),
                 p.surface2,
                 vec2(92.0, 30.0),
                 last_error.is_some(),
@@ -1094,12 +1134,12 @@ impl DownloaderApp {
     pub(super) fn log_panel(&mut self, ui: &mut egui::Ui) {
         let p = theme::palette(ui);
         ui.horizontal(|ui| {
-            ui.label(bold("LOG", 10.0).color(p.muted));
+            ui.label(bold(tr("LOG"), 10.0).color(p.muted));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(14.0);
                 if theme::flat(
                     ui,
-                    RichText::new("Clear").size(10.5).color(p.muted),
+                    RichText::new(tr("Clear")).size(10.5).color(p.muted),
                     p.surface2,
                     vec2(52.0, 24.0),
                     true,
@@ -1125,7 +1165,7 @@ impl DownloaderApp {
                 }
             });
         ui.label(
-            RichText::new("Log written to: cyoa_downloader.log in output folder")
+            RichText::new(tr("Log written to: cyoa_downloader.log in output folder"))
                 .size(8.5)
                 .color(p.muted),
         );
@@ -1145,7 +1185,7 @@ impl DownloaderApp {
         let mut open = self.show_help;
         let auto_pref = self.auto_pref.clone();
         egui::Window::new("Help / Guide").open(&mut open).default_width(520.0).show(ctx, |ui| {
-            ui.label(bold("Quick start", 10.5));
+            ui.label(bold(tr("Quick start"), 10.5));
             for line in [
                 "1. Pick an output mode in the left sidebar (Auto detects the engine).",
                 "2. Paste the CYOA URL (and an optional filename), then press ➕ Add URL.",
@@ -1156,7 +1196,7 @@ impl DownloaderApp {
                 ui.label(line);
             }
             ui.add_space(6.0);
-            ui.label(bold("Modes", 10.5));
+            ui.label(bold(tr("Modes"), 10.5));
             for e in MODES.iter().filter(|e| e.key != "__sec__") {
                 ui.label(format!("{} {} — {}", e.icon, e.name, theme::sidebar_desc(e, &auto_pref)));
             }
@@ -1201,7 +1241,7 @@ impl DownloaderApp {
             .open(&mut open)
             .default_width(680.0)
             .show(ctx, |ui| {
-                ui.label(bold("Default Auto Output", 10.0));
+                ui.label(bold(tr("Default Auto Output"), 10.0));
                 ui.horizontal(|ui| {
                     for (v, l) in [("folder", "Folder"), ("zip", "ZIP")] {
                         if ui.radio(self.auto_pref == v, l).clicked() && self.auto_pref != v {
@@ -1210,13 +1250,13 @@ impl DownloaderApp {
                     }
                 });
                 ui.separator();
-                ui.label(bold("Network", 10.0));
+                ui.label(bold(tr("Network"), 10.0));
                 self.settings.net.ui(ui);
                 ui.separator();
-                ui.label(bold("CYOA Manager", 10.0));
+                ui.label(bold(tr("CYOA Manager"), 10.0));
                 self.manager.ui(ui);
                 ui.separator();
-                ui.label(bold("Offline viewers", 10.0));
+                ui.label(bold(tr("Offline viewers"), 10.0));
                 if ui
                     .add_enabled(self.viewers.is_none(), egui::Button::new("Viewers…"))
                     .clicked()

@@ -270,13 +270,13 @@ pub struct ModeEntry {
 /// Sidebar descriptions as the Python GUI renders them (English).
 pub fn sidebar_desc(e: &ModeEntry, auto_pref: &str) -> &'static str {
     match e.key {
-        "auto" => {
-            if auto_pref == "zip" {
-                "Default: ZIP output"
-            } else {
-                "Default: Folder output"
-            }
-        }
+        // Python `_auto_sidebar_default_desc`.
+        "auto" => match (crate::i18n::is_indonesian(), auto_pref == "zip") {
+            (false, true) => "Default: ZIP output",
+            (false, false) => "Default: Folder output",
+            (true, true) => "Default: output ZIP",
+            (true, false) => "Default: output Folder",
+        },
         "website_zip" => "Offline viewer archive",
         "website_folder" => "Offline viewer folder",
         "pure_website_folder" => "Viewer folder, no project scan",
