@@ -1,6 +1,6 @@
 //! F-033 Retry Assets: failed report URLs are re-downloaded, recovered rows
 //! are marked in backup_report.txt and failed_assets.txt keeps only the rest.
-#![allow(clippy::unwrap_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use cyoa_engine::website_recovery::{has_website_recovery_work, retry_website_assets};
 use std::fs;
