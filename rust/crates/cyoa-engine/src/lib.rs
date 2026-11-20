@@ -33,3 +33,4 @@ pub mod updates;
 pub mod verify;
 pub mod viewer_registry;
 pub mod website;
+pub mod website_recovery;

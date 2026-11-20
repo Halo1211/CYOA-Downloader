@@ -872,8 +872,14 @@ impl DownloaderApp {
         ui.horizontal(|ui| {
             ui.add_space(12.0);
             ui.spacing_mut().item_spacing.x = 2.0;
-            theme::pill(ui, "↺", "Retry Assets", p.retry_asset, false)
-                .on_disabled_hover_text(NOT_PORTED);
+            let busy = self.retry_rx.is_some()
+                || self
+                    .jobs
+                    .iter()
+                    .any(|j| matches!(j.status, Status::Running { .. } | Status::Queued));
+            if theme::pill(ui, "↺", "Retry Assets", p.retry_asset, !busy).clicked() {
+                self.retry_assets(ui.ctx());
+            }
             theme::pill(ui, "🖼", "Retry Images", p.retry_image, false)
                 .on_disabled_hover_text(NOT_PORTED);
             theme::pill(ui, "🎵", "Retry Audio", p.retry_audio, false)
@@ -1245,6 +1251,112 @@ impl DownloaderApp {
                     }
                 }
             });
+    }
+
+    /// Python `_retry_failed`: website recovery when the output folder has
+    /// work, else re-run failed queue rows, else the "nothing found" notice.
+    fn retry_assets(&mut self, ctx: &egui::Context) {
+        let outdir = std::path::PathBuf::from(&self.settings.output_dir);
+        if cyoa_engine::website_recovery::has_website_recovery_work(&outdir) {
+            let net = match self.net_runtime() {
+                Ok(n) => n,
+                Err(e) => {
+                    self.log.push(format!("Retry Assets gagal: {e}"));
+                    return;
+                }
+            };
+            self.log
+                .push("Retry Assets: membaca report dan manifest website...".to_owned());
+            let (tx, rx) = std::sync::mpsc::channel();
+            let ctx = ctx.clone();
+            let spawned = std::thread::Builder::new()
+                .name("retry-assets".into())
+                .spawn(move || {
+                    let message = (|| -> Result<String, String> {
+                        let rt = tokio::runtime::Builder::new_multi_thread()
+                            .worker_threads(2)
+                            .enable_all()
+                            .build()
+                            .map_err(|e| e.to_string())?;
+                        let client =
+                            cyoa_net::client::FetchClient::new(cyoa_net::client::ClientConfig {
+                                policy: cyoa_net::policy::DestinationPolicy {
+                                    origin: None,
+                                    allow_internal: cyoa_core::allow_internal_hosts(),
+                                },
+                                proxy: net.proxy,
+                                dns: net.dns,
+                                vpn: net.vpn,
+                                ..Default::default()
+                            })
+                            .map_err(|e| e.to_string())?;
+                        let cancel = tokio_util::sync::CancellationToken::new();
+                        let s = cyoa_engine::website_recovery::retry_website_assets(
+                            &outdir,
+                            &client,
+                            rt.handle(),
+                            &cancel,
+                        )?;
+                        rt.shutdown_timeout(std::time::Duration::from_secs(1));
+                        Ok(format!(
+                            "Retry Assets selesai: {}/{} aset pulih, {} route option baru.",
+                            s.recovered_assets, s.discovered_assets, s.new_routes
+                        ))
+                    })()
+                    .unwrap_or_else(|e| format!("Retry Assets gagal: {e}"));
+                    tracing::info!("[Retry Assets] {message}");
+                    let _ = tx.send(message);
+                    ctx.request_repaint();
+                });
+            if spawned.is_ok() {
+                self.retry_rx = Some(rx);
+            }
+            return;
+        }
+        let failed: Vec<usize> = (0..self.jobs.len())
+            .filter(|&i| matches!(self.jobs[i].status, Status::Failed(_) | Status::Cancelled))
+            .collect();
+        if failed.is_empty() {
+            let has_results = self
+                .jobs
+                .iter()
+                .any(|j| !matches!(j.status, Status::Pending));
+            let _ = std::thread::Builder::new().name("retry-info".into()).spawn(move || {
+                let (title, text) = if has_results {
+                    ("Retry Failed", "No failed items found.")
+                } else {
+                    (
+                        "Retry Assets",
+                        "Tidak ditemukan failed_assets.txt, archive_manifest.json, atau job gagal di folder output.",
+                    )
+                };
+                rfd::MessageDialog::new().set_title(title).set_description(text).show();
+            });
+            return;
+        }
+        for &i in &failed {
+            self.jobs[i].status = Status::Pending;
+        }
+        let line = format!(
+            "[Retry] {} item gagal di-reset — memulai ulang download",
+            failed.len()
+        );
+        tracing::info!("{line}");
+        self.log.push(line);
+        self.download_all();
+    }
+
+    /// Finish a background Retry Assets run.
+    pub(super) fn poll_retry(&mut self) {
+        let Some(rx) = &self.retry_rx else { return };
+        match rx.try_recv() {
+            Ok(message) => {
+                self.retry_rx = None;
+                self.log.push(message);
+            }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => self.retry_rx = None,
+            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+        }
     }
 
     pub(super) fn open_library(&mut self, ctx: &egui::Context) {

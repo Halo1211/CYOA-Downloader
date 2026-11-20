@@ -313,6 +313,8 @@ pub struct DownloaderApp {
     logo_light: Option<egui::TextureHandle>,
     /// Python `_paused` (queue paused between jobs).
     paused: bool,
+    /// Background Retry Assets result.
+    retry_rx: Option<std::sync::mpsc::Receiver<String>>,
 }
 
 type ListPick = std::sync::mpsc::Receiver<Option<Result<Vec<BatchItem>, String>>>;
@@ -418,6 +420,7 @@ impl DownloaderApp {
             logo_dark: None,
             logo_light: None,
             paused: false,
+            retry_rx: None,
             manager,
         }
     }
@@ -742,6 +745,7 @@ impl eframe::App for DownloaderApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.drain_events();
         self.poll_list_import();
+        self.poll_retry();
         // Python: `_paused.set()` when the run ends.
         if self.paused
             && !self
@@ -916,6 +920,7 @@ mod tests {
             logo_dark: None,
             logo_light: None,
             paused: false,
+            retry_rx: None,
         }
     }
 
