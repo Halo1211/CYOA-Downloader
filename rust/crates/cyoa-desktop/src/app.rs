@@ -897,6 +897,10 @@ impl eframe::App for DownloaderApp {
                 self.reports = None;
             }
             self.mgr_center.open = step == "manager";
+            if step == "library" && self.library.is_none() {
+                self.preflight = None;
+                self.open_library(ui.ctx());
+            }
             if step == "history" && self.updates.is_none() {
                 self.updates = Some(crate::updates_panel::UpdatesPanel::new());
             }

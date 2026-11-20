@@ -497,3 +497,35 @@ pub fn flat(
             .min_size(size),
     )
 }
+
+/// CTkOptionMenu arrow: a chevron on a darker button segment at the right.
+pub fn combo_icon(ui: &egui::Ui, rect: egui::Rect, _v: &egui::style::WidgetVisuals, open: bool) {
+    let seg = egui::Rect::from_center_size(
+        rect.center(),
+        egui::vec2(rect.width() + 12.0, rect.height() + 6.0),
+    );
+    let fill = if ui.visuals().dark_mode {
+        Color32::from_rgb(0x14, 0x37, 0x5e)
+    } else {
+        Color32::from_rgb(0x36, 0x71, 0x9f)
+    };
+    ui.painter().rect_filled(seg, CornerRadius::same(5), fill);
+    let c = rect.center();
+    let (dy, w) = (2.5, 4.0);
+    let pts = if open {
+        [
+            c + egui::vec2(-w, dy),
+            c + egui::vec2(0.0, -dy),
+            c + egui::vec2(w, dy),
+        ]
+    } else {
+        [
+            c + egui::vec2(-w, -dy),
+            c + egui::vec2(0.0, dy),
+            c + egui::vec2(w, -dy),
+        ]
+    };
+    let st = Stroke::new(1.6, Color32::WHITE);
+    ui.painter().line_segment([pts[0], pts[1]], st);
+    ui.painter().line_segment([pts[1], pts[2]], st);
+}

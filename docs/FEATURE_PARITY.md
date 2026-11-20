@@ -122,3 +122,8 @@ Source paths are relative to `cyoa_downloader_app/`.
 
 - 21 Python tests are skipped (live, GUI and Playwright). The browser, GUI-smoke and live-network paths have no automated baseline.
 - F-028 not exercised end to end: proxy credentials through `Fetch.authRequired`, the project-image headless fallback in `fetch_one` (logic only; needs an asset that fails over HTTP but loads in a browser), FlareSolverr cookie/UA hand-off into the browser, a real JS-only CYOA site, cancellation in the middle of a capture.
+
+## GUI layout deviations (2026-11-21, screenshot-verified)
+- Updates: Python has no main-row Updates pill; Rust opens the Batch Check Center from Settings > Maintenance > Updates.
+- App-update check: Python uses a separate `_check_updates_panel` dialog; Rust uses a compact "App update" button in the Batch Check Center header.
+- Reports Center, CYOA Manager Center, Batch Check Center, Pre-flight Check and CYOA Manager Library are their own OS windows with Python sizes, colors, and 12-per-page paging. Remaining differences are font rendering (egui vs Tk) only.

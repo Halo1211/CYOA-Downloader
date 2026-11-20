@@ -21,6 +21,9 @@ pub enum LibraryAction {
     Serve(PathBuf),
 }
 
+/// `PagedCards.PAGE_SIZE`.
+const LIB_PAGE: usize = 12;
+
 pub struct LibraryPanel {
     pub open: bool,
     projects: Vec<ManagerProject>,
@@ -32,6 +35,7 @@ pub struct LibraryPanel {
     preparing: Option<Receiver<Result<PathBuf, String>>>,
     cancel: CancellationToken,
     serve_enabled: bool,
+    page: usize,
 }
 
 /// Python `rebuild`: case-insensitive substring over name, id, URL and file.
@@ -94,6 +98,7 @@ impl LibraryPanel {
             preparing: None,
             cancel: CancellationToken::new(),
             serve_enabled,
+            page: 0,
         }
     }
 
@@ -191,114 +196,214 @@ impl LibraryPanel {
         let mut open = self.open;
         let mut serve_clicked = false;
         let mut close = false;
-        egui::Window::new(format!("CYOA Manager Library — {}", self.projects.len()))
-            .id(egui::Id::unique("cyoa_manager_library"))
-            .open(&mut open)
-            .default_size([760.0, 580.0])
-            .min_size([640.0, 460.0])
-            .show(ctx, |ui| {
-                ui.label(egui::RichText::new(&self.status).weak());
-                let r = ui.add(
-                    egui::TextEdit::singleline(&mut self.search)
-                        .hint_text("Search name, URL or file…")
-                        .desired_width(f32::INFINITY),
-                );
-                if r.changed() {
-                    self.rebuild();
+        let title = format!("CYOA Manager Library — {}", self.projects.len());
+        let builder = egui::ViewportBuilder::default()
+            .with_title("CYOA Manager Library")
+            .with_inner_size([760.0, 580.0])
+            .with_min_inner_size([640.0, 460.0]);
+        ctx.show_viewport_immediate(
+            egui::ViewportId::from_hash_of("cyoa_manager_library"),
+            builder,
+            |ui, _| {
+                use crate::theme;
+                use egui::{Color32, CornerRadius, Frame, Margin, RichText, vec2};
+                if ui.ctx().input(|i| i.viewport().close_requested()) {
+                    close = true;
                 }
-                let enabled = !self.busy();
-                ui.horizontal(|ui| {
-                    if ui
-                        .add_enabled(enabled, egui::Button::new("Select All Matches"))
-                        .clicked()
-                    {
-                        self.selected.extend(self.matching.iter().copied());
-                        self.selection_status();
-                    }
-                    if ui
-                        .add_enabled(enabled, egui::Button::new("Clear"))
-                        .clicked()
-                    {
-                        self.selected.clear();
-                        self.selection_status();
-                    }
-                    if ui
-                        .add_enabled(enabled, egui::Button::new("Queue URLs"))
-                        .clicked()
-                    {
-                        let records = queue_records(&self.projects, &self.selected);
-                        if records.is_empty() {
-                            self.status = "Select projects with URLs.".into();
-                        } else {
-                            let skipped = self.selected.len() - records.len();
-                            action = Some(LibraryAction::Queue(records, skipped));
-                            close = true;
+                let p = theme::palette(ui);
+                let ctk_blue = Color32::from_rgb(0x1f, 0x6a, 0xa5);
+                egui::CentralPanel::default()
+                    .frame(Frame::new().fill(p.bg).inner_margin(Margin::same(16)))
+                    .show(ui, |ui| {
+                        ui.label(theme::bold(&title, 14.0).color(p.fg));
+                        ui.add_space(6.0);
+                        ui.label(RichText::new(&self.status).size(13.0).color(p.muted));
+                        ui.add_space(6.0);
+                        let r = ui.add(
+                            egui::TextEdit::singleline(&mut self.search)
+                                .hint_text("Search name, URL or file…")
+                                .min_size(vec2(0.0, 26.0))
+                                .desired_width(f32::INFINITY),
+                        );
+                        if r.changed() {
+                            self.rebuild();
+                            self.page = 0;
                         }
-                    }
-                    if ui
-                        .add_enabled(enabled, egui::Button::new("Serve Local"))
-                        .clicked()
-                    {
-                        serve_clicked = true;
-                    }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("Close").clicked() {
-                            close = true;
-                        }
-                    });
-                });
-                ui.separator();
-                if self.loading.is_none() && self.matching.is_empty() {
-                    ui.label("Library not found or empty.");
-                    return;
-                }
-                let row_h = ui.text_style_height(&egui::TextStyle::Body) * 2.4;
-                egui::ScrollArea::vertical()
-                    .id_salt("library_rows")
-                    .auto_shrink([false, false])
-                    .show_rows(ui, row_h, self.matching.len(), |ui, range| {
-                        let mut changed = false;
-                        for &i in &self.matching[range] {
-                            let Some(p) = self.projects.get(i) else {
-                                continue;
-                            };
-                            let mut on = self.selected.contains(&i);
-                            ui.horizontal(|ui| {
-                                if ui.checkbox(&mut on, "").changed() {
-                                    changed = true;
-                                }
-                                ui.vertical(|ui| {
-                                    let name = if !p.name.is_empty() {
-                                        &p.name
-                                    } else if !p.id.is_empty() {
-                                        &p.id
-                                    } else {
-                                        "-"
-                                    };
-                                    let url = if !p.source_url.is_empty() {
-                                        &p.source_url
-                                    } else if !p.file_path.is_empty() {
-                                        &p.file_path
-                                    } else {
-                                        "No URL or local file"
-                                    };
-                                    ui.label(egui::RichText::new(truncate(name, 80)).strong());
-                                    ui.label(
-                                        egui::RichText::new(truncate(url, 110)).monospace().weak(),
-                                    );
-                                });
+                        ui.add_space(8.0);
+                        let enabled = !self.busy();
+                        let pages = self.matching.len().div_ceil(LIB_PAGE).max(1);
+                        self.page = self.page.min(pages - 1);
+                        let start = self.page * LIB_PAGE;
+                        let end = (start + LIB_PAGE).min(self.matching.len());
+                        let list_h = ui.available_height() - 84.0;
+                        Frame::new()
+                            .fill(p.surface)
+                            .corner_radius(CornerRadius::same(8))
+                            .inner_margin(Margin::same(10))
+                            .show(ui, |ui| {
+                                ui.set_min_height(list_h);
+                                egui::ScrollArea::vertical()
+                                    .id_salt(("library_rows", self.page))
+                                    .auto_shrink([false, false])
+                                    .max_height(list_h)
+                                    .show(ui, |ui| {
+                                        if self.loading.is_none() && self.matching.is_empty() {
+                                            ui.vertical_centered(|ui| {
+                                                ui.add_space(30.0);
+                                                ui.label(
+                                                    RichText::new("Library not found or empty.")
+                                                        .size(13.0)
+                                                        .color(p.fg),
+                                                );
+                                            });
+                                            return;
+                                        }
+                                        let mut changed = false;
+                                        for &i in &self.matching[start..end] {
+                                            let Some(pr) = self.projects.get(i) else {
+                                                continue;
+                                            };
+                                            let mut on = self.selected.contains(&i);
+                                            Frame::new()
+                                                .fill(p.bg)
+                                                .corner_radius(CornerRadius::same(8))
+                                                .inner_margin(Margin::symmetric(8, 6))
+                                                .show(ui, |ui| {
+                                                    ui.set_width(ui.available_width());
+                                                    ui.horizontal(|ui| {
+                                                        if theme::checkbox(
+                                                            ui, &p, &mut on, "", ctk_blue, true,
+                                                        )
+                                                        .changed()
+                                                        {
+                                                            changed = true;
+                                                        }
+                                                        ui.vertical(|ui| {
+                                                            let name = if !pr.name.is_empty() {
+                                                                &pr.name
+                                                            } else if !pr.id.is_empty() {
+                                                                &pr.id
+                                                            } else {
+                                                                "-"
+                                                            };
+                                                            let url = if !pr.source_url.is_empty() {
+                                                                &pr.source_url
+                                                            } else if !pr.file_path.is_empty() {
+                                                                &pr.file_path
+                                                            } else {
+                                                                "No URL or local file"
+                                                            };
+                                                            ui.label(
+                                                                theme::bold(
+                                                                    truncate(name, 80),
+                                                                    11.0,
+                                                                )
+                                                                .color(p.fg),
+                                                            );
+                                                            ui.label(
+                                                                RichText::new(truncate(url, 110))
+                                                                    .monospace()
+                                                                    .size(9.0)
+                                                                    .color(p.muted),
+                                                            );
+                                                        });
+                                                    });
+                                                });
+                                            ui.add_space(4.0);
+                                            if on {
+                                                self.selected.insert(i);
+                                            } else {
+                                                self.selected.remove(&i);
+                                            }
+                                        }
+                                        if changed {
+                                            self.selection_status();
+                                        }
+                                    });
                             });
-                            if on {
-                                self.selected.insert(i);
-                            } else {
-                                self.selected.remove(&i);
+                        ui.add_space(6.0);
+                        ui.horizontal(|ui| {
+                            if theme::flat(
+                                ui,
+                                RichText::new("←").size(14.0).color(Color32::WHITE),
+                                ctk_blue,
+                                vec2(50.0, 28.0),
+                                self.page > 0,
+                            )
+                            .clicked()
+                            {
+                                self.page -= 1;
                             }
-                        }
-                        if changed {
-                            self.selection_status();
-                        }
+                            let label = if self.matching.is_empty() {
+                                "0–0 / 0".to_owned()
+                            } else {
+                                format!("{}–{} / {}", start + 1, end, self.matching.len())
+                            };
+                            let w = ui.available_width() - 60.0;
+                            ui.allocate_ui_with_layout(
+                                vec2(w, 28.0),
+                                egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                                |ui| {
+                                    ui.label(RichText::new(label).size(13.0).color(p.muted));
+                                },
+                            );
+                            if theme::flat(
+                                ui,
+                                RichText::new("→").size(14.0).color(Color32::WHITE),
+                                ctk_blue,
+                                vec2(50.0, 28.0),
+                                self.page + 1 < pages,
+                            )
+                            .clicked()
+                            {
+                                self.page += 1;
+                            }
+                        });
+                        ui.add_space(6.0);
+                        ui.horizontal(|ui| {
+                            let btn = |ui: &mut egui::Ui, t: &str, w: f32, en: bool| {
+                                theme::flat(
+                                    ui,
+                                    RichText::new(t).size(13.0).color(Color32::WHITE),
+                                    ctk_blue,
+                                    vec2(w, 28.0),
+                                    en,
+                                )
+                                .clicked()
+                            };
+                            if btn(ui, "Select All Matches", 124.0, enabled) {
+                                self.selected.extend(self.matching.iter().copied());
+                                self.selection_status();
+                            }
+                            if btn(ui, "Clear", 114.0, enabled) {
+                                self.selected.clear();
+                                self.selection_status();
+                            }
+                            if btn(ui, "Queue URLs", 114.0, enabled) {
+                                let records = queue_records(&self.projects, &self.selected);
+                                if records.is_empty() {
+                                    self.status = "Select projects with URLs.".into();
+                                } else {
+                                    let skipped = self.selected.len() - records.len();
+                                    action = Some(LibraryAction::Queue(records, skipped));
+                                    close = true;
+                                }
+                            }
+                            if btn(ui, "Serve Local", 114.0, enabled) {
+                                serve_clicked = true;
+                            }
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if btn(ui, "Close", 64.0, true) {
+                                        close = true;
+                                    }
+                                },
+                            );
+                        });
                     });
-            });
+            },
+        );
         if serve_clicked {
             if !self.serve_enabled {
                 self.status = "Enable Serve in settings first.".into();

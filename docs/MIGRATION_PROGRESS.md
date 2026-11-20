@@ -95,4 +95,5 @@ After approval: Stage 0 (workspace skeleton plus a Python golden-fixture exporte
 - Updates: the main-row pill is gone; the panel opens from Settings > Maintenance > Updates and is styled as Python's Batch Check Center (900x620, pager). Deviation: the app-update check is a compact header button instead of Python's separate dialog.
 - Pre-flight Check: own window, CTk default grey background.
 - Unchecked checkboxes are rounded squares like CTk.
-- Not done yet: dropdown chevron segment, Library and Retry dialogs comparison.
+- Dropdowns use a CTkOptionMenu-style chevron segment; CYOA Manager Library restyled (own window, pager, CTk-blue buttons).
+- Not done yet: Retry dialogs comparison.

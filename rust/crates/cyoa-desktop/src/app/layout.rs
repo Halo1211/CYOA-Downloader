@@ -466,6 +466,7 @@ impl DownloaderApp {
                 });
             let mut picked = None;
             egui::ComboBox::from_id_salt("dns_preset")
+                .icon(crate::theme::combo_icon)
                 .selected_text(RichText::new(current).size(9.5).color(p.muted))
                 .width(200.0)
                 .show_ui(ui, |ui| {
@@ -558,6 +559,7 @@ impl DownloaderApp {
                 .map_or("Auto", |(l, _)| *l);
             let mut picked = None;
             egui::ComboBox::from_id_salt("cf_mode")
+                .icon(crate::theme::combo_icon)
                 .selected_text(RichText::new(current).size(9.5).color(p.muted))
                 .width(125.0)
                 .show_ui(ui, |ui| {

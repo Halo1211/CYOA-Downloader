@@ -1682,6 +1682,7 @@ fn tool(
 
 pub(crate) fn combo(ui: &mut egui::Ui, id: &str, value: &mut String, options: &[&str]) {
     egui::ComboBox::from_id_salt(id)
+        .icon(crate::theme::combo_icon)
         .selected_text(value.as_str())
         .show_ui(ui, |ui| {
             for o in options {
@@ -1797,6 +1798,7 @@ pub(crate) fn combo_w(
     width: f32,
 ) {
     egui::ComboBox::from_id_salt(id)
+        .icon(crate::theme::combo_icon)
         .selected_text(value.as_str())
         .width(width)
         .show_ui(ui, |ui| {

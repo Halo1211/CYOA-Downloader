@@ -277,7 +277,7 @@ impl ViewerPanel {
                 });
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new("Viewer selection").family(egui::FontFamily::Name("bold".into())).size(10.0));
-                egui::ComboBox::from_id_salt("preferred_viewer_inline")
+                egui::ComboBox::from_id_salt("preferred_viewer_inline").icon(crate::theme::combo_icon)
                     .selected_text(self.preferred.clone())
                     .width(ui.available_width() - 8.0)
                     .show_ui(ui, |ui| {
@@ -414,6 +414,7 @@ impl ViewerPanel {
                         .desired_width(ui.available_width() - 330.0),
                 );
                 egui::ComboBox::from_id_salt("viewer_type_inline")
+                    .icon(crate::theme::combo_icon)
                     .selected_text(self.viewer_type.clone())
                     .width(200.0)
                     .show_ui(ui, |ui| {

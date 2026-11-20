@@ -24,6 +24,7 @@ pub const STEPS: &[&str] = &[
     "manager",
     "history",
     "preflight",
+    "library",
 ];
 
 pub struct ShotScript {

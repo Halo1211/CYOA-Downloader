@@ -339,6 +339,7 @@ impl AiPanel {
                 field_label(&mut cols[1], "Model", "Provider model identifier.");
                 let (w0, w1) = (cols[0].available_width(), cols[1].available_width());
                 egui::ComboBox::from_id_salt("ai-inline-provider")
+                    .icon(crate::theme::combo_icon)
                     .selected_text(provider.clone())
                     .width(w0)
                     .show_ui(&mut cols[0], |ui| {
@@ -367,6 +368,7 @@ impl AiPanel {
                 );
                 let (w0, w1) = (cols[0].available_width(), cols[1].available_width());
                 egui::ComboBox::from_id_salt("ai-inline-mode")
+                    .icon(crate::theme::combo_icon)
                     .selected_text(self.mode)
                     .width(w0)
                     .show_ui(&mut cols[0], |ui| {
@@ -375,6 +377,7 @@ impl AiPanel {
                         }
                     });
                 egui::ComboBox::from_id_salt("ai-inline-storage")
+                    .icon(crate::theme::combo_icon)
                     .selected_text(self.storage)
                     .width(w1)
                     .show_ui(&mut cols[1], |ui| {
