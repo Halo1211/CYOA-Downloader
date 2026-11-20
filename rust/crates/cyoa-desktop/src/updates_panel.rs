@@ -11,6 +11,9 @@ use std::sync::{
 };
 use tokio_util::sync::CancellationToken;
 
+/// `PagedCards.PAGE_SIZE`.
+const PAGE_SIZE: usize = 12;
+
 enum Msg {
     App(Result<Option<UpdateInfo>, String>),
     History(Vec<HistoryCheck>),
@@ -27,6 +30,7 @@ pub struct UpdatesPanel {
     total: usize,
     cancel: CancellationToken,
     filter: &'static str,
+    page: usize,
 }
 
 fn client(net: &crate::net::NetRuntime) -> Result<cyoa_net::client::FetchClient, String> {
@@ -98,6 +102,7 @@ impl UpdatesPanel {
             total: 0,
             cancel: CancellationToken::new(),
             filter: "all",
+            page: 0,
         }
     }
 
@@ -137,141 +142,346 @@ impl UpdatesPanel {
         }
     }
 
-    /// Returns URLs the user chose to re-download.
+    /// Python `open_history_panel` ("Batch Check Center", 900x620): header
+    /// with status, summary, progress, filters, Run Check / Queue Updated,
+    /// paged cards (12 per page). The app-update check (Python
+    /// `_check_updates_panel`) sits in the header as a compact Rust addition.
     pub fn ui(
         &mut self,
         ctx: &egui::Context,
         net: impl FnOnce() -> Result<crate::net::NetRuntime, String>,
     ) -> Vec<(String, String)> {
+        use crate::theme;
+        use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, vec2};
         self.poll();
         let mut requeue = Vec::new();
-        let mut open = self.open;
+        let mut close = false;
         let mut start_app = false;
         let mut start_history = false;
-        egui::Window::new("Updates")
-            .id(egui::Id::unique("updates_panel"))
-            .open(&mut open)
-            .default_size([620.0, 480.0])
-            .show(ctx, |ui| {
-                ui.heading("App update");
-                ui.label(&self.app_status);
-                if let Some(info) = &self.app_info {
-                    ui.label(
-                        egui::RichText::new(info.notes.chars().take(300).collect::<String>())
-                            .weak(),
-                    );
-                    if !info.url.is_empty() && ui.button("Open Release Page").clicked() {
-                        ctx.open_url(egui::OpenUrl::new_tab(&info.url));
-                    }
+        let builder = egui::ViewportBuilder::default()
+            .with_title("Batch Check Center")
+            .with_inner_size([900.0, 620.0])
+            .with_min_inner_size([760.0, 500.0]);
+        let busy = self.busy();
+        ctx.show_viewport_immediate(
+            egui::ViewportId::from_hash_of("batch_check_center"),
+            builder,
+            |ui, _| {
+                if ui.ctx().input(|i| i.viewport().close_requested()) {
+                    close = true;
                 }
-                if ui
-                    .add_enabled(!self.busy(), egui::Button::new("Check for app update"))
-                    .clicked()
-                {
-                    start_app = true;
-                }
-                ui.separator();
-                ui.heading("Downloaded CYOAs");
-                ui.horizontal(|ui| {
-                    if ui
-                        .add_enabled(!self.busy(), egui::Button::new("Check history for updates"))
-                        .clicked()
-                    {
-                        start_history = true;
-                    }
-                    if self.busy() && ui.button("Cancel").clicked() {
-                        self.cancel.cancel();
-                    }
-                });
-                if self.busy() && self.total > 0 {
-                    let d = self.done.load(Ordering::Relaxed);
-                    ui.add(
-                        egui::ProgressBar::new(d as f32 / self.total as f32)
-                            .text(format!("{d}/{}", self.total)),
-                    );
-                }
-                ui.label(&self.history_status);
-                ui.horizontal(|ui| {
-                    for (key, label) in [
-                        ("all", "All"),
-                        ("updated", "Updated"),
-                        ("error", "Errors"),
-                        ("current", "Current"),
-                    ] {
-                        if ui.selectable_label(self.filter == key, label).clicked() {
-                            self.filter = key;
-                        }
-                    }
-                    let updated: Vec<(String, String)> = self
-                        .results
-                        .iter()
-                        .filter(|r| r.status == "updated" && !r.url.is_empty())
-                        .map(|r| (r.url.clone(), r.name.clone()))
-                        .collect();
-                    if ui
-                        .add_enabled(!updated.is_empty(), egui::Button::new("Queue Updated"))
-                        .clicked()
-                    {
-                        self.history_status = format!("Queued {} updated URLs", updated.len());
-                        requeue.extend(updated);
-                    }
-                });
-                let shown: Vec<&HistoryCheck> = self
-                    .results
-                    .iter()
-                    .filter(|r| filter_match(self.filter, &r.status))
-                    .collect();
-                if shown.is_empty() && !self.busy() {
-                    ui.label(egui::RichText::new("Run the check to see results.").weak());
-                }
-                let row_h = ui.text_style_height(&egui::TextStyle::Body) * 3.2;
-                egui::ScrollArea::vertical()
-                    .auto_shrink([false, false])
-                    .show_rows(ui, row_h, shown.len(), |ui, range| {
-                        for r in &shown[range] {
-                            let color = match r.status.as_str() {
-                                "current" => egui::Color32::from_rgb(0x04, 0x78, 0x57),
-                                "updated" => egui::Color32::from_rgb(0x25, 0x63, 0xeb),
-                                _ => egui::Color32::from_rgb(0xdc, 0x26, 0x26),
-                            };
-                            ui.horizontal(|ui| {
-                                ui.vertical(|ui| {
-                                    let name = if r.name.is_empty() { &r.url } else { &r.name };
-                                    ui.colored_label(
-                                        color,
-                                        egui::RichText::new(
-                                            name.chars().take(110).collect::<String>(),
+                let p = theme::palette(ui);
+                let ctk_blue = Color32::from_rgb(0x1f, 0x6a, 0xa5);
+                egui::Panel::top("bcc_header")
+                    .show_separator_line(false)
+                    .exact_size(60.0)
+                    .frame(
+                        Frame::new()
+                            .fill(p.panel)
+                            .inner_margin(Margin::symmetric(18, 0)),
+                    )
+                    .show(ui, |ui| {
+                        ui.horizontal_centered(|ui| {
+                            ui.label(theme::bold("Batch Check Center", 16.0).color(p.fg));
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if theme::flat(
+                                        ui,
+                                        RichText::new("App update").size(12.0).color(p.fg),
+                                        p.surface2,
+                                        vec2(96.0, 26.0),
+                                        !busy,
+                                    )
+                                    .clicked()
+                                    {
+                                        start_app = true;
+                                    }
+                                    if let Some(info) = &self.app_info
+                                        && !info.url.is_empty()
+                                        && theme::flat(
+                                            ui,
+                                            RichText::new("Release page")
+                                                .size(12.0)
+                                                .color(Color32::WHITE),
+                                            ctk_blue,
+                                            vec2(96.0, 26.0),
+                                            true,
                                         )
-                                        .strong(),
-                                    );
-                                    let why = if r.reason.is_empty() {
-                                        &r.status
+                                        .clicked()
+                                    {
+                                        ui.ctx().open_url(egui::OpenUrl::new_tab(&info.url));
+                                    }
+                                    let status = if busy {
+                                        "Checking…".to_owned()
                                     } else {
-                                        &r.reason
+                                        self.app_status.replace("\n\n", " · ")
                                     };
-                                    ui.label(
-                                        egui::RichText::new(format!(
-                                            "{}\n{}",
-                                            r.url.chars().take(120).collect::<String>(),
-                                            why.chars().take(120).collect::<String>()
-                                        ))
-                                        .monospace()
-                                        .small()
-                                        .weak(),
-                                    );
-                                });
-                                if ["updated", "error", "unreachable"].contains(&r.status.as_str())
-                                    && ui.button("Queue").clicked()
-                                {
-                                    requeue.push((r.url.clone(), String::new()));
-                                    self.history_status = "Queued for download".into();
-                                }
-                            });
-                        }
+                                    ui.label(RichText::new(status).size(12.0).color(p.muted));
+                                },
+                            );
+                        });
                     });
-            });
-        self.open = open;
-        if !self.open {
+                egui::CentralPanel::default()
+                    .frame(
+                        Frame::new()
+                            .fill(p.bg)
+                            .inner_margin(Margin::symmetric(14, 12)),
+                    )
+                    .show(ui, |ui| {
+                        let line = if self.history_status.is_empty() {
+                            summary(&self.results)
+                        } else {
+                            self.history_status.clone()
+                        };
+                        ui.label(RichText::new(line).size(13.0).color(p.fg));
+                        ui.add_space(8.0);
+                        let frac = if self.total > 0 {
+                            self.done.load(Ordering::Relaxed) as f32 / self.total as f32
+                        } else if self.results.is_empty() {
+                            0.04
+                        } else {
+                            1.0
+                        };
+                        ui.add(
+                            egui::ProgressBar::new(frac)
+                                .desired_height(8.0)
+                                .fill(ctk_blue)
+                                .corner_radius(4.0),
+                        );
+                        ui.add_space(6.0);
+                        let updated: Vec<(String, String)> = self
+                            .results
+                            .iter()
+                            .filter(|r| r.status == "updated" && !r.url.is_empty())
+                            .map(|r| (r.url.clone(), r.name.clone()))
+                            .collect();
+                        ui.horizontal(|ui| {
+                            for (key, label) in [
+                                ("all", "All"),
+                                ("updated", "Updated"),
+                                ("error", "Errors"),
+                                ("current", "Current"),
+                            ] {
+                                let on = self.filter == key;
+                                let fill = if on {
+                                    Color32::from_rgb(0x3b, 0x82, 0xf6)
+                                } else {
+                                    p.surface2
+                                };
+                                let color = if on { Color32::WHITE } else { p.fg };
+                                if theme::flat(
+                                    ui,
+                                    RichText::new(label).size(13.0).color(color),
+                                    fill,
+                                    vec2(85.0, 28.0),
+                                    true,
+                                )
+                                .clicked()
+                                {
+                                    self.filter = key;
+                                    self.page = 0;
+                                }
+                            }
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if theme::flat(
+                                        ui,
+                                        RichText::new("Queue Updated")
+                                            .size(13.0)
+                                            .color(Color32::WHITE),
+                                        ctk_blue,
+                                        vec2(125.0, 28.0),
+                                        !updated.is_empty(),
+                                    )
+                                    .clicked()
+                                    {
+                                        self.history_status =
+                                            format!("Queued {} updated URLs", updated.len());
+                                        requeue.extend(updated.clone());
+                                    }
+                                    if busy {
+                                        if theme::flat(
+                                            ui,
+                                            RichText::new("Cancel")
+                                                .size(13.0)
+                                                .color(Color32::WHITE),
+                                            Color32::from_rgb(0xb9, 0x1c, 0x1c),
+                                            vec2(112.0, 28.0),
+                                            true,
+                                        )
+                                        .clicked()
+                                        {
+                                            self.cancel.cancel();
+                                        }
+                                    } else if theme::flat(
+                                        ui,
+                                        RichText::new("Run Check").size(13.0).color(Color32::WHITE),
+                                        ctk_blue,
+                                        vec2(112.0, 28.0),
+                                        true,
+                                    )
+                                    .clicked()
+                                    {
+                                        start_history = true;
+                                    }
+                                },
+                            );
+                        });
+                        ui.add_space(6.0);
+                        let shown: Vec<&HistoryCheck> = self
+                            .results
+                            .iter()
+                            .filter(|r| filter_match(self.filter, &r.status))
+                            .collect();
+                        let pages = shown.len().div_ceil(PAGE_SIZE).max(1);
+                        self.page = self.page.min(pages - 1);
+                        let start = self.page * PAGE_SIZE;
+                        let end = (start + PAGE_SIZE).min(shown.len());
+                        let list_h = ui.available_height() - 44.0;
+                        Frame::new()
+                            .fill(p.surface)
+                            .corner_radius(CornerRadius::same(8))
+                            .inner_margin(Margin::same(12))
+                            .show(ui, |ui| {
+                                ui.set_min_height(list_h);
+                                egui::ScrollArea::vertical()
+                                    .id_salt(("bcc", self.filter, self.page))
+                                    .auto_shrink([false, false])
+                                    .max_height(list_h)
+                                    .show(ui, |ui| {
+                                        if shown.is_empty() {
+                                            ui.vertical_centered(|ui| {
+                                                ui.add_space(30.0);
+                                                ui.label(
+                                                    RichText::new("Run the check to see results.")
+                                                        .size(13.0)
+                                                        .color(p.fg),
+                                                );
+                                            });
+                                        }
+                                        for r in &shown[start..end] {
+                                            let color = match r.status.as_str() {
+                                                "current" => Color32::from_rgb(0x04, 0x78, 0x57),
+                                                "updated" => Color32::from_rgb(0x25, 0x63, 0xeb),
+                                                _ => Color32::from_rgb(0xdc, 0x26, 0x26),
+                                            };
+                                            Frame::new()
+                                                .fill(p.surface)
+                                                .stroke(Stroke::new(1.0, p.border))
+                                                .corner_radius(CornerRadius::same(10))
+                                                .inner_margin(Margin::symmetric(12, 10))
+                                                .show(ui, |ui| {
+                                                    ui.set_width(ui.available_width());
+                                                    ui.horizontal(|ui| {
+                                                        let w = ui.available_width() - 80.0;
+                                                        ui.vertical(|ui| {
+                                                            ui.set_width(w);
+                                                            let name = if r.name.is_empty() {
+                                                                &r.url
+                                                            } else {
+                                                                &r.name
+                                                            };
+                                                            ui.label(
+                                                                theme::bold(
+                                                                    name.chars()
+                                                                        .take(110)
+                                                                        .collect::<String>(),
+                                                                    12.0,
+                                                                )
+                                                                .color(color),
+                                                            );
+                                                            let why = if r.reason.is_empty() {
+                                                                &r.status
+                                                            } else {
+                                                                &r.reason
+                                                            };
+                                                            ui.label(
+                                                                RichText::new(format!(
+                                                                    "{}\n{}",
+                                                                    r.url
+                                                                        .chars()
+                                                                        .take(120)
+                                                                        .collect::<String>(),
+                                                                    why.chars()
+                                                                        .take(120)
+                                                                        .collect::<String>()
+                                                                ))
+                                                                .monospace()
+                                                                .size(9.0)
+                                                                .color(p.muted),
+                                                            );
+                                                        });
+                                                        if ["updated", "error", "unreachable"]
+                                                            .contains(&r.status.as_str())
+                                                            && theme::flat(
+                                                                ui,
+                                                                RichText::new("Queue")
+                                                                    .size(12.0)
+                                                                    .color(Color32::WHITE),
+                                                                ctk_blue,
+                                                                vec2(68.0, 28.0),
+                                                                true,
+                                                            )
+                                                            .clicked()
+                                                        {
+                                                            requeue.push((
+                                                                r.url.clone(),
+                                                                String::new(),
+                                                            ));
+                                                            self.history_status =
+                                                                "Queued for download".into();
+                                                        }
+                                                    });
+                                                });
+                                            ui.add_space(8.0);
+                                        }
+                                    });
+                            });
+                        ui.add_space(6.0);
+                        ui.horizontal(|ui| {
+                            if theme::flat(
+                                ui,
+                                RichText::new("←").size(14.0).color(Color32::WHITE),
+                                ctk_blue,
+                                vec2(50.0, 28.0),
+                                self.page > 0,
+                            )
+                            .clicked()
+                            {
+                                self.page -= 1;
+                            }
+                            let label = if shown.is_empty() {
+                                "0–0 / 0".to_owned()
+                            } else {
+                                format!("{}–{} / {}", start + 1, end, shown.len())
+                            };
+                            let w = ui.available_width() - 60.0;
+                            ui.allocate_ui_with_layout(
+                                vec2(w, 28.0),
+                                egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                                |ui| {
+                                    ui.label(RichText::new(label).size(13.0).color(p.muted));
+                                },
+                            );
+                            if theme::flat(
+                                ui,
+                                RichText::new("→").size(14.0).color(Color32::WHITE),
+                                ctk_blue,
+                                vec2(50.0, 28.0),
+                                self.page + 1 < pages,
+                            )
+                            .clicked()
+                            {
+                                self.page += 1;
+                            }
+                        });
+                    });
+            },
+        );
+        if close {
+            self.open = false;
             self.cancel.cancel();
         }
         if start_app || start_history {

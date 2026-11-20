@@ -897,6 +897,22 @@ impl eframe::App for DownloaderApp {
                 self.reports = None;
             }
             self.mgr_center.open = step == "manager";
+            if step == "history" && self.updates.is_none() {
+                self.updates = Some(crate::updates_panel::UpdatesPanel::new());
+            }
+            if step != "history" {
+                self.updates = None;
+            }
+            if step == "preflight"
+                && self.preflight.is_none()
+                && let Ok(net) = self.net_runtime()
+            {
+                self.preflight = Some(crate::preflight_panel::PreflightPanel::start(
+                    vec!["http://127.0.0.1:9/game/".to_owned()],
+                    net,
+                    ui.ctx(),
+                ));
+            }
         }
         if let Some(shots) = &mut self.shots {
             let target = if shots.current().is_some_and(|s| s.starts_with("settings_")) {

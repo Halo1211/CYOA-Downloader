@@ -88,3 +88,11 @@ Resume procedure: `cd rust; cargo test --offline`. Regenerate fixtures with `pyt
 
 ## Next recommended action
 After approval: Stage 0 (workspace skeleton plus a Python golden-fixture exporter) done by Luna, then a diff inspection and the quality gates.
+
+## 2026-11-21 GUI parity pass (screenshot-verified against Python)
+- Reports Center: own window 980x640, Python badges, filters, 12-per-page pager, CTk-blue Copy Failed.
+- CYOA Manager Center (auto-add ON/OFF, library.sqlite3 Browse/Save, 5 library actions) now opens from the CYOA Mgr pill, as in Python.
+- Updates: the main-row pill is gone; the panel opens from Settings > Maintenance > Updates and is styled as Python's Batch Check Center (900x620, pager). Deviation: the app-update check is a compact header button instead of Python's separate dialog.
+- Pre-flight Check: own window, CTk default grey background.
+- Unchecked checkboxes are rounded squares like CTk.
+- Not done yet: dropdown chevron segment, Library and Retry dialogs comparison.
