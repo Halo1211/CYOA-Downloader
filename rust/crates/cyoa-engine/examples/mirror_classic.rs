@@ -36,7 +36,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             CancellationToken::new(),
             512 * 1024 * 1024,
         );
-        sink.mirror_classic(None).map(|()| sink.failed)
+        sink.mirror_classic(None)
+            .map(|()| std::mem::take(&mut sink.failed))
     })
     .await??;
     for (url, error) in failed {

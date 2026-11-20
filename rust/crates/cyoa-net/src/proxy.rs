@@ -310,6 +310,116 @@ impl ProxyConfig {
             }
         }
     }
+
+    /// Python `_get_browser_proxy_config(url)`: how a CDP browser must route
+    /// `url` so a browser fallback never bypasses the configured proxy.
+    pub fn browser_route(&self, url: &str) -> BrowserRoute {
+        let Ok(uri) = url.parse::<http::Uri>() else {
+            return BrowserRoute::Direct;
+        };
+        let target = url
+            .split_once("://")
+            .map_or("https", |(s, _)| s)
+            .to_ascii_lowercase();
+        let proxy_url = match self.mode {
+            ProxyMode::Disabled => return BrowserRoute::Direct,
+            ProxyMode::Manual => {
+                // `_should_bypass_manual_proxy` (requests `should_bypass_proxies`).
+                let bypass = hyper_util::client::proxy::matcher::Matcher::builder()
+                    .all("http://bypass.invalid")
+                    .no(self.no_proxy.as_str())
+                    .build();
+                if bypass.intercept(&uri).is_none() {
+                    return BrowserRoute::Direct;
+                }
+                self.active_proxies().remove(target.as_str())
+            }
+            ProxyMode::InheritEnv => {
+                // `get_environ_proxies(url)`: NO_PROXY first, then per-scheme
+                // variables with ALL_PROXY as the fallback.
+                if hyper_util::client::proxy::matcher::Matcher::from_env()
+                    .intercept(&uri)
+                    .is_none()
+                {
+                    return BrowserRoute::Direct;
+                }
+                let env = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
+                let upper = target.to_ascii_uppercase();
+                env(&format!("{target}_proxy"))
+                    .or_else(|| env(&format!("{upper}_PROXY")))
+                    .or_else(|| env("all_proxy"))
+                    .or_else(|| env("ALL_PROXY"))
+            }
+        };
+        let Some(proxy_url) = proxy_url else {
+            return BrowserRoute::Direct;
+        };
+        browser_proxy_from_url(&proxy_url)
+    }
+}
+
+/// Browser routing for one request (Python: `{}` / `{"server": …}` / `None`).
+#[derive(Clone, PartialEq, Eq)]
+pub enum BrowserRoute {
+    /// Direct (or system) routing.
+    Direct,
+    /// `--proxy-server` value plus optional credentials (answered through
+    /// CDP `Fetch.authRequired`).
+    Proxy {
+        server: String,
+        username: Option<String>,
+        password: Option<String>,
+    },
+    /// The proxy scheme cannot be represented by the browser; the browser
+    /// fallback must not run.
+    Unsupported,
+}
+
+impl fmt::Debug for BrowserRoute {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Direct => f.write_str("Direct"),
+            Self::Unsupported => f.write_str("Unsupported"),
+            Self::Proxy { server, .. } => f.debug_tuple("Proxy").field(server).finish(),
+        }
+    }
+}
+
+/// The scheme/host/port/credential split of `_get_browser_proxy_config`.
+fn browser_proxy_from_url(proxy_url: &str) -> BrowserRoute {
+    let Ok(parsed) = url::Url::parse(proxy_url) else {
+        return BrowserRoute::Unsupported;
+    };
+    let scheme = parsed.scheme().to_ascii_lowercase();
+    if !["http", "https", "socks5", "socks5h"].contains(&scheme.as_str()) {
+        return BrowserRoute::Unsupported;
+    }
+    let browser_scheme = if scheme == "socks5h" {
+        "socks5"
+    } else {
+        scheme.as_str()
+    };
+    let host = match parsed.host() {
+        Some(url::Host::Ipv6(ip)) => format!("[{ip}]"),
+        Some(h) => h.to_string(),
+        None => String::new(),
+    };
+    let mut server = format!("{browser_scheme}://{host}");
+    if let Some(port) = parsed.port() {
+        server.push_str(&format!(":{port}"));
+    }
+    let decode = |s: &str| {
+        percent_encoding::percent_decode_str(s)
+            .decode_utf8_lossy()
+            .into_owned()
+    };
+    let username = (!parsed.username().is_empty()).then(|| decode(parsed.username()));
+    let password = parsed.password().map(decode);
+    BrowserRoute::Proxy {
+        server,
+        username,
+        password,
+    }
 }
 
 #[cfg(test)]

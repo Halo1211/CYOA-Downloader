@@ -910,6 +910,8 @@ mod tests {
             bandwidth: None,
             gallery_dl: None,
             discord: None,
+            browser: None,
+            headless_gate: Default::default(),
         })
     }
     fn opts() -> ProcessOptions {

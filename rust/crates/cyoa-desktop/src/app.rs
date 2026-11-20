@@ -111,12 +111,6 @@ fn archive_policy() -> Result<cyoa_engine::icc::ArchivePolicy, String> {
         .load()
         .map(cyoa_engine::icc::ArchivePolicy::from_settings)
         .unwrap_or_default();
-    if policy.strategy == "browser" {
-        return Err(
-            "archive strategy 'browser' is not supported by the Rust port yet (use auto, classic or smart)"
-                .into(),
-        );
-    }
     Ok(policy)
 }
 

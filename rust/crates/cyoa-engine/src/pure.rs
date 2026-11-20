@@ -81,6 +81,7 @@ impl PureRun<'_> {
             let base = crate::website::js::directory_base_url(&url);
             let mut sink = MirrorSink::new(site_c, &url, &base, client, handle, cancel, 512 << 20);
             sink.workers = workers;
+            sink.archive_strategy = policy.strategy.clone();
             let (profile, effective) = if auto {
                 let p = sink.download_site_auto(deep)?;
                 let eff = p.effective_strategy.clone();
@@ -89,20 +90,11 @@ impl PureRun<'_> {
                 sink.download_site(deep)?;
                 (None, policy.strategy.clone())
             };
-            let crawl_strategy = if effective == "browser" {
-                tracing::warn!(
-                    "Browser runtime capture is not ported; running the Smart route crawl instead."
-                );
-                "smart".to_owned()
-            } else {
-                effective
-            };
-            let crawl = (crawl_strategy == "smart")
-                .then(|| sink.crawl_routes(policy.max_pages as usize, policy.max_depth as usize));
+            let crawl = sink.run_archive_stages(&effective, &policy);
             Ok(Mirrored {
                 sink,
                 profile,
-                effective: crawl_strategy,
+                effective,
                 crawl,
             })
         })
@@ -124,6 +116,7 @@ impl PureRun<'_> {
         let fallback = self.custom_fallback;
         let check = tokio::task::spawn_blocking(move || {
             sink.localize_existing_text_assets();
+            sink.close_browser();
             if fallback {
                 return Ok(PathBuf::new());
             }
@@ -231,7 +224,8 @@ impl PureRun<'_> {
                 );
             }
         }
-        manifest.insert("runtime".into(), Value::Null);
+        let runtime = m.crawl.as_ref().and_then(|c| c.runtime.clone());
+        manifest.insert("runtime".into(), runtime.unwrap_or(Value::Null));
         let text = serde_json::to_string_pretty(&Value::Object(manifest))
             .map_err(|e| RunError::OutputStage(e.to_string()))?;
         let path = crate::website::mirror::contained_path(site, "archive_manifest.json")

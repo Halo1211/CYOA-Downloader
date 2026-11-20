@@ -18,6 +18,7 @@ use cyoa_net::{
     client::{FetchClient, FetchOptions},
     policy::{host_is_internal, ip_is_internal},
 };
+use std::sync::Arc;
 use std::{
     collections::HashMap,
     net::ToSocketAddrs,
@@ -100,6 +101,15 @@ pub struct MirrorSink {
     /// Python `_entry_source`: (effective URL, raw HTML) of the entry page,
     /// reused by the route crawl instead of fetching it again.
     pub entry_source: Option<(String, String)>,
+    /// Python `archive_strategy` (`""` = no browser fallbacks, e.g. tests).
+    pub archive_strategy: String,
+    /// Lazily launched reusable browser (`_get_browser_transport`).
+    browser: Option<Arc<crate::browser::BrowserTransport>>,
+    /// `_browser_transport_preferred`: after one browser success, later
+    /// requests go straight to the browser.
+    browser_preferred: bool,
+    /// `use_runtime_responses`: completed runtime-capture bodies to reuse.
+    runtime_store: Option<crate::browser::CapturedStore>,
 }
 
 impl MirrorSink {
@@ -140,6 +150,10 @@ impl MirrorSink {
             workers: 4,
             source_for_local: HashMap::new(),
             entry_source: None,
+            archive_strategy: String::new(),
+            browser: None,
+            browser_preferred: false,
+            runtime_store: None,
         }
     }
 
@@ -174,6 +188,27 @@ impl MirrorSink {
             return None;
         }
         self.requests += 1;
+        if let Some((bytes, content_type)) = self.runtime_store.as_mut().and_then(|s| s.take(url)) {
+            self.total_bytes = self.total_bytes.saturating_add(bytes.len() as u64);
+            let (content_type, charset) = split_content_type(&content_type);
+            return Some(Fetched {
+                bytes,
+                content_type,
+                charset: if charset.is_empty() {
+                    "utf-8".into()
+                } else {
+                    charset
+                },
+                final_url: url.to_owned(),
+            });
+        }
+        if self.browser_preferred {
+            let fetched = self.fetch_with_browser(url);
+            if fetched.is_none() {
+                self.fail(url, "browser transport failed");
+            }
+            return fetched;
+        }
         let Ok(parsed) = Url::parse(url) else {
             self.fail(url, format!("Could not fetch {url}: invalid URL"));
             return None;
@@ -188,6 +223,14 @@ impl MirrorSink {
         {
             Ok(r) => r,
             Err(error) => {
+                if !matches!(
+                    error,
+                    cyoa_net::client::FetchError::Cancelled
+                        | cyoa_net::client::FetchError::VpnBlocked
+                ) && let Some(fetched) = self.fetch_with_browser(url)
+                {
+                    return Some(fetched);
+                }
                 self.fail(url, format!("Could not fetch {url}: {error}"));
                 return None;
             }
@@ -198,9 +241,13 @@ impl MirrorSink {
             return None;
         }
         if status >= 400 {
-            // DEFERRED(browser): Python retries through the browser transport here.
-            self.fail(url, "request failed");
-            return None;
+            drop(response);
+            // Python `_fetch`: an HTTP error is retried through the browser.
+            let fetched = self.fetch_with_browser(url);
+            if fetched.is_none() {
+                self.fail(url, "request failed");
+            }
+            return fetched;
         }
         let raw_ct = response
             .headers
@@ -533,15 +580,28 @@ impl MirrorSink {
         let mut url = start.clone();
         let text = match html_text {
             Some(t) => t,
-            None => {
-                let r = self
-                    .fetch(&start)
-                    .ok_or_else(|| format!("Could not download entry HTML: {start}"))?;
-                // Python localizes against the effective (redirected) URL.
-                url = normalize_remote_url(&r.final_url, Some(&start), &start)
-                    .unwrap_or_else(|| start.clone());
-                cyoa_parse::project::try_decode_bytes(&r.bytes, &r.charset)
-            }
+            None => match self.fetch(&start) {
+                Some(r) => {
+                    // Python localizes against the effective (redirected) URL.
+                    url = normalize_remote_url(&r.final_url, Some(&start), &start)
+                        .unwrap_or_else(|| start.clone());
+                    cyoa_parse::project::try_decode_bytes(&r.bytes, &r.charset)
+                }
+                None => {
+                    // `_localize_html`: Smart/Browser/Auto retry the entry
+                    // page through the headless browser.
+                    let headless =
+                        if matches!(self.archive_strategy.as_str(), "smart" | "browser" | "auto") {
+                            self.fetch_headless(&start)
+                        } else {
+                            None
+                        };
+                    headless
+                        .map(|raw| cyoa_parse::project::try_decode_bytes(&raw, ""))
+                        .filter(|t| !t.is_empty())
+                        .ok_or_else(|| format!("Could not download entry HTML: {start}"))?
+                }
+            },
         };
         let base = self.base_url.clone();
         let page = Rewriter {
@@ -810,10 +870,18 @@ impl MirrorSink {
         Ok(())
     }
 
-    /// `RouteCrawler._fetch_html`: Ok(None) when the fetch failed (the
-    /// headless retry of Smart/Browser is not ported), Err for non-HTML.
+    /// `RouteCrawler._fetch_html`: Ok(None) when the fetch (and, for
+    /// Smart/Browser, the headless retry) failed, Err for non-HTML.
     fn fetch_route_html(&mut self, url: &str) -> Result<Option<(String, String)>, String> {
         let Some(r) = self.fetch(url) else {
+            if matches!(self.archive_strategy.as_str(), "smart" | "browser" | "auto")
+                && let Some(raw) = self.fetch_headless(url)
+            {
+                return Ok(Some((
+                    url.to_owned(),
+                    cyoa_parse::project::try_decode_bytes(&raw, ""),
+                )));
+            }
             return Ok(None);
         };
         if !r.content_type.is_empty()
@@ -938,6 +1006,244 @@ impl MirrorSink {
     }
 }
 
+impl MirrorSink {
+    fn browser_transport(&mut self) -> Arc<crate::browser::BrowserTransport> {
+        self.browser
+            .get_or_insert_with(|| crate::browser::BrowserTransport::new(self.client.clone()))
+            .clone()
+    }
+
+    /// `_fetch_with_browser`: same-site retry through the reusable browser
+    /// (Auto/Browser strategies only).
+    fn fetch_with_browser(&mut self, url: &str) -> Option<Fetched> {
+        if !matches!(self.archive_strategy.as_str(), "auto" | "browser")
+            || self.cancel.is_cancelled()
+        {
+            return None;
+        }
+        let (a, b) = (py_urlparse(url), py_urlparse(&self.start_url));
+        if !(a.scheme.eq_ignore_ascii_case(&b.scheme) && a.netloc.eq_ignore_ascii_case(b.netloc)) {
+            return None;
+        }
+        let transport = self.browser_transport();
+        let cancel = self.cancel.clone();
+        let fetched = self.handle.block_on(transport.fetch(
+            url,
+            std::time::Duration::from_secs(45),
+            false,
+            &cancel,
+        ))?;
+        let (content_type, charset) = split_content_type(fetched.content_type());
+        // Browser bodies keep the server bytes: no statistical detection, an
+        // absent/latin-1 declaration means UTF-8.
+        let charset = if charset.is_empty() {
+            "utf-8".to_owned()
+        } else {
+            charset
+        };
+        self.browser_preferred = true;
+        tracing::info!(
+            "  [Browser transport] {url} -> {} bytes",
+            fetched.content.len()
+        );
+        self.total_bytes = self
+            .total_bytes
+            .saturating_add(fetched.content.len() as u64);
+        Some(Fetched {
+            bytes: fetched.content,
+            content_type,
+            charset,
+            final_url: fetched.url,
+        })
+    }
+
+    /// `_fetch_headless(url, browser_session=transport)`.
+    fn fetch_headless(&mut self, url: &str) -> Option<Vec<u8>> {
+        if self.cancel.is_cancelled() {
+            return None;
+        }
+        let transport = self.browser_transport();
+        let cancel = self.cancel.clone();
+        self.handle
+            .block_on(transport.fetch_headless(url, false, &cancel))
+    }
+
+    /// Close the browser for good (end of the website stages; must run on a
+    /// blocking thread).
+    pub fn close_browser(&mut self) {
+        if let Some(t) = self.browser.take() {
+            self.handle.block_on(t.close());
+        }
+    }
+
+    /// Close the reusable browser (`release_browser_transport`).
+    pub fn release_browser(&mut self) {
+        if let Some(t) = self.browser.clone() {
+            self.handle.block_on(t.release());
+        }
+    }
+
+    /// `needs_runtime_response` snapshot: URLs already saved locally are
+    /// not captured again.
+    fn runtime_needs(&self) -> crate::browser::NeedsResponse {
+        let saved: std::collections::HashSet<String> = self
+            .entries
+            .iter()
+            .filter_map(|(k, e)| match e {
+                Entry::Done(Some(rel)) if self.is_file(rel) => Some(k.clone()),
+                _ => None,
+            })
+            .collect();
+        let start = self.start_url.clone();
+        let client = self.client.clone();
+        Arc::new(move |url: &str| {
+            client.vpn_satisfied()
+                && !crate::fetch_plan::ssrf_block_cross_origin(url, &start, false, host_is_internal)
+                && !saved.contains(url)
+                && !saved.contains(&normalize_cache_key(url))
+        })
+    }
+
+    /// Python `capture_runtime_assets(downloader, …)` (Browser strategy):
+    /// render the pages, then feed every observed runtime asset through the
+    /// normal mirror, reusing completed browser responses.
+    pub fn capture_runtime(
+        &mut self,
+        page_urls: &[String],
+        opts: &crate::browser::RuntimeOptions,
+    ) -> Result<crate::browser::RuntimeCaptureResult, String> {
+        // The reusable transport must not stay open beside the capture browser.
+        self.release_browser();
+        let needs = self.runtime_needs();
+        let (client, cancel) = (self.client.clone(), self.cancel.clone());
+        let captured = self.handle.block_on(crate::browser::capture_runtime_assets(
+            &client,
+            page_urls,
+            opts,
+            Some(needs),
+            &cancel,
+        ));
+        let Ok((mut result, observed, store)) = captured else {
+            return Err("cancelled".into());
+        };
+        // `use_runtime_responses`: a captured body can repair an earlier
+        // native failure, so failed entries for captured URLs are cleared.
+        for url in store.urls() {
+            for key in [url.clone(), normalize_cache_key(&url)] {
+                if let Some(Entry::Done(local)) = self.entry(&key).cloned()
+                    && local.as_ref().is_none_or(|rel| !self.is_file(rel))
+                {
+                    self.entries.retain(|(k, _)| *k != key);
+                }
+            }
+        }
+        self.runtime_store = Some(store);
+        for (url, content_type) in &observed {
+            if self.cancel.is_cancelled() {
+                break;
+            }
+            let kind = kind_from(url, content_type, "");
+            if AssetSink::download(self, url, kind, None).is_some() {
+                result.downloaded.push(url.clone());
+            } else {
+                result.failed.push(url.clone());
+            }
+        }
+        if let Some(store) = self.runtime_store.take() {
+            let repaired: std::collections::HashSet<String> = store
+                .reused_urls
+                .iter()
+                .filter(
+                    |u| matches!(self.entry(u), Some(Entry::Done(Some(rel))) if self.is_file(rel)),
+                )
+                .cloned()
+                .collect();
+            self.failed.retain(|(u, _)| !repaired.contains(u));
+            result.reused_responses = store.reused_count;
+            result.reused_bytes = store.reused_bytes;
+        }
+        tracing::info!(
+            "Runtime capture: {} observed, {} downloaded, {} failed, {} scroll step(s), {}/{} productive interaction(s)",
+            result.discovered.len(),
+            result.downloaded.len(),
+            result.failed.len(),
+            result.scroll_steps,
+            result.interactions_productive,
+            result.interactions_attempted
+        );
+        Ok(result)
+    }
+}
+
+impl MirrorSink {
+    /// `run_archive_extensions` stages for an effective `strategy`: Smart and
+    /// Browser crawl same-story routes; Browser then captures runtime assets
+    /// on the first `runtime_max_pages` crawled pages.
+    pub fn run_archive_stages(
+        &mut self,
+        strategy: &str,
+        policy: &crate::icc::ArchivePolicy,
+    ) -> Option<RouteCrawl> {
+        if !matches!(strategy, "smart" | "browser") {
+            return None;
+        }
+        let mut crawl = self.crawl_routes(policy.max_pages as usize, policy.max_depth as usize);
+        if strategy == "browser" && !self.cancel.is_cancelled() {
+            let mut urls: Vec<String> = crawl
+                .pages
+                .iter()
+                .take(policy.runtime_max_pages.max(1) as usize)
+                .map(|(u, _)| u.clone())
+                .collect();
+            if urls.is_empty() {
+                urls.push(self.start_url.clone());
+            }
+            let opts = crate::browser::RuntimeOptions {
+                settle_time_ms: policy.settle_time_ms.max(0) as u64,
+                // `policy.safe_interactions`.
+                capture_interactions: policy.interaction_policy == "safe"
+                    && policy.max_interactions > 0,
+                max_scroll_steps: policy.max_scroll_steps.max(1) as usize,
+                max_interactions: policy.max_interactions.max(0) as usize,
+                no_progress_rounds: policy.no_progress_rounds.max(1) as usize,
+            };
+            if let Ok(result) = self.capture_runtime(&urls, &opts) {
+                crawl.runtime = Some(result.to_json());
+            }
+        }
+        Some(crawl)
+    }
+}
+
+impl Drop for MirrorSink {
+    fn drop(&mut self) {
+        if let Some(t) = self.browser.take() {
+            // Non-blocking: Drop may run on an async worker.
+            self.handle.spawn(async move { t.close().await });
+        }
+    }
+}
+
+/// `(mime, charset)` of a Content-Type, ignoring the HTTP/1.1 latin-1
+/// default like `_safe_response_text`.
+fn split_content_type(raw: &str) -> (String, String) {
+    let content_type = raw.split(';').next().unwrap_or("").trim().to_lowercase();
+    let charset = raw
+        .split(';')
+        .skip(1)
+        .filter_map(|p| p.trim().strip_prefix("charset="))
+        .map(|c| c.trim_matches(['"', '\'']).to_owned())
+        .next()
+        .filter(|c| {
+            !matches!(
+                c.to_lowercase().as_str(),
+                "iso-8859-1" | "iso8859-1" | "latin-1" | "latin1" | ""
+            )
+        })
+        .unwrap_or_default();
+    (content_type, charset)
+}
+
 /// `RouteCrawlResult` (pages/link bases in Python dict insertion order).
 #[derive(Debug, Default)]
 pub struct RouteCrawl {
@@ -948,6 +1254,8 @@ pub struct RouteCrawl {
     pub remaining_queued: usize,
     pub link_bases: Vec<(String, String)>,
     pub pending: Vec<String>,
+    /// `asdict(RuntimeCaptureResult)` for the Browser strategy.
+    pub runtime: Option<serde_json::Value>,
 }
 
 /// Lexical `(root / rel).resolve()` containment for `/`-separated paths:

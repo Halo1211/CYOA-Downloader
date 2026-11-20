@@ -182,6 +182,9 @@ pub(crate) fn build_ctx(
             g.enabled().then(|| Arc::new(g))
         },
         discord: discord_refresher(opts, client, project_json),
+        browser: (opts.integrations.selenium && crate::browser::chromium_executable().is_some())
+            .then(|| crate::browser::BrowserTransport::new(client.clone())),
+        headless_gate: Arc::default(),
     })
 }
 

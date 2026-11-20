@@ -58,17 +58,18 @@ impl IccRun<'_> {
         let (site_c, client, cancel) = (site.clone(), self.client.clone(), self.cancel.clone());
         let handle = tokio::runtime::Handle::current();
         let auto = self.policy.strategy == "auto";
-        let smart = self.policy.strategy == "smart";
         let pre_deep_scan = !auto && self.deep_scan;
-        let (max_pages, max_depth) = (self.policy.max_pages, self.policy.max_depth);
+        let policy = self.policy.clone();
         let workers = self.workers;
         let sink = tokio::task::spawn_blocking(move || {
             let mut sink =
                 MirrorSink::new(site_c, &entry, &base, client, handle, cancel, 512 << 20);
             sink.workers = workers;
+            sink.archive_strategy = policy.strategy.clone();
             let result = sink.download_site(pre_deep_scan).map(|()| {
-                // run_archive_extensions: Smart crawls same-story routes.
-                smart.then(|| sink.crawl_routes(max_pages as usize, max_depth as usize))
+                // run_archive_extensions: Smart crawls same-story routes,
+                // Browser also captures runtime assets.
+                sink.run_archive_stages(&policy.strategy, &policy)
             });
             (sink, result)
         })
@@ -134,7 +135,7 @@ impl IccRun<'_> {
 
         // 3. project.json + second pass (blocking file/network work).
         let (project_url, dl) = (self.source.project_url.clone(), processed.dl_str.clone());
-        let sink = tokio::task::spawn_blocking(move || {
+        let mut sink = tokio::task::spawn_blocking(move || {
             let r = sink.write_project_payload(&project_url, &dl);
             if r.is_ok() {
                 if auto {
@@ -238,6 +239,7 @@ impl IccRun<'_> {
         let project_url = self.source.project_url.clone();
         let site_c = site.clone();
         let check = tokio::task::spawn_blocking(move || {
+            sink.close_browser();
             let manifest = sink.write_manifest(&project_url);
             let result = integrity::validate_integrity(&site_c);
             if let Err(e) = integrity::append_to_backup_report(&site_c, &result) {
@@ -343,7 +345,7 @@ impl IccRun<'_> {
             "pending_routes": crawl.pending,
             "route_limit_reached": crawl.limit_reached,
             "remaining_queued_routes": crawl.remaining_queued,
-            "runtime": null
+            "runtime": crawl.runtime.clone().unwrap_or(serde_json::Value::Null)
         });
         let text = serde_json::to_string_pretty(&manifest)
             .map_err(|e| RunError::OutputStage(e.to_string()))?;

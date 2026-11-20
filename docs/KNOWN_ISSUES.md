@@ -16,7 +16,7 @@
 - **KI-R2 transport retries:** FIXED (session 4) — 3 transport retries with urllib3 backoff 0/2/4 s before "fetch_response returned None"; read-phase (mid-body) retries still not ported.
 - **KI-R3 error strings:** other-4xx/TLS failure messages differ from requests' wording.
 - **KI-R4 blocking resolver:** `FetchCtx.resolver` (SSRF cross-origin check) is synchronous on runtime threads.
-- **DEFERRED in fetch_one:** gallery-dl, headless browser, cookie session, Discord refresh, MediaWiki File: resolution, VPN guard, yt-dlp.
+- **DEFERRED in fetch_one:** gallery-dl, headless browser, cookie session, Discord refresh, MediaWiki File: resolution, VPN guard, yt-dlp. (s8: headless browser fallback implemented, F-028; gallery-dl, Discord refresh, MediaWiki and VPN were done in s6; cookie session remains deferred with F-045.)
 - **KI-R5 aggregate quota:** only a 512 MiB per-asset cap; no run-wide byte budget (Sol Medium, deferred).
 
 ## Session 6

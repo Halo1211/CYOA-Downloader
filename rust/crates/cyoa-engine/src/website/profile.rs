@@ -30,10 +30,10 @@ static INLINE_DOM: LazyLock<Option<Regex>> =
     LazyLock::new(|| Regex::new(r"\b(?:innerHTML|createElement|replaceChildren)\b").ok());
 static INLINE_EVENT: LazyLock<Option<Regex>> =
     LazyLock::new(|| Regex::new(r"\b(?:addEventListener|onclick)\b").ok());
-static SAFE_LABEL: LazyLock<Option<Regex>> = LazyLock::new(|| {
+pub(crate) static SAFE_LABEL: LazyLock<Option<Regex>> = LazyLock::new(|| {
     Regex::new(r"(?i)\b(?:load|show|view|read)\s+more\b|\bnext\b|\bcontinue\b|\bexpand\b|\breveal\b|\bopen\s+section\b|\bmuat\s+lagi\b|\btampilkan\b|\bselanjutnya\b|\blanjut\b|\b(?:open|expand|show)\s+all\b|\b(?:begin|start|enter|play)\s+(?:(?:your|the|this|a|new)\s+)?(?:game|story|adventure|cyoa)\b|\bshow\s+content\b|^(?:begin|start|enter|confirm|i understand)[.!\s]*$").ok()
 });
-static UNSAFE_LABEL: LazyLock<Option<Regex>> = LazyLock::new(|| {
+pub(crate) static UNSAFE_LABEL: LazyLock<Option<Regex>> = LazyLock::new(|| {
     Regex::new(r"(?i)\b(?:log\s*in|login|sign\s*in|sign\s*up|register|submit|send|report|like|upvote|downvote|pay|buy|purchase|donate|subscribe|checkout|delete|logout|share|upload|comment|patreon|boosty|reset|restart|clear|remove)\b|\bstart\s+over\b").ok()
 });
 

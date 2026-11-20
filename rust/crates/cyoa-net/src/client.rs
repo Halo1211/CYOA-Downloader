@@ -343,6 +343,48 @@ impl FetchClient {
         &self.cfg.budget
     }
 
+    /// Python `vpn_requirement_satisfied()` (blocking; true without a guard).
+    pub fn vpn_satisfied(&self) -> bool {
+        self.cfg.vpn.as_ref().is_none_or(|v| v.satisfied())
+    }
+
+    /// Browser routing for `url` under this client's proxy profile.
+    pub fn browser_route(&self, url: &str) -> crate::proxy::BrowserRoute {
+        self.cfg.proxy.browser_route(url)
+    }
+
+    /// Python `_browser_session_state(urls)`: the solved (FlareSolverr) user
+    /// agent of the first matching origin ("" when none) and this client's
+    /// cookies for each URL, as `(name, value, url)` triples.
+    pub fn browser_session_state(&self, urls: &[Url]) -> (String, Vec<(String, String, String)>) {
+        use reqwest::cookie::CookieStore;
+        let agent = self
+            .user_agent
+            .read()
+            .ok()
+            .and_then(|map| urls.iter().find_map(|u| map.get(&origin_key(u)).cloned()))
+            .and_then(|v| v.to_str().ok().map(str::to_owned))
+            .unwrap_or_default();
+        let mut cookies = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for url in urls {
+            let Some(header) = self.jar.cookies(url) else {
+                continue;
+            };
+            let Ok(text) = header.to_str() else { continue };
+            for pair in text.split(';') {
+                let Some((name, value)) = pair.trim().split_once('=') else {
+                    continue;
+                };
+                let origin = format!("{}://{}/", url.scheme(), url.host_str().unwrap_or_default());
+                if seen.insert((name.to_owned(), origin.clone())) {
+                    cookies.push((name.to_owned(), value.to_owned(), origin));
+                }
+            }
+        }
+        (agent, cookies)
+    }
+
     /// POST a JSON body (Discord attachment refresh). Same destination,
     /// VPN, budget and cancellation rules as `get`; redirects are not
     /// followed. Returns (status, headers, body up to `max` bytes).

@@ -1317,20 +1317,7 @@ async fn main() -> ExitCode {
                 break;
             }
         }
-        let mode = match item_mode(&args, &item.mode).and_then(|m| {
-            if matches!(
-                m,
-                OutputMode::IccZip
-                    | OutputMode::IccFolder
-                    | OutputMode::PureZip
-                    | OutputMode::PureFolder
-            ) && archive.strategy == "browser"
-            {
-                Err("archive strategy 'browser' is not supported by the Rust port yet (use auto, classic or smart)".to_owned())
-            } else {
-                Ok(m)
-            }
-        }) {
+        let mode = match item_mode(&args, &item.mode) {
             Ok(m) => m,
             Err(e) => {
                 eprintln!("Failed: {e}");

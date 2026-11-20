@@ -2,6 +2,8 @@
 
 Resume the CYOA Downloader Python→Rust migration on branch `migration/python-to-rust`. Do not repeat audits.
 
+**Session 8 update 2 (2026-11-20):** F-028 browser/CDP done and Python-identical on `icc_parity.py` (15/15, Browser cases need Python Playwright + Chrome/Edge). Next: (1) after 2026-11-21 `sol_review` of `cyoa-engine/src/browser.rs`, the browser paths in `website/mirror.rs` (`fetch`, `fetch_with_browser`, `capture_runtime`), `fetch.rs` `headless_image`, and `cyoa-net/src/proxy.rs` `browser_route` (plus the earlier pending list below); (2) manual GUI smoke test with archive strategy Browser; (3) remaining gaps: F-045 browser cookie import (deferred), F-043/F-044 AI + plugins, F-049 settings panels.
+
 **Session 8 update (2026-11-20):** GUI library panel, F-037 V4 (modernizer, CLI, ICC hook) and V5 (registration + GUI panel) done and Python-identical. Next: (1) after 2026-11-21 `sol_review` of itch_html5.rs, manager_serve.rs, preserved_index.rs, run.rs viewer stage, desktop library.rs, modernizer.rs, viewer_registry.rs; (2) F-028 browser/CDP; (3) manual GUI smoke test (Library…, Viewers…).
 
 **Session 7 update (2026-11-19):** F-037 V1–V3 done and Python-identical (see MIGRATION_PROGRESS top). Next, in order: (1) after 2026-11-21, `sol_review` of itch_html5.rs, manager_serve.rs, preserved_index.rs and the run.rs viewer stage; (2) ask the owner to approve F-037 V4 (modernizer: `analyze_site`, `modernize_site`, `modernize_collection`, CLI `--modernize-library` / `--viewer-collection` / `--modernize-output`, settings `offline_viewer_website_enabled` hook in ICC mode) and V5 (GUI viewer panel + viewer registration); (3) GUI library panel (uses `manager_serve`); (4) F-028 browser/CDP.

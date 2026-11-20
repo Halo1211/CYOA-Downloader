@@ -161,9 +161,8 @@ def main() -> int:
         subprocess.run(["cargo", "build", "-q", "-p", "cyoa-cli", "--offline"], cwd=ROOT / "rust", check=True)
         rust_bin = ROOT / "rust" / "target" / "debug" / "cyoa-downloader"
         ok = True
-        # (strategy, flag, path). Pure Auto starts at ch1/ so the profile is
-        # deterministic Classic (from /game/ it would pick Browser, which
-        # needs Playwright on the Python side and is not ported).
+        # (strategy, flag, path). Pure Auto from ch1/ profiles as Classic; from
+        # /game/ it profiles as Browser (added below when Playwright exists).
         runs = [("auto", "--icc-folder", ""), ("auto", "--icc", ""), ("classic", "--icc-folder", ""),
                 ("smart", "--icc-folder", ""), ("auto", "--pure-website-folder", "ch1/"),
                 ("classic", "--pure-website-folder", ""), ("smart", "--pure-website", ""),
@@ -175,6 +174,15 @@ def main() -> int:
                 ("auto", "--icc-folder", "", "--archive-strategy", "smart", "--archive-max-pages", "2"),
                 # SSRF screen off: the https://HOST asset is attempted, not blocked.
                 ("auto", "--icc-folder", "", "--allow-internal-hosts")]
+        # F-028 Browser strategy (Python Playwright vs Rust CDP), including
+        # Pure Auto from /game/ which profiles as Browser. Needs Playwright
+        # on the Python side and Chrome/Edge for Rust.
+        import importlib.util
+        if importlib.util.find_spec("playwright") is not None:
+            runs += [("browser", "--pure-website-folder", ""), ("browser", "--icc-folder", ""),
+                     ("auto", "--pure-website-folder", "")]
+        else:
+            print("SKIP browser strategy cases: Python Playwright is not installed")
         for strategy, flag, sub, *extra in runs:
             # Python reads settings.json `archive_strategy` (default auto);
             # classic also runs the recovery pass and the deep scan.

@@ -47,6 +47,74 @@ pub struct FetchCtx {
     /// Discord attachment URL refresher (bot token configured and recovery
     /// enabled), image_pipeline.py 539-567 / 759-771.
     pub discord: Option<Arc<crate::discord::DiscordRefresher>>,
+    /// Headless browser image fallback (`_SELENIUM_ENABLED`; F-028 CDP).
+    pub browser: Option<Arc<crate::browser::BrowserTransport>>,
+    /// One browser probe per transport-failed domain.
+    pub headless_gate: Arc<HeadlessGate>,
+}
+
+/// `transport_headless_events` / `transport_headless_failed_domains`: after a
+/// transport failure only one browser probe per domain runs at a time, and a
+/// failed probe skips the browser for the rest of that domain's assets.
+#[derive(Debug, Default)]
+pub struct HeadlessGate {
+    failed: std::sync::Mutex<HashSet<String>>,
+    locks: std::sync::Mutex<std::collections::HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+}
+
+impl HeadlessGate {
+    fn has_failed(&self, domain: &str) -> bool {
+        self.failed.lock().map_or(true, |f| f.contains(domain))
+    }
+
+    fn lock_for(&self, domain: &str) -> Option<Arc<tokio::sync::Mutex<()>>> {
+        let mut locks = self.locks.lock().ok()?;
+        Some(locks.entry(domain.to_owned()).or_default().clone())
+    }
+
+    fn mark_failed(&self, domain: &str) {
+        if let Ok(mut f) = self.failed.lock() {
+            f.insert(domain.to_owned());
+        }
+    }
+}
+
+/// image_pipeline.py headless fallback for a project image after direct
+/// attempts failed (404/410 never reach it).
+async fn headless_image(
+    ctx: &FetchCtx,
+    asset_url: &str,
+    transport_exhausted: bool,
+) -> Option<Bytes> {
+    let browser = ctx.browser.as_ref()?;
+    let domain = crate::browser::url_host(asset_url);
+    if transport_exhausted && !domain.is_empty() {
+        if ctx.headless_gate.has_failed(&domain) {
+            tracing::info!("  [Headless] Skipped after domain probe failed: {domain}");
+            return None;
+        }
+        let lock = ctx.headless_gate.lock_for(&domain)?;
+        let _turn = tokio::select! {
+            g = lock.lock() => g,
+            () = ctx.cancel.cancelled() => return None,
+            () = tokio::time::sleep(std::time::Duration::from_secs(75)) => return None,
+        };
+        if ctx.headless_gate.has_failed(&domain) {
+            tracing::info!("  [Headless] Skipped after domain probe failed: {domain}");
+            return None;
+        }
+        tracing::info!("  [Headless] Trying browser fetch: {asset_url}");
+        let data = browser.fetch_headless(asset_url, true, &ctx.cancel).await;
+        if data.is_none() {
+            ctx.headless_gate.mark_failed(&domain);
+        }
+        return data.map(Bytes::from);
+    }
+    tracing::info!("  [Headless] Trying browser fetch: {asset_url}");
+    browser
+        .fetch_headless(asset_url, true, &ctx.cancel)
+        .await
+        .map(Bytes::from)
 }
 
 /// Bytes of a fetched asset: in memory, or spooled to a file owned by the run.
@@ -462,7 +530,6 @@ pub async fn fetch_one(ctx: &FetchCtx, asset_path: &str) -> FetchOutcome {
             Err(e) => tracing::debug!("[gallery-dl] worker failed: {e}"),
         }
     }
-    // DEFERRED(F-XXX): headless browser recovery is not implemented.
     // DEFERRED(F-XXX): browser cookie session retry is not implemented; attempt 2 marks it tried.
     // DEFERRED(F-XXX): Discord attachment URL refresh is not implemented.
     let attempts =
@@ -473,6 +540,7 @@ pub async fn fetch_one(ctx: &FetchCtx, asset_path: &str) -> FetchOutcome {
     let mut last_error = String::new();
     let mut authentication_failed = false;
     let mut cookie_session_tried = false;
+    let mut transport_exhausted = false;
 
     for attempt in 0..attempts {
         if ctx.cancel.is_cancelled() {
@@ -534,6 +602,7 @@ pub async fn fetch_one(ctx: &FetchCtx, asset_path: &str) -> FetchOutcome {
             }
             Err(cyoa_net::client::FetchError::Http(_)) => {
                 last_error = "fetch_response returned None".to_owned();
+                transport_exhausted = true;
                 ctx.domain.record_failure(&asset_url, || 0.5);
                 // Python stops after fetch_response exhausted its transport retries.
                 break;
@@ -739,6 +808,22 @@ pub async fn fetch_one(ctx: &FetchCtx, asset_path: &str) -> FetchOutcome {
         return outcome(asset_path, Some(payload), &mime, &asset_url, "");
     }
 
+    if ctx.image_paths.contains(asset_path)
+        && !ctx.cancel.is_cancelled()
+        && let Some(data) = headless_image(ctx, &asset_url, transport_exhausted).await
+    {
+        let mime = guess_mime_from_url(&asset_url)
+            .unwrap_or("image/jpeg")
+            .to_owned();
+        tracing::info!(
+            "  [Headless] ✓ {} ({}KB)",
+            asset_url.rsplit('/').next().unwrap_or(""),
+            data.len() / 1024
+        );
+        let payload = spool(ctx, data).await;
+        return outcome(asset_path, Some(payload), &mime, &asset_url, "");
+    }
+    tracing::error!("All retries failed: {asset_url}");
     outcome(asset_path, None, "", &asset_url, last_error)
 }
 
@@ -781,6 +866,8 @@ mod tests {
             bandwidth: None,
             gallery_dl: None,
             discord: None,
+            browser: None,
+            headless_gate: Arc::default(),
         }
     }
 

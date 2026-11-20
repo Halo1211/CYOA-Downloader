@@ -49,13 +49,17 @@ pub fn first_executable(names: &[&str]) -> Option<PathBuf> {
 
 /// Python `_installed_browser` (PATH, then common Windows locations).
 pub fn installed_browser() -> Option<PathBuf> {
+    installed_chromium().or_else(|| first_executable(&["firefox"]))
+}
+
+/// A Chromium-family browser (the CDP browser strategy cannot drive Firefox).
+pub fn installed_chromium() -> Option<PathBuf> {
     if let Some(p) = first_executable(&[
         "chrome",
         "google-chrome",
         "chromium",
         "chromium-browser",
         "msedge",
-        "firefox",
     ]) {
         return Some(p);
     }
