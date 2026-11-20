@@ -11,6 +11,7 @@ use std::{collections::VecDeque, path::PathBuf, time::Duration};
 
 mod aux_windows;
 mod layout;
+mod manager_center;
 mod settings_window;
 
 pub(crate) use layout::DNS_PRESETS as DNS_PRESET_LIST;
@@ -363,6 +364,8 @@ pub struct DownloaderApp {
     shots: Option<crate::shots::ShotScript>,
     /// Help tab and Diagnostics Center state.
     aux: aux_windows::AuxState,
+    /// CYOA Manager Center (Python `_cyoa_manager_panel`).
+    mgr_center: manager_center::ManagerCenter,
     /// App/history update checks (F-052).
     updates: Option<crate::updates_panel::UpdatesPanel>,
     /// Python "Filename" entry next to the URL.
@@ -505,6 +508,7 @@ impl DownloaderApp {
             dash: crate::settings_dashboard::SettingsDashboard::default(),
             shots: crate::shots::ShotScript::from_env(),
             aux: aux_windows::AuxState::default(),
+            mgr_center: manager_center::ManagerCenter::default(),
             ai_session: crate::ai_panel::AiSession {
                 enabled: ai_enabled,
                 key: String::new(),
@@ -884,6 +888,15 @@ impl eframe::App for DownloaderApp {
             self.show_help = step == "help";
             self.show_credits = step == "credits";
             self.show_diagnostics = step == "diagnostics";
+            if step == "reports" && self.reports.is_none() {
+                self.reports = Some(crate::reports_panel::ReportsPanel::new(
+                    crate::shots::sample_rows(),
+                ));
+            }
+            if step != "reports" {
+                self.reports = None;
+            }
+            self.mgr_center.open = step == "manager";
         }
         if let Some(shots) = &mut self.shots {
             let target = if shots.current().is_some_and(|s| s.starts_with("settings_")) {
@@ -1068,6 +1081,7 @@ mod tests {
             dash: crate::settings_dashboard::SettingsDashboard::default(),
             shots: None,
             aux: aux_windows::AuxState::default(),
+            mgr_center: manager_center::ManagerCenter::default(),
             ai_session: crate::ai_panel::AiSession::default(),
             updates: None,
             fn_input: String::new(),

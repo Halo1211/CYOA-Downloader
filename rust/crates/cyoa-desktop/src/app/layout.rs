@@ -969,19 +969,8 @@ impl DownloaderApp {
             } else {
                 "CYOA Mgr ✗"
             };
-            if theme::pill(ui, "📤", label, p.manager, self.library.is_none()).clicked() {
-                self.open_library(ui.ctx());
-            }
-            if theme::pill(
-                ui,
-                "🔄",
-                tr("Updates"),
-                (p.accentbg, p.accent),
-                self.updates.is_none(),
-            )
-            .clicked()
-            {
-                self.updates = Some(crate::updates_panel::UpdatesPanel::new());
+            if theme::pill(ui, "📤", label, p.manager, !self.mgr_center.open).clicked() {
+                self.mgr_center.open = true;
             }
         });
     }
@@ -1174,6 +1163,7 @@ impl DownloaderApp {
     /// Credits, Help, Diagnostics and Settings windows.
     pub(super) fn dialogs(&mut self, ctx: &egui::Context) {
         self.aux_windows(ctx);
+        self.manager_center(ctx);
         self.settings_viewport(ctx);
     }
 

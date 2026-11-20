@@ -30,7 +30,6 @@ pub struct Palette {
     pub sel_nm: Color32,
     pub sel_desc: Color32,
     pub danger_fg: Color32,
-    pub accentbg: Color32,
     pub srv_fg: Color32,
     pub retry_asset: (Color32, Color32),
     pub retry_image: (Color32, Color32),
@@ -58,7 +57,6 @@ pub const DARK: Palette = Palette {
     sel_nm: hex(0x60a5fa),
     sel_desc: hex(0x3b82f6),
     danger_fg: hex(0xf87171),
-    accentbg: hex(0x0c1a2e),
     srv_fg: hex(0x6ee7b7),
     retry_asset: (hex(0x3b2506), hex(0xfbbf24)),
     retry_image: (hex(0x2e1065), hex(0xc4b5fd)),
@@ -86,7 +84,6 @@ pub const LIGHT: Palette = Palette {
     sel_nm: hex(0x1d4ed8),
     sel_desc: hex(0x2563eb),
     danger_fg: hex(0xdc2626),
-    accentbg: hex(0xdbeafe),
     srv_fg: hex(0x059669),
     retry_asset: (hex(0xfef3c7), hex(0xb45309)),
     retry_image: (hex(0xede9fe), hex(0x6d28d9)),
@@ -470,7 +467,7 @@ pub fn checkbox(
     } else {
         painter.rect_stroke(
             boxr,
-            CornerRadius::same(10),
+            CornerRadius::same(5),
             Stroke::new(2.5, p.muted2),
             egui::StrokeKind::Inside,
         );

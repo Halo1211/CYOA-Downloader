@@ -20,6 +20,8 @@ pub const STEPS: &[&str] = &[
     "help",
     "credits",
     "diagnostics",
+    "reports",
+    "manager",
 ];
 
 pub struct ShotScript {
@@ -104,4 +106,41 @@ fn save_png(path: &std::path::Path, image: &egui::ColorImage) -> Result<(), Stri
     let mut writer = enc.write_header().map_err(|e| e.to_string())?;
     let bytes: Vec<u8> = image.pixels.iter().flat_map(|c| c.to_array()).collect();
     writer.write_image_data(&bytes).map_err(|e| e.to_string())
+}
+
+/// The Python screenshot sample (2 OK, 1 FAIL).
+pub fn sample_rows() -> Vec<crate::reports_panel::ResultRow> {
+    let row = |url: &str, mode: &str, status: &str, name: &str, error: &str| {
+        crate::reports_panel::ResultRow {
+            result_type: "job".into(),
+            status: status.into(),
+            url: url.into(),
+            mode: mode.into(),
+            filename: name.into(),
+            error: error.into(),
+        }
+    };
+    vec![
+        row(
+            "https://example.com/cyoa-one/",
+            "website_folder",
+            "OK",
+            "Example_One",
+            "",
+        ),
+        row(
+            "https://example.com/cyoa-two/",
+            "zip",
+            "OK",
+            "Example_Two",
+            "",
+        ),
+        row(
+            "https://example.com/broken/",
+            "auto",
+            "FAIL",
+            "Broken",
+            "Could not resolve project data",
+        ),
+    ]
 }

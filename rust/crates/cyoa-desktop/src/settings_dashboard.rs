@@ -270,6 +270,8 @@ pub struct SettingsDashboard {
     cf_job: Option<Job>,
     /// Saved Cloudflare mode for the main-window selector.
     pub cf_mode_changed: Option<String>,
+    /// Open the Updates / Batch Check Center (F-052; Rust addition).
+    pub open_updates: bool,
     auto_status: String,
     net_draft: Option<crate::net::NetSettings>,
     net_port: String,
@@ -310,6 +312,7 @@ impl Default for SettingsDashboard {
             cf_status: String::new(),
             cf_job: None,
             cf_mode_changed: None,
+            open_updates: false,
             auto_status: String::new(),
             net_draft: None,
             net_port: "0".into(),
@@ -1323,6 +1326,18 @@ impl SettingsDashboard {
                 "Merge a previous portable export.",
                 "Import…",
             );
+        });
+        ui.columns(2, |cols| {
+            if tool(
+                &mut cols[0],
+                "UPD",
+                rgb(0x0e, 0x74, 0x90),
+                "Updates",
+                "Check the app and downloaded projects for updates.",
+                "Open",
+            ) {
+                self.open_updates = true;
+            }
         });
         if clicks[0] {
             self.status = open_settings_file(path)

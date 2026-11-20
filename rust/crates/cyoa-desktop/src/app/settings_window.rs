@@ -244,6 +244,9 @@ impl DownloaderApp {
             self.auto_pref = v.to_owned();
             self.save_shared_key("auto_detect_output", v.into());
         }
+        if std::mem::take(&mut self.dash.open_updates) && self.updates.is_none() {
+            self.updates = Some(crate::updates_panel::UpdatesPanel::new());
+        }
         if let Some(mode) = self.dash.cf_mode_changed.take() {
             self.cf_mode = mode;
         }
