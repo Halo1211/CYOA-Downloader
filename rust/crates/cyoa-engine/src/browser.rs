@@ -1514,7 +1514,9 @@ fn spawn_listeners(
             let block = with(&s, |st| {
                 let reason =
                     route_block_reason(st, &ev.request.method, &ev.request.url, navigation);
-                if let Some(reason) = reason {
+                if let Some(reason) = reason
+                    && st.blocked.len() < MAX_TRACKED_REQUESTS
+                {
                     st.blocked.push((
                         ev.request.method.to_uppercase(),
                         ev.request.url.clone(),

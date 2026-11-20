@@ -22,3 +22,6 @@
 ## Session 6
 - FIXED: Rust `.txt` reports were LF while Python writes CRLF on Windows (text mode). Now `reports::os_text`. The old e2e script compared with `grep -v` + `diff` and would have reported OK even if both files were missing; it now requires both files and compares byte-exact.
 - FIXED: Rust always wrote `failed_assets.txt`; Python appends to an existing `backup_report.txt` and removes stale `broken_assets_report.html` (`write_asset_failure_summary`).
+
+## Browser runtime capture: no destination policy on page subrequests (same as Python)
+Chromium page subrequests are only filtered like Python `route_request`: non-GET/HEAD and off-page navigation are blocked during safe interaction. Internal or loopback hosts requested by a page's own scripts are not blocked, in Python or in Rust. Changing this would diverge from Python; it needs owner approval. The `blocked` list is now capped at MAX_TRACKED_REQUESTS (Rust only). Self-reviewed 2026-11-21; the independent Sol review is still pending because of the Codex usage limit.
