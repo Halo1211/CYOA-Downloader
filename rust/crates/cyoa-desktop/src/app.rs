@@ -311,6 +311,8 @@ pub struct DownloaderApp {
     show_details: bool,
     logo_dark: Option<egui::TextureHandle>,
     logo_light: Option<egui::TextureHandle>,
+    /// Python `_paused` (queue paused between jobs).
+    paused: bool,
 }
 
 type ListPick = std::sync::mpsc::Receiver<Option<Result<Vec<BatchItem>, String>>>;
@@ -415,6 +417,7 @@ impl DownloaderApp {
             show_details: false,
             logo_dark: None,
             logo_light: None,
+            paused: false,
             manager,
         }
     }
@@ -739,6 +742,18 @@ impl eframe::App for DownloaderApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.drain_events();
         self.poll_list_import();
+        // Python: `_paused.set()` when the run ends.
+        if self.paused
+            && !self
+                .jobs
+                .iter()
+                .any(|j| matches!(j.status, Status::Running { .. } | Status::Queued))
+        {
+            self.paused = false;
+            if let Some(w) = &self.worker {
+                w.set_paused(false);
+            }
+        }
         let p = crate::theme::palette(ui);
         egui::Panel::top("titlebar")
             .exact_size(90.0)
@@ -900,6 +915,7 @@ mod tests {
             show_details: false,
             logo_dark: None,
             logo_light: None,
+            paused: false,
         }
     }
 

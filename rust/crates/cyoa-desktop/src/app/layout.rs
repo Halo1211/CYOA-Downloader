@@ -794,14 +794,37 @@ impl DownloaderApp {
                 false,
             )
             .on_disabled_hover_text(NOT_PORTED);
-            theme::flat(
+            let active = self
+                .jobs
+                .iter()
+                .any(|j| matches!(j.status, Status::Running { .. } | Status::Queued));
+            let label = if self.paused {
+                "▶ Continue"
+            } else {
+                "⏸ Pause"
+            };
+            if theme::flat(
                 ui,
-                RichText::new("⏸ Pause").size(10.5).color(p.fg),
+                RichText::new(label).size(10.5).color(p.fg),
                 p.surface2,
                 vec2(86.0, h),
-                false,
+                active,
             )
-            .on_disabled_hover_text(NOT_PORTED);
+            .clicked()
+            {
+                // Python `_toggle_pause`.
+                self.paused = !self.paused;
+                if let Some(w) = &self.worker {
+                    w.set_paused(self.paused);
+                }
+                let line = if self.paused {
+                    "[Pause] Download paused by user"
+                } else {
+                    "[Pause] Download continued"
+                };
+                tracing::info!("{line}");
+                self.log.push(line.to_owned());
+            }
             if self.preview.is_some() {
                 if theme::flat(
                     ui,
@@ -913,7 +936,13 @@ impl DownloaderApp {
     fn progress_card(&mut self, ui: &mut egui::Ui, p: &Palette) {
         let s = run_stats(&self.jobs);
         let running = self.running_job().is_some();
-        let state = if running { "RUNNING" } else { "IDLE" };
+        let state = if self.paused {
+            "PAUSED"
+        } else if running {
+            "RUNNING"
+        } else {
+            "IDLE"
+        };
         ui.horizontal(|ui| {
             ui.label(
                 bold(

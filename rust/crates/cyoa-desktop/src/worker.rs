@@ -70,6 +70,8 @@ struct Control {
     shutdown: CancellationToken,
     /// Wakes the worker loop so cancelled queued jobs are finished promptly.
     changed: Notify,
+    /// Python `_paused`: no new job starts while set (the running one finishes).
+    paused: std::sync::atomic::AtomicBool,
 }
 
 impl Control {
@@ -166,6 +168,14 @@ impl WorkerHandle {
         {
             t.cancel();
         }
+        self.control.changed.notify_one();
+    }
+
+    /// Python `_toggle_pause`: gate the next job start.
+    pub fn set_paused(&self, paused: bool) {
+        self.control
+            .paused
+            .store(paused, std::sync::atomic::Ordering::SeqCst);
         self.control.changed.notify_one();
     }
 
@@ -291,6 +301,7 @@ async fn worker_loop(
         }
 
         if running.is_none()
+            && !control.paused.load(std::sync::atomic::Ordering::SeqCst)
             && let Some((id, opts)) = queue.pop_front()
         {
             let token = control.token(id);
@@ -547,6 +558,37 @@ mod tests {
         w.shutdown(Duration::from_secs(3));
         assert!(w.thread.is_none(), "worker thread joined");
         assert!(t.elapsed() < Duration::from_secs(6));
+    }
+
+    /// Python `_paused`: no queued job starts while paused; Continue resumes.
+    #[test]
+    fn pause_holds_queued_jobs_until_continue() {
+        let mut w = WorkerHandle::spawn(Box::new(|| {})).unwrap();
+        w.set_paused(true);
+        for id in 1..=2 {
+            assert!(w.start(id, hanging()));
+        }
+        std::thread::sleep(Duration::from_millis(300));
+        let mut started = Vec::new();
+        while let Some(ev) = w.try_recv() {
+            if let Event::Started { job } = ev {
+                started.push(job);
+            }
+        }
+        assert!(started.is_empty(), "started while paused: {started:?}");
+        w.set_paused(false);
+        let end = Instant::now() + Duration::from_secs(5);
+        while started.is_empty() && Instant::now() < end {
+            while let Some(ev) = w.try_recv() {
+                if let Event::Started { job } = ev {
+                    started.push(job);
+                }
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(started, vec![1]);
+        w.cancel_all();
+        w.shutdown(Duration::from_secs(3));
     }
 
     /// Minimal static file server for `rust/fixtures/e2e_site` (one thread).
