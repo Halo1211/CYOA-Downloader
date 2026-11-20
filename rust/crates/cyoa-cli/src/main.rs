@@ -89,6 +89,12 @@ struct Args {
     /// With --verify: write a cyoa_manifest.json checksum sidecar into the folder, then exit.
     #[arg(long)]
     write_manifest: bool,
+    /// Print optional/required dependency status and exit.
+    #[arg(long)]
+    dependency_check: bool,
+    /// Run offline internal smoke tests and exit.
+    #[arg(long)]
+    self_test: bool,
     /// Copy a local CYOA library and make recognized ICC viewers work directly through file://.
     #[arg(long, value_name = "FOLDER")]
     modernize_library: Option<PathBuf>,
@@ -729,9 +735,22 @@ async fn main() -> ExitCode {
         )
         .await;
     }
+    if args.dependency_check {
+        console_print(&cyoa_engine::diagnostics::dependency_check_report());
+        return ExitCode::SUCCESS;
+    }
     if args.userscript_info {
         console_print(&userscript_integration_report());
         return ExitCode::SUCCESS;
+    }
+    if args.self_test {
+        let (ok, report) = cyoa_engine::diagnostics::run_internal_self_test();
+        console_print(&report);
+        return if ok {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::FAILURE
+        };
     }
     // cli.py 477-489: --verify [--write-manifest] runs before anything else.
     if let Some(folder) = &args.verify {

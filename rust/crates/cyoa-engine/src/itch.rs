@@ -87,7 +87,7 @@ pub fn redact_output(message: &str, api_key: Option<&str>) -> String {
     }
 }
 
-fn which(name: &str) -> Option<PathBuf> {
+pub(crate) fn which(name: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
     #[cfg(windows)]
     let extensions: Vec<String> = std::env::var("PATHEXT")
