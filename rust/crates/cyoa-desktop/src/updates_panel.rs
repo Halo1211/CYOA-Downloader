@@ -26,6 +26,7 @@ pub struct UpdatesPanel {
     done: Arc<AtomicUsize>,
     total: usize,
     cancel: CancellationToken,
+    filter: &'static str,
 }
 
 fn client(net: &crate::net::NetRuntime) -> Result<cyoa_net::client::FetchClient, String> {
@@ -67,11 +68,17 @@ where
         .map(|_| rx)
 }
 
-/// Python result summary line.
+/// Python Batch Check Center filter (`error` also shows `unreachable`).
+pub fn filter_match(filter: &str, status: &str) -> bool {
+    filter == "all" || filter == status || (filter == "error" && status == "unreachable")
+}
+
+/// Python Batch Check Center summary line.
 pub fn summary(results: &[HistoryCheck]) -> String {
     let count = |f: &dyn Fn(&str) -> bool| results.iter().filter(|r| f(&r.status)).count();
     format!(
-        "✅ {} current  |  🔄 {} updated  |  ❌ {} errors",
+        "TOTAL {} · CURRENT {} · UPDATED {} · ERROR {}",
+        results.len(),
         count(&|s| s == "current"),
         count(&|s| s == "updated"),
         count(&|s| s == "error" || s == "unreachable")
@@ -90,6 +97,7 @@ impl UpdatesPanel {
             done: Arc::new(AtomicUsize::new(0)),
             total: 0,
             cancel: CancellationToken::new(),
+            filter: "all",
         }
     }
 
@@ -117,7 +125,11 @@ impl UpdatesPanel {
             }
             Ok(Msg::History(results)) => {
                 self.rx = None;
-                self.history_status = summary(&results);
+                self.history_status = if results.is_empty() && self.total == 0 {
+                    "No download history yet.".into()
+                } else {
+                    summary(&results)
+                };
                 self.results = results;
             }
             Err(TryRecvError::Disconnected) => self.rx = None,
@@ -179,22 +191,80 @@ impl UpdatesPanel {
                     );
                 }
                 ui.label(&self.history_status);
+                ui.horizontal(|ui| {
+                    for (key, label) in [
+                        ("all", "All"),
+                        ("updated", "Updated"),
+                        ("error", "Errors"),
+                        ("current", "Current"),
+                    ] {
+                        if ui.selectable_label(self.filter == key, label).clicked() {
+                            self.filter = key;
+                        }
+                    }
+                    let updated: Vec<(String, String)> = self
+                        .results
+                        .iter()
+                        .filter(|r| r.status == "updated" && !r.url.is_empty())
+                        .map(|r| (r.url.clone(), r.name.clone()))
+                        .collect();
+                    if ui
+                        .add_enabled(!updated.is_empty(), egui::Button::new("Queue Updated"))
+                        .clicked()
+                    {
+                        self.history_status = format!("Queued {} updated URLs", updated.len());
+                        requeue.extend(updated);
+                    }
+                });
+                let shown: Vec<&HistoryCheck> = self
+                    .results
+                    .iter()
+                    .filter(|r| filter_match(self.filter, &r.status))
+                    .collect();
+                if shown.is_empty() && !self.busy() {
+                    ui.label(egui::RichText::new("Run the check to see results.").weak());
+                }
+                let row_h = ui.text_style_height(&egui::TextStyle::Body) * 3.2;
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        for r in self.results.iter().filter(|r| r.status == "updated") {
+                    .show_rows(ui, row_h, shown.len(), |ui, range| {
+                        for r in &shown[range] {
+                            let color = match r.status.as_str() {
+                                "current" => egui::Color32::from_rgb(0x04, 0x78, 0x57),
+                                "updated" => egui::Color32::from_rgb(0x25, 0x63, 0xeb),
+                                _ => egui::Color32::from_rgb(0xdc, 0x26, 0x26),
+                            };
                             ui.horizontal(|ui| {
                                 ui.vertical(|ui| {
-                                    let name = if r.name.is_empty() {
-                                        r.url.chars().take(50).collect()
+                                    let name = if r.name.is_empty() { &r.url } else { &r.name };
+                                    ui.colored_label(
+                                        color,
+                                        egui::RichText::new(
+                                            name.chars().take(110).collect::<String>(),
+                                        )
+                                        .strong(),
+                                    );
+                                    let why = if r.reason.is_empty() {
+                                        &r.status
                                     } else {
-                                        r.name.clone()
+                                        &r.reason
                                     };
-                                    ui.strong(format!("🔄 {name}"));
-                                    ui.label(egui::RichText::new(&r.reason).weak());
+                                    ui.label(
+                                        egui::RichText::new(format!(
+                                            "{}\n{}",
+                                            r.url.chars().take(120).collect::<String>(),
+                                            why.chars().take(120).collect::<String>()
+                                        ))
+                                        .monospace()
+                                        .small()
+                                        .weak(),
+                                    );
                                 });
-                                if ui.button("Re-download").clicked() {
-                                    requeue.push((r.url.clone(), r.name.clone()));
+                                if ["updated", "error", "unreachable"].contains(&r.status.as_str())
+                                    && ui.button("Queue").clicked()
+                                {
+                                    requeue.push((r.url.clone(), String::new()));
+                                    self.history_status = "Queued for download".into();
                                 }
                             });
                         }
@@ -266,9 +336,13 @@ mod tests {
             reason: String::new(),
             date: String::new(),
         };
+        assert!(
+            super::filter_match("error", "unreachable")
+                && !super::filter_match("current", "updated")
+        );
         assert_eq!(
             super::summary(&[r("current"), r("updated"), r("error"), r("unreachable")]),
-            "✅ 1 current  |  🔄 1 updated  |  ❌ 2 errors"
+            "TOTAL 4 · CURRENT 1 · UPDATED 1 · ERROR 2"
         );
     }
 }
