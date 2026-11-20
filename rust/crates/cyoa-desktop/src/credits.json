@@ -1,0 +1,202 @@
+[
+ {
+  "title": "Yet Another Interactive CYOA Downloader",
+  "desc_en": "Respectfully credited as a base script and one of the earliest practical inspirations for this downloader. A lot of the spirit of preserving interactive CYOAs starts here.",
+  "desc_id": "Dengan hormat dicantumkan sebagai script dasar dan salah satu inspirasi praktis paling awal untuk downloader ini. Banyak semangat menjaga CYOA interaktif tetap bisa disimpan berawal dari sini.",
+  "url": "https://forum.cyoa.cafe/d/14-yet-another-interactive-cyoa-downloader",
+  "category": "base",
+  "role_en": "Base script & earliest inspiration",
+  "role_id": "Script dasar & inspirasi paling awal",
+  "license": "See source"
+ },
+ {
+  "title": "CYOA Launcher",
+  "desc_en": "Thank you for the launcher/workflow inspiration and for showing another thoughtful way to organize local CYOA access.",
+  "desc_id": "Terima kasih atas inspirasi launcher/alur kerja dan contoh cara lain yang rapi untuk mengatur akses CYOA lokal.",
+  "url": "https://github.com/DragonsWho/CYOA_Launcher",
+  "category": "inspiration",
+  "role_en": "Launcher / workflow inspiration",
+  "role_id": "Inspirasi launcher / alur kerja",
+  "license": "See repo"
+ },
+ {
+  "title": "IntCyoaEnhancer",
+  "desc_en": "Credited for the cheat-helper reference and ideas used only for local preview/debug workflows. The original author and source remain acknowledged with respect.",
+  "desc_id": "Dicantumkan untuk referensi dan ide cheat-helper yang hanya dipakai pada alur preview/debug lokal. Pembuat asli dan sumbernya tetap dihormati.",
+  "url": "https://greasyfork.org/en/scripts/438947-intcyoaenhancer",
+  "category": "inspiration",
+  "role_en": "Cheat-helper reference (local preview/debug)",
+  "role_id": "Referensi cheat-helper (preview/debug lokal)",
+  "license": "MIT"
+ },
+ {
+  "title": "ICCPlus",
+  "desc_en": "Thank you to ICCPlus and its maintainers for the viewer ecosystem that many modern interactive CYOAs rely on.",
+  "desc_id": "Terima kasih kepada ICCPlus dan para pengembangnya atas ekosistem viewer yang menjadi dasar banyak CYOA interaktif modern.",
+  "url": "https://github.com/wahaha303/ICCPlus",
+  "category": "ecosystem",
+  "role_en": "Viewer ecosystem for modern CYOAs",
+  "role_id": "Ekosistem viewer untuk CYOA modern",
+  "license": "See repo"
+ },
+ {
+  "title": "CYOA Manager",
+  "desc_en": "Thank you to the CYOA Manager project for the library-management ideas and the workflow inspiration for organizing local CYOA collections more carefully.",
+  "desc_id": "Terima kasih kepada proyek CYOA Manager atas ide pengelolaan library dan inspirasi alur kerja untuk mengatur koleksi CYOA lokal dengan lebih rapi.",
+  "url": "https://github.com/alexncode/CYOA-Manager/",
+  "category": "ecosystem",
+  "role_en": "Library-management workflow inspiration",
+  "role_id": "Inspirasi alur kelola library",
+  "license": "See repo"
+ },
+ {
+  "title": "itch-dl",
+  "desc_en": "Respectfully credited for the itch.io download backend inspiration and tooling ecosystem that helps preserve downloadable game/project files.",
+  "desc_id": "Dengan hormat dicantumkan untuk inspirasi backend unduhan itch.io dan ekosistem tooling yang membantu menyimpan file game/proyek yang dapat diunduh.",
+  "url": "https://github.com/DragoonAethis/itch-dl",
+  "category": "library",
+  "role_en": "itch.io download backend inspiration",
+  "role_id": "Inspirasi backend unduhan itch.io",
+  "license": "MIT"
+ },
+ {
+  "title": "gallery-dl",
+  "desc_en": "Thank you to gallery-dl and its maintainers for the mature downloader ecosystem that inspired and supports optional gallery/post fallback workflows.",
+  "desc_id": "Terima kasih kepada gallery-dl dan para pengembangnya atas ekosistem downloader matang yang menginspirasi dan mendukung alur fallback opsional untuk galeri/post.",
+  "url": "https://github.com/mikf/gallery-dl",
+  "category": "library",
+  "role_en": "Optional gallery/post fallback downloader",
+  "role_id": "Downloader fallback galeri/post opsional",
+  "license": "GPL-2.0-only"
+ },
+ {
+  "title": "Selenium",
+  "desc_en": "Thank you to the Selenium project for the browser automation foundation used as one of the optional headless fallback paths.",
+  "desc_id": "Terima kasih kepada proyek Selenium atas fondasi otomasi browser yang digunakan sebagai salah satu jalur fallback headless opsional.",
+  "url": "https://www.selenium.dev/",
+  "category": "library",
+  "role_en": "Optional headless browser automation",
+  "role_id": "Otomasi browser headless opsional",
+  "license": "Apache-2.0"
+ },
+ {
+  "title": "Playwright",
+  "desc_en": "Thank you for the modern, reliable headless-browser engine used as the preferred JavaScript-rendering fallback when plain HTTP fetches are not enough.",
+  "desc_id": "Terima kasih atas engine headless-browser modern dan andal yang dipakai sebagai fallback render JavaScript utama saat fetch HTTP biasa tidak cukup.",
+  "url": "https://playwright.dev/",
+  "category": "library",
+  "role_en": "Preferred headless JS-rendering fallback",
+  "role_id": "Fallback render JS headless utama",
+  "license": "Apache-2.0"
+ },
+ {
+  "title": "requests + urllib3",
+  "desc_en": "The dependable HTTP foundation behind nearly every network request this tool makes — retries, sessions, streaming, and proxy handling all build on it.",
+  "desc_id": "Fondasi HTTP yang andal di balik hampir semua permintaan jaringan tool ini — retry, session, streaming, dan penanganan proxy semuanya dibangun di atasnya.",
+  "url": "https://requests.readthedocs.io/",
+  "category": "library",
+  "role_en": "Core HTTP client (downloader backbone)",
+  "role_id": "Klien HTTP inti (tulang punggung downloader)",
+  "license": "Apache-2.0"
+ },
+ {
+  "title": "BeautifulSoup4",
+  "desc_en": "Thank you for the forgiving HTML parser that makes resolving viewers, scripts, and project hints from messy real-world pages possible.",
+  "desc_id": "Terima kasih atas parser HTML yang toleran sehingga viewer, script, dan petunjuk project bisa di-resolve dari halaman dunia nyata yang berantakan.",
+  "url": "https://www.crummy.com/software/BeautifulSoup/",
+  "category": "library",
+  "role_en": "HTML parsing & viewer/script detection",
+  "role_id": "Parsing HTML & deteksi viewer/script",
+  "license": "MIT"
+ },
+ {
+  "title": "Pillow",
+  "desc_en": "Thank you to the Pillow maintainers for the image-handling toolkit used for validation and asset processing.",
+  "desc_id": "Terima kasih kepada para pengembang Pillow atas toolkit penanganan gambar yang dipakai untuk validasi dan pemrosesan aset.",
+  "url": "https://python-pillow.org/",
+  "category": "library",
+  "role_en": "Image validation & processing",
+  "role_id": "Validasi & pemrosesan gambar",
+  "license": "MIT-CMU"
+ },
+ {
+  "title": "CustomTkinter",
+  "desc_en": "Thank you for the modern themed widget toolkit that gives this app its desktop GUI without leaving the Python/Tk ecosystem.",
+  "desc_id": "Terima kasih atas toolkit widget bertema modern yang memberi aplikasi ini GUI desktop tanpa keluar dari ekosistem Python/Tk.",
+  "url": "https://github.com/TomSchimansky/CustomTkinter",
+  "category": "library",
+  "role_en": "Desktop GUI framework",
+  "role_id": "Framework GUI desktop",
+  "license": "MIT"
+ },
+ {
+  "title": "yt-dlp + FFmpeg",
+  "desc_en": "Thank you to yt-dlp and FFmpeg for the media download/transcode pipeline that lets background audio be preserved for offline playback.",
+  "desc_id": "Terima kasih kepada yt-dlp dan FFmpeg atas pipeline unduh/transcode media yang memungkinkan audio latar disimpan untuk pemutaran offline.",
+  "url": "https://github.com/yt-dlp/yt-dlp",
+  "category": "library",
+  "role_en": "Optional audio download & conversion",
+  "role_id": "Unduh & konversi audio opsional",
+  "license": "Unlicense / LGPL"
+ },
+ {
+  "title": "httpx + h2 · cloudscraper · tldextract · pandas · json5 · keyring · rarfile · plyer",
+  "desc_en": "A quiet thank-you to the many focused libraries that power individual features: HTTP/2 deep scan, Cloudflare handling, domain parsing, batch import, lenient JSON, OS keyring storage, RAR viewers, and desktop notifications.",
+  "desc_id": "Terima kasih diam-diam untuk banyak library terfokus yang menggerakkan fitur masing-masing: deep scan HTTP/2, penanganan Cloudflare, parsing domain, import batch, JSON longgar, penyimpanan keyring OS, viewer RAR, dan notifikasi desktop.",
+  "url": null,
+  "category": "library",
+  "role_en": "Per-feature optional libraries",
+  "role_id": "Library opsional per-fitur",
+  "license": "Mixed (BSD/MIT/Apache)"
+ },
+ {
+  "title": "FlareSolverr",
+  "desc_en": "Thank you for the external challenge-solving proxy that helps reach viewers behind tougher Cloudflare protections for personal preservation.",
+  "desc_id": "Terima kasih atas proxy penyelesai tantangan eksternal yang membantu menjangkau viewer di balik proteksi Cloudflare yang lebih ketat untuk preservasi pribadi.",
+  "url": "https://github.com/FlareSolverr/FlareSolverr",
+  "category": "library",
+  "role_en": "Optional Cloudflare challenge solver",
+  "role_id": "Penyelesai tantangan Cloudflare opsional",
+  "license": "MIT"
+ },
+ {
+  "title": "CYOA community",
+  "desc_en": "Thank you to the wider CYOA community: creators, archivists, tool makers, testers, bug reporters, and users who keep these works alive.",
+  "desc_id": "Terima kasih kepada komunitas CYOA yang lebih luas: kreator, pengarsip, pembuat tool, tester, pelapor bug, dan pengguna yang ikut menjaga karya-karya ini tetap hidup.",
+  "url": null,
+  "category": "community",
+  "role_en": "Creators, archivists, testers, users",
+  "role_id": "Kreator, pengarsip, tester, pengguna",
+  "license": null
+ },
+ {
+  "title": "Everyone who helped along the way",
+  "desc_en": "Some people helped through small comments, screenshots, testing, ideas, or quiet encouragement. Not everyone can be named one by one, but the help is remembered and appreciated.",
+  "desc_id": "Ada yang membantu lewat komentar kecil, screenshot, pengujian, ide, atau dukungan diam-diam. Tidak semua bisa disebut satu per satu, tetapi bantuan itu tetap diingat dan dihargai.",
+  "url": null,
+  "category": "community",
+  "role_en": "Comments, screenshots, testing, ideas",
+  "role_id": "Komentar, screenshot, pengujian, ide",
+  "license": null
+ },
+ {
+  "title": "Claude + ChatGPT",
+  "desc_en": "Thank you to Claude and ChatGPT as AI assistants used during review, refactoring, documentation, and stability work.",
+  "desc_id": "Terima kasih kepada Claude dan ChatGPT sebagai asisten AI yang digunakan dalam review, refactoring, dokumentasi, dan stabilisasi.",
+  "url": null,
+  "category": "tooling",
+  "role_en": "AI assistants for review & docs",
+  "role_id": "Asisten AI untuk review & dokumentasi",
+  "license": null
+ },
+ {
+  "title": "With humble gratitude to the Triune God",
+  "desc_en": "Above all, this work gives thanks to God the Father, to our Lord Jesus Christ, and to the Holy Spirit—for grace, wisdom, patience, and the strength to keep building something useful with care.",
+  "desc_id": "Yang terutama, syukur kepada Tuhan, kepada Yesus Kristus, dan kepada Roh Kudus atas kasih karunia, kesabaran, kekuatan, dan kesempatan untuk terus membangun sesuatu yang berguna dengan sepenuh hati.",
+  "url": null,
+  "category": "gratitude",
+  "role_en": "Above all, thanks be to God",
+  "role_id": "Yang terutama, syukur kepada Tuhan",
+  "license": null
+ }
+]

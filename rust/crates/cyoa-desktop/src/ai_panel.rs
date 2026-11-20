@@ -85,7 +85,6 @@ const MODES: &[&str] = &["off", "diagnostics", "auto_fallback", "aggressive_reco
 const STORAGES: &[&str] = &["session", "env", "keyring", "plain"];
 
 pub struct AiPanel {
-    pub open: bool,
     settings_path: PathBuf,
     enabled: bool,
     provider: &'static str,
@@ -112,7 +111,6 @@ impl AiPanel {
         let provider = ai::normalize_provider(&text("ai_provider"));
         let storage = ai::normalize_key_storage(&text("ai_key_storage"));
         let mut panel = Self {
-            open: true,
             enabled: session.enabled,
             provider,
             model: ai::get_model(&st, provider),
@@ -292,139 +290,170 @@ impl AiPanel {
         }
     }
 
-    pub fn ui(&mut self, ctx: &egui::Context) {
+    /// Python `_settings_inline_ai`: the AI Assist card on the Integrations
+    /// page (no separate window).
+    pub fn inline(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        use crate::settings_dashboard::{
+            accent_button, badge_label, field_label, frame, muted, rgb, toggle,
+        };
         self.poll();
-        let mut open = self.open;
-        egui::Window::new("AI Assist — Multi-provider Recovery")
-            .open(&mut open)
-            .resizable(true)
-            .default_width(560.0)
-            .show(ctx, |ui| {
-                ui.label(
-                    "Supports Anthropic, OpenAI, Gemini, Ollama, DeepSeek, Qwen/DashScope, Groq, \
-                     OpenRouter, and custom OpenAI-compatible endpoints.",
-                );
-                ui.separator();
-                ui.checkbox(&mut self.enabled, "Enable AI Assist")
-                    .on_hover_text(
-                        "Use AI only as fallback diagnostics/recovery when normal detection fails.",
+        let p = crate::theme::palette(ui);
+        let purple = rgb(0x7c, 0x3a, 0xed);
+        let mut changed = false;
+        frame(ui, p.border).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal(|ui| {
+                badge_label(ui, "AI", purple);
+                ui.vertical(|ui| {
+                    ui.label(
+                        egui::RichText::new("AI Assist")
+                            .family(egui::FontFamily::Name("bold".into()))
+                            .size(13.0),
                     );
-                let mut changed = false;
-                egui::Grid::new("ai-grid").num_columns(2).show(ui, |ui| {
-                    ui.label("Provider");
-                    egui::ComboBox::from_id_salt("ai-provider")
-                        .selected_text(ai::provider_label(self.provider))
-                        .show_ui(ui, |ui| {
-                            for p in ai::PROVIDERS {
-                                if ui
-                                    .selectable_label(self.provider == *p, ai::provider_label(p))
-                                    .clicked()
-                                    && self.provider != *p
-                                {
-                                    self.provider = p;
-                                    self.model = ai::default_model(p).to_owned();
-                                    self.key.clear();
-                                    changed = true;
-                                }
-                            }
-                        });
-                    ui.end_row();
-                    ui.label("Model");
-                    ui.horizontal(|ui| {
-                        ui.text_edit_singleline(&mut self.model);
-                        egui::ComboBox::from_id_salt("ai-model")
-                            .selected_text("Presets")
-                            .show_ui(ui, |ui| {
-                                for m in ai::model_options(self.provider) {
-                                    if ui.selectable_label(self.model == *m, *m).clicked() {
-                                        self.model = (*m).to_owned();
-                                    }
-                                }
-                            });
-                    });
-                    ui.end_row();
-                    ui.label("AI Mode");
-                    egui::ComboBox::from_id_salt("ai-mode")
-                        .selected_text(self.mode)
-                        .show_ui(ui, |ui| {
-                            for m in MODES {
-                                ui.selectable_value(&mut self.mode, m, *m);
-                            }
-                        });
-                    ui.end_row();
-                    ui.label("Key Storage");
-                    egui::ComboBox::from_id_salt("ai-storage")
-                        .selected_text(self.storage)
-                        .show_ui(ui, |ui| {
-                            for s in STORAGES {
-                                if ui.selectable_value(&mut self.storage, s, *s).changed() {
-                                    changed = true;
-                                }
-                            }
-                        });
-                    ui.end_row();
-                    ui.label("API key");
-                    let (enabled, hint) = match (self.provider, self.storage) {
-                        ("ollama", _) => (false, "Ollama uses local API".to_owned()),
-                        (p, "env") => (false, ai::primary_env_var(p).to_owned()),
-                        (_, "keyring") => (true, "Enter key to save to OS Credential Manager".into()),
-                        (_, "session") => (true, "Session only; cleared when app exits".into()),
-                        _ => (true, "API key...".into()),
-                    };
-                    let edit = ui.add_enabled(
-                        enabled,
-                        egui::TextEdit::singleline(&mut self.key)
-                            .password(true)
-                            .hint_text(hint),
+                    ui.label(
+                        egui::RichText::new(
+                            "Optional recovery provider, model, mode, credentials, and endpoints.",
+                        )
+                        .size(9.0)
+                        .color(muted(ui)),
                     );
-                    if edit.changed() {
-                        changed = true;
-                    }
-                    ui.end_row();
-                    ui.label("Ollama URL");
-                    ui.text_edit_singleline(&mut self.ollama_url);
-                    ui.end_row();
-                    ui.label("Custom base URL");
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.custom_base)
-                            .hint_text("https://your-openai-compatible-endpoint/v1"),
-                    );
-                    ui.end_row();
                 });
-                if changed {
-                    self.refresh_status();
-                }
-                let warn = match (self.provider, self.storage) {
-                    ("custom", _) => "Custom provider uses /chat/completions on the custom base URL. Store keys with session/keyring/env when possible.",
-                    (_, "plain") => "Plain storage writes the key to settings.json; prefer session, keyring or env.",
-                    (_, "keyring") => "Key will be stored in the OS credential store.",
-                    _ => "",
-                };
-                ui.separator();
-                ui.label(&self.status);
-                if !warn.is_empty() {
-                    ui.colored_label(egui::Color32::from_rgb(0xf5, 0x9e, 0x0b), warn);
-                }
-                ui.separator();
-                ui.horizontal(|ui| {
-                    if ui
-                        .add_enabled(self.test.is_none(), egui::Button::new("Test Provider"))
-                        .clicked()
-                    {
-                        self.test(ctx);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(egui::RichText::new("Enabled").size(12.0));
+                    if toggle(ui, &mut self.enabled, purple) {
+                        self.updated = Some(AiSession {
+                            enabled: self.enabled,
+                            key: self.key.trim().to_owned(),
+                        });
                     }
-                    if ui.button("Clear Key").clicked() {
-                        self.clear_key();
-                    }
-                    if ui.button("Save").clicked() {
+                });
+            });
+            ui.add_space(6.0);
+            let mut provider = self.provider.to_owned();
+            ui.columns(2, |cols| {
+                field_label(
+                    &mut cols[0],
+                    "Provider",
+                    "Service that handles AI requests.",
+                );
+                field_label(&mut cols[1], "Model", "Provider model identifier.");
+                let (w0, w1) = (cols[0].available_width(), cols[1].available_width());
+                egui::ComboBox::from_id_salt("ai-inline-provider")
+                    .selected_text(provider.clone())
+                    .width(w0)
+                    .show_ui(&mut cols[0], |ui| {
+                        for pv in ai::PROVIDERS {
+                            ui.selectable_value(&mut provider, (*pv).to_owned(), *pv);
+                        }
+                    });
+                cols[1].add(egui::TextEdit::singleline(&mut self.model).desired_width(w1));
+            });
+            if provider != self.provider {
+                self.provider = ai::normalize_provider(&provider);
+                self.model = ai::default_model(self.provider).to_owned();
+                self.key.clear();
+                changed = true;
+            }
+            ui.columns(2, |cols| {
+                field_label(
+                    &mut cols[0],
+                    "AI mode",
+                    "Controls when AI recovery may run.",
+                );
+                field_label(
+                    &mut cols[1],
+                    "Key storage",
+                    "Keyring is safest; session is temporary.",
+                );
+                let (w0, w1) = (cols[0].available_width(), cols[1].available_width());
+                egui::ComboBox::from_id_salt("ai-inline-mode")
+                    .selected_text(self.mode)
+                    .width(w0)
+                    .show_ui(&mut cols[0], |ui| {
+                        for m in MODES {
+                            ui.selectable_value(&mut self.mode, m, *m);
+                        }
+                    });
+                egui::ComboBox::from_id_salt("ai-inline-storage")
+                    .selected_text(self.storage)
+                    .width(w1)
+                    .show_ui(&mut cols[1], |ui| {
+                        for s in STORAGES {
+                            changed |= ui.selectable_value(&mut self.storage, s, *s).changed();
+                        }
+                    });
+            });
+            field_label(
+                ui,
+                "API key",
+                "Provider credential; Ollama does not need one.",
+            );
+            let (enabled, hint) = match (self.provider, self.storage) {
+                ("ollama", _) => (false, "Ollama uses local API".to_owned()),
+                (pv, "env") => (false, ai::primary_env_var(pv).to_owned()),
+                _ => (true, String::new()),
+            };
+            changed |= ui
+                .add_enabled(
+                    enabled,
+                    egui::TextEdit::singleline(&mut self.key)
+                        .password(true)
+                        .hint_text(hint)
+                        .desired_width(ui.available_width()),
+                )
+                .changed();
+            ui.columns(2, |cols| {
+                field_label(
+                    &mut cols[0],
+                    "Ollama URL",
+                    "Address of the local Ollama server.",
+                );
+                field_label(
+                    &mut cols[1],
+                    "Custom base URL",
+                    "OpenAI-compatible custom endpoint.",
+                );
+                let (w0, w1) = (cols[0].available_width(), cols[1].available_width());
+                cols[0].add(egui::TextEdit::singleline(&mut self.ollama_url).desired_width(w0));
+                cols[1].add(
+                    egui::TextEdit::singleline(&mut self.custom_base)
+                        .hint_text("https://endpoint.example/v1")
+                        .desired_width(w1),
+                );
+            });
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(if self.status.is_empty() {
+                        "Configure and save here—no additional Settings window is opened."
+                    } else {
+                        self.status.as_str()
+                    })
+                    .size(9.0)
+                    .color(muted(ui)),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if accent_button(ui, "Save", purple) {
                         self.status = match self.save() {
                             Ok(()) => "Saved. AI Assist settings updated.".into(),
                             Err(e) => format!("Failed to save: {e}"),
                         };
                     }
+                    if ui
+                        .add_enabled(self.test.is_none(), egui::Button::new("Test"))
+                        .clicked()
+                    {
+                        self.test(ctx);
+                    }
+                    if ui.button("Clear key").clicked() {
+                        self.clear_key();
+                    }
                 });
             });
-        self.open = open;
+        });
+        if changed {
+            self.refresh_status();
+        }
     }
 }
 

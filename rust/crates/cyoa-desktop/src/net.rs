@@ -221,78 +221,8 @@ impl NetSettings {
         Ok(NetRuntime { proxy, dns, vpn })
     }
 
-    /// Settings panel. Pure widget code: no I/O on the UI thread.
-    pub fn ui(&mut self, ui: &mut egui::Ui) {
-        egui::CollapsingHeader::new("Network (proxy / DNS / VPN)")
-            .default_open(false)
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label("Proxy mode:");
-                    for m in ["inherit_env", "manual", "disabled"] {
-                        ui.radio_value(&mut self.proxy_mode, m.to_owned(), m);
-                    }
-                });
-                if self.proxy_mode == "manual" {
-                    text_row(ui, "Proxy:", &mut self.proxy, "http://127.0.0.1:7890");
-                    text_row(
-                        ui,
-                        "HTTP proxy:",
-                        &mut self.proxy_http,
-                        "overrides Proxy for http://",
-                    );
-                    text_row(
-                        ui,
-                        "HTTPS proxy:",
-                        &mut self.proxy_https,
-                        "overrides Proxy for https://",
-                    );
-                    text_row(ui, "Bypass:", &mut self.proxy_no_proxy, DEFAULT_NO_PROXY);
-                }
-                ui.separator();
-                ui.horizontal(|ui| {
-                    ui.label("DNS:");
-                    for p in ["system", "udp", "tcp", "doh", "dot"] {
-                        ui.radio_value(&mut self.dns_protocol, p.to_owned(), p);
-                    }
-                });
-                if self.dns_protocol != "system" {
-                    text_row(
-                        ui,
-                        "Resolver:",
-                        &mut self.dns,
-                        "1.1.1.1 · https://cloudflare-dns.com/dns-query · one.one.one.one",
-                    );
-                    ui.horizontal(|ui| {
-                        ui.label("Port (0 = default):");
-                        ui.add(egui::DragValue::new(&mut self.dns_port));
-                        ui.label("Timeout s:");
-                        ui.add(egui::DragValue::new(&mut self.dns_timeout).range(1..=60));
-                        ui.checkbox(&mut self.dns_fallback_system, "Fallback to system DNS");
-                        ui.checkbox(&mut self.dns_ipv6, "IPv6 (AAAA)");
-                    });
-                }
-                ui.separator();
-                ui.horizontal(|ui| {
-                    ui.label("VPN:");
-                    ui.radio_value(&mut self.vpn_policy, "system".to_owned(), "system routing");
-                    ui.radio_value(&mut self.vpn_policy, "require".to_owned(), "require VPN");
-                });
-                if self.vpn_policy == "require" {
-                    text_row(
-                        ui,
-                        "Interface:",
-                        &mut self.vpn_interface,
-                        "optional name/description substring",
-                    );
-                }
-                if let Err(e) = self.build_check() {
-                    ui.colored_label(ui.visuals().error_fg_color, e);
-                }
-            });
-    }
-
     /// Validation only (cheap; no resolver/guard/client construction).
-    fn build_check(&self) -> Result<(), String> {
+    pub(crate) fn build_check(&self) -> Result<(), String> {
         let invalid = |e: &dyn std::fmt::Display| format!("Invalid network configuration: {e}");
         let mode = ProxyMode::parse(&self.proxy_mode).map_err(|e| invalid(&e))?;
         ProxyConfig::new(
@@ -315,17 +245,6 @@ impl NetSettings {
         VpnConfig::new(&self.vpn_policy, &self.vpn_interface).map_err(|e| invalid(&e))?;
         Ok(())
     }
-}
-
-fn text_row(ui: &mut egui::Ui, label: &str, value: &mut String, hint: &str) {
-    ui.horizontal(|ui| {
-        ui.label(label);
-        ui.add(
-            egui::TextEdit::singleline(value)
-                .hint_text(hint)
-                .desired_width(ui.available_width()),
-        );
-    });
 }
 
 #[cfg(test)]

@@ -187,7 +187,7 @@ pub fn cache_limit_mb(gb_text: &str) -> Option<u64> {
     Some(((gb * 1024.0).round() as u64).clamp(1, 1024 * 1024))
 }
 
-fn open_with_os(target: &Path) -> std::io::Result<()> {
+pub(crate) fn open_with_os(target: &Path) -> std::io::Result<()> {
     #[cfg(windows)]
     let mut cmd = std::process::Command::new("explorer");
     #[cfg(target_os = "macos")]
@@ -270,6 +270,12 @@ pub struct SettingsDashboard {
     cf_job: Option<Job>,
     /// Saved Cloudflare mode for the main-window selector.
     pub cf_mode_changed: Option<String>,
+    auto_status: String,
+    net_draft: Option<crate::net::NetSettings>,
+    net_port: String,
+    net_timeout: String,
+    net_preset: String,
+    net_status: String,
 }
 
 impl Default for SettingsDashboard {
@@ -304,6 +310,12 @@ impl Default for SettingsDashboard {
             cf_status: String::new(),
             cf_job: None,
             cf_mode_changed: None,
+            auto_status: String::new(),
+            net_draft: None,
+            net_port: "0".into(),
+            net_timeout: "5".into(),
+            net_preset: String::new(),
+            net_status: "Not validated yet.".into(),
         }
     }
 }
@@ -382,6 +394,8 @@ impl SettingsDashboard {
 
     pub fn closed(&mut self) {
         self.loaded = false;
+        self.net_draft = None;
+        self.auto_status.clear();
     }
 
     fn poll(&mut self) {
@@ -430,8 +444,123 @@ impl SettingsDashboard {
 
     // ── General page ───────────────────────────────────────────────────
 
-    pub fn general_cards(&mut self, ui: &mut egui::Ui, path: &Path, ctx: &egui::Context) {
+    /// Python Download page (auto output, features, credentials, archive).
+    /// Returns a new `auto_detect_output` value when the segment changed.
+    pub fn general_cards(
+        &mut self,
+        ui: &mut egui::Ui,
+        path: &Path,
+        ctx: &egui::Context,
+        auto_pref: &str,
+    ) -> Option<&'static str> {
         self.poll();
+        let p = crate::theme::palette(ui);
+        let mut new_pref = None;
+        // Default Auto Output (blue-bordered card with a segmented control).
+        let blue = rgb(0x3b, 0x82, 0xf6);
+        egui::Frame::new()
+            .fill(p.surface)
+            .stroke(egui::Stroke::new(1.0, blue))
+            .corner_radius(12.0)
+            .inner_margin(egui::Margin::same(12))
+            .outer_margin(egui::Margin::symmetric(0, 5))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.horizontal(|ui| {
+                    badge_label(ui, "AUTO", rgb(0x25, 0x63, 0xeb));
+                    ui.add_space(4.0);
+                    ui.vertical(|ui| {
+                        ui.label(
+                            egui::RichText::new("Default Auto Output")
+                                .family(egui::FontFamily::Name("bold".into()))
+                                .size(12.0),
+                        );
+                        ui.label(
+                            egui::RichText::new(
+                                "Chooses Folder or ZIP whenever output mode is Auto.",
+                            )
+                            .size(9.0)
+                            .color(muted(ui)),
+                        );
+                        let status = if self.auto_status.is_empty() {
+                            if auto_pref == "zip" {
+                                "Currently: ZIP output"
+                            } else {
+                                "Currently: folder output"
+                            }
+                            .to_owned()
+                        } else {
+                            self.auto_status.clone()
+                        };
+                        ui.label(egui::RichText::new(status).size(9.0).color(muted2(ui)));
+                    });
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if let Some(v) =
+                            segmented(ui, &[("ZIP", "zip"), ("Folder", "folder")], auto_pref)
+                        {
+                            self.auto_status = if v == "zip" {
+                                "Saved: ZIP output".into()
+                            } else {
+                                "Saved: folder output".into()
+                            };
+                            new_pref = Some(v);
+                        }
+                    });
+                });
+            });
+
+        title(
+            ui,
+            "Download Features",
+            "Optional helpers are applied immediately to the current session.",
+        );
+        for pair in (0..FEATURES.len()).collect::<Vec<_>>().chunks(2) {
+            ui.columns(2, |cols| {
+                for (c, &i) in pair.iter().enumerate() {
+                    let ui = &mut cols[c];
+                    let (badge, name, desc, key, _) = FEATURES[i];
+                    let color = FEATURE_COLORS[i];
+                    let mut on = self.features[i];
+                    let mut changed = false;
+                    frame(ui, crate::theme::palette(ui).border).show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.set_min_height(46.0);
+                        ui.horizontal(|ui| {
+                            badge_label(ui, badge, color);
+                            ui.vertical(|ui| {
+                                ui.label(
+                                    egui::RichText::new(name)
+                                        .family(egui::FontFamily::Name("bold".into()))
+                                        .size(11.0),
+                                );
+                                ui.label(egui::RichText::new(desc).size(9.0).color(muted(ui)));
+                            });
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    changed = toggle(ui, &mut on, color);
+                                },
+                            );
+                        });
+                    });
+                    if changed {
+                        self.features[i] = on;
+                        let value: Value = if key == "gallery_dl_mode" {
+                            (if on { "smart" } else { "off" }).into()
+                        } else {
+                            on.into()
+                        };
+                        self.status = match update(path, |m| {
+                            m.insert(key.into(), value);
+                        }) {
+                            Ok(()) => format!("{name}: {}", if on { "ON" } else { "OFF" }),
+                            Err(e) => format!("{name}: {e}"),
+                        };
+                    }
+                }
+            });
+        }
+
         title(
             ui,
             "Access & Credentials",
@@ -448,7 +577,7 @@ impl SettingsDashboard {
                     ui.add(
                         egui::TextEdit::singleline(&mut self.cookie)
                             .hint_text("Netscape cookies.txt (optional)")
-                            .desired_width(300.0),
+                            .desired_width(ui.available_width() - 160.0),
                     );
                     if ui.button("Browse").clicked()
                         && let Some(p) = rfd::FileDialog::new()
@@ -503,66 +632,56 @@ impl SettingsDashboard {
         frame(ui, cyan).show(ui, |ui| {
             ui.set_width(ui.available_width());
             group_label(ui, "Archive behavior");
-            egui::Grid::new("archive-behavior")
-                .num_columns(2)
-                .spacing([24.0, 2.0])
-                .show(ui, |ui| {
-                    field_label(ui, "Strategy", "Auto selects the lightest complete pipeline.");
-                    field_label(
-                        ui,
-                        "Safe interaction",
-                        "Safe permits guarded scroll/click; Off never clicks.",
-                    );
-                    ui.end_row();
-                    combo(
-                        ui,
-                        "arch-strategy",
-                        &mut self.strategy,
-                        &["auto", "classic", "smart", "browser"],
-                    );
-                    combo(ui, "arch-interaction", &mut self.interaction, &["safe", "off"]);
-                    ui.end_row();
-                });
-            for (group, range) in [
-                ("Discovery limits", 0..2),
-                ("Browser runtime limits", 2..ARCHIVE_LIMITS.len()),
+            ui.columns(2, |cols| {
+                field_label(&mut cols[0], "Strategy", "Auto selects the lightest complete pipeline.");
+                combo(
+                    &mut cols[0],
+                    "arch-strategy",
+                    &mut self.strategy,
+                    &["auto", "classic", "smart", "browser"],
+                );
+                field_label(
+                    &mut cols[1],
+                    "Safe interaction",
+                    "Safe permits guarded scroll/click; Off never clicks.",
+                );
+                combo(&mut cols[1], "arch-interaction", &mut self.interaction, &["safe", "off"]);
+            });
+            for (group, idx) in [
+                ("Discovery limits", vec![0usize, 1]),
+                ("Browser runtime limits", vec![2, 3, 4, 5, 6]),
             ] {
                 group_label(ui, group);
-                egui::Grid::new(group)
-                    .num_columns(2)
-                    .spacing([24.0, 2.0])
-                    .show(ui, |ui| {
-                        let idx: Vec<usize> = range.collect();
-                        for pair in idx.chunks(2) {
-                            for &i in pair {
-                                let (label, hint, _, _, _) = ARCHIVE_LIMITS[i];
-                                field_label(ui, label, hint);
-                            }
-                            ui.end_row();
-                            for &i in pair {
-                                ui.add(
-                                    egui::TextEdit::singleline(&mut self.limits[i])
-                                        .desired_width(200.0),
-                                );
-                            }
-                            ui.end_row();
+                for pair in idx.chunks(2) {
+                    ui.columns(2, |cols| {
+                        for (c, &i) in pair.iter().enumerate() {
+                            let (label, hint, _, _, _) = ARCHIVE_LIMITS[i];
+                            field_label(&mut cols[c], label, hint);
+                            let w = cols[c].available_width();
+                            cols[c].add(
+                                egui::TextEdit::singleline(&mut self.limits[i]).desired_width(w),
+                            );
+                        }
+                        if pair.len() == 1 {
+                            let p = crate::theme::palette(&cols[1]);
+                            egui::Frame::new()
+                                .fill(p.panel)
+                                .corner_radius(8.0)
+                                .inner_margin(egui::Margin::same(10))
+                                .show(&mut cols[1], |ui| {
+                                    ui.label(
+                                        egui::RichText::new(
+                                            "Every number is a safety cap, not a download target. Keep the defaults unless a site is incomplete.",
+                                        )
+                                        .size(9.0)
+                                        .color(muted(ui)),
+                                    );
+                                });
                         }
                     });
+                }
             }
-            let p = crate::theme::palette(ui);
-            egui::Frame::new()
-                .fill(p.panel)
-                .corner_radius(8.0)
-                .inner_margin(8.0)
-                .show(ui, |ui| {
-                    ui.label(
-                        egui::RichText::new(
-                            "Every number is a safety cap, not a download target. Keep the defaults unless a site is incomplete.",
-                        )
-                        .size(9.0)
-                        .color(p.muted),
-                    );
-                });
+            ui.add_space(6.0);
             ui.horizontal(|ui| {
                 ui.label(
                     egui::RichText::new(&self.archive_status)
@@ -576,60 +695,8 @@ impl SettingsDashboard {
                 });
             });
         });
-
-        title(
-            ui,
-            "Download Features",
-            "Optional helpers are applied immediately to the current session.",
-        );
-        egui::Grid::new("features")
-            .num_columns(2)
-            .spacing([8.0, 8.0])
-            .show(ui, |ui| {
-                for (i, (badge, name, desc, key, _)) in FEATURES.iter().enumerate() {
-                    let color = FEATURE_COLORS[i];
-                    let mut on = self.features[i];
-                    let mut changed = false;
-                    frame(ui, crate::theme::palette(ui).border).show(ui, |ui| {
-                        ui.set_width(300.0);
-                        ui.horizontal(|ui| {
-                            badge_label(ui, badge, color);
-                            ui.vertical(|ui| {
-                                ui.label(egui::RichText::new(*name).strong().size(11.0));
-                                ui.label(
-                                    egui::RichText::new(*desc)
-                                        .size(9.0)
-                                        .color(crate::theme::palette(ui).muted),
-                                );
-                            });
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    changed = toggle(ui, &mut on, color);
-                                },
-                            );
-                        });
-                    });
-                    if changed {
-                        self.features[i] = on;
-                        let value: Value = if *key == "gallery_dl_mode" {
-                            (if on { "smart" } else { "off" }).into()
-                        } else {
-                            on.into()
-                        };
-                        self.status = match update(path, |m| {
-                            m.insert((*key).into(), value);
-                        }) {
-                            Ok(()) => format!("{name}: {}", if on { "ON" } else { "OFF" }),
-                            Err(e) => format!("{name}: {e}"),
-                        };
-                    }
-                    if i % 2 == 1 {
-                        ui.end_row();
-                    }
-                }
-            });
         let _ = ctx;
+        new_pref
     }
 
     fn save_itch_key(&mut self, path: &Path) {
@@ -682,6 +749,244 @@ impl SettingsDashboard {
             }
             Err(e) => self.archive_status = e,
         }
+    }
+
+    /// Python Network page card (proxy, DNS, VPN guard; Save & apply,
+    /// Validate offline). Edits a draft; "Save & apply" writes it to `net`.
+    pub fn network_card(&mut self, ui: &mut egui::Ui, net: &mut crate::net::NetSettings) {
+        let draft = self.net_draft.get_or_insert_with(|| {
+            self.net_port = net.dns_port.to_string();
+            self.net_timeout = net.dns_timeout.to_string();
+            self.net_preset = crate::app::dns_preset_label(&net.dns);
+            net.clone()
+        });
+        let p = crate::theme::palette(ui);
+        let mut apply = false;
+        let mut validate = false;
+        frame(ui, p.border).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            let section = |ui: &mut egui::Ui, name: &str, desc: &str| {
+                ui.add_space(6.0);
+                ui.label(egui::RichText::new(name).family(egui::FontFamily::Name("bold".into())).size(11.0));
+                ui.label(egui::RichText::new(desc).size(9.0).color(muted(ui)));
+                ui.add_space(4.0);
+            };
+            let label = |ui: &mut egui::Ui, t: &str| {
+                ui.label(egui::RichText::new(t).size(9.0).color(muted(ui)));
+            };
+            section(
+                ui,
+                "Proxy",
+                "HTTP, HTTPS, SOCKS4/5, and SOCKS5h are accepted. SOCKS5h resolves names through the proxy.",
+            );
+            let quarter = (ui.available_width() - 30.0) / 4.0;
+            ui.horizontal_top(|ui| {
+                ui.vertical(|ui| {
+                    label(ui, "Mode");
+                    combo_w(ui, "net-mode", &mut draft.proxy_mode, &["inherit_env", "manual", "disabled"], quarter);
+                });
+                ui.vertical(|ui| {
+                    label(ui, "Common proxy");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut draft.proxy)
+                            .hint_text("socks5h://127.0.0.1:1080")
+                            .desired_width(ui.available_width()),
+                    );
+                });
+            });
+            ui.columns(2, |cols| {
+                label(&mut cols[0], "HTTP override");
+                let w = cols[0].available_width();
+                cols[0].add(
+                    egui::TextEdit::singleline(&mut draft.proxy_http)
+                        .hint_text("http://127.0.0.1:8080")
+                        .desired_width(w),
+                );
+                label(&mut cols[1], "HTTPS override");
+                let w = cols[1].available_width();
+                cols[1].add(
+                    egui::TextEdit::singleline(&mut draft.proxy_https)
+                        .hint_text("http://127.0.0.1:8080")
+                        .desired_width(w),
+                );
+            });
+            label(ui, "Bypass hosts / NO_PROXY");
+            ui.add(
+                egui::TextEdit::singleline(&mut draft.proxy_no_proxy)
+                    .hint_text("localhost,127.0.0.1,::1,.local")
+                    .desired_width(ui.available_width()),
+            );
+            section(
+                ui,
+                "DNS",
+                "Choose system DNS, plain UDP/TCP, DNS-over-HTTPS (DoH), or DNS-over-TLS (DoT).",
+            );
+            ui.horizontal_top(|ui| {
+                ui.vertical(|ui| {
+                    label(ui, "Preset");
+                    let before = self.net_preset.clone();
+                    let labels: Vec<&str> =
+                        crate::app::DNS_PRESET_LIST.iter().map(|(l, _)| *l).collect();
+                    combo_w(ui, "net-preset", &mut self.net_preset, &labels, quarter);
+                    if self.net_preset != before
+                        && let Some((_, endpoint)) = crate::app::DNS_PRESET_LIST
+                            .iter()
+                            .find(|(l, _)| *l == self.net_preset)
+                        && *endpoint != "__custom__"
+                    {
+                        draft.dns = (*endpoint).to_owned();
+                        draft.dns_protocol =
+                            cyoa_net::dns::infer_dns_protocol(endpoint, None);
+                        self.net_port = "0".into();
+                    }
+                });
+                ui.vertical(|ui| {
+                    label(ui, "Protocol");
+                    combo_w(ui, "net-proto", &mut draft.dns_protocol, &["system", "udp", "tcp", "doh", "dot"], quarter);
+                });
+                ui.vertical(|ui| {
+                    label(ui, "Resolver endpoint");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut draft.dns)
+                            .hint_text("1.1.1.1 or https://cloudflare-dns.com/dns-query")
+                            .desired_width(ui.available_width()),
+                    );
+                });
+            });
+            ui.horizontal_top(|ui| {
+                ui.vertical(|ui| {
+                    label(ui, "Port (0 = default)");
+                    ui.add(egui::TextEdit::singleline(&mut self.net_port).desired_width(quarter));
+                });
+                ui.vertical(|ui| {
+                    label(ui, "Timeout (seconds)");
+                    ui.add(egui::TextEdit::singleline(&mut self.net_timeout).desired_width(quarter));
+                });
+                ui.vertical(|ui| {
+                    ui.add_space(16.0);
+                    ui.horizontal(|ui| {
+                        crate::theme::checkbox(ui, &p, &mut draft.dns_fallback_system, "Fall back to system DNS", p.accent, true);
+                        ui.add_space(20.0);
+                        crate::theme::checkbox(ui, &p, &mut draft.dns_ipv6, "Resolve IPv6 / AAAA", p.accent, true);
+                    });
+                });
+            });
+            section(
+                ui,
+                "VPN guard",
+                "System follows the OS route table. Require blocks downloader requests unless a VPN-like interface is active; it never starts or changes a VPN.",
+            );
+            ui.horizontal_top(|ui| {
+                ui.vertical(|ui| {
+                    label(ui, "Policy");
+                    combo_w(ui, "net-vpn", &mut draft.vpn_policy, &["system", "require"], quarter);
+                });
+                ui.vertical(|ui| {
+                    label(ui, "Interface name contains (optional)");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut draft.vpn_interface)
+                            .hint_text("WireGuard, Wintun, NordLynx, Tailscale…")
+                            .desired_width(ui.available_width()),
+                    );
+                });
+            });
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(&self.net_status).size(9.0).color(muted(ui)));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    validate = ui.button("Validate offline").clicked();
+                    apply = accent_button(ui, "Save & apply", rgb(0x25, 0x63, 0xeb));
+                });
+            });
+        });
+        if apply || validate {
+            self.apply_network(net, validate);
+        }
+    }
+
+    /// Python `_apply_network_settings` / `_test_network_settings`.
+    fn apply_network(&mut self, net: &mut crate::net::NetSettings, validate: bool) {
+        let Some(draft) = self.net_draft.clone() else {
+            return;
+        };
+        let port = match self.net_port.trim() {
+            "" => Ok(0),
+            t => t.parse::<i64>().map(|v| v.clamp(0, 65535) as u16),
+        };
+        let timeout = match self.net_timeout.trim() {
+            "" => Ok(5),
+            t => t.parse::<i64>().map(|v| v.clamp(1, 60) as u32),
+        };
+        let (Ok(port), Ok(timeout)) = (port, timeout) else {
+            self.net_status = "Error: invalid literal for int() with base 10".into();
+            return;
+        };
+        let mut next = draft;
+        next.dns_port = port;
+        next.dns_timeout = timeout;
+        for v in [
+            &mut next.proxy,
+            &mut next.proxy_http,
+            &mut next.proxy_https,
+            &mut next.proxy_no_proxy,
+            &mut next.dns,
+            &mut next.vpn_interface,
+        ] {
+            *v = v.trim().to_owned();
+        }
+        if let Err(e) = next.build_check() {
+            self.net_status = format!("Error: {e}");
+            return;
+        }
+        *net = next.clone();
+        self.net_draft = Some(next.clone());
+        self.net_preset = crate::app::dns_preset_label(&next.dns);
+        let saved = "Saved and applied to new requests.".to_owned();
+        self.net_status = if validate {
+            let guard = cyoa_net::vpn::VpnConfig::new(&next.vpn_policy, &next.vpn_interface)
+                .map(cyoa_net::vpn::VpnGuard::new);
+            match guard {
+                Ok(g) if next.vpn_policy == "require" && !g.status().available => {
+                    "Valid config, but required VPN interface is not active. No external request sent.".into()
+                }
+                Ok(_) => {
+                    let proxy = match next.proxy_mode.as_str() {
+                        "manual" => {
+                            let mut keys = Vec::new();
+                            if !next.proxy_http.is_empty() || !next.proxy.is_empty() {
+                                keys.push("HTTP");
+                            }
+                            if !next.proxy_https.is_empty() || !next.proxy.is_empty() {
+                                keys.push("HTTPS");
+                            }
+                            keys.join("/")
+                        }
+                        "inherit_env" => {
+                            let mut keys: Vec<String> = ["all", "http", "https"]
+                                .iter()
+                                .filter(|k| {
+                                    std::env::var(format!("{k}_proxy")).is_ok()
+                                        || std::env::var(format!("{}_PROXY", k.to_uppercase())).is_ok()
+                                })
+                                .map(|k| k.to_uppercase())
+                                .collect();
+                            keys.sort();
+                            keys.join("/")
+                        }
+                        _ => String::new(),
+                    };
+                    let proxy = if proxy.is_empty() { "direct/system".to_owned() } else { proxy };
+                    format!(
+                        "Valid: DNS {}; proxy {proxy}. No external request sent.",
+                        next.dns_protocol.to_uppercase()
+                    )
+                }
+                Err(e) => format!("Error: {e}"),
+            }
+        } else {
+            saved
+        };
+        self.status = self.net_status.clone();
     }
 
     // ── Integrations page ──────────────────────────────────────────────
@@ -742,7 +1047,7 @@ impl SettingsDashboard {
                 ui.label(
                     egui::RichText::new(&self.discord_status)
                         .size(9.0)
-                        .color(crate::theme::palette(ui).muted),
+                        .color(muted(ui)),
                 );
             },
         );
@@ -758,70 +1063,86 @@ impl SettingsDashboard {
             "Cloudflare / FlareSolverr",
             "Challenge-solving behavior for protected websites.",
             |ui| {
-                egui::Grid::new("cf-grid")
-                    .num_columns(2)
-                    .spacing([24.0, 2.0])
-                    .show(ui, |ui| {
-                        field_label(ui, "Mode", "Auto selects a solver only when challenged.");
-                        field_label(ui, "Auto priority", "Solver attempted first in Auto mode.");
-                        ui.end_row();
-                        combo(
-                            ui,
-                            "cf-mode",
-                            &mut self.cf_mode,
-                            &["Off", "Auto", "cloudscraper", "FlareSolverr"],
-                        );
-                        combo(
-                            ui,
-                            "cf-prio",
-                            &mut self.cf_priority,
-                            &["FlareSolverr first", "cloudscraper first"],
-                        );
-                        ui.end_row();
-                        field_label(ui, "Session", "Controls challenge-cookie reuse.");
-                        field_label(ui, "Proxy", "Inherit uses the proxy from the main form.");
-                        ui.end_row();
-                        combo(
-                            ui,
-                            "cf-session",
-                            &mut self.cf_session,
-                            &["temporary", "reuse-domain", "manual"],
-                        );
-                        combo(ui, "cf-proxy", &mut self.cf_proxy, &["inherit", "none"]);
-                        ui.end_row();
+                for (l, h, r, rh) in [
+                    (
+                        "Mode",
+                        "Auto selects a solver only when challenged.",
+                        "Auto priority",
+                        "Solver attempted first in Auto mode.",
+                    ),
+                    (
+                        "Session",
+                        "Controls challenge-cookie reuse.",
+                        "Proxy",
+                        "Inherit uses the proxy from the main form.",
+                    ),
+                ] {
+                    ui.columns(2, |cols| {
+                        field_label(&mut cols[0], l, h);
+                        field_label(&mut cols[1], r, rh);
+                        let (w0, w1) = (cols[0].available_width(), cols[1].available_width());
+                        if l == "Mode" {
+                            combo_w(
+                                &mut cols[0],
+                                "cf-mode",
+                                &mut self.cf_mode,
+                                &["Off", "Auto", "cloudscraper", "FlareSolverr"],
+                                w0,
+                            );
+                            combo_w(
+                                &mut cols[1],
+                                "cf-prio",
+                                &mut self.cf_priority,
+                                &["FlareSolverr first", "cloudscraper first"],
+                                w1,
+                            );
+                        } else {
+                            combo_w(
+                                &mut cols[0],
+                                "cf-session",
+                                &mut self.cf_session,
+                                &["temporary", "reuse-domain", "manual"],
+                                w0,
+                            );
+                            combo_w(
+                                &mut cols[1],
+                                "cf-proxy",
+                                &mut self.cf_proxy,
+                                &["inherit", "none"],
+                                w1,
+                            );
+                        }
                     });
+                }
                 field_label(
                     ui,
                     "FlareSolverr API URL",
                     "Address of the running FlareSolverr service.",
                 );
-                ui.add(egui::TextEdit::singleline(&mut self.cf_url).desired_width(420.0));
-                egui::Grid::new("cf-times")
-                    .num_columns(2)
-                    .spacing([24.0, 2.0])
-                    .show(ui, |ui| {
-                        field_label(
-                            ui,
-                            "Timeout (s)",
-                            "Maximum time allowed to solve a challenge.",
-                        );
-                        field_label(
-                            ui,
-                            "Wait after solve (s)",
-                            "Extra delay for the solved page to stabilize.",
-                        );
-                        ui.end_row();
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.cf_timeout).desired_width(200.0),
-                        );
-                        ui.add(egui::TextEdit::singleline(&mut self.cf_wait).desired_width(200.0));
-                        ui.end_row();
-                    });
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.cf_url)
+                        .desired_width(ui.available_width()),
+                );
+                ui.columns(2, |cols| {
+                    field_label(
+                        &mut cols[0],
+                        "Timeout (s)",
+                        "Maximum time allowed to solve a challenge.",
+                    );
+                    field_label(
+                        &mut cols[1],
+                        "Wait after solve (s)",
+                        "Extra delay for the solved page to stabilize.",
+                    );
+                    let (w0, w1) = (cols[0].available_width(), cols[1].available_width());
+                    cols[0].add(egui::TextEdit::singleline(&mut self.cf_timeout).desired_width(w0));
+                    cols[1].add(egui::TextEdit::singleline(&mut self.cf_wait).desired_width(w1));
+                });
                 ui.horizontal(|ui| {
                     ui.label(
                         egui::RichText::new(&self.cf_status)
                             .size(9.0)
-                            .color(crate::theme::palette(ui).muted),
+                            .color(muted(ui)),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if accent_button(ui, "Save", orange) && self.apply_cf(path).is_some() {
@@ -963,68 +1284,64 @@ impl SettingsDashboard {
 
     pub fn maintenance_cards(&mut self, ui: &mut egui::Ui, path: &Path, ctx: &egui::Context) {
         self.poll();
-        title(
-            ui,
-            "Tools & Maintenance",
-            "Manage storage and portable settings without another app window.",
-        );
         let blue = rgb(0x25, 0x63, 0xeb);
         let green = rgb(0x06, 0x5f, 0x46);
         let deep = rgb(0x1d, 0x4e, 0xd8);
-        egui::Grid::new("tools")
-            .num_columns(2)
-            .spacing([8.0, 8.0])
-            .show(ui, |ui| {
-                if tool(
-                    ui,
-                    "CFG",
-                    blue,
-                    "Settings file",
-                    "Edit the active settings.json.",
-                    "Edit JSON",
-                ) {
-                    self.status = open_settings_file(path)
-                        .err()
-                        .map_or_else(String::new, |e| format!("Open settings.json: {e}"));
-                }
-                if tool(
-                    ui,
-                    "DIR",
-                    blue,
-                    "Settings folder",
-                    "Show the local settings/history folder.",
-                    "Show",
-                ) {
-                    let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
-                    let _ = std::fs::create_dir_all(&dir);
-                    self.status = open_with_os(&dir)
-                        .err()
-                        .map_or_else(String::new, |e| format!("Open settings folder: {e}"));
-                }
-                ui.end_row();
-                if tool(
-                    ui,
-                    "OUT",
-                    green,
-                    "Export settings",
-                    "Create a portable secret-safe export.",
-                    "Export…",
-                ) {
-                    self.start_file_job(path, true, ctx);
-                }
-                if tool(
-                    ui,
-                    "IN",
-                    deep,
-                    "Import settings",
-                    "Merge a previous portable export.",
-                    "Import…",
-                ) {
-                    self.start_file_job(path, false, ctx);
-                }
-                ui.end_row();
-            });
-
+        let mut clicks = [false; 4];
+        ui.columns(2, |cols| {
+            clicks[0] = tool(
+                &mut cols[0],
+                "CFG",
+                blue,
+                "Settings file",
+                "Edit the active settings.json.",
+                "Edit JSON",
+            );
+            clicks[1] = tool(
+                &mut cols[1],
+                "DIR",
+                blue,
+                "Settings folder",
+                "Show the local settings/history folder.",
+                "Show",
+            );
+        });
+        ui.columns(2, |cols| {
+            clicks[2] = tool(
+                &mut cols[0],
+                "OUT",
+                green,
+                "Export settings",
+                "Create a portable secret-safe export.",
+                "Export…",
+            );
+            clicks[3] = tool(
+                &mut cols[1],
+                "IN",
+                deep,
+                "Import settings",
+                "Merge a previous portable export.",
+                "Import…",
+            );
+        });
+        if clicks[0] {
+            self.status = open_settings_file(path)
+                .err()
+                .map_or_else(String::new, |e| format!("Open settings.json: {e}"));
+        }
+        if clicks[1] {
+            let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
+            let _ = std::fs::create_dir_all(&dir);
+            self.status = open_with_os(&dir)
+                .err()
+                .map_or_else(String::new, |e| format!("Open settings folder: {e}"));
+        }
+        if clicks[2] {
+            self.start_file_job(path, true, ctx);
+        }
+        if clicks[3] {
+            self.start_file_job(path, false, ctx);
+        }
         boxed(
             ui,
             "IMG",
@@ -1173,12 +1490,29 @@ const FEATURE_COLORS: &[egui::Color32] = &[
     egui::Color32::from_rgb(0xef, 0x44, 0x44),
 ];
 
-fn rgb(r: u8, g: u8, b: u8) -> egui::Color32 {
+/// Settings-local secondary text (Python overrides `muted` in Settings).
+pub(crate) fn muted(ui: &egui::Ui) -> egui::Color32 {
+    if ui.visuals().dark_mode {
+        rgb(0x94, 0xa3, 0xb8)
+    } else {
+        rgb(0x64, 0x74, 0x8b)
+    }
+}
+
+pub(crate) fn muted2(ui: &egui::Ui) -> egui::Color32 {
+    if ui.visuals().dark_mode {
+        rgb(0x64, 0x74, 0x8b)
+    } else {
+        rgb(0x94, 0xa3, 0xb8)
+    }
+}
+
+pub(crate) fn rgb(r: u8, g: u8, b: u8) -> egui::Color32 {
     egui::Color32::from_rgb(r, g, b)
 }
 
 /// Python card frame: surface fill, 1 px border, 10 px corners.
-fn frame(ui: &egui::Ui, border: egui::Color32) -> egui::Frame {
+pub(crate) fn frame(ui: &egui::Ui, border: egui::Color32) -> egui::Frame {
     let p = crate::theme::palette(ui);
     egui::Frame::new()
         .fill(p.surface)
@@ -1189,16 +1523,21 @@ fn frame(ui: &egui::Ui, border: egui::Color32) -> egui::Frame {
 }
 
 /// Python page `_title(page, row, title, desc)`.
-fn title(ui: &mut egui::Ui, text: &str, desc: &str) {
+pub(crate) fn title(ui: &mut egui::Ui, text: &str, desc: &str) {
     let p = crate::theme::palette(ui);
     ui.add_space(10.0);
-    ui.label(egui::RichText::new(text).strong().size(13.0).color(p.fg));
-    ui.label(egui::RichText::new(desc).size(10.0).color(p.muted));
+    ui.label(
+        egui::RichText::new(text)
+            .family(egui::FontFamily::Name("bold".into()))
+            .size(14.0)
+            .color(p.fg),
+    );
+    ui.label(egui::RichText::new(desc).size(9.0).color(muted(ui)));
     ui.add_space(2.0);
 }
 
 /// Python coloured badge (`text="YT"`, white bold 9 pt on the accent).
-fn badge_label(ui: &mut egui::Ui, text: &str, color: egui::Color32) {
+pub(crate) fn badge_label(ui: &mut egui::Ui, text: &str, color: egui::Color32) {
     egui::Frame::new()
         .fill(color)
         .corner_radius(8.0)
@@ -1207,7 +1546,7 @@ fn badge_label(ui: &mut egui::Ui, text: &str, color: egui::Color32) {
             ui.set_min_width(22.0);
             ui.label(
                 egui::RichText::new(text)
-                    .strong()
+                    .family(egui::FontFamily::Name("bold".into()))
                     .size(9.0)
                     .color(egui::Color32::WHITE),
             );
@@ -1215,7 +1554,7 @@ fn badge_label(ui: &mut egui::Ui, text: &str, color: egui::Color32) {
 }
 
 /// A Python card: badge, bold title, muted description, then contents.
-fn boxed(
+pub(crate) fn boxed(
     ui: &mut egui::Ui,
     badge: &str,
     color: egui::Color32,
@@ -1229,9 +1568,14 @@ fn boxed(
         ui.horizontal_top(|ui| {
             badge_label(ui, badge, color);
             ui.vertical(|ui| {
-                ui.label(egui::RichText::new(name).strong().size(11.0).color(p.fg));
+                ui.label(
+                    egui::RichText::new(name)
+                        .family(egui::FontFamily::Name("bold".into()))
+                        .size(11.0)
+                        .color(p.fg),
+                );
                 if !desc.is_empty() {
-                    ui.label(egui::RichText::new(desc).size(9.0).color(p.muted));
+                    ui.label(egui::RichText::new(desc).size(9.0).color(muted(ui)));
                 }
                 ui.add_space(3.0);
                 add(ui);
@@ -1240,17 +1584,17 @@ fn boxed(
     });
 }
 
-fn group_label(ui: &mut egui::Ui, text: &str) {
+pub(crate) fn group_label(ui: &mut egui::Ui, text: &str) {
     ui.add_space(6.0);
     ui.label(
         egui::RichText::new(text.to_uppercase())
-            .strong()
+            .family(egui::FontFamily::Name("bold".into()))
             .size(9.0)
             .color(rgb(0x22, 0xd3, 0xee)),
     );
 }
 
-fn field_label(ui: &mut egui::Ui, label: &str, hint: &str) {
+pub(crate) fn field_label(ui: &mut egui::Ui, label: &str, hint: &str) {
     let p = crate::theme::palette(ui);
     ui.vertical(|ui| {
         ui.label(egui::RichText::new(label).size(9.0).color(p.muted));
@@ -1259,20 +1603,22 @@ fn field_label(ui: &mut egui::Ui, label: &str, hint: &str) {
 }
 
 /// A filled accent button like the Python CTkButton colours.
-fn accent_button(ui: &mut egui::Ui, text: &str, color: egui::Color32) -> bool {
+pub(crate) fn accent_button(ui: &mut egui::Ui, text: &str, color: egui::Color32) -> bool {
     ui.add(
         egui::Button::new(
             egui::RichText::new(text)
-                .strong()
+                .size(13.0)
                 .color(egui::Color32::WHITE),
         )
-        .fill(color),
+        .fill(color)
+        .corner_radius(6.0)
+        .min_size(egui::vec2(82.0, 30.0)),
     )
     .clicked()
 }
 
 /// A CTkSwitch-like toggle; returns true when flipped.
-fn toggle(ui: &mut egui::Ui, on: &mut bool, color: egui::Color32) -> bool {
+pub(crate) fn toggle(ui: &mut egui::Ui, on: &mut bool, color: egui::Color32) -> bool {
     let size = egui::vec2(40.0, 20.0);
     let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
     if resp.clicked() {
@@ -1299,12 +1645,17 @@ fn tool(
     let mut clicked = false;
     let p = crate::theme::palette(ui);
     frame(ui, p.border).show(ui, |ui| {
-        ui.set_width(300.0);
+        ui.set_width(ui.available_width());
         ui.horizontal(|ui| {
             badge_label(ui, badge, color);
             ui.vertical(|ui| {
-                ui.label(egui::RichText::new(name).strong().size(11.0).color(p.fg));
-                ui.label(egui::RichText::new(desc).size(9.0).color(p.muted));
+                ui.label(
+                    egui::RichText::new(name)
+                        .family(egui::FontFamily::Name("bold".into()))
+                        .size(11.0)
+                        .color(p.fg),
+                );
+                ui.label(egui::RichText::new(desc).size(9.0).color(muted(ui)));
             });
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 clicked = accent_button(ui, button, color);
@@ -1314,7 +1665,7 @@ fn tool(
     clicked
 }
 
-fn combo(ui: &mut egui::Ui, id: &str, value: &mut String, options: &[&str]) {
+pub(crate) fn combo(ui: &mut egui::Ui, id: &str, value: &mut String, options: &[&str]) {
     egui::ComboBox::from_id_salt(id)
         .selected_text(value.as_str())
         .show_ui(ui, |ui| {
@@ -1420,6 +1771,61 @@ fn validate_discord_token(token: &str) -> String {
         Ok(name) => format!("OK: {name}"),
         Err(e) => format!("Error: {e}"),
     }
+}
+
+/// A CTkOptionMenu-like combo of a fixed width.
+pub(crate) fn combo_w(
+    ui: &mut egui::Ui,
+    id: &str,
+    value: &mut String,
+    options: &[&str],
+    width: f32,
+) {
+    egui::ComboBox::from_id_salt(id)
+        .selected_text(value.as_str())
+        .width(width)
+        .show_ui(ui, |ui| {
+            for o in options {
+                ui.selectable_value(value, (*o).to_owned(), *o);
+            }
+        });
+}
+
+/// A CTkSegmentedButton (options are laid out right to left); returns the
+/// newly selected value.
+pub(crate) fn segmented(
+    ui: &mut egui::Ui,
+    options: &[(&str, &'static str)],
+    current: &str,
+) -> Option<&'static str> {
+    let p = crate::theme::palette(ui);
+    let mut picked = None;
+    egui::Frame::new()
+        .fill(p.surface2)
+        .corner_radius(8.0)
+        .inner_margin(egui::Margin::same(3))
+        .show(ui, |ui| {
+            ui.spacing_mut().item_spacing.x = 2.0;
+            for (label, value) in options {
+                let on = current == *value;
+                let button = egui::Button::new(
+                    egui::RichText::new(*label)
+                        .size(12.0)
+                        .color(egui::Color32::WHITE),
+                )
+                .fill(if on {
+                    rgb(0x3b, 0x82, 0xf6)
+                } else {
+                    p.surface2
+                })
+                .corner_radius(6.0)
+                .min_size(egui::vec2(78.0, 28.0));
+                if ui.add(button).clicked() && !on {
+                    picked = Some(*value);
+                }
+            }
+        });
+    picked
 }
 
 #[cfg(test)]

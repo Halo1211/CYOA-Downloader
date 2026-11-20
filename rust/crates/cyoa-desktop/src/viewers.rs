@@ -48,7 +48,6 @@ pub fn status_message(json: bool, website: bool, label: &str) -> String {
 }
 
 pub struct ViewerPanel {
-    pub open: bool,
     settings_path: PathBuf,
     json_enabled: bool,
     website_enabled: bool,
@@ -73,7 +72,6 @@ impl ViewerPanel {
             .unwrap_or_default();
         let flag = |k: &str| saved.get(k).and_then(Value::as_bool).unwrap_or(false);
         let mut panel = Self {
-            open: true,
             json_enabled: flag("offline_viewer_json_enabled"),
             website_enabled: flag("offline_viewer_website_enabled"),
             preferred: AUTO_LABEL.into(),
@@ -227,202 +225,275 @@ impl ViewerPanel {
         }
     }
 
-    pub fn ui(&mut self, ctx: &egui::Context) {
+    /// Python `_settings_inline_viewers`: the Viewers page cards.
+    pub fn inline(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        use crate::settings_dashboard::{
+            accent_button, badge_label, frame, muted, muted2, rgb, toggle,
+        };
         self.poll();
-        let mut open = self.open;
-        egui::Window::new("Offline viewers")
-            .id(egui::Id::unique("offline_viewer_panel"))
-            .open(&mut open)
-            .default_size([720.0, 560.0])
-            .show(ctx, |ui| {
-                egui::ScrollArea::vertical()
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| self.body(ui, ctx));
-            });
-        self.open = open;
-    }
-
-    fn body(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        ui.heading("Automatic viewer handling");
-        ui.label(
-            egui::RichText::new(
-                "Both workflows are opt-in and remain OFF by default. Auto is safest.",
-            )
-            .weak(),
-        );
-        let mut changed = ui
-            .checkbox(
-                &mut self.json_enabled,
-                "JSON-only downloads → create a playable viewer folder",
-            )
-            .on_hover_text(
-                "Uses project schema/version plus HTML evidence to choose a compatible runtime.",
-            )
-            .changed();
-        changed |= ui
-            .checkbox(&mut self.website_enabled, "Full ICC website downloads → modernize viewer for file://")
-            .on_hover_text("Legacy is patched in place; Plus 2/Remix use matched local templates and preserve custom HTML.")
-            .changed();
-        ui.horizontal(|ui| {
-            ui.label("Viewer selection:");
-            egui::ComboBox::from_id_salt("preferred_viewer")
-                .selected_text(self.preferred.clone())
-                .width(320.0)
-                .show_ui(ui, |ui| {
-                    for label in self.labels() {
-                        changed |= ui
-                            .selectable_value(&mut self.preferred, label.clone(), label)
-                            .changed();
-                    }
-                });
-        });
-        ui.label(
-            egui::RichText::new(
-                "Manual choice overrides compatibility detection. Use only for testing.",
-            )
-            .weak(),
-        );
-        if changed {
-            self.save_preferences();
-        }
-        ui.separator();
-        ui.strong("Recommended viewer set");
-        ui.label(
-            egui::RichText::new(
-                "Install both Required families before enabling Auto; Plus 2 must be the offline/local build.",
-            )
-            .weak(),
-        );
-        for rec in &self.recommendations {
-            let ready = rec
-                .get("available")
-                .and_then(Value::as_bool)
-                .unwrap_or(false);
-            let required = rec
-                .get("required")
-                .and_then(Value::as_bool)
-                .unwrap_or(false);
-            let (badge, color) = if ready {
-                ("READY", egui::Color32::from_rgb(0x22, 0xc5, 0x5e))
-            } else if required {
-                (
-                    "MISSING · REQUIRED",
-                    egui::Color32::from_rgb(0xef, 0x44, 0x44),
-                )
-            } else {
-                ("MISSING · OPTIONAL", ui.visuals().weak_text_color())
-            };
+        let p = crate::theme::palette(ui);
+        let blue = rgb(0x3b, 0x82, 0xf6);
+        let mut changed = false;
+        frame(ui, p.border).show(ui, |ui| {
+            ui.set_width(ui.available_width());
             ui.horizontal(|ui| {
-                ui.colored_label(color, egui::RichText::new(badge).strong());
+                badge_label(ui, "AUTO", blue);
                 ui.vertical(|ui| {
-                    ui.strong(rec.get("title_en").and_then(Value::as_str).unwrap_or(""));
+                    ui.label(egui::RichText::new("Automatic viewer handling").family(egui::FontFamily::Name("bold".into())).size(13.0));
                     ui.label(
                         egui::RichText::new(
-                            rec.get("use_en").and_then(Value::as_str).unwrap_or(""),
+                            "Both workflows are opt-in and remain OFF by default. Auto is safest.",
                         )
-                        .weak(),
+                        .size(9.0)
+                        .color(muted(ui)),
                     );
                 });
             });
-        }
-        ui.separator();
-        ui.horizontal(|ui| {
-            ui.strong("Registered archives");
-            if ui.button("Open folder").clicked() {
-                let dir = viewers_dir();
-                let _ = std::fs::create_dir_all(&dir);
-                if let Err(e) = open_folder(&dir) {
-                    self.status = format!("Could not open folder: {e}");
-                }
-            }
-        });
-        let busy = self.pick.is_some() || self.registering.is_some();
-        ui.horizontal(|ui| {
-            ui.add(
-                egui::TextEdit::singleline(&mut self.path)
-                    .hint_text("Viewer ZIP/RAR or unpacked folder")
-                    .desired_width(360.0),
-            );
-            if ui
-                .add_enabled(!busy, egui::Button::new("Archive…"))
-                .clicked()
-            {
-                self.start_pick(false, ctx);
-            }
-            if ui
-                .add_enabled(!busy, egui::Button::new("Folder…"))
-                .clicked()
-            {
-                self.start_pick(true, ctx);
-            }
-        });
-        ui.horizontal(|ui| {
-            ui.add(
-                egui::TextEdit::singleline(&mut self.name)
-                    .hint_text("Display name")
-                    .desired_width(220.0),
-            );
-            egui::ComboBox::from_id_salt("viewer_type")
-                .selected_text(self.viewer_type.clone())
-                .show_ui(ui, |ui| {
-                    for t in VIEWER_TYPES {
-                        ui.selectable_value(&mut self.viewer_type, (*t).to_owned(), *t);
+            egui::Frame::new()
+                .fill(p.bg)
+                .corner_radius(10.0)
+                .inner_margin(egui::Margin::symmetric(18, 10))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    for (on, label, hint) in [
+                        (
+                            &mut self.json_enabled,
+                            "JSON-only downloads → create a playable viewer folder",
+                            "Uses project schema/version plus HTML evidence to choose a compatible runtime.",
+                        ),
+                        (
+                            &mut self.website_enabled,
+                            "Full ICC website downloads → modernize viewer for file://",
+                            "Legacy is patched in place; Plus 2/Remix use matched local templates and preserve custom HTML.",
+                        ),
+                    ] {
+                        ui.horizontal(|ui| {
+                            changed |= toggle(ui, on, blue);
+                            ui.label(egui::RichText::new(label).size(12.0));
+                        });
+                        ui.label(egui::RichText::new(hint).size(9.0).color(muted(ui)));
+                        ui.add_space(6.0);
                     }
                 });
-            if ui
-                .add_enabled(!busy, egui::Button::new("Register"))
-                .clicked()
-            {
-                self.start_register(ctx);
-            }
-        });
-        if self.manifest.is_empty() {
-            ui.label(egui::RichText::new("No offline viewers registered.").weak());
-        }
-        let mut remove = None;
-        for (id, meta) in &self.manifest {
-            let s = |k: &str, d: &str| meta.get(k).and_then(Value::as_str).unwrap_or(d).to_owned();
-            ui.group(|ui| {
-                ui.horizontal(|ui| {
-                    ui.vertical(|ui| {
-                        ui.strong(s("name", id));
-                        ui.label(
-                            egui::RichText::new(format!(
-                                "{} · {}",
-                                s("viewer_type", "custom"),
-                                s("zip_filename", "")
-                            ))
-                            .small()
-                            .weak(),
-                        );
-                    });
-                    if ui.add_enabled(!busy, egui::Button::new("Remove")).clicked() {
-                        remove = Some(id.clone());
-                    }
-                });
-            });
-        }
-        if remove.is_some() {
-            self.confirm_remove = remove;
-        }
-        if let Some(id) = self.confirm_remove.clone() {
             ui.horizontal(|ui| {
-                ui.label(format!(
-                    "Remove '{id}' from the registry? The archive remains on disk."
-                ));
-                if ui.button("Yes").clicked() {
-                    unregister_offline_viewer(&viewers_dir(), &id, false);
-                    self.status = format!("Removed: {id}");
-                    self.confirm_remove = None;
-                    let saved = selected_id(&self.manifest, &self.preferred);
-                    self.refresh(&saved);
+                ui.label(egui::RichText::new("Viewer selection").family(egui::FontFamily::Name("bold".into())).size(10.0));
+                egui::ComboBox::from_id_salt("preferred_viewer_inline")
+                    .selected_text(self.preferred.clone())
+                    .width(ui.available_width() - 8.0)
+                    .show_ui(ui, |ui| {
+                        for label in self.labels() {
+                            changed |= ui
+                                .selectable_value(&mut self.preferred, label.clone(), label)
+                                .changed();
+                        }
+                    });
+            });
+            ui.label(
+                egui::RichText::new(
+                    "Manual choice overrides compatibility detection. Use only for testing.",
+                )
+                .size(9.0)
+                .color(muted(ui)),
+            );
+        });
+        if changed {
+            self.save_preferences();
+        }
+
+        frame(ui, p.border).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.label(egui::RichText::new("Recommended viewer set").family(egui::FontFamily::Name("bold".into())).size(12.0));
+            ui.label(
+                egui::RichText::new(
+                    "Install both Required families before enabling Auto; Plus 2 must be the offline/local build.",
+                )
+                .size(9.0)
+                .color(muted(ui)),
+            );
+            for rec in &self.recommendations {
+                let ready = rec.get("available").and_then(Value::as_bool).unwrap_or(false);
+                let required = rec.get("required").and_then(Value::as_bool).unwrap_or(false);
+                let (badge, bg, fg) = if ready {
+                    ("READY", rgb(0x14, 0x53, 0x2d), rgb(0xbb, 0xf7, 0xd0))
+                } else if required {
+                    ("MISSING · REQUIRED", rgb(0x7f, 0x1d, 0x1d), rgb(0xfe, 0xca, 0xca))
+                } else {
+                    ("MISSING · OPTIONAL", p.surface2, muted(ui))
+                };
+                egui::Frame::new()
+                    .fill(p.bg)
+                    .corner_radius(8.0)
+                    .inner_margin(egui::Margin::symmetric(14, 10))
+                    .outer_margin(egui::Margin::symmetric(0, 3))
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.horizontal(|ui| {
+                            ui.vertical(|ui| {
+                                ui.label(
+                                    egui::RichText::new(
+                                        rec.get("title_en").and_then(Value::as_str).unwrap_or(""),
+                                    )
+                                    .family(egui::FontFamily::Name("bold".into()))
+                                    .size(10.0),
+                                );
+                                ui.label(
+                                    egui::RichText::new(
+                                        rec.get("use_en").and_then(Value::as_str).unwrap_or(""),
+                                    )
+                                    .size(9.0)
+                                    .color(muted(ui)),
+                                );
+                            });
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    egui::Frame::new()
+                                        .fill(bg)
+                                        .corner_radius(7.0)
+                                        .inner_margin(egui::Margin::symmetric(14, 5))
+                                        .show(ui, |ui| {
+                                            ui.set_width(100.0);
+                                            ui.vertical_centered(|ui| {
+                                                ui.label(
+                                                    egui::RichText::new(badge)
+                                                        .family(egui::FontFamily::Name("bold".into()))
+                                                        .size(8.0)
+                                                        .color(fg),
+                                                );
+                                            });
+                                        });
+                                },
+                            );
+                        });
+                    });
+            }
+        });
+
+        frame(ui, p.border).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new("Registered archives")
+                        .family(egui::FontFamily::Name("bold".into()))
+                        .size(12.0),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("Open folder").clicked() {
+                        let dir = viewers_dir();
+                        let _ = std::fs::create_dir_all(&dir);
+                        if let Err(e) = open_folder(&dir) {
+                            self.status = format!("Could not open folder: {e}");
+                        }
+                    }
+                });
+            });
+            let busy = self.pick.is_some() || self.registering.is_some();
+            ui.horizontal(|ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.path)
+                        .hint_text("Viewer ZIP/RAR or unpacked folder")
+                        .desired_width(ui.available_width() - 180.0),
+                );
+                if ui
+                    .add_enabled(!busy, egui::Button::new("Archive…"))
+                    .clicked()
+                {
+                    self.start_pick(false, ctx);
                 }
-                if ui.button("No").clicked() {
-                    self.confirm_remove = None;
+                if ui
+                    .add_enabled(!busy, egui::Button::new("Folder…"))
+                    .clicked()
+                {
+                    self.start_pick(true, ctx);
                 }
             });
-        }
-        ui.label(egui::RichText::new(&self.status).weak());
+            ui.horizontal(|ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.name)
+                        .hint_text("Display name")
+                        .desired_width(ui.available_width() - 330.0),
+                );
+                egui::ComboBox::from_id_salt("viewer_type_inline")
+                    .selected_text(self.viewer_type.clone())
+                    .width(200.0)
+                    .show_ui(ui, |ui| {
+                        for t in VIEWER_TYPES {
+                            ui.selectable_value(&mut self.viewer_type, (*t).to_owned(), *t);
+                        }
+                    });
+                if !busy && accent_button(ui, "Register", blue) {
+                    self.start_register(ctx);
+                }
+            });
+            if self.manifest.is_empty() {
+                ui.label(
+                    egui::RichText::new("No offline viewers registered.")
+                        .size(9.0)
+                        .color(muted(ui)),
+                );
+            }
+            let mut remove = None;
+            for (id, meta) in &self.manifest {
+                let s =
+                    |k: &str, d: &str| meta.get(k).and_then(Value::as_str).unwrap_or(d).to_owned();
+                egui::Frame::new()
+                    .fill(p.bg)
+                    .corner_radius(8.0)
+                    .inner_margin(egui::Margin::symmetric(14, 8))
+                    .outer_margin(egui::Margin::symmetric(0, 3))
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.horizontal(|ui| {
+                            ui.vertical(|ui| {
+                                ui.label(
+                                    egui::RichText::new(s("name", id))
+                                        .family(egui::FontFamily::Name("bold".into()))
+                                        .size(10.0),
+                                );
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "{} · {}",
+                                        s("viewer_type", "custom"),
+                                        s("zip_filename", "")
+                                    ))
+                                    .size(8.0)
+                                    .color(muted2(ui)),
+                                );
+                            });
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if ui.add_enabled(!busy, egui::Button::new("Remove")).clicked()
+                                    {
+                                        remove = Some(id.clone());
+                                    }
+                                },
+                            );
+                        });
+                    });
+            }
+            if remove.is_some() {
+                self.confirm_remove = remove;
+            }
+            if let Some(id) = self.confirm_remove.clone() {
+                ui.horizontal(|ui| {
+                    ui.label(format!(
+                        "Remove '{id}' from the registry? The archive remains on disk."
+                    ));
+                    if ui.button("Yes").clicked() {
+                        unregister_offline_viewer(&viewers_dir(), &id, false);
+                        self.status = format!("Removed: {id}");
+                        self.confirm_remove = None;
+                        let saved = selected_id(&self.manifest, &self.preferred);
+                        self.refresh(&saved);
+                    }
+                    if ui.button("No").clicked() {
+                        self.confirm_remove = None;
+                    }
+                });
+            }
+            ui.label(egui::RichText::new(&self.status).size(9.0).color(muted(ui)));
+        });
     }
 }
 

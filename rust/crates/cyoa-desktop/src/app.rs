@@ -9,7 +9,29 @@ use cyoa_engine::{
 use eframe::egui;
 use std::{collections::VecDeque, path::PathBuf, time::Duration};
 
+mod aux_windows;
 mod layout;
+mod settings_window;
+
+pub(crate) use layout::DNS_PRESETS as DNS_PRESET_LIST;
+
+/// The Python DNS preset label for a saved endpoint.
+pub(crate) fn dns_preset_label(dns: &str) -> String {
+    DNS_PRESET_LIST
+        .iter()
+        .find(|(_, e)| *e == dns && *e != "__custom__")
+        .map_or_else(
+            || {
+                if dns.is_empty() {
+                    "System (default)"
+                } else {
+                    "Custom…"
+                }
+                .to_owned()
+            },
+            |(l, _)| (*l).to_owned(),
+        )
+}
 
 /// Python defaults (`cyoa_downloader_app/app_info.py`).
 pub const DEFAULT_MAX_WORKERS: usize = 4;
@@ -337,6 +359,10 @@ pub struct DownloaderApp {
     ai_session: crate::ai_panel::AiSession,
     /// F-049 Settings dashboard state.
     dash: crate::settings_dashboard::SettingsDashboard,
+    /// `CYOA_DESKTOP_SHOTS` screenshot script (developer aid).
+    shots: Option<crate::shots::ShotScript>,
+    /// Help tab and Diagnostics Center state.
+    aux: aux_windows::AuxState,
     /// App/history update checks (F-052).
     updates: Option<crate::updates_panel::UpdatesPanel>,
     /// Python "Filename" entry next to the URL.
@@ -477,6 +503,8 @@ impl DownloaderApp {
             viewers: None,
             ai_panel: None,
             dash: crate::settings_dashboard::SettingsDashboard::default(),
+            shots: crate::shots::ShotScript::from_env(),
+            aux: aux_windows::AuxState::default(),
             ai_session: crate::ai_panel::AiSession {
                 enabled: ai_enabled,
                 key: String::new(),
@@ -844,6 +872,27 @@ impl DownloaderApp {
 
 impl eframe::App for DownloaderApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        if let Some(step) = self
+            .shots
+            .as_ref()
+            .and_then(crate::shots::ShotScript::current)
+        {
+            self.show_settings = step.starts_with("settings_");
+            if let Some(i) = step.strip_prefix("settings_") {
+                self.dash.page = i.parse().unwrap_or(0);
+            }
+            self.show_help = step == "help";
+            self.show_credits = step == "credits";
+            self.show_diagnostics = step == "diagnostics";
+        }
+        if let Some(shots) = &mut self.shots {
+            let target = if shots.current().is_some_and(|s| s.starts_with("settings_")) {
+                egui::ViewportId::from_hash_of(settings_window::SETTINGS_VIEWPORT)
+            } else {
+                egui::ViewportId::ROOT
+            };
+            shots.tick(ui.ctx(), target);
+        }
         self.drain_events();
         self.poll_list_import();
         self.poll_retry();
@@ -923,21 +972,7 @@ impl eframe::App for DownloaderApp {
                 self.reports = None;
             }
         }
-        if let Some(panel) = &mut self.viewers {
-            panel.ui(ui.ctx());
-            if !panel.open {
-                self.viewers = None;
-            }
-        }
-        if let Some(panel) = &mut self.ai_panel {
-            panel.ui(ui.ctx());
-            if let Some(session) = panel.updated.take() {
-                self.ai_session = session;
-            }
-            if !panel.open {
-                self.ai_panel = None;
-            }
-        }
+        // Offline viewers and AI Assist render inline in the Settings window.
         // While a job runs, the worker's waker drives repaints; no idle polling.
         if self.worker.is_some() && self.running_job().is_some() {
             ui.ctx().request_repaint_after(Duration::from_millis(250));
@@ -1031,6 +1066,8 @@ mod tests {
             viewers: None,
             ai_panel: None,
             dash: crate::settings_dashboard::SettingsDashboard::default(),
+            shots: None,
+            aux: aux_windows::AuxState::default(),
             ai_session: crate::ai_panel::AiSession::default(),
             updates: None,
             fn_input: String::new(),

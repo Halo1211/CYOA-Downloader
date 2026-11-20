@@ -8,6 +8,7 @@ mod net;
 mod preflight_panel;
 mod reports_panel;
 mod settings_dashboard;
+mod shots;
 mod theme;
 mod updates_panel;
 mod viewers;
