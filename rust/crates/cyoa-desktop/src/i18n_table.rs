@@ -152,6 +152,7 @@ pub const EN_ID: &[(&str, &str)] = &[
     ("Clear Sessions", "Bersihkan Sesi"),
     ("Recommended setup", "Pengaturan yang disarankan"),
     ("Network", "Jaringan"),
+    ("Integrations", "Integrasi"),
     ("Advanced", "Lanjutan"),
     ("Settings", "Pengaturan"),
     ("Batch / Queue", "Batch / Antrean"),

@@ -1237,46 +1237,135 @@ impl DownloaderApp {
 
         let mut open = self.show_settings;
         let mut new_pref = None;
+        let settings_path = self.shared.as_ref().map(|(p, _)| p.clone());
+        if open && let Some(path) = &settings_path {
+            self.dash.ensure_loaded(path);
+        }
         egui::Window::new("Settings")
             .open(&mut open)
-            .default_width(680.0)
+            .default_width(820.0)
+            .default_height(560.0)
             .show(ctx, |ui| {
-                ui.label(bold(tr("Default Auto Output"), 10.0));
+                use crate::settings_dashboard::{PAGES, search_page};
                 ui.horizontal(|ui| {
-                    for (v, l) in [("folder", "Folder"), ("zip", "ZIP")] {
-                        if ui.radio(self.auto_pref == v, l).clicked() && self.auto_pref != v {
-                            new_pref = Some(v);
+                    ui.label(bold(tr("Settings"), 14.0));
+                    ui.add_space(12.0);
+                    let search = ui.add(
+                        egui::TextEdit::singleline(&mut self.dash.search)
+                            .hint_text("Search settings…")
+                            .desired_width(220.0),
+                    );
+                    if search.changed() {
+                        match search_page(&self.dash.search) {
+                            Some(i) => {
+                                self.dash.page = i;
+                                self.dash.status = format!("Showing {}", PAGES[i].0);
+                            }
+                            None if self.dash.search.trim().is_empty() => {
+                                self.dash.page = 0;
+                                self.dash.status.clear();
+                            }
+                            None => self.dash.status = "No matching setting.".into(),
                         }
                     }
                 });
                 ui.separator();
-                ui.label(bold(tr("Network"), 10.0));
-                self.settings.net.ui(ui);
+                ui.horizontal_top(|ui| {
+                    ui.vertical(|ui| {
+                        ui.set_width(150.0);
+                        for (i, (name, badge, _)) in PAGES.iter().enumerate() {
+                            let label = if *name == "Download" { *name } else { tr(name) };
+                            let text = format!("{badge}  {label}");
+                            if ui.selectable_label(self.dash.page == i, text).clicked() {
+                                self.dash.page = i;
+                            }
+                        }
+                    });
+                    ui.separator();
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| match (self.dash.page, &settings_path) {
+                            (_, None) => {
+                                ui.label("Settings file unavailable.");
+                            }
+                            (0, Some(path)) => {
+                                ui.label(bold(tr("Download"), 12.0));
+                                ui.label(bold(tr("Default Auto Output"), 10.0));
+                                ui.label(
+                                    RichText::new(
+                                        "Chooses Folder or ZIP whenever output mode is Auto.",
+                                    )
+                                    .weak(),
+                                );
+                                ui.horizontal(|ui| {
+                                    for (v, l) in [("folder", "Folder"), ("zip", "ZIP")] {
+                                        if ui.radio(self.auto_pref == v, l).clicked()
+                                            && self.auto_pref != v
+                                        {
+                                            new_pref = Some(v);
+                                        }
+                                    }
+                                });
+                                self.dash.general_cards(ui, path, ctx);
+                            }
+                            (1, Some(_)) => {
+                                ui.label(bold(tr("Network"), 12.0));
+                                ui.label(
+                                    RichText::new(
+                                        "DNS transport, proxy routing, and a fail-closed VPN guard.",
+                                    )
+                                    .weak(),
+                                );
+                                self.settings.net.ui(ui);
+                            }
+                            (2, Some(path)) => {
+                                ui.label(bold(tr("Integrations"), 12.0));
+                                ui.label(bold(tr("AI Assist"), 10.0));
+                                if ui
+                                    .add_enabled(
+                                        self.ai_panel.is_none(),
+                                        egui::Button::new("AI Assist…"),
+                                    )
+                                    .clicked()
+                                {
+                                    self.ai_panel = Some(crate::ai_panel::AiPanel::open(
+                                        path.clone(),
+                                        &self.ai_session,
+                                    ));
+                                }
+                                ui.add_space(6.0);
+                                ui.label(bold(tr("CYOA Manager"), 10.0));
+                                self.manager.ui(ui);
+                                self.dash.integration_cards(ui, path, ctx);
+                            }
+                            (3, Some(path)) => {
+                                ui.label(bold(tr("Offline viewers"), 12.0));
+                                ui.label(
+                                    RichText::new(
+                                        "Opt-in automation, compatibility recommendations, and local viewer archives.",
+                                    )
+                                    .weak(),
+                                );
+                                if ui
+                                    .add_enabled(
+                                        self.viewers.is_none(),
+                                        egui::Button::new("Viewers…"),
+                                    )
+                                    .clicked()
+                                {
+                                    self.viewers =
+                                        Some(crate::viewers::ViewerPanel::open(path.clone()));
+                                }
+                            }
+                            (_, Some(path)) => self.dash.maintenance_cards(ui, path, ctx),
+                        });
+                });
                 ui.separator();
-                ui.label(bold(tr("CYOA Manager"), 10.0));
-                self.manager.ui(ui);
-                ui.separator();
-                ui.label(bold(tr("Offline viewers"), 10.0));
-                if ui
-                    .add_enabled(self.viewers.is_none(), egui::Button::new("Viewers…"))
-                    .clicked()
-                    && let Some((path, _)) = &self.shared
-                {
-                    self.viewers = Some(crate::viewers::ViewerPanel::open(path.clone()));
-                }
-                ui.separator();
-                ui.label(bold(tr("AI Assist"), 10.0));
-                if ui
-                    .add_enabled(self.ai_panel.is_none(), egui::Button::new("AI Assist…"))
-                    .clicked()
-                    && let Some((path, _)) = &self.shared
-                {
-                    self.ai_panel = Some(crate::ai_panel::AiPanel::open(
-                        path.clone(),
-                        &self.ai_session,
-                    ));
-                }
+                ui.label(RichText::new(&self.dash.status).weak());
             });
+        if !open {
+            self.dash.closed();
+        }
         if let Some(v) = new_pref {
             self.auto_pref = v.to_owned();
             self.save_shared_key("auto_detect_output", v.into());

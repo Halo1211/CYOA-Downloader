@@ -163,6 +163,54 @@ impl Default for Settings {
     }
 }
 
+/// Settings-dashboard switches that change a run (Python applies them to
+/// the session immediately): deep scan, selenium, gallery-dl, itch.io and
+/// the yt-dlp cookie file.
+struct RunToggles {
+    deep_scan: bool,
+    integrations: cyoa_engine::run::Integrations,
+}
+
+fn saved_run_toggles(path: Option<&std::path::Path>) -> RunToggles {
+    let st = path
+        .and_then(|p| {
+            cyoa_storage::settings::SettingsStore::new(p)
+                .load()
+                .ok()
+                .cloned()
+        })
+        .unwrap_or_default();
+    let flag = |k: &str, d: bool| st.get(k).and_then(serde_json::Value::as_bool).unwrap_or(d);
+    let text = |k: &str| {
+        st.get(k)
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .to_owned()
+    };
+    let defaults = cyoa_engine::run::Integrations::default();
+    let cookies = text("ytdlp_cookies");
+    RunToggles {
+        deep_scan: flag("deep_scan_enabled", true),
+        integrations: cyoa_engine::run::Integrations {
+            selenium: flag("selenium_enabled", true),
+            gallery_dl_mode: match text("gallery_dl_mode").as_str() {
+                "" => "off".into(),
+                m => m.to_lowercase(),
+            },
+            gallery_dl_path: match text("gallery_dl_path").as_str() {
+                "" => "gallery-dl".into(),
+                v => v.to_owned(),
+            },
+            gallery_dl_config: text("gallery_dl_config"),
+            itch: flag("itch_enabled", false),
+            ytdlp_cookies: (!cookies.is_empty() && std::path::Path::new(&cookies).is_file())
+                .then(|| std::path::PathBuf::from(&cookies)),
+            ..defaults
+        },
+    }
+}
+
 /// Open a local preview URL (always `http://127.0.0.1:<port>/`) in the
 /// default browser.
 fn open_in_browser(url: &str) -> std::io::Result<()> {
@@ -287,6 +335,8 @@ pub struct DownloaderApp {
     /// F-043 AI Assist panel and the session AI state (key never persisted).
     ai_panel: Option<crate::ai_panel::AiPanel>,
     ai_session: crate::ai_panel::AiSession,
+    /// F-049 Settings dashboard state.
+    dash: crate::settings_dashboard::SettingsDashboard,
     /// App/history update checks (F-052).
     updates: Option<crate::updates_panel::UpdatesPanel>,
     /// Python "Filename" entry next to the URL.
@@ -426,6 +476,7 @@ impl DownloaderApp {
             library: None,
             viewers: None,
             ai_panel: None,
+            dash: crate::settings_dashboard::SettingsDashboard::default(),
             ai_session: crate::ai_panel::AiSession {
                 enabled: ai_enabled,
                 key: String::new(),
@@ -616,6 +667,8 @@ impl DownloaderApp {
         match (mode, net, archive) {
             (Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => Status::Failed(e),
             (Ok(mode), Ok(net), Ok(archive_auto)) => {
+                let saved_toggles =
+                    saved_run_toggles(self.shared.as_ref().map(|(p, _)| p.as_path()));
                 let opts = RunOptions {
                     url,
                     output_dir: PathBuf::from(&self.settings.output_dir),
@@ -638,9 +691,10 @@ impl DownloaderApp {
                         &self.ai_session,
                     ),
                     http2: self.settings.http2,
+                    deep_scan: saved_toggles.deep_scan,
                     integrations: cyoa_engine::run::Integrations {
                         ytdlp: self.settings.ytdlp,
-                        ..RunOptions::default().integrations
+                        ..saved_toggles.integrations
                     },
                     ..RunOptions::default()
                 };
@@ -976,6 +1030,7 @@ mod tests {
             library: None,
             viewers: None,
             ai_panel: None,
+            dash: crate::settings_dashboard::SettingsDashboard::default(),
             ai_session: crate::ai_panel::AiSession::default(),
             updates: None,
             fn_input: String::new(),
