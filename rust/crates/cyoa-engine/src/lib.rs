@@ -28,4 +28,5 @@ pub mod pure;
 pub mod reports;
 pub mod run;
 pub mod verify;
+pub mod viewer_registry;
 pub mod website;

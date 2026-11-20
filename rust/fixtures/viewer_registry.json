@@ -1,0 +1,206 @@
+{
+ "cases": [
+  [
+   "Viewer 1.8 [Original].zip",
+   {}
+  ],
+  [
+   "New Viewer 1.18.9.zip",
+   {
+    "name": "Legacy"
+   }
+  ],
+  [
+   "ICC Plus 2 v2.zip",
+   {
+    "viewer_type": "icc_plus",
+    "description": "d"
+   }
+  ],
+  [
+   "online.zip",
+   {
+    "viewer_type": "icc_plus2"
+   }
+  ],
+  [
+   "Remix Editor.zip",
+   {
+    "viewer_type": "icc_plus"
+   }
+  ],
+  [
+   "om.zip",
+   {}
+  ],
+  [
+   "plain.zip",
+   {
+    "entry_point": "play/start.html",
+    "project_json_path": "data/p.json"
+   }
+  ],
+  [
+   "plain.zip",
+   {
+    "entry_point": "../evil.html"
+   }
+  ],
+  [
+   "plain.zip",
+   {
+    "project_json_path": "../p.json"
+   }
+  ],
+  [
+   "bad.zip",
+   {}
+  ],
+  [
+   "missing.zip",
+   {}
+  ],
+  [
+   "My Folder Viewer",
+   {
+    "name": "Folder"
+   }
+  ],
+  [
+   "online.zip",
+   {
+    "name": "Re-registered"
+   }
+  ]
+ ],
+ "results": [
+  "Viewer 1.8 [Original]",
+  "New Viewer 1.18.9",
+  "ICC Plus 2 v2",
+  "online",
+  "Remix Editor",
+  "om",
+  "plain",
+  null,
+  null,
+  null,
+  null,
+  "My Folder Viewer",
+  "online"
+ ],
+ "unregister": [
+  true,
+  true,
+  false
+ ],
+ "manifest": {
+  "Viewer 1.8 [Original]": {
+   "name": "Viewer 1.8 [Original]",
+   "zip_filename": "Viewer 1.8 [Original].zip",
+   "viewer_type": "icc_original",
+   "description": "",
+   "entry_point": "index.html",
+   "project_json_path": "",
+   "inner_archive": "",
+   "runtime_family": "icc_original",
+   "viewer_variant": "",
+   "registered_at": "<ts>"
+  },
+  "New Viewer 1.18.9": {
+   "name": "Legacy",
+   "zip_filename": "New Viewer 1.18.9.zip",
+   "viewer_type": "icc_plus_legacy",
+   "description": "",
+   "entry_point": "index.html",
+   "project_json_path": "",
+   "inner_archive": "",
+   "runtime_family": "icc_plus_legacy",
+   "viewer_variant": "",
+   "registered_at": "<ts>"
+  },
+  "ICC Plus 2 v2": {
+   "name": "ICC Plus 2 v2",
+   "zip_filename": "ICC Plus 2 v2.zip",
+   "viewer_type": "icc_plus2",
+   "description": "d",
+   "entry_point": "index.html",
+   "project_json_path": "",
+   "inner_archive": "",
+   "runtime_family": "icc_plus2",
+   "viewer_variant": "offline",
+   "registered_at": "<ts>"
+  },
+  "online": {
+   "name": "Re-registered",
+   "zip_filename": "online.zip",
+   "viewer_type": "icc_plus2",
+   "description": "",
+   "entry_point": "index.html",
+   "project_json_path": "",
+   "inner_archive": "",
+   "runtime_family": "",
+   "viewer_variant": "online",
+   "registered_at": "<ts>"
+  },
+  "Remix Editor": {
+   "name": "Remix Editor",
+   "zip_filename": "Remix Editor.zip",
+   "viewer_type": "icc_remix",
+   "description": "",
+   "entry_point": "index.html",
+   "project_json_path": "",
+   "inner_archive": "viewer-template.zip",
+   "runtime_family": "icc_remix",
+   "viewer_variant": "",
+   "registered_at": "<ts>"
+  },
+  "My Folder Viewer": {
+   "name": "Folder",
+   "zip_filename": "My Folder Viewer.zip",
+   "viewer_type": "icc_plus2",
+   "description": "",
+   "entry_point": "index.html",
+   "project_json_path": "",
+   "inner_archive": "",
+   "runtime_family": "icc_plus2",
+   "viewer_variant": "offline",
+   "registered_at": "<ts>"
+  }
+ },
+ "manifest_text_indent2": true,
+ "files": {
+  "ICC Plus 2 v2.zip": {
+   "v/index.html": "YQ==",
+   "v/js/app.js": "Yg==",
+   "v/js/polyfills.js": "Yw=="
+  },
+  "My Folder Viewer.zip": {
+   "index.html": "Zg==",
+   "css/z.css": "aQ==",
+   "js/app.js": "Zw==",
+   "js/polyfills.js": "aA=="
+  },
+  "New Viewer 1.18.9.zip": {
+   "index.html": "PGh0bWw+",
+   "js/chunk-vendors.59af3576.js": "eA=="
+  },
+  "Remix Editor.zip": {
+   "index.html": "ZQ==",
+   "x/a/viewer-template.zip": "eg==",
+   "viewer-template.zip": "eQ=="
+  },
+  "Viewer 1.8 [Original].zip": {
+   "index.html": "PGh0bWw+",
+   "js/app.c533aa25.js": "eA=="
+  },
+  "online.zip": {
+   "index.html": "YQ==",
+   "core.js": "Yg=="
+  },
+  "plain.zip": {
+   "index.html": "YQ=="
+  },
+  "viewers.json": null,
+  "viewers.json.lock": null
+ }
+}

@@ -3,6 +3,7 @@
 mod app;
 mod library;
 mod net;
+mod viewers;
 mod worker;
 
 fn main() -> eframe::Result {

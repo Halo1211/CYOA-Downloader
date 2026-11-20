@@ -263,6 +263,8 @@ pub struct DownloaderApp {
     preview: Option<cyoa_integrations::preview::PreviewServer>,
     /// CYOA Manager library panel (Python `open_library_panel`).
     library: Option<crate::library::LibraryPanel>,
+    /// Offline viewer settings panel (F-037 V5).
+    viewers: Option<crate::viewers::ViewerPanel>,
 }
 
 type ListPick = std::sync::mpsc::Receiver<Option<Result<Vec<BatchItem>, String>>>;
@@ -330,6 +332,7 @@ impl DownloaderApp {
             last_preview: None,
             preview: None,
             library: None,
+            viewers: None,
             manager,
         }
     }
@@ -593,6 +596,14 @@ impl DownloaderApp {
                     serve_enabled,
                     ui.ctx(),
                 ));
+            }
+            if ui
+                .add_enabled(self.viewers.is_none(), egui::Button::new("Viewers…"))
+                .on_hover_text("Offline viewer automation and registered viewer archives")
+                .clicked()
+                && let Some((path, _)) = &self.shared
+            {
+                self.viewers = Some(crate::viewers::ViewerPanel::open(path.clone()));
             }
         });
         if let Some(e) = self.url_error {
@@ -874,6 +885,12 @@ impl eframe::App for DownloaderApp {
             self.log_view(ui);
         });
         self.library_ui(ui.ctx());
+        if let Some(panel) = &mut self.viewers {
+            panel.ui(ui.ctx());
+            if !panel.open {
+                self.viewers = None;
+            }
+        }
         // While a job runs, the worker's waker drives repaints; no idle polling.
         if self.worker.is_some() && self.running_job().is_some() {
             ui.ctx().request_repaint_after(Duration::from_millis(250));
@@ -962,6 +979,7 @@ mod tests {
             last_preview: None,
             preview: None,
             library: None,
+            viewers: None,
         }
     }
 

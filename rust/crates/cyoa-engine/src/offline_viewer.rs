@@ -501,6 +501,19 @@ fn extract_zip<R: Read + Seek>(z: &mut zip::ZipArchive<R>, site: &Path) -> Resul
     Ok(())
 }
 
+/// Member names of a RAR archive via the system `tar -tf` (decision R1).
+pub(crate) fn rar_member_names(archive: &Path) -> Result<Vec<String>, String> {
+    let listing = run_tar_bounded(
+        &[std::ffi::OsStr::new("-tf"), archive.as_os_str()],
+        16 * 1024 * 1024,
+    )?;
+    Ok(String::from_utf8_lossy(&listing)
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(str::to_owned)
+        .collect())
+}
+
 /// Run the system `tar` with a bounded stdout and a deadline (Python:
 /// `subprocess.run([tar, ...], capture_output=True, timeout=180)`).
 fn run_tar_bounded(args: &[&std::ffi::OsStr], limit: u64) -> Result<Vec<u8>, String> {

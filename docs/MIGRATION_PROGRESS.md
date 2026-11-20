@@ -1,6 +1,6 @@
 # Migration progress (primary state document)
 
-**Session 8 (2026-11-20):** Codex (Luna/Sol) unavailable until 2026-11-21; Claude worked alone. Added the GUI CYOA Manager library panel (`cyoa-desktop/src/library.rs`, F-038). 309 Rust tests pass; fmt and clippy (-D warnings) clean. Not run manually in the GUI. Pending: Sol review (V3 modules + library serve path), owner approval of F-037 V4/V5, then F-028 browser/CDP.
+**Session 8 (2026-11-20):** Codex (Luna/Sol) unavailable until 2026-11-21; Claude worked alone, Ollama MiMo used for one port (rejected: did not compile) and one review (no findings). Done: GUI CYOA Manager library panel (F-038); F-037 V4 modernizer + CLI `--modernize-library` + ICC website hook (Python-identical fixture and CLI run); F-037 V5 viewer registration + GUI "Viewers…" panel (Python-identical fixture). 314 Rust tests pass; fmt and clippy (-D warnings) clean; e2e_parity 6/6, viewer_parity OK. Not run manually in the GUI. Pending: Sol review (V3 modules, library serve path, modernizer.rs, viewer_registry.rs), then F-028 browser/CDP.
 
 **Session 7 (2026-11-19): F-037 offline viewers V1–V3 + consumers.** 306+ Rust tests pass; fmt and clippy (-D warnings) clean; `e2e_parity.sh` 6/6 OK; new `rust/scripts/viewer_parity.sh` 5/5 identical to Python (manual viewer in embed/zip/both, auto selection + legacy index merge on a classic ICC page).
 - Plan: `docs/F037_PLAN.md` (approved V1–V3, RAR = system tar). V4 (modernizer, `--modernize-library`) and V5 (GUI viewer panel) still need approval.
