@@ -366,6 +366,7 @@ pub struct DownloaderApp {
     aux: aux_windows::AuxState,
     /// CYOA Manager Center (Python `_cyoa_manager_panel`).
     mgr_center: manager_center::ManagerCenter,
+    e2e: E2eState,
     /// App/history update checks (F-052).
     updates: Option<crate::updates_panel::UpdatesPanel>,
     /// Python "Filename" entry next to the URL.
@@ -509,6 +510,7 @@ impl DownloaderApp {
             shots: crate::shots::ShotScript::from_env(),
             aux: aux_windows::AuxState::default(),
             mgr_center: manager_center::ManagerCenter::default(),
+            e2e: E2eState::default(),
             ai_session: crate::ai_panel::AiSession {
                 enabled: ai_enabled,
                 key: String::new(),
@@ -876,6 +878,7 @@ impl DownloaderApp {
 
 impl eframe::App for DownloaderApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.e2e_tick(ui.ctx());
         if let Some(step) = self
             .shots
             .as_ref()
@@ -1102,6 +1105,7 @@ mod tests {
             shots: None,
             aux: aux_windows::AuxState::default(),
             mgr_center: manager_center::ManagerCenter::default(),
+            e2e: E2eState::default(),
             ai_session: crate::ai_panel::AiSession::default(),
             updates: None,
             fn_input: String::new(),
@@ -1205,5 +1209,61 @@ mod tests {
         assert_eq!(log.len(), 3);
         assert_eq!(log.get(0), Some("7"));
         assert_eq!(log.get(2), Some("9"));
+    }
+}
+
+/// Developer aid: `CYOA_DESKTOP_E2E="<url>|<output dir>|<Mode>"` drives the
+/// real "Add URL" and "Download All" handlers once, then writes
+/// `<output dir>/gui_e2e_status.txt` and closes when every job finished.
+#[derive(Default)]
+pub(crate) struct E2eState {
+    started: bool,
+    done: bool,
+}
+
+impl DownloaderApp {
+    fn e2e_tick(&mut self, ctx: &egui::Context) {
+        let Ok(spec) = std::env::var("CYOA_DESKTOP_E2E") else {
+            return;
+        };
+        let parts: Vec<&str> = spec.splitn(3, '|').collect();
+        let [url, out, mode] = parts[..] else { return };
+        if !self.e2e.started {
+            self.e2e.started = true;
+            self.settings.output_dir = out.to_owned();
+            if let Ok(m) = serde_json::from_str::<Mode>(&format!("\"{mode}\"")) {
+                self.settings.mode = m;
+            }
+            self.url_input = url.to_owned();
+            self.enqueue();
+            self.download_all();
+            return;
+        }
+        if self.e2e.done {
+            return;
+        }
+        ctx.request_repaint_after(std::time::Duration::from_millis(200));
+        let finished = self.jobs.iter().all(|j| {
+            matches!(
+                j.status,
+                Status::Done { .. } | Status::Failed(_) | Status::Cancelled
+            )
+        });
+        if finished {
+            self.e2e.done = true;
+            let lines: Vec<String> = self
+                .jobs
+                .iter()
+                .map(|j| format!("{:?}	{}", j.status, j.url))
+                .collect();
+            let _ = std::fs::write(
+                std::path::Path::new(out).join("gui_e2e_status.txt"),
+                lines.join(
+                    "
+",
+                ),
+            );
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
     }
 }
