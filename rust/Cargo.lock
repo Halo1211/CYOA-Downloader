@@ -1123,6 +1123,7 @@ dependencies = [
  "cyoa-core",
  "cyoa-net",
  "cyoa-storage",
+ "percent-encoding",
  "regex",
  "rusqlite",
  "serde",
@@ -1130,9 +1131,12 @@ dependencies = [
  "sha2",
  "tempfile",
  "time",
+ "tokio",
+ "tokio-util",
  "tracing",
  "url",
  "uuid",
+ "wiremock",
  "zip",
 ]
 

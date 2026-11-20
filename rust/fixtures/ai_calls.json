@@ -1,0 +1,10916 @@
+[
+ {
+  "provider": "anthropic",
+  "settings": {},
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "content": [
+     {
+      "type": "text",
+      "text": " https://a/p.json "
+     },
+     {
+      "type": "tool_use",
+      "x": 1
+     },
+     {
+      "type": "text",
+      "text": "!"
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.anthropic.com/v1/messages",
+    "headers": {
+     "Content-Type": "application/json",
+     "x-api-key": "sk-test",
+     "anthropic-version": "2023-06-01"
+    },
+    "json": {
+     "model": "claude-sonnet-5",
+     "max_tokens": 300,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ]
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "https://a/p.json !"
+ },
+ {
+  "provider": "anthropic",
+  "settings": {},
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "content": []
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.anthropic.com/v1/messages",
+    "headers": {
+     "Content-Type": "application/json",
+     "x-api-key": "sk-test",
+     "anthropic-version": "2023-06-01"
+    },
+    "json": {
+     "model": "claude-sonnet-5",
+     "max_tokens": 300,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ]
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {},
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "content": [
+     {
+      "type": "text"
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.anthropic.com/v1/messages",
+    "headers": {
+     "Content-Type": "application/json",
+     "x-api-key": "sk-test",
+     "anthropic-version": "2023-06-01"
+    },
+    "json": {
+     "model": "claude-sonnet-5",
+     "max_tokens": 300,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ]
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {},
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 500,
+   "body": {
+    "error": "x"
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.anthropic.com/v1/messages",
+    "headers": {
+     "Content-Type": "application/json",
+     "x-api-key": "sk-test",
+     "anthropic-version": "2023-06-01"
+    },
+    "json": {
+     "model": "claude-sonnet-5",
+     "max_tokens": 300,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ]
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {},
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "content": [
+     {
+      "type": "text",
+      "text": " https://a/p.json "
+     },
+     {
+      "type": "tool_use",
+      "x": 1
+     },
+     {
+      "type": "text",
+      "text": "!"
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.anthropic.com/v1/messages",
+    "headers": {
+     "Content-Type": "application/json",
+     "x-api-key": "k&ey=1",
+     "anthropic-version": "2023-06-01"
+    },
+    "json": {
+     "model": "m/x y",
+     "max_tokens": 2000,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "system": "Be terse."
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "https://a/p.json !"
+ },
+ {
+  "provider": "anthropic",
+  "settings": {},
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "content": []
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.anthropic.com/v1/messages",
+    "headers": {
+     "Content-Type": "application/json",
+     "x-api-key": "k&ey=1",
+     "anthropic-version": "2023-06-01"
+    },
+    "json": {
+     "model": "m/x y",
+     "max_tokens": 2000,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "system": "Be terse."
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {},
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "content": [
+     {
+      "type": "text"
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.anthropic.com/v1/messages",
+    "headers": {
+     "Content-Type": "application/json",
+     "x-api-key": "k&ey=1",
+     "anthropic-version": "2023-06-01"
+    },
+    "json": {
+     "model": "m/x y",
+     "max_tokens": 2000,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "system": "Be terse."
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {},
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 500,
+   "body": {
+    "error": "x"
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.anthropic.com/v1/messages",
+    "headers": {
+     "Content-Type": "application/json",
+     "x-api-key": "k&ey=1",
+     "anthropic-version": "2023-06-01"
+    },
+    "json": {
+     "model": "m/x y",
+     "max_tokens": 2000,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "system": "Be terse."
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {},
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "content": [
+     {
+      "type": "text",
+      "text": " https://a/p.json "
+     },
+     {
+      "type": "tool_use",
+      "x": 1
+     },
+     {
+      "type": "text",
+      "text": "!"
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {},
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "content": []
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {},
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "content": [
+     {
+      "type": "text"
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {},
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 500,
+   "body": {
+    "error": "x"
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "content": [
+     {
+      "type": "text",
+      "text": " https://a/p.json "
+     },
+     {
+      "type": "tool_use",
+      "x": 1
+     },
+     {
+      "type": "text",
+      "text": "!"
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.anthropic.com/v1/messages",
+    "headers": {
+     "Content-Type": "application/json",
+     "x-api-key": "sk-test",
+     "anthropic-version": "2023-06-01"
+    },
+    "json": {
+     "model": "saved-model",
+     "max_tokens": 300,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ]
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "https://a/p.json !"
+ },
+ {
+  "provider": "anthropic",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "content": []
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.anthropic.com/v1/messages",
+    "headers": {
+     "Content-Type": "application/json",
+     "x-api-key": "sk-test",
+     "anthropic-version": "2023-06-01"
+    },
+    "json": {
+     "model": "saved-model",
+     "max_tokens": 300,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ]
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "content": [
+     {
+      "type": "text"
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.anthropic.com/v1/messages",
+    "headers": {
+     "Content-Type": "application/json",
+     "x-api-key": "sk-test",
+     "anthropic-version": "2023-06-01"
+    },
+    "json": {
+     "model": "saved-model",
+     "max_tokens": 300,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ]
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 500,
+   "body": {
+    "error": "x"
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.anthropic.com/v1/messages",
+    "headers": {
+     "Content-Type": "application/json",
+     "x-api-key": "sk-test",
+     "anthropic-version": "2023-06-01"
+    },
+    "json": {
+     "model": "saved-model",
+     "max_tokens": 300,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ]
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "content": [
+     {
+      "type": "text",
+      "text": " https://a/p.json "
+     },
+     {
+      "type": "tool_use",
+      "x": 1
+     },
+     {
+      "type": "text",
+      "text": "!"
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.anthropic.com/v1/messages",
+    "headers": {
+     "Content-Type": "application/json",
+     "x-api-key": "k&ey=1",
+     "anthropic-version": "2023-06-01"
+    },
+    "json": {
+     "model": "m/x y",
+     "max_tokens": 2000,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "system": "Be terse."
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "https://a/p.json !"
+ },
+ {
+  "provider": "anthropic",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "content": []
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.anthropic.com/v1/messages",
+    "headers": {
+     "Content-Type": "application/json",
+     "x-api-key": "k&ey=1",
+     "anthropic-version": "2023-06-01"
+    },
+    "json": {
+     "model": "m/x y",
+     "max_tokens": 2000,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "system": "Be terse."
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "content": [
+     {
+      "type": "text"
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.anthropic.com/v1/messages",
+    "headers": {
+     "Content-Type": "application/json",
+     "x-api-key": "k&ey=1",
+     "anthropic-version": "2023-06-01"
+    },
+    "json": {
+     "model": "m/x y",
+     "max_tokens": 2000,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "system": "Be terse."
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 500,
+   "body": {
+    "error": "x"
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.anthropic.com/v1/messages",
+    "headers": {
+     "Content-Type": "application/json",
+     "x-api-key": "k&ey=1",
+     "anthropic-version": "2023-06-01"
+    },
+    "json": {
+     "model": "m/x y",
+     "max_tokens": 2000,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "system": "Be terse."
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "content": [
+     {
+      "type": "text",
+      "text": " https://a/p.json "
+     },
+     {
+      "type": "tool_use",
+      "x": 1
+     },
+     {
+      "type": "text",
+      "text": "!"
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "content": []
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "content": [
+     {
+      "type": "text"
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 500,
+   "body": {
+    "error": "x"
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "content": [
+     {
+      "type": "text",
+      "text": " https://a/p.json "
+     },
+     {
+      "type": "tool_use",
+      "x": 1
+     },
+     {
+      "type": "text",
+      "text": "!"
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.anthropic.com/v1/messages",
+    "headers": {
+     "Content-Type": "application/json",
+     "x-api-key": "sk-test",
+     "anthropic-version": "2023-06-01"
+    },
+    "json": {
+     "model": "claude-sonnet-5",
+     "max_tokens": 300,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ]
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "https://a/p.json !"
+ },
+ {
+  "provider": "anthropic",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "content": []
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.anthropic.com/v1/messages",
+    "headers": {
+     "Content-Type": "application/json",
+     "x-api-key": "sk-test",
+     "anthropic-version": "2023-06-01"
+    },
+    "json": {
+     "model": "claude-sonnet-5",
+     "max_tokens": 300,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ]
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "content": [
+     {
+      "type": "text"
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.anthropic.com/v1/messages",
+    "headers": {
+     "Content-Type": "application/json",
+     "x-api-key": "sk-test",
+     "anthropic-version": "2023-06-01"
+    },
+    "json": {
+     "model": "claude-sonnet-5",
+     "max_tokens": 300,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ]
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 500,
+   "body": {
+    "error": "x"
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.anthropic.com/v1/messages",
+    "headers": {
+     "Content-Type": "application/json",
+     "x-api-key": "sk-test",
+     "anthropic-version": "2023-06-01"
+    },
+    "json": {
+     "model": "claude-sonnet-5",
+     "max_tokens": 300,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ]
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "content": [
+     {
+      "type": "text",
+      "text": " https://a/p.json "
+     },
+     {
+      "type": "tool_use",
+      "x": 1
+     },
+     {
+      "type": "text",
+      "text": "!"
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.anthropic.com/v1/messages",
+    "headers": {
+     "Content-Type": "application/json",
+     "x-api-key": "k&ey=1",
+     "anthropic-version": "2023-06-01"
+    },
+    "json": {
+     "model": "m/x y",
+     "max_tokens": 2000,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "system": "Be terse."
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "https://a/p.json !"
+ },
+ {
+  "provider": "anthropic",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "content": []
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.anthropic.com/v1/messages",
+    "headers": {
+     "Content-Type": "application/json",
+     "x-api-key": "k&ey=1",
+     "anthropic-version": "2023-06-01"
+    },
+    "json": {
+     "model": "m/x y",
+     "max_tokens": 2000,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "system": "Be terse."
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "content": [
+     {
+      "type": "text"
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.anthropic.com/v1/messages",
+    "headers": {
+     "Content-Type": "application/json",
+     "x-api-key": "k&ey=1",
+     "anthropic-version": "2023-06-01"
+    },
+    "json": {
+     "model": "m/x y",
+     "max_tokens": 2000,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "system": "Be terse."
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 500,
+   "body": {
+    "error": "x"
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.anthropic.com/v1/messages",
+    "headers": {
+     "Content-Type": "application/json",
+     "x-api-key": "k&ey=1",
+     "anthropic-version": "2023-06-01"
+    },
+    "json": {
+     "model": "m/x y",
+     "max_tokens": 2000,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "system": "Be terse."
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "content": [
+     {
+      "type": "text",
+      "text": " https://a/p.json "
+     },
+     {
+      "type": "tool_use",
+      "x": 1
+     },
+     {
+      "type": "text",
+      "text": "!"
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "content": []
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "content": [
+     {
+      "type": "text"
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 500,
+   "body": {
+    "error": "x"
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "content": [
+     {
+      "type": "text",
+      "text": " https://a/p.json "
+     },
+     {
+      "type": "tool_use",
+      "x": 1
+     },
+     {
+      "type": "text",
+      "text": "!"
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.anthropic.com/v1/messages",
+    "headers": {
+     "Content-Type": "application/json",
+     "x-api-key": "sk-test",
+     "anthropic-version": "2023-06-01"
+    },
+    "json": {
+     "model": "claude-sonnet-5",
+     "max_tokens": 300,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ]
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "https://a/p.json !"
+ },
+ {
+  "provider": "anthropic",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "content": []
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.anthropic.com/v1/messages",
+    "headers": {
+     "Content-Type": "application/json",
+     "x-api-key": "sk-test",
+     "anthropic-version": "2023-06-01"
+    },
+    "json": {
+     "model": "claude-sonnet-5",
+     "max_tokens": 300,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ]
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "content": [
+     {
+      "type": "text"
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.anthropic.com/v1/messages",
+    "headers": {
+     "Content-Type": "application/json",
+     "x-api-key": "sk-test",
+     "anthropic-version": "2023-06-01"
+    },
+    "json": {
+     "model": "claude-sonnet-5",
+     "max_tokens": 300,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ]
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 500,
+   "body": {
+    "error": "x"
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.anthropic.com/v1/messages",
+    "headers": {
+     "Content-Type": "application/json",
+     "x-api-key": "sk-test",
+     "anthropic-version": "2023-06-01"
+    },
+    "json": {
+     "model": "claude-sonnet-5",
+     "max_tokens": 300,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ]
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "content": [
+     {
+      "type": "text",
+      "text": " https://a/p.json "
+     },
+     {
+      "type": "tool_use",
+      "x": 1
+     },
+     {
+      "type": "text",
+      "text": "!"
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.anthropic.com/v1/messages",
+    "headers": {
+     "Content-Type": "application/json",
+     "x-api-key": "k&ey=1",
+     "anthropic-version": "2023-06-01"
+    },
+    "json": {
+     "model": "m/x y",
+     "max_tokens": 2000,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "system": "Be terse."
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "https://a/p.json !"
+ },
+ {
+  "provider": "anthropic",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "content": []
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.anthropic.com/v1/messages",
+    "headers": {
+     "Content-Type": "application/json",
+     "x-api-key": "k&ey=1",
+     "anthropic-version": "2023-06-01"
+    },
+    "json": {
+     "model": "m/x y",
+     "max_tokens": 2000,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "system": "Be terse."
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "content": [
+     {
+      "type": "text"
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.anthropic.com/v1/messages",
+    "headers": {
+     "Content-Type": "application/json",
+     "x-api-key": "k&ey=1",
+     "anthropic-version": "2023-06-01"
+    },
+    "json": {
+     "model": "m/x y",
+     "max_tokens": 2000,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "system": "Be terse."
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 500,
+   "body": {
+    "error": "x"
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.anthropic.com/v1/messages",
+    "headers": {
+     "Content-Type": "application/json",
+     "x-api-key": "k&ey=1",
+     "anthropic-version": "2023-06-01"
+    },
+    "json": {
+     "model": "m/x y",
+     "max_tokens": 2000,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "system": "Be terse."
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "content": [
+     {
+      "type": "text",
+      "text": " https://a/p.json "
+     },
+     {
+      "type": "tool_use",
+      "x": 1
+     },
+     {
+      "type": "text",
+      "text": "!"
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "content": []
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "content": [
+     {
+      "type": "text"
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "anthropic",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 500,
+   "body": {
+    "error": "x"
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "openai",
+  "settings": {},
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "output_text": "  hello  "
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.openai.com/v1/responses",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "gpt-6-luna",
+     "input": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_output_tokens": 300
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "hello"
+ },
+ {
+  "provider": "openai",
+  "settings": {},
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "output": [
+     {
+      "content": [
+       {
+        "text": "a"
+       },
+       {
+        "text": ""
+       },
+       "junk",
+       {
+        "text": "b "
+       }
+      ]
+     },
+     {
+      "content": null
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.openai.com/v1/responses",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "gpt-6-luna",
+     "input": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_output_tokens": 300
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "ab"
+ },
+ {
+  "provider": "openai",
+  "settings": {},
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "output_text": "",
+    "output": []
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.openai.com/v1/responses",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "gpt-6-luna",
+     "input": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_output_tokens": 300
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "openai",
+  "settings": {},
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 401,
+   "body": {
+    "error": "bad key"
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.openai.com/v1/responses",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "gpt-6-luna",
+     "input": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_output_tokens": 300
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "openai",
+  "settings": {},
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "output_text": "  hello  "
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.openai.com/v1/responses",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "input": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_output_tokens": 2000
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "hello"
+ },
+ {
+  "provider": "openai",
+  "settings": {},
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "output": [
+     {
+      "content": [
+       {
+        "text": "a"
+       },
+       {
+        "text": ""
+       },
+       "junk",
+       {
+        "text": "b "
+       }
+      ]
+     },
+     {
+      "content": null
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.openai.com/v1/responses",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "input": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_output_tokens": 2000
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "ab"
+ },
+ {
+  "provider": "openai",
+  "settings": {},
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "output_text": "",
+    "output": []
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.openai.com/v1/responses",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "input": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_output_tokens": 2000
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "openai",
+  "settings": {},
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 401,
+   "body": {
+    "error": "bad key"
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.openai.com/v1/responses",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "input": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_output_tokens": 2000
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "openai",
+  "settings": {},
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "output_text": "  hello  "
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "openai",
+  "settings": {},
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "output": [
+     {
+      "content": [
+       {
+        "text": "a"
+       },
+       {
+        "text": ""
+       },
+       "junk",
+       {
+        "text": "b "
+       }
+      ]
+     },
+     {
+      "content": null
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "openai",
+  "settings": {},
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "output_text": "",
+    "output": []
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "openai",
+  "settings": {},
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 401,
+   "body": {
+    "error": "bad key"
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "openai",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "output_text": "  hello  "
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.openai.com/v1/responses",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "saved-model",
+     "input": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_output_tokens": 300
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "hello"
+ },
+ {
+  "provider": "openai",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "output": [
+     {
+      "content": [
+       {
+        "text": "a"
+       },
+       {
+        "text": ""
+       },
+       "junk",
+       {
+        "text": "b "
+       }
+      ]
+     },
+     {
+      "content": null
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.openai.com/v1/responses",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "saved-model",
+     "input": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_output_tokens": 300
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "ab"
+ },
+ {
+  "provider": "openai",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "output_text": "",
+    "output": []
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.openai.com/v1/responses",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "saved-model",
+     "input": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_output_tokens": 300
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "openai",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 401,
+   "body": {
+    "error": "bad key"
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.openai.com/v1/responses",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "saved-model",
+     "input": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_output_tokens": 300
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "openai",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "output_text": "  hello  "
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.openai.com/v1/responses",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "input": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_output_tokens": 2000
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "hello"
+ },
+ {
+  "provider": "openai",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "output": [
+     {
+      "content": [
+       {
+        "text": "a"
+       },
+       {
+        "text": ""
+       },
+       "junk",
+       {
+        "text": "b "
+       }
+      ]
+     },
+     {
+      "content": null
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.openai.com/v1/responses",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "input": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_output_tokens": 2000
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "ab"
+ },
+ {
+  "provider": "openai",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "output_text": "",
+    "output": []
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.openai.com/v1/responses",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "input": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_output_tokens": 2000
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "openai",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 401,
+   "body": {
+    "error": "bad key"
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.openai.com/v1/responses",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "input": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_output_tokens": 2000
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "openai",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "output_text": "  hello  "
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "openai",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "output": [
+     {
+      "content": [
+       {
+        "text": "a"
+       },
+       {
+        "text": ""
+       },
+       "junk",
+       {
+        "text": "b "
+       }
+      ]
+     },
+     {
+      "content": null
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "openai",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "output_text": "",
+    "output": []
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "openai",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 401,
+   "body": {
+    "error": "bad key"
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "openai",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "output_text": "  hello  "
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.openai.com/v1/responses",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "gpt-6-luna",
+     "input": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_output_tokens": 300
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "hello"
+ },
+ {
+  "provider": "openai",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "output": [
+     {
+      "content": [
+       {
+        "text": "a"
+       },
+       {
+        "text": ""
+       },
+       "junk",
+       {
+        "text": "b "
+       }
+      ]
+     },
+     {
+      "content": null
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.openai.com/v1/responses",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "gpt-6-luna",
+     "input": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_output_tokens": 300
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "ab"
+ },
+ {
+  "provider": "openai",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "output_text": "",
+    "output": []
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.openai.com/v1/responses",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "gpt-6-luna",
+     "input": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_output_tokens": 300
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "openai",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 401,
+   "body": {
+    "error": "bad key"
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.openai.com/v1/responses",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "gpt-6-luna",
+     "input": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_output_tokens": 300
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "openai",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "output_text": "  hello  "
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.openai.com/v1/responses",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "input": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_output_tokens": 2000
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "hello"
+ },
+ {
+  "provider": "openai",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "output": [
+     {
+      "content": [
+       {
+        "text": "a"
+       },
+       {
+        "text": ""
+       },
+       "junk",
+       {
+        "text": "b "
+       }
+      ]
+     },
+     {
+      "content": null
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.openai.com/v1/responses",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "input": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_output_tokens": 2000
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "ab"
+ },
+ {
+  "provider": "openai",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "output_text": "",
+    "output": []
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.openai.com/v1/responses",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "input": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_output_tokens": 2000
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "openai",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 401,
+   "body": {
+    "error": "bad key"
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.openai.com/v1/responses",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "input": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_output_tokens": 2000
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "openai",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "output_text": "  hello  "
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "openai",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "output": [
+     {
+      "content": [
+       {
+        "text": "a"
+       },
+       {
+        "text": ""
+       },
+       "junk",
+       {
+        "text": "b "
+       }
+      ]
+     },
+     {
+      "content": null
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "openai",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "output_text": "",
+    "output": []
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "openai",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 401,
+   "body": {
+    "error": "bad key"
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "openai",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "output_text": "  hello  "
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.openai.com/v1/responses",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "gpt-6-luna",
+     "input": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_output_tokens": 300
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "hello"
+ },
+ {
+  "provider": "openai",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "output": [
+     {
+      "content": [
+       {
+        "text": "a"
+       },
+       {
+        "text": ""
+       },
+       "junk",
+       {
+        "text": "b "
+       }
+      ]
+     },
+     {
+      "content": null
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.openai.com/v1/responses",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "gpt-6-luna",
+     "input": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_output_tokens": 300
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "ab"
+ },
+ {
+  "provider": "openai",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "output_text": "",
+    "output": []
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.openai.com/v1/responses",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "gpt-6-luna",
+     "input": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_output_tokens": 300
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "openai",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 401,
+   "body": {
+    "error": "bad key"
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.openai.com/v1/responses",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "gpt-6-luna",
+     "input": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_output_tokens": 300
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "openai",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "output_text": "  hello  "
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.openai.com/v1/responses",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "input": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_output_tokens": 2000
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "hello"
+ },
+ {
+  "provider": "openai",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "output": [
+     {
+      "content": [
+       {
+        "text": "a"
+       },
+       {
+        "text": ""
+       },
+       "junk",
+       {
+        "text": "b "
+       }
+      ]
+     },
+     {
+      "content": null
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.openai.com/v1/responses",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "input": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_output_tokens": 2000
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "ab"
+ },
+ {
+  "provider": "openai",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "output_text": "",
+    "output": []
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.openai.com/v1/responses",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "input": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_output_tokens": 2000
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "openai",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 401,
+   "body": {
+    "error": "bad key"
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.openai.com/v1/responses",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "input": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_output_tokens": 2000
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "openai",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "output_text": "  hello  "
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "openai",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "output": [
+     {
+      "content": [
+       {
+        "text": "a"
+       },
+       {
+        "text": ""
+       },
+       "junk",
+       {
+        "text": "b "
+       }
+      ]
+     },
+     {
+      "content": null
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "openai",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "output_text": "",
+    "output": []
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "openai",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 401,
+   "body": {
+    "error": "bad key"
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "gemini",
+  "settings": {},
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "candidates": [
+     {
+      "content": {
+       "parts": [
+        {
+         "text": "x"
+        },
+        {
+         "text": " y "
+        }
+       ]
+      }
+     },
+     {
+      "content": {}
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=sk-test",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "contents": [
+      {
+       "role": "user",
+       "parts": [
+        {
+         "text": "Find it."
+        }
+       ]
+      }
+     ],
+     "generationConfig": {
+      "maxOutputTokens": 300
+     }
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "x y"
+ },
+ {
+  "provider": "gemini",
+  "settings": {},
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "candidates": null
+   }
+  },
+  "requests": [
+   {
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=sk-test",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "contents": [
+      {
+       "role": "user",
+       "parts": [
+        {
+         "text": "Find it."
+        }
+       ]
+      }
+     ],
+     "generationConfig": {
+      "maxOutputTokens": 300
+     }
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "gemini",
+  "settings": {},
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 403,
+   "body": "forbidden"
+  },
+  "requests": [
+   {
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=sk-test",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "contents": [
+      {
+       "role": "user",
+       "parts": [
+        {
+         "text": "Find it."
+        }
+       ]
+      }
+     ],
+     "generationConfig": {
+      "maxOutputTokens": 300
+     }
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "gemini",
+  "settings": {},
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "candidates": [
+     {
+      "content": {
+       "parts": [
+        {
+         "text": "x"
+        },
+        {
+         "text": " y "
+        }
+       ]
+      }
+     },
+     {
+      "content": {}
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/m%2Fx%20y:generateContent?key=k%26ey%3D1",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "contents": [
+      {
+       "role": "user",
+       "parts": [
+        {
+         "text": "Ünïcode\nprompt"
+        }
+       ]
+      }
+     ],
+     "generationConfig": {
+      "maxOutputTokens": 2000
+     },
+     "systemInstruction": {
+      "parts": [
+       {
+        "text": "Be terse."
+       }
+      ]
+     }
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "x y"
+ },
+ {
+  "provider": "gemini",
+  "settings": {},
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "candidates": null
+   }
+  },
+  "requests": [
+   {
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/m%2Fx%20y:generateContent?key=k%26ey%3D1",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "contents": [
+      {
+       "role": "user",
+       "parts": [
+        {
+         "text": "Ünïcode\nprompt"
+        }
+       ]
+      }
+     ],
+     "generationConfig": {
+      "maxOutputTokens": 2000
+     },
+     "systemInstruction": {
+      "parts": [
+       {
+        "text": "Be terse."
+       }
+      ]
+     }
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "gemini",
+  "settings": {},
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 403,
+   "body": "forbidden"
+  },
+  "requests": [
+   {
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/m%2Fx%20y:generateContent?key=k%26ey%3D1",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "contents": [
+      {
+       "role": "user",
+       "parts": [
+        {
+         "text": "Ünïcode\nprompt"
+        }
+       ]
+      }
+     ],
+     "generationConfig": {
+      "maxOutputTokens": 2000
+     },
+     "systemInstruction": {
+      "parts": [
+       {
+        "text": "Be terse."
+       }
+      ]
+     }
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "gemini",
+  "settings": {},
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "candidates": [
+     {
+      "content": {
+       "parts": [
+        {
+         "text": "x"
+        },
+        {
+         "text": " y "
+        }
+       ]
+      }
+     },
+     {
+      "content": {}
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "gemini",
+  "settings": {},
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "candidates": null
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "gemini",
+  "settings": {},
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 403,
+   "body": "forbidden"
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "gemini",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "candidates": [
+     {
+      "content": {
+       "parts": [
+        {
+         "text": "x"
+        },
+        {
+         "text": " y "
+        }
+       ]
+      }
+     },
+     {
+      "content": {}
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/saved-model:generateContent?key=sk-test",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "contents": [
+      {
+       "role": "user",
+       "parts": [
+        {
+         "text": "Find it."
+        }
+       ]
+      }
+     ],
+     "generationConfig": {
+      "maxOutputTokens": 300
+     }
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "x y"
+ },
+ {
+  "provider": "gemini",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "candidates": null
+   }
+  },
+  "requests": [
+   {
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/saved-model:generateContent?key=sk-test",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "contents": [
+      {
+       "role": "user",
+       "parts": [
+        {
+         "text": "Find it."
+        }
+       ]
+      }
+     ],
+     "generationConfig": {
+      "maxOutputTokens": 300
+     }
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "gemini",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 403,
+   "body": "forbidden"
+  },
+  "requests": [
+   {
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/saved-model:generateContent?key=sk-test",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "contents": [
+      {
+       "role": "user",
+       "parts": [
+        {
+         "text": "Find it."
+        }
+       ]
+      }
+     ],
+     "generationConfig": {
+      "maxOutputTokens": 300
+     }
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "gemini",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "candidates": [
+     {
+      "content": {
+       "parts": [
+        {
+         "text": "x"
+        },
+        {
+         "text": " y "
+        }
+       ]
+      }
+     },
+     {
+      "content": {}
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/m%2Fx%20y:generateContent?key=k%26ey%3D1",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "contents": [
+      {
+       "role": "user",
+       "parts": [
+        {
+         "text": "Ünïcode\nprompt"
+        }
+       ]
+      }
+     ],
+     "generationConfig": {
+      "maxOutputTokens": 2000
+     },
+     "systemInstruction": {
+      "parts": [
+       {
+        "text": "Be terse."
+       }
+      ]
+     }
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "x y"
+ },
+ {
+  "provider": "gemini",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "candidates": null
+   }
+  },
+  "requests": [
+   {
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/m%2Fx%20y:generateContent?key=k%26ey%3D1",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "contents": [
+      {
+       "role": "user",
+       "parts": [
+        {
+         "text": "Ünïcode\nprompt"
+        }
+       ]
+      }
+     ],
+     "generationConfig": {
+      "maxOutputTokens": 2000
+     },
+     "systemInstruction": {
+      "parts": [
+       {
+        "text": "Be terse."
+       }
+      ]
+     }
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "gemini",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 403,
+   "body": "forbidden"
+  },
+  "requests": [
+   {
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/m%2Fx%20y:generateContent?key=k%26ey%3D1",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "contents": [
+      {
+       "role": "user",
+       "parts": [
+        {
+         "text": "Ünïcode\nprompt"
+        }
+       ]
+      }
+     ],
+     "generationConfig": {
+      "maxOutputTokens": 2000
+     },
+     "systemInstruction": {
+      "parts": [
+       {
+        "text": "Be terse."
+       }
+      ]
+     }
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "gemini",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "candidates": [
+     {
+      "content": {
+       "parts": [
+        {
+         "text": "x"
+        },
+        {
+         "text": " y "
+        }
+       ]
+      }
+     },
+     {
+      "content": {}
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "gemini",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "candidates": null
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "gemini",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 403,
+   "body": "forbidden"
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "gemini",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "candidates": [
+     {
+      "content": {
+       "parts": [
+        {
+         "text": "x"
+        },
+        {
+         "text": " y "
+        }
+       ]
+      }
+     },
+     {
+      "content": {}
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=sk-test",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "contents": [
+      {
+       "role": "user",
+       "parts": [
+        {
+         "text": "Find it."
+        }
+       ]
+      }
+     ],
+     "generationConfig": {
+      "maxOutputTokens": 300
+     }
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "x y"
+ },
+ {
+  "provider": "gemini",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "candidates": null
+   }
+  },
+  "requests": [
+   {
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=sk-test",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "contents": [
+      {
+       "role": "user",
+       "parts": [
+        {
+         "text": "Find it."
+        }
+       ]
+      }
+     ],
+     "generationConfig": {
+      "maxOutputTokens": 300
+     }
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "gemini",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 403,
+   "body": "forbidden"
+  },
+  "requests": [
+   {
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=sk-test",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "contents": [
+      {
+       "role": "user",
+       "parts": [
+        {
+         "text": "Find it."
+        }
+       ]
+      }
+     ],
+     "generationConfig": {
+      "maxOutputTokens": 300
+     }
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "gemini",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "candidates": [
+     {
+      "content": {
+       "parts": [
+        {
+         "text": "x"
+        },
+        {
+         "text": " y "
+        }
+       ]
+      }
+     },
+     {
+      "content": {}
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/m%2Fx%20y:generateContent?key=k%26ey%3D1",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "contents": [
+      {
+       "role": "user",
+       "parts": [
+        {
+         "text": "Ünïcode\nprompt"
+        }
+       ]
+      }
+     ],
+     "generationConfig": {
+      "maxOutputTokens": 2000
+     },
+     "systemInstruction": {
+      "parts": [
+       {
+        "text": "Be terse."
+       }
+      ]
+     }
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "x y"
+ },
+ {
+  "provider": "gemini",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "candidates": null
+   }
+  },
+  "requests": [
+   {
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/m%2Fx%20y:generateContent?key=k%26ey%3D1",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "contents": [
+      {
+       "role": "user",
+       "parts": [
+        {
+         "text": "Ünïcode\nprompt"
+        }
+       ]
+      }
+     ],
+     "generationConfig": {
+      "maxOutputTokens": 2000
+     },
+     "systemInstruction": {
+      "parts": [
+       {
+        "text": "Be terse."
+       }
+      ]
+     }
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "gemini",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 403,
+   "body": "forbidden"
+  },
+  "requests": [
+   {
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/m%2Fx%20y:generateContent?key=k%26ey%3D1",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "contents": [
+      {
+       "role": "user",
+       "parts": [
+        {
+         "text": "Ünïcode\nprompt"
+        }
+       ]
+      }
+     ],
+     "generationConfig": {
+      "maxOutputTokens": 2000
+     },
+     "systemInstruction": {
+      "parts": [
+       {
+        "text": "Be terse."
+       }
+      ]
+     }
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "gemini",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "candidates": [
+     {
+      "content": {
+       "parts": [
+        {
+         "text": "x"
+        },
+        {
+         "text": " y "
+        }
+       ]
+      }
+     },
+     {
+      "content": {}
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "gemini",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "candidates": null
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "gemini",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 403,
+   "body": "forbidden"
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "gemini",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "candidates": [
+     {
+      "content": {
+       "parts": [
+        {
+         "text": "x"
+        },
+        {
+         "text": " y "
+        }
+       ]
+      }
+     },
+     {
+      "content": {}
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=sk-test",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "contents": [
+      {
+       "role": "user",
+       "parts": [
+        {
+         "text": "Find it."
+        }
+       ]
+      }
+     ],
+     "generationConfig": {
+      "maxOutputTokens": 300
+     }
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "x y"
+ },
+ {
+  "provider": "gemini",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "candidates": null
+   }
+  },
+  "requests": [
+   {
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=sk-test",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "contents": [
+      {
+       "role": "user",
+       "parts": [
+        {
+         "text": "Find it."
+        }
+       ]
+      }
+     ],
+     "generationConfig": {
+      "maxOutputTokens": 300
+     }
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "gemini",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 403,
+   "body": "forbidden"
+  },
+  "requests": [
+   {
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=sk-test",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "contents": [
+      {
+       "role": "user",
+       "parts": [
+        {
+         "text": "Find it."
+        }
+       ]
+      }
+     ],
+     "generationConfig": {
+      "maxOutputTokens": 300
+     }
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "gemini",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "candidates": [
+     {
+      "content": {
+       "parts": [
+        {
+         "text": "x"
+        },
+        {
+         "text": " y "
+        }
+       ]
+      }
+     },
+     {
+      "content": {}
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/m%2Fx%20y:generateContent?key=k%26ey%3D1",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "contents": [
+      {
+       "role": "user",
+       "parts": [
+        {
+         "text": "Ünïcode\nprompt"
+        }
+       ]
+      }
+     ],
+     "generationConfig": {
+      "maxOutputTokens": 2000
+     },
+     "systemInstruction": {
+      "parts": [
+       {
+        "text": "Be terse."
+       }
+      ]
+     }
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "x y"
+ },
+ {
+  "provider": "gemini",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "candidates": null
+   }
+  },
+  "requests": [
+   {
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/m%2Fx%20y:generateContent?key=k%26ey%3D1",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "contents": [
+      {
+       "role": "user",
+       "parts": [
+        {
+         "text": "Ünïcode\nprompt"
+        }
+       ]
+      }
+     ],
+     "generationConfig": {
+      "maxOutputTokens": 2000
+     },
+     "systemInstruction": {
+      "parts": [
+       {
+        "text": "Be terse."
+       }
+      ]
+     }
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "gemini",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 403,
+   "body": "forbidden"
+  },
+  "requests": [
+   {
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/m%2Fx%20y:generateContent?key=k%26ey%3D1",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "contents": [
+      {
+       "role": "user",
+       "parts": [
+        {
+         "text": "Ünïcode\nprompt"
+        }
+       ]
+      }
+     ],
+     "generationConfig": {
+      "maxOutputTokens": 2000
+     },
+     "systemInstruction": {
+      "parts": [
+       {
+        "text": "Be terse."
+       }
+      ]
+     }
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "gemini",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "candidates": [
+     {
+      "content": {
+       "parts": [
+        {
+         "text": "x"
+        },
+        {
+         "text": " y "
+        }
+       ]
+      }
+     },
+     {
+      "content": {}
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "gemini",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "candidates": null
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "gemini",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 403,
+   "body": "forbidden"
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "ollama",
+  "settings": {},
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "response": " local answer "
+   }
+  },
+  "requests": [
+   {
+    "url": "http://localhost:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "qwen3.5",
+     "prompt": "Find it.",
+     "stream": false,
+     "options": {
+      "num_predict": 300
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": "local answer"
+ },
+ {
+  "provider": "ollama",
+  "settings": {},
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "response": 5
+   }
+  },
+  "requests": [
+   {
+    "url": "http://localhost:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "qwen3.5",
+     "prompt": "Find it.",
+     "stream": false,
+     "options": {
+      "num_predict": 300
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "ollama",
+  "settings": {},
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "response": "   "
+   }
+  },
+  "requests": [
+   {
+    "url": "http://localhost:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "qwen3.5",
+     "prompt": "Find it.",
+     "stream": false,
+     "options": {
+      "num_predict": 300
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "ollama",
+  "settings": {},
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 404,
+   "body": "no model"
+  },
+  "requests": [
+   {
+    "url": "http://localhost:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "qwen3.5",
+     "prompt": "Find it.",
+     "stream": false,
+     "options": {
+      "num_predict": 300
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "ollama",
+  "settings": {},
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "response": " local answer "
+   }
+  },
+  "requests": [
+   {
+    "url": "http://localhost:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "m/x y",
+     "prompt": "Be terse.\n\nÜnïcode\nprompt",
+     "stream": false,
+     "options": {
+      "num_predict": 2000
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": "local answer"
+ },
+ {
+  "provider": "ollama",
+  "settings": {},
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "response": 5
+   }
+  },
+  "requests": [
+   {
+    "url": "http://localhost:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "m/x y",
+     "prompt": "Be terse.\n\nÜnïcode\nprompt",
+     "stream": false,
+     "options": {
+      "num_predict": 2000
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "ollama",
+  "settings": {},
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "response": "   "
+   }
+  },
+  "requests": [
+   {
+    "url": "http://localhost:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "m/x y",
+     "prompt": "Be terse.\n\nÜnïcode\nprompt",
+     "stream": false,
+     "options": {
+      "num_predict": 2000
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "ollama",
+  "settings": {},
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 404,
+   "body": "no model"
+  },
+  "requests": [
+   {
+    "url": "http://localhost:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "m/x y",
+     "prompt": "Be terse.\n\nÜnïcode\nprompt",
+     "stream": false,
+     "options": {
+      "num_predict": 2000
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "ollama",
+  "settings": {},
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "response": " local answer "
+   }
+  },
+  "requests": [
+   {
+    "url": "http://localhost:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "qwen3.5",
+     "prompt": "no key",
+     "stream": false,
+     "options": {
+      "num_predict": 10
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": "local answer"
+ },
+ {
+  "provider": "ollama",
+  "settings": {},
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "response": 5
+   }
+  },
+  "requests": [
+   {
+    "url": "http://localhost:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "qwen3.5",
+     "prompt": "no key",
+     "stream": false,
+     "options": {
+      "num_predict": 10
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "ollama",
+  "settings": {},
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "response": "   "
+   }
+  },
+  "requests": [
+   {
+    "url": "http://localhost:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "qwen3.5",
+     "prompt": "no key",
+     "stream": false,
+     "options": {
+      "num_predict": 10
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "ollama",
+  "settings": {},
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 404,
+   "body": "no model"
+  },
+  "requests": [
+   {
+    "url": "http://localhost:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "qwen3.5",
+     "prompt": "no key",
+     "stream": false,
+     "options": {
+      "num_predict": 10
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "ollama",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "response": " local answer "
+   }
+  },
+  "requests": [
+   {
+    "url": "http://10.0.0.9:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "saved-model",
+     "prompt": "Find it.",
+     "stream": false,
+     "options": {
+      "num_predict": 300
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": "local answer"
+ },
+ {
+  "provider": "ollama",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "response": 5
+   }
+  },
+  "requests": [
+   {
+    "url": "http://10.0.0.9:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "saved-model",
+     "prompt": "Find it.",
+     "stream": false,
+     "options": {
+      "num_predict": 300
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "ollama",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "response": "   "
+   }
+  },
+  "requests": [
+   {
+    "url": "http://10.0.0.9:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "saved-model",
+     "prompt": "Find it.",
+     "stream": false,
+     "options": {
+      "num_predict": 300
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "ollama",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 404,
+   "body": "no model"
+  },
+  "requests": [
+   {
+    "url": "http://10.0.0.9:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "saved-model",
+     "prompt": "Find it.",
+     "stream": false,
+     "options": {
+      "num_predict": 300
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "ollama",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "response": " local answer "
+   }
+  },
+  "requests": [
+   {
+    "url": "http://10.0.0.9:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "m/x y",
+     "prompt": "Be terse.\n\nÜnïcode\nprompt",
+     "stream": false,
+     "options": {
+      "num_predict": 2000
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": "local answer"
+ },
+ {
+  "provider": "ollama",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "response": 5
+   }
+  },
+  "requests": [
+   {
+    "url": "http://10.0.0.9:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "m/x y",
+     "prompt": "Be terse.\n\nÜnïcode\nprompt",
+     "stream": false,
+     "options": {
+      "num_predict": 2000
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "ollama",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "response": "   "
+   }
+  },
+  "requests": [
+   {
+    "url": "http://10.0.0.9:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "m/x y",
+     "prompt": "Be terse.\n\nÜnïcode\nprompt",
+     "stream": false,
+     "options": {
+      "num_predict": 2000
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "ollama",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 404,
+   "body": "no model"
+  },
+  "requests": [
+   {
+    "url": "http://10.0.0.9:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "m/x y",
+     "prompt": "Be terse.\n\nÜnïcode\nprompt",
+     "stream": false,
+     "options": {
+      "num_predict": 2000
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "ollama",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "response": " local answer "
+   }
+  },
+  "requests": [
+   {
+    "url": "http://10.0.0.9:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "saved-model",
+     "prompt": "no key",
+     "stream": false,
+     "options": {
+      "num_predict": 10
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": "local answer"
+ },
+ {
+  "provider": "ollama",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "response": 5
+   }
+  },
+  "requests": [
+   {
+    "url": "http://10.0.0.9:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "saved-model",
+     "prompt": "no key",
+     "stream": false,
+     "options": {
+      "num_predict": 10
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "ollama",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "response": "   "
+   }
+  },
+  "requests": [
+   {
+    "url": "http://10.0.0.9:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "saved-model",
+     "prompt": "no key",
+     "stream": false,
+     "options": {
+      "num_predict": 10
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "ollama",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 404,
+   "body": "no model"
+  },
+  "requests": [
+   {
+    "url": "http://10.0.0.9:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "saved-model",
+     "prompt": "no key",
+     "stream": false,
+     "options": {
+      "num_predict": 10
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "ollama",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "response": " local answer "
+   }
+  },
+  "requests": [
+   {
+    "url": "http://localhost:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "qwen3.5",
+     "prompt": "Find it.",
+     "stream": false,
+     "options": {
+      "num_predict": 300
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": "local answer"
+ },
+ {
+  "provider": "ollama",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "response": 5
+   }
+  },
+  "requests": [
+   {
+    "url": "http://localhost:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "qwen3.5",
+     "prompt": "Find it.",
+     "stream": false,
+     "options": {
+      "num_predict": 300
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "ollama",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "response": "   "
+   }
+  },
+  "requests": [
+   {
+    "url": "http://localhost:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "qwen3.5",
+     "prompt": "Find it.",
+     "stream": false,
+     "options": {
+      "num_predict": 300
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "ollama",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 404,
+   "body": "no model"
+  },
+  "requests": [
+   {
+    "url": "http://localhost:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "qwen3.5",
+     "prompt": "Find it.",
+     "stream": false,
+     "options": {
+      "num_predict": 300
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "ollama",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "response": " local answer "
+   }
+  },
+  "requests": [
+   {
+    "url": "http://localhost:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "m/x y",
+     "prompt": "Be terse.\n\nÜnïcode\nprompt",
+     "stream": false,
+     "options": {
+      "num_predict": 2000
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": "local answer"
+ },
+ {
+  "provider": "ollama",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "response": 5
+   }
+  },
+  "requests": [
+   {
+    "url": "http://localhost:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "m/x y",
+     "prompt": "Be terse.\n\nÜnïcode\nprompt",
+     "stream": false,
+     "options": {
+      "num_predict": 2000
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "ollama",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "response": "   "
+   }
+  },
+  "requests": [
+   {
+    "url": "http://localhost:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "m/x y",
+     "prompt": "Be terse.\n\nÜnïcode\nprompt",
+     "stream": false,
+     "options": {
+      "num_predict": 2000
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "ollama",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 404,
+   "body": "no model"
+  },
+  "requests": [
+   {
+    "url": "http://localhost:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "m/x y",
+     "prompt": "Be terse.\n\nÜnïcode\nprompt",
+     "stream": false,
+     "options": {
+      "num_predict": 2000
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "ollama",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "response": " local answer "
+   }
+  },
+  "requests": [
+   {
+    "url": "http://localhost:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "qwen3.5",
+     "prompt": "no key",
+     "stream": false,
+     "options": {
+      "num_predict": 10
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": "local answer"
+ },
+ {
+  "provider": "ollama",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "response": 5
+   }
+  },
+  "requests": [
+   {
+    "url": "http://localhost:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "qwen3.5",
+     "prompt": "no key",
+     "stream": false,
+     "options": {
+      "num_predict": 10
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "ollama",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "response": "   "
+   }
+  },
+  "requests": [
+   {
+    "url": "http://localhost:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "qwen3.5",
+     "prompt": "no key",
+     "stream": false,
+     "options": {
+      "num_predict": 10
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "ollama",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 404,
+   "body": "no model"
+  },
+  "requests": [
+   {
+    "url": "http://localhost:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "qwen3.5",
+     "prompt": "no key",
+     "stream": false,
+     "options": {
+      "num_predict": 10
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "ollama",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "response": " local answer "
+   }
+  },
+  "requests": [
+   {
+    "url": "http://localhost:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "qwen3.5",
+     "prompt": "Find it.",
+     "stream": false,
+     "options": {
+      "num_predict": 300
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": "local answer"
+ },
+ {
+  "provider": "ollama",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "response": 5
+   }
+  },
+  "requests": [
+   {
+    "url": "http://localhost:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "qwen3.5",
+     "prompt": "Find it.",
+     "stream": false,
+     "options": {
+      "num_predict": 300
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "ollama",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "response": "   "
+   }
+  },
+  "requests": [
+   {
+    "url": "http://localhost:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "qwen3.5",
+     "prompt": "Find it.",
+     "stream": false,
+     "options": {
+      "num_predict": 300
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "ollama",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 404,
+   "body": "no model"
+  },
+  "requests": [
+   {
+    "url": "http://localhost:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "qwen3.5",
+     "prompt": "Find it.",
+     "stream": false,
+     "options": {
+      "num_predict": 300
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "ollama",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "response": " local answer "
+   }
+  },
+  "requests": [
+   {
+    "url": "http://localhost:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "m/x y",
+     "prompt": "Be terse.\n\nÜnïcode\nprompt",
+     "stream": false,
+     "options": {
+      "num_predict": 2000
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": "local answer"
+ },
+ {
+  "provider": "ollama",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "response": 5
+   }
+  },
+  "requests": [
+   {
+    "url": "http://localhost:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "m/x y",
+     "prompt": "Be terse.\n\nÜnïcode\nprompt",
+     "stream": false,
+     "options": {
+      "num_predict": 2000
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "ollama",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "response": "   "
+   }
+  },
+  "requests": [
+   {
+    "url": "http://localhost:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "m/x y",
+     "prompt": "Be terse.\n\nÜnïcode\nprompt",
+     "stream": false,
+     "options": {
+      "num_predict": 2000
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "ollama",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 404,
+   "body": "no model"
+  },
+  "requests": [
+   {
+    "url": "http://localhost:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "m/x y",
+     "prompt": "Be terse.\n\nÜnïcode\nprompt",
+     "stream": false,
+     "options": {
+      "num_predict": 2000
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "ollama",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "response": " local answer "
+   }
+  },
+  "requests": [
+   {
+    "url": "http://localhost:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "qwen3.5",
+     "prompt": "no key",
+     "stream": false,
+     "options": {
+      "num_predict": 10
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": "local answer"
+ },
+ {
+  "provider": "ollama",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "response": 5
+   }
+  },
+  "requests": [
+   {
+    "url": "http://localhost:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "qwen3.5",
+     "prompt": "no key",
+     "stream": false,
+     "options": {
+      "num_predict": 10
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "ollama",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "response": "   "
+   }
+  },
+  "requests": [
+   {
+    "url": "http://localhost:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "qwen3.5",
+     "prompt": "no key",
+     "stream": false,
+     "options": {
+      "num_predict": 10
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "ollama",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 404,
+   "body": "no model"
+  },
+  "requests": [
+   {
+    "url": "http://localhost:11434/api/generate",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "json": {
+     "model": "qwen3.5",
+     "prompt": "no key",
+     "stream": false,
+     "options": {
+      "num_predict": 10
+     }
+    },
+    "timeout": 120
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "deepseek",
+  "settings": {},
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": " ds "
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.deepseek.com/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "deepseek-v4-flash",
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_tokens": 300
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "ds"
+ },
+ {
+  "provider": "deepseek",
+  "settings": {},
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": []
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.deepseek.com/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "deepseek-v4-flash",
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_tokens": 300
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "deepseek",
+  "settings": {},
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": null
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.deepseek.com/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "deepseek-v4-flash",
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_tokens": 300
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "deepseek",
+  "settings": {},
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": " ds "
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.deepseek.com/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_tokens": 2000
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "ds"
+ },
+ {
+  "provider": "deepseek",
+  "settings": {},
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": []
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.deepseek.com/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_tokens": 2000
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "deepseek",
+  "settings": {},
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": null
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.deepseek.com/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_tokens": 2000
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "deepseek",
+  "settings": {},
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": " ds "
+      }
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "deepseek",
+  "settings": {},
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": []
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "deepseek",
+  "settings": {},
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": null
+      }
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "deepseek",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": " ds "
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.deepseek.com/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "saved-model",
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_tokens": 300,
+     "temperature": 0.25
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "ds"
+ },
+ {
+  "provider": "deepseek",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": []
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.deepseek.com/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "saved-model",
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_tokens": 300,
+     "temperature": 0.25
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "deepseek",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": null
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.deepseek.com/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "saved-model",
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_tokens": 300,
+     "temperature": 0.25
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "deepseek",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": " ds "
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.deepseek.com/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_tokens": 2000,
+     "temperature": 0.25
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "ds"
+ },
+ {
+  "provider": "deepseek",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": []
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.deepseek.com/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_tokens": 2000,
+     "temperature": 0.25
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "deepseek",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": null
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.deepseek.com/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_tokens": 2000,
+     "temperature": 0.25
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "deepseek",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": " ds "
+      }
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "deepseek",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": []
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "deepseek",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": null
+      }
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "deepseek",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": " ds "
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.deepseek.com/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "deepseek-v4-flash",
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_tokens": 300
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "ds"
+ },
+ {
+  "provider": "deepseek",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": []
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.deepseek.com/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "deepseek-v4-flash",
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_tokens": 300
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "deepseek",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": null
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.deepseek.com/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "deepseek-v4-flash",
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_tokens": 300
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "deepseek",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": " ds "
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.deepseek.com/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_tokens": 2000
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "ds"
+ },
+ {
+  "provider": "deepseek",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": []
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.deepseek.com/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_tokens": 2000
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "deepseek",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": null
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.deepseek.com/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_tokens": 2000
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "deepseek",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": " ds "
+      }
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "deepseek",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": []
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "deepseek",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": null
+      }
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "deepseek",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": " ds "
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.deepseek.com/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "deepseek-v4-flash",
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_tokens": 300,
+     "temperature": 1.0
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "ds"
+ },
+ {
+  "provider": "deepseek",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": []
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.deepseek.com/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "deepseek-v4-flash",
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_tokens": 300,
+     "temperature": 1.0
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "deepseek",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": null
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.deepseek.com/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "deepseek-v4-flash",
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_tokens": 300,
+     "temperature": 1.0
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "deepseek",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": " ds "
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.deepseek.com/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_tokens": 2000,
+     "temperature": 1.0
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "ds"
+ },
+ {
+  "provider": "deepseek",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": []
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.deepseek.com/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_tokens": 2000,
+     "temperature": 1.0
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "deepseek",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": null
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.deepseek.com/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_tokens": 2000,
+     "temperature": 1.0
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "deepseek",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": " ds "
+      }
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "deepseek",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": []
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "deepseek",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": null
+      }
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "qwen",
+  "settings": {},
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "q"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "qwen3.8-flash",
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_tokens": 300
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "q"
+ },
+ {
+  "provider": "qwen",
+  "settings": {},
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "q"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_tokens": 2000
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "q"
+ },
+ {
+  "provider": "qwen",
+  "settings": {},
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "q"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "qwen",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "q"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "saved-model",
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_tokens": 300,
+     "temperature": 0.25
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "q"
+ },
+ {
+  "provider": "qwen",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "q"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_tokens": 2000,
+     "temperature": 0.25
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "q"
+ },
+ {
+  "provider": "qwen",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "q"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "qwen",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "q"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "qwen3.8-flash",
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_tokens": 300
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "q"
+ },
+ {
+  "provider": "qwen",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "q"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_tokens": 2000
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "q"
+ },
+ {
+  "provider": "qwen",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "q"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "qwen",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "q"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "qwen3.8-flash",
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_tokens": 300,
+     "temperature": 1.0
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "q"
+ },
+ {
+  "provider": "qwen",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "q"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_tokens": 2000,
+     "temperature": 1.0
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "q"
+ },
+ {
+  "provider": "qwen",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "q"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "groq",
+  "settings": {},
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "g"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.groq.com/openai/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "openai/gpt-oss-20b",
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_tokens": 300
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "g"
+ },
+ {
+  "provider": "groq",
+  "settings": {},
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 429,
+   "body": "slow down"
+  },
+  "requests": [
+   {
+    "url": "https://api.groq.com/openai/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "openai/gpt-oss-20b",
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_tokens": 300
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "groq",
+  "settings": {},
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "g"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.groq.com/openai/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_tokens": 2000
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "g"
+ },
+ {
+  "provider": "groq",
+  "settings": {},
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 429,
+   "body": "slow down"
+  },
+  "requests": [
+   {
+    "url": "https://api.groq.com/openai/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_tokens": 2000
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "groq",
+  "settings": {},
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "g"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "groq",
+  "settings": {},
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 429,
+   "body": "slow down"
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "groq",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "g"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.groq.com/openai/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "saved-model",
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_tokens": 300,
+     "temperature": 0.25
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "g"
+ },
+ {
+  "provider": "groq",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 429,
+   "body": "slow down"
+  },
+  "requests": [
+   {
+    "url": "https://api.groq.com/openai/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "saved-model",
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_tokens": 300,
+     "temperature": 0.25
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "groq",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "g"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.groq.com/openai/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_tokens": 2000,
+     "temperature": 0.25
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "g"
+ },
+ {
+  "provider": "groq",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 429,
+   "body": "slow down"
+  },
+  "requests": [
+   {
+    "url": "https://api.groq.com/openai/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_tokens": 2000,
+     "temperature": 0.25
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "groq",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "g"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "groq",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 429,
+   "body": "slow down"
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "groq",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "g"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.groq.com/openai/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "openai/gpt-oss-20b",
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_tokens": 300
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "g"
+ },
+ {
+  "provider": "groq",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 429,
+   "body": "slow down"
+  },
+  "requests": [
+   {
+    "url": "https://api.groq.com/openai/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "openai/gpt-oss-20b",
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_tokens": 300
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "groq",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "g"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.groq.com/openai/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_tokens": 2000
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "g"
+ },
+ {
+  "provider": "groq",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 429,
+   "body": "slow down"
+  },
+  "requests": [
+   {
+    "url": "https://api.groq.com/openai/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_tokens": 2000
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "groq",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "g"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "groq",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 429,
+   "body": "slow down"
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "groq",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "g"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.groq.com/openai/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "openai/gpt-oss-20b",
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_tokens": 300,
+     "temperature": 1.0
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "g"
+ },
+ {
+  "provider": "groq",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 429,
+   "body": "slow down"
+  },
+  "requests": [
+   {
+    "url": "https://api.groq.com/openai/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "openai/gpt-oss-20b",
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_tokens": 300,
+     "temperature": 1.0
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "groq",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "g"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://api.groq.com/openai/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_tokens": 2000,
+     "temperature": 1.0
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "g"
+ },
+ {
+  "provider": "groq",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 429,
+   "body": "slow down"
+  },
+  "requests": [
+   {
+    "url": "https://api.groq.com/openai/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_tokens": 2000,
+     "temperature": 1.0
+    },
+    "timeout": 60
+   }
+  ],
+  "result": null
+ },
+ {
+  "provider": "groq",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "g"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "groq",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 429,
+   "body": "slow down"
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "openrouter",
+  "settings": {},
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "or"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://openrouter.ai/api/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test",
+     "HTTP-Referer": "https://github.com/cyoa-downloader",
+     "X-Title": "CYOA Downloader"
+    },
+    "json": {
+     "model": "openai/gpt-6-luna",
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_tokens": 300
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "or"
+ },
+ {
+  "provider": "openrouter",
+  "settings": {},
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "or"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://openrouter.ai/api/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1",
+     "HTTP-Referer": "https://github.com/cyoa-downloader",
+     "X-Title": "CYOA Downloader"
+    },
+    "json": {
+     "model": "m/x y",
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_tokens": 2000
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "or"
+ },
+ {
+  "provider": "openrouter",
+  "settings": {},
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "or"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "openrouter",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "or"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://openrouter.ai/api/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test",
+     "HTTP-Referer": "https://github.com/cyoa-downloader",
+     "X-Title": "CYOA Downloader"
+    },
+    "json": {
+     "model": "saved-model",
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_tokens": 300,
+     "temperature": 0.25
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "or"
+ },
+ {
+  "provider": "openrouter",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "or"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://openrouter.ai/api/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1",
+     "HTTP-Referer": "https://github.com/cyoa-downloader",
+     "X-Title": "CYOA Downloader"
+    },
+    "json": {
+     "model": "m/x y",
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_tokens": 2000,
+     "temperature": 0.25
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "or"
+ },
+ {
+  "provider": "openrouter",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "or"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "openrouter",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "or"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://openrouter.ai/api/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test",
+     "HTTP-Referer": "https://github.com/cyoa-downloader",
+     "X-Title": "CYOA Downloader"
+    },
+    "json": {
+     "model": "openai/gpt-6-luna",
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_tokens": 300
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "or"
+ },
+ {
+  "provider": "openrouter",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "or"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://openrouter.ai/api/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1",
+     "HTTP-Referer": "https://github.com/cyoa-downloader",
+     "X-Title": "CYOA Downloader"
+    },
+    "json": {
+     "model": "m/x y",
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_tokens": 2000
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "or"
+ },
+ {
+  "provider": "openrouter",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "or"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "openrouter",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "or"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://openrouter.ai/api/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test",
+     "HTTP-Referer": "https://github.com/cyoa-downloader",
+     "X-Title": "CYOA Downloader"
+    },
+    "json": {
+     "model": "openai/gpt-6-luna",
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_tokens": 300,
+     "temperature": 1.0
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "or"
+ },
+ {
+  "provider": "openrouter",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "or"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "https://openrouter.ai/api/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1",
+     "HTTP-Referer": "https://github.com/cyoa-downloader",
+     "X-Title": "CYOA Downloader"
+    },
+    "json": {
+     "model": "m/x y",
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_tokens": 2000,
+     "temperature": 1.0
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "or"
+ },
+ {
+  "provider": "openrouter",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "or"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "custom",
+  "settings": {},
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "c"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "custom",
+  "settings": {},
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "c"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "custom",
+  "settings": {},
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "c"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "custom",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "c"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "http://lm.local:1234/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer sk-test"
+    },
+    "json": {
+     "model": "saved-model",
+     "messages": [
+      {
+       "role": "user",
+       "content": "Find it."
+      }
+     ],
+     "max_tokens": 300,
+     "temperature": 0.25
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "c"
+ },
+ {
+  "provider": "custom",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "c"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [
+   {
+    "url": "http://lm.local:1234/v1/chat/completions",
+    "headers": {
+     "Content-Type": "application/json",
+     "Authorization": "Bearer k&ey=1"
+    },
+    "json": {
+     "model": "m/x y",
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be terse."
+      },
+      {
+       "role": "user",
+       "content": "Ünïcode\nprompt"
+      }
+     ],
+     "max_tokens": 2000,
+     "temperature": 0.25
+    },
+    "timeout": 60
+   }
+  ],
+  "result": "c"
+ },
+ {
+  "provider": "custom",
+  "settings": {
+   "ollama_url": "http://10.0.0.9:11434/",
+   "ai_custom_base_url": " http://lm.local:1234/v1/ ",
+   "ai_temperature": "0.25",
+   "ai_model": "saved-model"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "c"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "custom",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "c"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "custom",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "c"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "custom",
+  "settings": {
+   "ai_custom_base_url": "",
+   "ai_temperature": "warm"
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "c"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "custom",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Find it.",
+   "system": "",
+   "max_tokens": 300,
+   "model": "",
+   "key": "sk-test"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "c"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "custom",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "Ünïcode\nprompt",
+   "system": "Be terse.",
+   "max_tokens": 2000,
+   "model": "m/x y",
+   "key": "k&ey=1"
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "c"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ },
+ {
+  "provider": "custom",
+  "settings": {
+   "ai_temperature": 1
+  },
+  "call": {
+   "prompt": "no key",
+   "system": "",
+   "max_tokens": 10,
+   "model": "",
+   "key": ""
+  },
+  "reply": {
+   "status": 200,
+   "body": {
+    "choices": [
+     {
+      "message": {
+       "content": "c"
+      }
+     }
+    ]
+   }
+  },
+  "requests": [],
+  "result": null
+ }
+]
