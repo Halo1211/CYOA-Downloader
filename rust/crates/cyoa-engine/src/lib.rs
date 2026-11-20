@@ -15,6 +15,7 @@ pub mod fetch_plan;
 pub mod fonts;
 pub mod gallery_dl;
 pub mod icc;
+pub mod image_retry;
 pub mod itch;
 pub mod itch_html5;
 pub mod localize;

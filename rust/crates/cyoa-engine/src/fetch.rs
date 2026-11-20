@@ -271,7 +271,7 @@ fn outcome(
     }
 }
 
-fn guess_mime_from_url(url: &str) -> Option<&'static str> {
+pub(crate) fn guess_mime_from_url(url: &str) -> Option<&'static str> {
     let path = Url::parse(url).ok()?.path().to_ascii_lowercase();
     let ext = path.rsplit_once('.').map(|(_, ext)| ext)?;
     Some(match ext {

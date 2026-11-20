@@ -880,8 +880,17 @@ impl DownloaderApp {
             if theme::pill(ui, "↺", "Retry Assets", p.retry_asset, !busy).clicked() {
                 self.retry_assets(ui.ctx());
             }
-            theme::pill(ui, "🖼", "Retry Images", p.retry_image, false)
-                .on_disabled_hover_text(NOT_PORTED);
+            if theme::pill(
+                ui,
+                "🖼",
+                "Retry Images",
+                p.retry_image,
+                self.retry_rx.is_none(),
+            )
+            .clicked()
+            {
+                self.retry_images(ui.ctx());
+            }
             theme::pill(ui, "🎵", "Retry Audio", p.retry_audio, false)
                 .on_disabled_hover_text(NOT_PORTED);
             if theme::pill(ui, "🛠", "Settings", p.settings, true).clicked() {
@@ -1344,6 +1353,117 @@ impl DownloaderApp {
         tracing::info!("{line}");
         self.log.push(line);
         self.download_all();
+    }
+
+    /// Python `_retry_failed_images` (dialogs, then a background re-embed).
+    fn retry_images(&mut self, ctx: &egui::Context) {
+        use cyoa_engine::image_retry::{RetryImagesPlan, plan_retry_images};
+        let outdir = std::path::absolute(&self.settings.output_dir)
+            .unwrap_or_else(|_| std::path::PathBuf::from(&self.settings.output_dir));
+        let info = |text: String| {
+            let _ = std::thread::Builder::new()
+                .name("retry-images-info".into())
+                .spawn(move || {
+                    rfd::MessageDialog::new()
+                        .set_title("Retry Failed Images")
+                        .set_description(text)
+                        .show();
+                });
+        };
+        let (urls, json_files) = match plan_retry_images(&outdir) {
+            RetryImagesPlan::NoReports => {
+                return info(format!(
+                    "failed_images.txt tidak ditemukan di:
+{}",
+                    outdir.display()
+                ));
+            }
+            RetryImagesPlan::NoUrls => {
+                return info("No failed image URLs found in failed_images.txt".into());
+            }
+            RetryImagesPlan::NoProjects => {
+                return info(format!(
+                    "Tidak ada .json project ditemukan di:
+{}",
+                    outdir.display()
+                ));
+            }
+            RetryImagesPlan::Ready { urls, json_files } => (urls, json_files),
+        };
+        if self
+            .jobs
+            .iter()
+            .any(|j| matches!(j.status, Status::Running { .. } | Status::Queued))
+        {
+            let _ = std::thread::Builder::new()
+                .name("retry-images-info".into())
+                .spawn(|| {
+                    rfd::MessageDialog::new()
+                        .set_level(rfd::MessageLevel::Warning)
+                        .set_title("Retry Failed Images")
+                        .set_description("Please wait for the current download to finish.")
+                        .show();
+                });
+            return;
+        }
+        let line = format!(
+            "[Retry Images] {} gambar gagal, {} project JSON ditemukan.",
+            urls.len(),
+            json_files.len()
+        );
+        tracing::info!("{line}");
+        self.log.push(line);
+        let net = match self.net_runtime() {
+            Ok(n) => n,
+            Err(e) => {
+                self.log.push(e);
+                return;
+            }
+        };
+        let (tx, rx) = std::sync::mpsc::channel();
+        let ctx = ctx.clone();
+        let spawned = std::thread::Builder::new()
+            .name("retry-images".into())
+            .spawn(move || {
+                let message = (|| -> Result<String, String> {
+                    let rt = tokio::runtime::Builder::new_multi_thread()
+                        .worker_threads(2)
+                        .enable_all()
+                        .build()
+                        .map_err(|e| e.to_string())?;
+                    let client =
+                        cyoa_net::client::FetchClient::new(cyoa_net::client::ClientConfig {
+                            policy: cyoa_net::policy::DestinationPolicy {
+                                origin: None,
+                                allow_internal: cyoa_core::allow_internal_hosts(),
+                            },
+                            proxy: net.proxy,
+                            dns: net.dns,
+                            vpn: net.vpn,
+                            ..Default::default()
+                        })
+                        .map_err(|e| e.to_string())?;
+                    let cancel = tokio_util::sync::CancellationToken::new();
+                    let n = rt.block_on(cyoa_engine::image_retry::retry_failed_images(
+                        &client,
+                        &urls,
+                        &json_files,
+                        &cancel,
+                    ));
+                    rt.shutdown_timeout(std::time::Duration::from_secs(1));
+                    Ok(if n > 0 {
+                        format!("[Retry Images] Done — {n} gambar berhasil di-embed.")
+                    } else {
+                        "[Retry Images] No images were successfully downloaded.".to_owned()
+                    })
+                })()
+                .unwrap_or_else(|e| format!("[Retry Images] {e}"));
+                let _ = tx.send(message);
+                ctx.request_repaint();
+            });
+        if spawned.is_ok() {
+            self.retry_rx = Some(rx);
+        }
     }
 
     /// Finish a background Retry Assets run.
