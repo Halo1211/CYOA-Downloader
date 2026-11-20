@@ -891,8 +891,17 @@ impl DownloaderApp {
             {
                 self.retry_images(ui.ctx());
             }
-            theme::pill(ui, "🎵", "Retry Audio", p.retry_audio, false)
-                .on_disabled_hover_text(NOT_PORTED);
+            if theme::pill(
+                ui,
+                "🎵",
+                "Retry Audio",
+                p.retry_audio,
+                self.retry_rx.is_none(),
+            )
+            .clicked()
+            {
+                self.retry_audio(ui.ctx());
+            }
             if theme::pill(ui, "🛠", "Settings", p.settings, true).clicked() {
                 self.show_settings = true;
             }
@@ -1459,6 +1468,62 @@ impl DownloaderApp {
                 })()
                 .unwrap_or_else(|e| format!("[Retry Images] {e}"));
                 let _ = tx.send(message);
+                ctx.request_repaint();
+            });
+        if spawned.is_ok() {
+            self.retry_rx = Some(rx);
+        }
+    }
+
+    /// Python `_retry_youtube_audio` (status texts, background yt-dlp run).
+    fn retry_audio(&mut self, ctx: &egui::Context) {
+        let out = std::path::absolute(&self.settings.output_dir)
+            .unwrap_or_else(|_| std::path::PathBuf::from(&self.settings.output_dir));
+        let Some(entries) = cyoa_engine::audio_retry::skipped_audio_entries(&out) else {
+            self.log
+                .push("No skipped_youtube_audio.txt found.".to_owned());
+            return;
+        };
+        if entries.is_empty() {
+            self.log.push("No YouTube URLs to retry.".to_owned());
+            return;
+        }
+        let total = entries
+            .iter()
+            .map(|(u, _)| u.as_str())
+            .collect::<std::collections::BTreeSet<_>>()
+            .len();
+        self.log.push(format!("Retry {total} YouTube audio…"));
+        let cookies = self.shared.as_ref().and_then(|(p, _)| {
+            let mut store = cyoa_storage::settings::SettingsStore::new(p);
+            let v = store
+                .load()
+                .ok()?
+                .get("ytdlp_cookies")?
+                .as_str()?
+                .trim()
+                .to_owned();
+            (!v.is_empty())
+                .then(|| std::path::PathBuf::from(v))
+                .filter(|p| p.is_file())
+        });
+        let (tx, rx) = std::sync::mpsc::channel();
+        let ctx = ctx.clone();
+        let spawned = std::thread::Builder::new()
+            .name("retry-audio".into())
+            .spawn(move || {
+                let groups = cyoa_engine::audio_retry::group_entries(&out, &entries);
+                let cfg = cyoa_engine::audio::AudioConfig {
+                    enabled: true,
+                    explicit_cookies: cookies,
+                };
+                let (ok, _) = cyoa_engine::audio_retry::retry_audio_groups(
+                    &groups,
+                    &cfg,
+                    &cyoa_engine::audio::YtDlpExe::default(),
+                    &tokio_util::sync::CancellationToken::new(),
+                );
+                let _ = tx.send(format!("Retry YT audio selesai: {ok}/{total} berhasil"));
                 ctx.request_repaint();
             });
         if spawned.is_ok() {

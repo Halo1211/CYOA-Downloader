@@ -1,6 +1,7 @@
 pub const CRATE_NAME: &str = "cyoa-engine";
 
 pub mod audio;
+pub mod audio_retry;
 pub mod auto_detect;
 pub mod batch;
 pub mod cafe;
