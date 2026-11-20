@@ -432,136 +432,203 @@ impl SettingsDashboard {
 
     pub fn general_cards(&mut self, ui: &mut egui::Ui, path: &Path, ctx: &egui::Context) {
         self.poll();
-        card(
+        title(
             ui,
             "Access & Credentials",
             "Optional authentication used by download services.",
         );
-        ui.label(egui::RichText::new("YouTube cookies").strong());
-        ui.label(
-            egui::RichText::new(
-                "Used by yt-dlp for login or age-restricted media; the file remains local.",
-            )
-            .weak(),
-        );
-        ui.horizontal(|ui| {
-            ui.add(
-                egui::TextEdit::singleline(&mut self.cookie)
-                    .hint_text("Netscape cookies.txt (optional)")
-                    .desired_width(320.0),
-            );
-            if ui.button("Browse").clicked()
-                && let Some(p) = rfd::FileDialog::new()
-                    .add_filter("Cookies", &["txt"])
-                    .pick_file()
-            {
-                self.cookie = p.display().to_string();
-            }
-            if ui.button("Save").clicked() {
-                let value = self.cookie.trim().to_owned();
-                self.status = if !value.is_empty() && !Path::new(&value).is_file() {
-                    format!("yt-dlp cookie file not found: {value}")
-                } else {
-                    match update(path, |m| {
-                        m.insert("ytdlp_cookies".into(), value.into());
-                    }) {
-                        Ok(()) => "YouTube cookie setting saved.".into(),
-                        Err(e) => e,
+        boxed(
+            ui,
+            "YT",
+            rgb(0xb9, 0x1c, 0x1c),
+            "YouTube cookies",
+            "Used by yt-dlp for login or age-restricted media; the file remains local.",
+            |ui| {
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.cookie)
+                            .hint_text("Netscape cookies.txt (optional)")
+                            .desired_width(300.0),
+                    );
+                    if ui.button("Browse").clicked()
+                        && let Some(p) = rfd::FileDialog::new()
+                            .add_filter("Cookies", &["txt"])
+                            .pick_file()
+                    {
+                        self.cookie = p.display().to_string();
                     }
-                };
-            }
-        });
-        ui.add_space(4.0);
-        ui.label(egui::RichText::new("itch.io API key").strong());
-        ui.label(egui::RichText::new("Required by itch-dl; keyring storage is preferred.").weak());
-        ui.horizontal(|ui| {
-            ui.add(
-                egui::TextEdit::singleline(&mut self.itch_key)
-                    .password(true)
-                    .hint_text("itch.io API key")
-                    .desired_width(220.0),
-            );
-            if ui.button("Save").clicked() {
-                self.save_itch_key(path);
-            }
-        });
+                    if accent_button(ui, "Save", rgb(0xb9, 0x1c, 0x1c)) {
+                        let value = self.cookie.trim().to_owned();
+                        self.status = if !value.is_empty() && !Path::new(&value).is_file() {
+                            format!("yt-dlp cookie file not found: {value}")
+                        } else {
+                            match update(path, |m| {
+                                m.insert("ytdlp_cookies".into(), value.into());
+                            }) {
+                                Ok(()) => "YouTube cookie setting saved.".into(),
+                                Err(e) => e,
+                            }
+                        };
+                    }
+                });
+            },
+        );
+        boxed(
+            ui,
+            "KEY",
+            rgb(0x25, 0x63, 0xeb),
+            "itch.io API key",
+            "Required by itch-dl; keyring storage is preferred.",
+            |ui| {
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.itch_key)
+                            .password(true)
+                            .hint_text("itch.io API key")
+                            .desired_width(220.0),
+                    );
+                    if accent_button(ui, "Save", rgb(0x25, 0x63, 0xeb)) {
+                        self.save_itch_key(path);
+                    }
+                });
+            },
+        );
 
-        card(
+        title(
             ui,
             "JavaScript Archive Policy",
             "Auto + Safe is recommended. These are safety caps for dynamic website discovery.",
         );
-        egui::Grid::new("archive-policy")
-            .num_columns(2)
-            .spacing([16.0, 4.0])
-            .show(ui, |ui| {
-                ui.label("Strategy")
-                    .on_hover_text("Auto selects the lightest complete pipeline.");
-                combo(
-                    ui,
-                    "arch-strategy",
-                    &mut self.strategy,
-                    &["auto", "classic", "smart", "browser"],
-                );
-                ui.end_row();
-                ui.label("Safe interaction")
-                    .on_hover_text("Safe permits guarded scroll/click; Off never clicks.");
-                combo(
-                    ui,
-                    "arch-interaction",
-                    &mut self.interaction,
-                    &["safe", "off"],
-                );
-                ui.end_row();
-                for (i, (label, hint, _, _, _)) in ARCHIVE_LIMITS.iter().enumerate() {
-                    ui.label(*label).on_hover_text(*hint);
-                    ui.add(egui::TextEdit::singleline(&mut self.limits[i]).desired_width(90.0));
+        let cyan = rgb(0x08, 0x91, 0xb2);
+        frame(ui, cyan).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            group_label(ui, "Archive behavior");
+            egui::Grid::new("archive-behavior")
+                .num_columns(2)
+                .spacing([24.0, 2.0])
+                .show(ui, |ui| {
+                    field_label(ui, "Strategy", "Auto selects the lightest complete pipeline.");
+                    field_label(
+                        ui,
+                        "Safe interaction",
+                        "Safe permits guarded scroll/click; Off never clicks.",
+                    );
                     ui.end_row();
-                }
-            });
-        ui.label(
-            egui::RichText::new(
-                "Every number is a safety cap, not a download target. Keep the defaults unless a site is incomplete.",
-            )
-            .weak(),
-        );
-        ui.horizontal(|ui| {
-            if ui.button("Save archive policy").clicked() {
-                self.save_archive(path);
+                    combo(
+                        ui,
+                        "arch-strategy",
+                        &mut self.strategy,
+                        &["auto", "classic", "smart", "browser"],
+                    );
+                    combo(ui, "arch-interaction", &mut self.interaction, &["safe", "off"]);
+                    ui.end_row();
+                });
+            for (group, range) in [
+                ("Discovery limits", 0..2),
+                ("Browser runtime limits", 2..ARCHIVE_LIMITS.len()),
+            ] {
+                group_label(ui, group);
+                egui::Grid::new(group)
+                    .num_columns(2)
+                    .spacing([24.0, 2.0])
+                    .show(ui, |ui| {
+                        let idx: Vec<usize> = range.collect();
+                        for pair in idx.chunks(2) {
+                            for &i in pair {
+                                let (label, hint, _, _, _) = ARCHIVE_LIMITS[i];
+                                field_label(ui, label, hint);
+                            }
+                            ui.end_row();
+                            for &i in pair {
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.limits[i])
+                                        .desired_width(200.0),
+                                );
+                            }
+                            ui.end_row();
+                        }
+                    });
             }
-            ui.label(&self.archive_status);
+            let p = crate::theme::palette(ui);
+            egui::Frame::new()
+                .fill(p.panel)
+                .corner_radius(8.0)
+                .inner_margin(8.0)
+                .show(ui, |ui| {
+                    ui.label(
+                        egui::RichText::new(
+                            "Every number is a safety cap, not a download target. Keep the defaults unless a site is incomplete.",
+                        )
+                        .size(9.0)
+                        .color(p.muted),
+                    );
+                });
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(&self.archive_status)
+                        .size(9.0)
+                        .color(rgb(0x22, 0xd3, 0xee)),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if accent_button(ui, "Save archive policy", cyan) {
+                        self.save_archive(path);
+                    }
+                });
+            });
         });
 
-        card(
+        title(
             ui,
             "Download Features",
             "Optional helpers are applied immediately to the current session.",
         );
-        egui::Grid::new("features").num_columns(2).show(ui, |ui| {
-            for (i, (badge, title, desc, key, _)) in FEATURES.iter().enumerate() {
-                let mut on = self.features[i];
-                let resp = ui
-                    .checkbox(&mut on, format!("[{badge}] {title}"))
-                    .on_hover_text(*desc);
-                if resp.changed() {
-                    self.features[i] = on;
-                    let value: Value = if *key == "gallery_dl_mode" {
-                        (if on { "smart" } else { "off" }).into()
-                    } else {
-                        on.into()
-                    };
-                    self.status = match update(path, |m| {
-                        m.insert((*key).into(), value);
-                    }) {
-                        Ok(()) => format!("{title}: {}", if on { "ON" } else { "OFF" }),
-                        Err(e) => format!("{title}: {e}"),
-                    };
+        egui::Grid::new("features")
+            .num_columns(2)
+            .spacing([8.0, 8.0])
+            .show(ui, |ui| {
+                for (i, (badge, name, desc, key, _)) in FEATURES.iter().enumerate() {
+                    let color = FEATURE_COLORS[i];
+                    let mut on = self.features[i];
+                    let mut changed = false;
+                    frame(ui, crate::theme::palette(ui).border).show(ui, |ui| {
+                        ui.set_width(300.0);
+                        ui.horizontal(|ui| {
+                            badge_label(ui, badge, color);
+                            ui.vertical(|ui| {
+                                ui.label(egui::RichText::new(*name).strong().size(11.0));
+                                ui.label(
+                                    egui::RichText::new(*desc)
+                                        .size(9.0)
+                                        .color(crate::theme::palette(ui).muted),
+                                );
+                            });
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    changed = toggle(ui, &mut on, color);
+                                },
+                            );
+                        });
+                    });
+                    if changed {
+                        self.features[i] = on;
+                        let value: Value = if *key == "gallery_dl_mode" {
+                            (if on { "smart" } else { "off" }).into()
+                        } else {
+                            on.into()
+                        };
+                        self.status = match update(path, |m| {
+                            m.insert((*key).into(), value);
+                        }) {
+                            Ok(()) => format!("{name}: {}", if on { "ON" } else { "OFF" }),
+                            Err(e) => format!("{name}: {e}"),
+                        };
+                    }
+                    if i % 2 == 1 {
+                        ui.end_row();
+                    }
                 }
-                if i % 2 == 1 {
-                    ui.end_row();
-                }
-            }
-        });
+            });
         let _ = ctx;
     }
 
@@ -622,125 +689,163 @@ impl SettingsDashboard {
     pub fn integration_cards(&mut self, ui: &mut egui::Ui, path: &Path, ctx: &egui::Context) {
         self.poll();
         self.cloudflare_card(ui, path, ctx);
-        card(
+        boxed(
             ui,
+            "GD",
+            rgb(0x0f, 0x76, 0x6e),
             "gallery-dl config",
             "Open or create gallery-dl config.json.",
+            |ui| {
+                if accent_button(ui, "Edit JSON", rgb(0x0f, 0x76, 0x6e)) {
+                    self.status = match open_gallery_dl_config(path) {
+                        Ok(()) => String::new(),
+                        Err(e) => format!("Open gallery-dl config: {e}"),
+                    };
+                }
+            },
         );
-        if ui.button("Edit JSON").clicked() {
-            self.status = match open_gallery_dl_config(path) {
-                Ok(()) => String::new(),
-                Err(e) => format!("Open gallery-dl config: {e}"),
-            };
-        }
-        card(
+        let blurple = rgb(0x58, 0x65, 0xf2);
+        boxed(
             ui,
+            "DC",
+            blurple,
             "Discord Bot Token",
             "Used only to refresh expired Discord attachment URLs.",
-        );
-        ui.horizontal(|ui| {
-            ui.add(
-                egui::TextEdit::singleline(&mut self.discord)
-                    .password(true)
-                    .hint_text("Discord Bot Token")
-                    .desired_width(260.0),
-            );
-            if ui.button("Save").clicked() {
-                let token = self.discord.trim().to_owned();
-                self.discord_status = if token.is_empty() {
-                    "Enter a token first.".into()
-                } else {
-                    match update(path, |m| {
-                        m.insert("discord_bot_token".into(), token.into());
-                    }) {
-                        Ok(()) => "Saved.".into(),
-                        Err(e) => e,
+            |ui| {
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.discord)
+                            .password(true)
+                            .hint_text("Discord Bot Token")
+                            .desired_width(260.0),
+                    );
+                    if accent_button(ui, "Save", blurple) {
+                        let token = self.discord.trim().to_owned();
+                        self.discord_status = if token.is_empty() {
+                            "Enter a token first.".into()
+                        } else {
+                            match update(path, |m| {
+                                m.insert("discord_bot_token".into(), token.into());
+                            }) {
+                                Ok(()) => "Saved.".into(),
+                                Err(e) => e,
+                            }
+                        };
                     }
-                };
-            }
-            if ui
-                .add_enabled(self.discord_job.is_none(), egui::Button::new("Test"))
-                .clicked()
-            {
-                self.test_discord(ctx);
-            }
-        });
-        ui.label(egui::RichText::new(&self.discord_status).weak());
+                    if ui
+                        .add_enabled(self.discord_job.is_none(), egui::Button::new("Test"))
+                        .clicked()
+                    {
+                        self.test_discord(ctx);
+                    }
+                });
+                ui.label(
+                    egui::RichText::new(&self.discord_status)
+                        .size(9.0)
+                        .color(crate::theme::palette(ui).muted),
+                );
+            },
+        );
     }
 
     /// Python `_settings_inline_cloudflare`.
     fn cloudflare_card(&mut self, ui: &mut egui::Ui, path: &Path, ctx: &egui::Context) {
-        card(
+        let orange = rgb(0xf3, 0x80, 0x20);
+        boxed(
             ui,
+            "CF",
+            orange,
             "Cloudflare / FlareSolverr",
             "Challenge-solving behavior for protected websites.",
+            |ui| {
+                egui::Grid::new("cf-grid")
+                    .num_columns(2)
+                    .spacing([24.0, 2.0])
+                    .show(ui, |ui| {
+                        field_label(ui, "Mode", "Auto selects a solver only when challenged.");
+                        field_label(ui, "Auto priority", "Solver attempted first in Auto mode.");
+                        ui.end_row();
+                        combo(
+                            ui,
+                            "cf-mode",
+                            &mut self.cf_mode,
+                            &["Off", "Auto", "cloudscraper", "FlareSolverr"],
+                        );
+                        combo(
+                            ui,
+                            "cf-prio",
+                            &mut self.cf_priority,
+                            &["FlareSolverr first", "cloudscraper first"],
+                        );
+                        ui.end_row();
+                        field_label(ui, "Session", "Controls challenge-cookie reuse.");
+                        field_label(ui, "Proxy", "Inherit uses the proxy from the main form.");
+                        ui.end_row();
+                        combo(
+                            ui,
+                            "cf-session",
+                            &mut self.cf_session,
+                            &["temporary", "reuse-domain", "manual"],
+                        );
+                        combo(ui, "cf-proxy", &mut self.cf_proxy, &["inherit", "none"]);
+                        ui.end_row();
+                    });
+                field_label(
+                    ui,
+                    "FlareSolverr API URL",
+                    "Address of the running FlareSolverr service.",
+                );
+                ui.add(egui::TextEdit::singleline(&mut self.cf_url).desired_width(420.0));
+                egui::Grid::new("cf-times")
+                    .num_columns(2)
+                    .spacing([24.0, 2.0])
+                    .show(ui, |ui| {
+                        field_label(
+                            ui,
+                            "Timeout (s)",
+                            "Maximum time allowed to solve a challenge.",
+                        );
+                        field_label(
+                            ui,
+                            "Wait after solve (s)",
+                            "Extra delay for the solved page to stabilize.",
+                        );
+                        ui.end_row();
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.cf_timeout).desired_width(200.0),
+                        );
+                        ui.add(egui::TextEdit::singleline(&mut self.cf_wait).desired_width(200.0));
+                        ui.end_row();
+                    });
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(&self.cf_status)
+                            .size(9.0)
+                            .color(crate::theme::palette(ui).muted),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if accent_button(ui, "Save", orange) && self.apply_cf(path).is_some() {
+                            self.cf_status = "Saved.".into();
+                            self.status = "Cloudflare settings saved.".into();
+                        }
+                        if ui
+                            .add_enabled(self.cf_job.is_none(), egui::Button::new("Test"))
+                            .clicked()
+                            && let Some(cfg) = self.apply_cf(path)
+                        {
+                            self.cf_status = "Testing FlareSolverr…".into();
+                            self.spawn_cf(ctx, cfg, true);
+                        }
+                        if ui.button("Clear sessions").clicked() {
+                            self.cf_status = "Clearing sessions…".into();
+                            if let Some(cfg) = self.apply_cf(path) {
+                                self.spawn_cf(ctx, cfg, false);
+                            }
+                        }
+                    });
+                });
+            },
         );
-        egui::Grid::new("cf-grid")
-            .num_columns(4)
-            .spacing([12.0, 4.0])
-            .show(ui, |ui| {
-                ui.label("Mode")
-                    .on_hover_text("Auto selects a solver only when challenged.");
-                combo(
-                    ui,
-                    "cf-mode",
-                    &mut self.cf_mode,
-                    &["Off", "Auto", "cloudscraper", "FlareSolverr"],
-                );
-                ui.label("Auto priority")
-                    .on_hover_text("Solver attempted first in Auto mode.");
-                combo(
-                    ui,
-                    "cf-prio",
-                    &mut self.cf_priority,
-                    &["FlareSolverr first", "cloudscraper first"],
-                );
-                ui.end_row();
-                ui.label("Session")
-                    .on_hover_text("Controls challenge-cookie reuse.");
-                combo(
-                    ui,
-                    "cf-session",
-                    &mut self.cf_session,
-                    &["temporary", "reuse-domain", "manual"],
-                );
-                ui.label("Proxy")
-                    .on_hover_text("Inherit uses the proxy from the main form.");
-                combo(ui, "cf-proxy", &mut self.cf_proxy, &["inherit", "none"]);
-                ui.end_row();
-                ui.label("FlareSolverr API URL")
-                    .on_hover_text("Address of the running FlareSolverr service.");
-                ui.add(egui::TextEdit::singleline(&mut self.cf_url).desired_width(240.0));
-                ui.end_row();
-                ui.label("Timeout (s)")
-                    .on_hover_text("Maximum time allowed to solve a challenge.");
-                ui.add(egui::TextEdit::singleline(&mut self.cf_timeout).desired_width(60.0));
-                ui.label("Wait after solve (s)")
-                    .on_hover_text("Extra delay for the solved page to stabilize.");
-                ui.add(egui::TextEdit::singleline(&mut self.cf_wait).desired_width(60.0));
-                ui.end_row();
-            });
-        ui.horizontal(|ui| {
-            if ui.button("Clear sessions").clicked() {
-                self.cf_status = "Clearing sessions…".into();
-                if let Some(cfg) = self.apply_cf(path) {
-                    self.spawn_cf(ctx, cfg, false);
-                }
-            }
-            if ui
-                .add_enabled(self.cf_job.is_none(), egui::Button::new("Test"))
-                .clicked()
-                && let Some(cfg) = self.apply_cf(path)
-            {
-                self.cf_status = "Testing FlareSolverr…".into();
-                self.spawn_cf(ctx, cfg, true);
-            }
-            if ui.button("Save").clicked() && self.apply_cf(path).is_some() {
-                self.cf_status = "Saved.".into();
-                self.status = "Cloudflare settings saved.".into();
-            }
-            ui.label(egui::RichText::new(&self.cf_status).weak());
-        });
     }
 
     /// Python `_apply_cf`: parse, normalize and persist.
@@ -858,17 +963,22 @@ impl SettingsDashboard {
 
     pub fn maintenance_cards(&mut self, ui: &mut egui::Ui, path: &Path, ctx: &egui::Context) {
         self.poll();
-        card(
+        title(
             ui,
             "Tools & Maintenance",
             "Manage storage and portable settings without another app window.",
         );
+        let blue = rgb(0x25, 0x63, 0xeb);
+        let green = rgb(0x06, 0x5f, 0x46);
+        let deep = rgb(0x1d, 0x4e, 0xd8);
         egui::Grid::new("tools")
             .num_columns(2)
-            .spacing([16.0, 6.0])
+            .spacing([8.0, 8.0])
             .show(ui, |ui| {
                 if tool(
                     ui,
+                    "CFG",
+                    blue,
                     "Settings file",
                     "Edit the active settings.json.",
                     "Edit JSON",
@@ -879,6 +989,8 @@ impl SettingsDashboard {
                 }
                 if tool(
                     ui,
+                    "DIR",
+                    blue,
                     "Settings folder",
                     "Show the local settings/history folder.",
                     "Show",
@@ -892,6 +1004,8 @@ impl SettingsDashboard {
                 ui.end_row();
                 if tool(
                     ui,
+                    "OUT",
+                    green,
                     "Export settings",
                     "Create a portable secret-safe export.",
                     "Export…",
@@ -900,6 +1014,8 @@ impl SettingsDashboard {
                 }
                 if tool(
                     ui,
+                    "IN",
+                    deep,
                     "Import settings",
                     "Merge a previous portable export.",
                     "Import…",
@@ -909,44 +1025,64 @@ impl SettingsDashboard {
                 ui.end_row();
             });
 
-        card(
+        boxed(
             ui,
+            "IMG",
+            rgb(0x7c, 0x3a, 0xed),
             "Image cache",
-            "Speeds up repeated downloads; clearing it does not remove completed output.",
-        );
-        ui.label(&self.cache_stats);
-        ui.horizontal(|ui| {
-            ui.label("Maximum size (GB)");
-            ui.add(egui::TextEdit::singleline(&mut self.cache_limit).desired_width(70.0));
-            if ui.button("Save limit").clicked() {
-                self.save_cache_limit(path);
-            }
-            if ui.button("Show folder").clicked()
-                && let Some(root) = cyoa_storage::cache::ImageCache::default_root()
-            {
-                let _ = std::fs::create_dir_all(&root);
-                let _ = open_with_os(&root);
-            }
-            if ui.button("Clear cache").clicked() {
-                self.confirm_clear = true;
-            }
-        });
-        if self.confirm_clear {
-            ui.horizontal(|ui| {
-                ui.colored_label(
-                    egui::Color32::from_rgb(0xf5, 0x9e, 0x0b),
-                    "Remove cached images? Completed downloads are not touched.",
+            &self.cache_stats.clone(),
+            |ui| {
+                let p = crate::theme::palette(ui);
+                ui.label(
+                    egui::RichText::new(
+                        "Speeds up repeated downloads; clearing it does not remove completed output.",
+                    )
+                    .size(9.0)
+                    .color(p.muted),
                 );
-                if ui.button("Yes").clicked() {
-                    self.confirm_clear = false;
-                    self.clear_cache();
+                ui.horizontal(|ui| {
+                    ui.label("Maximum size (GB)");
+                    ui.add(egui::TextEdit::singleline(&mut self.cache_limit).desired_width(80.0));
+                    if accent_button(ui, "Save limit", blue) {
+                        self.save_cache_limit(path);
+                    }
+                    if ui.button("Show folder").clicked()
+                        && let Some(root) = cyoa_storage::cache::ImageCache::default_root()
+                    {
+                        let _ = std::fs::create_dir_all(&root);
+                        let _ = open_with_os(&root);
+                    }
+                    if ui
+                        .add(egui::Button::new(
+                            egui::RichText::new("Clear cache").color(p.danger_fg),
+                        ))
+                        .clicked()
+                    {
+                        self.confirm_clear = true;
+                    }
+                });
+                if self.confirm_clear {
+                    ui.horizontal(|ui| {
+                        ui.colored_label(
+                            rgb(0xf5, 0x9e, 0x0b),
+                            "Remove cached images? Completed downloads are not touched.",
+                        );
+                        if ui.button("Yes").clicked() {
+                            self.confirm_clear = false;
+                            self.clear_cache();
+                        }
+                        if ui.button("No").clicked() {
+                            self.confirm_clear = false;
+                        }
+                    });
                 }
-                if ui.button("No").clicked() {
-                    self.confirm_clear = false;
-                }
-            });
-        }
-        ui.label(egui::RichText::new(&self.cache_status).weak());
+                ui.label(
+                    egui::RichText::new(&self.cache_status)
+                        .size(9.0)
+                        .color(p.muted),
+                );
+            },
+        );
     }
 
     fn save_cache_limit(&mut self, path: &Path) {
@@ -1028,23 +1164,152 @@ impl SettingsDashboard {
     }
 }
 
-fn card(ui: &mut egui::Ui, title: &str, desc: &str) {
-    ui.add_space(8.0);
-    ui.label(
-        egui::RichText::new(title.to_uppercase())
-            .strong()
-            .size(10.0),
-    );
-    ui.label(egui::RichText::new(desc).weak().size(9.5));
-    ui.separator();
+const FEATURE_COLORS: &[egui::Color32] = &[
+    egui::Color32::from_rgb(0x3b, 0x82, 0xf6),
+    egui::Color32::from_rgb(0x8b, 0x5c, 0xf6),
+    egui::Color32::from_rgb(0x10, 0xb9, 0x81),
+    egui::Color32::from_rgb(0xf5, 0x9e, 0x0b),
+    egui::Color32::from_rgb(0x14, 0xb8, 0xa6),
+    egui::Color32::from_rgb(0xef, 0x44, 0x44),
+];
+
+fn rgb(r: u8, g: u8, b: u8) -> egui::Color32 {
+    egui::Color32::from_rgb(r, g, b)
 }
 
-fn tool(ui: &mut egui::Ui, title: &str, desc: &str, button: &str) -> bool {
-    let mut clicked = false;
+/// Python card frame: surface fill, 1 px border, 10 px corners.
+fn frame(ui: &egui::Ui, border: egui::Color32) -> egui::Frame {
+    let p = crate::theme::palette(ui);
+    egui::Frame::new()
+        .fill(p.surface)
+        .stroke(egui::Stroke::new(1.0, border))
+        .corner_radius(10.0)
+        .inner_margin(egui::Margin::same(10))
+        .outer_margin(egui::Margin::symmetric(0, 4))
+}
+
+/// Python page `_title(page, row, title, desc)`.
+fn title(ui: &mut egui::Ui, text: &str, desc: &str) {
+    let p = crate::theme::palette(ui);
+    ui.add_space(10.0);
+    ui.label(egui::RichText::new(text).strong().size(13.0).color(p.fg));
+    ui.label(egui::RichText::new(desc).size(10.0).color(p.muted));
+    ui.add_space(2.0);
+}
+
+/// Python coloured badge (`text="YT"`, white bold 9 pt on the accent).
+fn badge_label(ui: &mut egui::Ui, text: &str, color: egui::Color32) {
+    egui::Frame::new()
+        .fill(color)
+        .corner_radius(8.0)
+        .inner_margin(egui::Margin::symmetric(6, 6))
+        .show(ui, |ui| {
+            ui.set_min_width(22.0);
+            ui.label(
+                egui::RichText::new(text)
+                    .strong()
+                    .size(9.0)
+                    .color(egui::Color32::WHITE),
+            );
+        });
+}
+
+/// A Python card: badge, bold title, muted description, then contents.
+fn boxed(
+    ui: &mut egui::Ui,
+    badge: &str,
+    color: egui::Color32,
+    name: &str,
+    desc: &str,
+    add: impl FnOnce(&mut egui::Ui),
+) {
+    let p = crate::theme::palette(ui);
+    frame(ui, p.border).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.horizontal_top(|ui| {
+            badge_label(ui, badge, color);
+            ui.vertical(|ui| {
+                ui.label(egui::RichText::new(name).strong().size(11.0).color(p.fg));
+                if !desc.is_empty() {
+                    ui.label(egui::RichText::new(desc).size(9.0).color(p.muted));
+                }
+                ui.add_space(3.0);
+                add(ui);
+            });
+        });
+    });
+}
+
+fn group_label(ui: &mut egui::Ui, text: &str) {
+    ui.add_space(6.0);
+    ui.label(
+        egui::RichText::new(text.to_uppercase())
+            .strong()
+            .size(9.0)
+            .color(rgb(0x22, 0xd3, 0xee)),
+    );
+}
+
+fn field_label(ui: &mut egui::Ui, label: &str, hint: &str) {
+    let p = crate::theme::palette(ui);
     ui.vertical(|ui| {
-        ui.label(egui::RichText::new(title).strong());
-        ui.label(egui::RichText::new(desc).weak().size(9.5));
-        clicked = ui.button(button).clicked();
+        ui.label(egui::RichText::new(label).size(9.0).color(p.muted));
+        ui.label(egui::RichText::new(hint).size(8.0).color(p.muted2));
+    });
+}
+
+/// A filled accent button like the Python CTkButton colours.
+fn accent_button(ui: &mut egui::Ui, text: &str, color: egui::Color32) -> bool {
+    ui.add(
+        egui::Button::new(
+            egui::RichText::new(text)
+                .strong()
+                .color(egui::Color32::WHITE),
+        )
+        .fill(color),
+    )
+    .clicked()
+}
+
+/// A CTkSwitch-like toggle; returns true when flipped.
+fn toggle(ui: &mut egui::Ui, on: &mut bool, color: egui::Color32) -> bool {
+    let size = egui::vec2(40.0, 20.0);
+    let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
+    if resp.clicked() {
+        *on = !*on;
+    }
+    let t = ui.ctx().animate_bool(resp.id, *on);
+    let p = crate::theme::palette(ui);
+    let bg = if *on { color } else { p.surface2 };
+    let painter = ui.painter();
+    painter.rect_filled(rect, 10.0, bg);
+    let x = egui::lerp((rect.left() + 10.0)..=(rect.right() - 10.0), t);
+    painter.circle_filled(egui::pos2(x, rect.center().y), 7.0, rgb(0xe5, 0xe7, 0xeb));
+    resp.clicked()
+}
+
+fn tool(
+    ui: &mut egui::Ui,
+    badge: &str,
+    color: egui::Color32,
+    name: &str,
+    desc: &str,
+    button: &str,
+) -> bool {
+    let mut clicked = false;
+    let p = crate::theme::palette(ui);
+    frame(ui, p.border).show(ui, |ui| {
+        ui.set_width(300.0);
+        ui.horizontal(|ui| {
+            badge_label(ui, badge, color);
+            ui.vertical(|ui| {
+                ui.label(egui::RichText::new(name).strong().size(11.0).color(p.fg));
+                ui.label(egui::RichText::new(desc).size(9.0).color(p.muted));
+            });
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                clicked = accent_button(ui, button, color);
+            });
+        });
     });
     clicked
 }
