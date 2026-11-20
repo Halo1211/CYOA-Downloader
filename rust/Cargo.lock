@@ -953,6 +953,7 @@ dependencies = [
 name = "cyoa-desktop"
 version = "0.1.0"
 dependencies = [
+ "csv",
  "cyoa-core",
  "cyoa-engine",
  "cyoa-integrations",

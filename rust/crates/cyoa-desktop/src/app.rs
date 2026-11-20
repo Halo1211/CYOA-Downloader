@@ -315,6 +315,9 @@ pub struct DownloaderApp {
     paused: bool,
     /// Background Retry Assets result.
     retry_rx: Option<std::sync::mpsc::Receiver<String>>,
+    /// Failed assets reported by finished/running jobs (Reports Center).
+    asset_failures: Vec<crate::reports_panel::ResultRow>,
+    reports: Option<crate::reports_panel::ReportsPanel>,
 }
 
 type ListPick = std::sync::mpsc::Receiver<Option<Result<Vec<BatchItem>, String>>>;
@@ -421,6 +424,8 @@ impl DownloaderApp {
             logo_light: None,
             paused: false,
             retry_rx: None,
+            asset_failures: Vec::new(),
+            reports: None,
             manager,
         }
     }
@@ -463,6 +468,21 @@ impl DownloaderApp {
             } => {
                 if !ok {
                     self.log.push(format!("FAILED asset: {name}"));
+                    if self.asset_failures.len() < 100_000 {
+                        let mode = self
+                            .job_mut(job)
+                            .and_then(|j| j.mode.as_ref().ok().copied())
+                            .map(|m| crate::theme::mode_entry(m).key.to_owned())
+                            .unwrap_or_default();
+                        self.asset_failures.push(crate::reports_panel::ResultRow {
+                            result_type: "asset".into(),
+                            status: "FAIL".into(),
+                            url: name.clone(),
+                            mode,
+                            filename: String::new(),
+                            error: "download failed".into(),
+                        });
+                    }
                 }
                 if let Some(j) = self.job_mut(job) {
                     j.status = Status::Running { done, total };
@@ -808,6 +828,12 @@ impl eframe::App for DownloaderApp {
                 self.updates = Some(panel);
             }
         }
+        if let Some(panel) = &mut self.reports {
+            panel.ui(ui.ctx());
+            if !panel.open {
+                self.reports = None;
+            }
+        }
         if let Some(panel) = &mut self.viewers {
             panel.ui(ui.ctx());
             if !panel.open {
@@ -921,6 +947,8 @@ mod tests {
             logo_light: None,
             paused: false,
             retry_rx: None,
+            asset_failures: Vec::new(),
+            reports: None,
         }
     }
 

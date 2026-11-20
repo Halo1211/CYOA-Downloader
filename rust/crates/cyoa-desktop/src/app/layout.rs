@@ -905,8 +905,17 @@ impl DownloaderApp {
             if theme::pill(ui, "🛠", "Settings", p.settings, true).clicked() {
                 self.show_settings = true;
             }
-            theme::pill(ui, "📋", "Reports", (p.surface2, p.muted), false)
-                .on_disabled_hover_text(NOT_PORTED);
+            if theme::pill(
+                ui,
+                "📋",
+                "Reports",
+                (p.surface2, p.muted),
+                self.reports.is_none(),
+            )
+            .clicked()
+            {
+                self.open_reports();
+            }
             ui.add_space(12.0);
             let label = if self.manager.enabled {
                 "CYOA Mgr ✓"
@@ -1529,6 +1538,48 @@ impl DownloaderApp {
         if spawned.is_ok() {
             self.retry_rx = Some(rx);
         }
+    }
+
+    /// Python `open_results_panel`.
+    fn open_reports(&mut self) {
+        use crate::reports_panel::ResultRow;
+        let mut rows: Vec<ResultRow> = self
+            .jobs
+            .iter()
+            .filter_map(|j| {
+                let (status, error) = match &j.status {
+                    Status::Done { .. } => ("OK", String::new()),
+                    Status::Failed(e) => ("FAIL", e.clone()),
+                    Status::Cancelled => ("FAIL", "Cancelled".to_owned()),
+                    _ => return None,
+                };
+                Some(ResultRow {
+                    result_type: "job".into(),
+                    status: status.into(),
+                    url: j.url.clone(),
+                    mode: j
+                        .mode
+                        .as_ref()
+                        .map(|m| theme::mode_entry(*m).key.to_owned())
+                        .unwrap_or_default(),
+                    filename: j.filename.clone(),
+                    error,
+                })
+            })
+            .collect();
+        rows.extend(self.asset_failures.iter().cloned());
+        if rows.is_empty() {
+            let _ = std::thread::Builder::new()
+                .name("reports-info".into())
+                .spawn(|| {
+                    rfd::MessageDialog::new()
+                        .set_title("Reports")
+                        .set_description("No results yet. Run a download first.")
+                        .show();
+                });
+            return;
+        }
+        self.reports = Some(crate::reports_panel::ReportsPanel::new(rows));
     }
 
     /// Finish a background Retry Assets run.
