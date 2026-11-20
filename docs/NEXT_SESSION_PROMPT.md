@@ -2,6 +2,8 @@
 
 Resume the CYOA Downloader Python→Rust migration on branch `migration/python-to-rust`. Do not repeat audits.
 
+**Session 8 update 3 (2026-11-20):** F-043 AI (A1–A4) and F-044 plugins done. Sol reviews pending (usage limit until 2026-11-21 11:19): browser.rs + mirror browser paths + proxy browser_route; ai_calls.rs/ai_run.rs/ai_panel.rs (secrets, endpoint client); plugins.rs (process spawning). Remaining features: F-045 browser cookie import (deferred, D3), F-049 GUI settings panels, F-055 packaging, manual GUI smoke tests.
+
 **Session 8 update 2 (2026-11-20):** F-028 browser/CDP done and Python-identical on `icc_parity.py` (15/15, Browser cases need Python Playwright + Chrome/Edge). Next: (1) after 2026-11-21 `sol_review` of `cyoa-engine/src/browser.rs`, the browser paths in `website/mirror.rs` (`fetch`, `fetch_with_browser`, `capture_runtime`), `fetch.rs` `headless_image`, and `cyoa-net/src/proxy.rs` `browser_route` (plus the earlier pending list below); (2) manual GUI smoke test with archive strategy Browser; (3) remaining gaps: F-045 browser cookie import (deferred), F-043/F-044 AI + plugins, F-049 settings panels.
 
 **Session 8 update (2026-11-20):** GUI library panel, F-037 V4 (modernizer, CLI, ICC hook) and V5 (registration + GUI panel) done and Python-identical. Next: (1) after 2026-11-21 `sol_review` of itch_html5.rs, manager_serve.rs, preserved_index.rs, run.rs viewer stage, desktop library.rs, modernizer.rs, viewer_registry.rs; (2) F-028 browser/CDP; (3) manual GUI smoke test (Library…, Viewers…).

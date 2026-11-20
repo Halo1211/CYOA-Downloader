@@ -5,4 +5,5 @@ pub mod ai_analyze;
 pub mod ai_calls;
 pub mod cyoa_manager;
 pub mod offline_viewers;
+pub mod plugins;
 pub mod preview;

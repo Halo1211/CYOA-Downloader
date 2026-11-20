@@ -7,9 +7,10 @@
 //! the CSS page-root, viewer-route and Vite `/assets/` fallbacks like Python.
 //! Failures are written with `write_asset_failure_summary`.
 //!
-//! Not ported (documented in FEATURE_PARITY F-029): Python asset-scanner
-//! plugins (D4), the optional AI round, and the httpx HTTP/2 client (the
-//! shared client is used for every request, as in Python's fallback path).
+//! User asset-scanner plugins run as external processes (F-044, D4) and the
+//! optional AI round runs in Aggressive Recovery (F-043). Not ported: the
+//! httpx HTTP/2 client (the shared client is used for every request, as in
+//! Python's fallback path).
 //! Candidates are processed in sorted order (Python iterates a set).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -282,6 +283,8 @@ struct State {
     generated: GeneratedEntryImageIndex,
     requests: usize,
     total_bytes: u64,
+    /// F-044 user asset-scanner plugins (empty without `plugins.json`).
+    plugins: cyoa_integrations::plugins::PluginRegistry,
 }
 
 impl State {
@@ -410,7 +413,15 @@ impl DeepScan<'_> {
             };
             let text = String::from_utf8_lossy(&bytes);
             st.generated.add_source(&text, false);
-            for url in scan_file_for_assets(&text, &f_url, self.base_url, &ext) {
+            // `run_asset_scanner_plugins`: built-in scanner plus user plugins.
+            let mut urls = scan_file_for_assets(&text, &f_url, self.base_url, &ext);
+            if !st.plugins.is_empty() {
+                urls.extend(
+                    st.plugins
+                        .run_asset_scanners(&text, &f_url, self.base_url, &ext),
+                );
+            }
+            for url in urls {
                 let c = canonical_scan_url(&url);
                 st.candidate_sources
                     .entry(c.clone())
@@ -553,6 +564,7 @@ impl DeepScan<'_> {
             generated: GeneratedEntryImageIndex::new(),
             requests: 0,
             total_bytes: 0,
+            plugins: cyoa_integrations::plugins::PluginRegistry::load_default(),
         };
         let mut round = 0;
         while round < MAX_ROUNDS && !self.cancel.is_cancelled() {
