@@ -181,6 +181,36 @@ struct Args {
     /// Disable the headless browser image fallback (default: on).
     #[arg(long)]
     no_selenium: bool,
+    /// AI API key for this run only. It is not saved to settings.json.
+    #[arg(long = "ai-key", value_name = "KEY", default_value = "")]
+    ai_api_key: String,
+    /// AI provider for AI Assist.
+    #[arg(long, value_parser = ["anthropic", "openai", "gemini", "ollama", "deepseek", "qwen", "groq", "openrouter", "custom"])]
+    ai_provider: Option<String>,
+    /// Where to read/save the AI API key (default: settings).
+    #[arg(long, value_parser = ["session", "env", "keyring", "plain"])]
+    ai_key_storage: Option<String>,
+    /// AI model for the selected provider (default: provider default).
+    #[arg(long, default_value = "")]
+    ai_model: String,
+    /// Ollama base URL used when --ai-provider ollama.
+    #[arg(long)]
+    ollama_url: Option<String>,
+    /// AI Assist mode. Use off to disable AI even if a key is configured.
+    #[arg(long, value_parser = ["off", "diagnostics", "auto_fallback", "aggressive_recovery"])]
+    ai_mode: Option<String>,
+    /// Maximum AI calls per download. 0 means unlimited.
+    #[arg(long, allow_negative_numbers = true)]
+    ai_max_calls: Option<i64>,
+    /// Maximum HTML characters sent to AI per call.
+    #[arg(long, allow_negative_numbers = true)]
+    ai_max_html_chars: Option<i64>,
+    /// Maximum JS characters sent to AI per call.
+    #[arg(long, allow_negative_numbers = true)]
+    ai_max_js_chars: Option<i64>,
+    /// Clear the configured AI key from plain settings.json or OS keyring and exit.
+    #[arg(long)]
+    ai_clear_key: bool,
     /// Session-only Discord bot token for automatic expired attachment recovery.
     #[arg(long, value_name = "TOKEN", default_value = "")]
     discord_token: String,
@@ -619,6 +649,133 @@ fn serve_after_download(
     }
 }
 
+/// cli.py 525-556: effective AI settings; CLI-given values are saved like
+/// Python; the key is resolved without writing it anywhere. `Err` = exit now
+/// (`--ai-clear-key`).
+fn ai_cli_config(
+    args: &Args,
+    saved: &cyoa_storage::settings::Settings,
+) -> Result<Option<cyoa_engine::ai_run::AiRunConfig>, ExitCode> {
+    use cyoa_integrations::ai;
+    let text = |k: &str| saved.get(k).and_then(|v| v.as_str()).unwrap_or("");
+    let provider =
+        ai::normalize_provider(args.ai_provider.as_deref().unwrap_or_else(|| {
+            match text("ai_provider") {
+                "" => "anthropic",
+                v => v,
+            }
+        }));
+    let storage = ai::normalize_key_storage(
+        args.ai_key_storage
+            .as_deref()
+            .unwrap_or_else(|| text("ai_key_storage")),
+    );
+    let mode = ai::normalize_mode(args.ai_mode.as_deref().unwrap_or_else(|| text("ai_mode")));
+    let keyring = cyoa_storage::secrets::KeyringBackend::new();
+    let mut store =
+        cyoa_storage::settings::SettingsStore::new(cyoa_storage::settings::default_path());
+    if args.ai_clear_key {
+        // `_clear_ai_api_key_storage(clear_all=True)`: plain copies and the
+        // OS credential entry for the provider.
+        if store.load().is_ok() {
+            ai::clear_plain_keys(store.values_mut(), Some(provider));
+            if let Err(e) = store.save() {
+                tracing::warn!("Could not save settings: {e}");
+            }
+        }
+        if provider != "ollama" {
+            use cyoa_storage::secrets::SecretBackend;
+            if let Err(e) = keyring.delete(&ai::keyring_username(provider)) {
+                tracing::warn!("AI keyring write failed: {e}");
+            }
+        }
+        tracing::info!("AI API key storage cleared.");
+        return Err(ExitCode::SUCCESS);
+    }
+    let model = if args.ai_model.is_empty() {
+        ai::get_model(saved, provider)
+    } else {
+        args.ai_model.clone()
+    };
+    let mut changed = Vec::<(String, serde_json::Value)>::new();
+    if args.ai_provider.is_some() {
+        changed.push(("ai_provider".into(), provider.into()));
+    }
+    if args.ai_key_storage.is_some() {
+        changed.push(("ai_key_storage".into(), storage.into()));
+    }
+    if !args.ai_model.is_empty() {
+        changed.push(("ai_model".into(), model.clone().into()));
+    }
+    if args.ai_mode.is_some() {
+        changed.push(("ai_mode".into(), mode.into()));
+    }
+    if let Some(n) = args.ai_max_calls {
+        changed.push(("ai_max_calls_per_download".into(), n.max(0).into()));
+    }
+    if let Some(n) = args.ai_max_html_chars {
+        changed.push(("ai_max_html_chars".into(), n.max(1000).into()));
+    }
+    if let Some(n) = args.ai_max_js_chars {
+        changed.push(("ai_max_js_chars".into(), n.max(1000).into()));
+    }
+    if let Some(url) = args.ollama_url.as_deref().filter(|u| !u.is_empty()) {
+        changed.push(("ollama_url".into(), url.into()));
+    }
+    if (!changed.is_empty() || args.ai_key_storage.is_some()) && store.load().is_ok() {
+        let values = store.values_mut();
+        for (k, v) in changed {
+            values.insert(k, v);
+        }
+        if args.ai_key_storage.is_some() && storage != "plain" {
+            ai::clear_plain_keys(values, Some(provider));
+        }
+        if let Err(e) = store.save() {
+            tracing::warn!("Could not save AI settings: {e}");
+        }
+    }
+    let settings = store.load().cloned().unwrap_or_else(|_| saved.clone());
+    let env = |name: &str| std::env::var(name).ok();
+    let key = if mode == "off" {
+        String::new()
+    } else {
+        ai::resolve_api_key(
+            &ai::KeySources {
+                settings: &settings,
+                env: &env,
+                keyring: &keyring,
+            },
+            &args.ai_api_key,
+            "",
+            storage,
+            provider,
+        )
+        .unwrap_or_else(|e| {
+            tracing::warn!("AI key could not be read: {e}");
+            String::new()
+        })
+    };
+    let key_state = if provider == "ollama" {
+        "not needed"
+    } else if key.is_empty() {
+        "no"
+    } else {
+        "yes"
+    };
+    tracing::info!(
+        "AI Assist    : {mode} | provider={provider} | model={model} | key={key_state} | storage={storage}"
+    );
+    if mode == "off" {
+        return Ok(None);
+    }
+    Ok(Some(cyoa_engine::ai_run::AiRunConfig::new(
+        key,
+        provider.into(),
+        mode.into(),
+        settings,
+    )))
+}
+
 fn open_browser(url: &str) {
     #[cfg(windows)]
     let r = std::process::Command::new("rundll32")
@@ -835,6 +992,15 @@ async fn main() -> ExitCode {
         .load()
         .cloned()
         .unwrap_or_else(|_| cyoa_storage::settings::defaults());
+    // cli.py 525-556: AI Assist flags (persisted like Python) and key resolution.
+    let ai_config = match ai_cli_config(&args, &saved) {
+        Ok(cfg) => cfg,
+        Err(code) => return code,
+    };
+    let saved = cyoa_storage::settings::SettingsStore::new(cyoa_storage::settings::default_path())
+        .load()
+        .cloned()
+        .unwrap_or(saved);
     let lookup = |key: &str| saved.get(key).and_then(|v| v.as_str()).map(str::to_string);
     let saved_bool = |key: &str, default: bool| {
         saved
@@ -1351,6 +1517,7 @@ async fn main() -> ExitCode {
             analysis_only: args.analyse_fonts && !args.fonts,
             // Settings `offline_viewer_json_enabled` / `offline_viewer_preferred_id`.
             offline_viewer: cyoa_engine::run::OfflineViewerOptions::from_settings(&saved),
+            ai: ai_config.clone(),
             // cli.py: engine per row (cyoap_vue* rows) or from the flags.
             engine: if item.mode.starts_with("cyoap_vue")
                 || args.cyoap_vue_website
