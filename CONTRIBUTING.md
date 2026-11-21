@@ -62,6 +62,18 @@ python -m pytest -q
 These checks require a graphical desktop and installed Playwright Chromium.
 The default suite uses offline fixtures and skips unavailable live runtimes.
 
+## Rust port checks
+
+Changes under `rust/` must pass, from `rust/`:
+
+```
+cargo fmt --all -- --check
+cargo clippy --all-targets -- -D warnings
+cargo test
+```
+
+Behaviour changes also need the Python-vs-Rust parity scripts in `rust/scripts/` (`e2e_parity.sh`, `viewer_parity.sh`, `icc_parity.py`, `cyoap_parity.py`, `gui_e2e.sh`). Record intended differences in `docs/FEATURE_PARITY.md` and decisions in `docs/DECISION_LOG.md`.
+
 ## Coding rules
 
 - Prefer small helper functions over large rewrites.

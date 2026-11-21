@@ -1,5 +1,7 @@
 # Feature parity matrix
 
+> **Status 2026-11-21.** Every feature row below is ported. Remaining gaps: F-045 browser-profile cookie import (deferred by owner decision), yt-dlp's automatic browser-cookie retry, and continuing an interrupted route archive from Retry Assets. The early stage rows (top table) keep their historical notes; where they say "pending" or "NOT ported", the numbered F-rows and `docs/TEST_RESULTS.md` (real-site runs 2026-11-21) are authoritative.
+
 ## Status update (2026-11-18 ~05:45) — this section overrides the row statuses below
 
 | ID | Status | Evidence |
@@ -25,8 +27,8 @@
 | F-012b media fetch loop (`fetch_one`) | IMPLEMENTED + TESTED | cache, 429/5xx backoff, 404/410, 401/403, error-doc rejection, 3 transport retries; gallery-dl/headless/cookies/Discord/MediaWiki/VPN DEFERRED |
 | F-015b per-domain 0.3 s interval | TESTED | Matches Python `_domain_min_interval` (benchmark: 300 req ≈ 90 s in both) |
 | F-008b image cache in pipeline | TESTED (interop) | Python reads a Rust-written cache: 300/300 hits |
-| CLI MVP (url,-u,-o,-z,-b,-t,-w) | TESTED | `-L` list mode, website/ICC/cyoap-vue modes, proxy/DNS/VPN/Cloudflare flags NOT ported |
-| GUI (egui) A–C | IMPLEMENTED + TESTED (worker unit tests, launch smoke) | Download via GUI not yet exercised manually; Python GUI features beyond the single-URL queue NOT ported |
+| CLI (url,-u,-o,-z,-b,-t,-w,-L, website/ICC/CYOAP modes, network flags) | TESTED | All modes and flags ported; real-site runs vs Python on 12 sites (TEST_RESULTS.md, 2026-11-21) |
+| GUI (egui) A–C | TESTED | Downloads driven through the real GUI handlers (`gui_e2e.sh`, `ICC_GUI=1` icc/cyoap parity) are identical to Python; full Python layout ported (F-048–F-050) |
 | Website W1 path mapping | TESTED | 74 Python fixture cases match: URL normalization, kind detection, local path allocation, local references (casefold identity, `index.html` reserved) |
 | Website W2-CSS rewrite | TESTED | 12 cases: output and download-call sequence match Python (@import, url(), quoted/embedded URLs) |
 | Website W2-JS rewrite | TESTED | 14 `_process_js` cases plus chunk-map/dynamic-path cases match; Rust prefetch is sequential (= Python with 1 worker; Python parallel order is nondeterministic) |

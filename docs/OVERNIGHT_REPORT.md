@@ -1,5 +1,7 @@
 # Overnight report (updated continuously)
 
+> Historical log of sessions 1–4. Current state: `docs/MIGRATION_PROGRESS.md`.
+
 Last update: 2026-11-18 ~02:30. Branch `migration/python-to-rust`. Nothing has been pushed.
 
 ## Executive summary

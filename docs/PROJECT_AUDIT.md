@@ -1,5 +1,7 @@
 # Python project audit (Phase 1)
 
+> Historical audit of the Python baseline (2026-11-18). Rust status: `docs/MIGRATION_PROGRESS.md`; security follow-up: `docs/SECURITY_REVIEW.md`.
+
 Status: read-only audit, 2026-11-18. Sources: Claude inspection, Luna repository audit, Sol security and architecture review. Claims that Claude verified are marked ✔. File references are relative to `cyoa_downloader_app/` unless noted.
 
 ## 1. Size and shape

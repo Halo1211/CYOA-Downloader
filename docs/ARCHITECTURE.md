@@ -1,4 +1,6 @@
-# Proposed Rust architecture — PENDING OWNER APPROVAL
+# Rust architecture (approved 2026-11-18, implemented)
+
+Status 2026-11-21: implemented as described. Additions since approval: `cyoa_net::browser_relay` (loopback relay in front of Chromium: destination policy and proxy credentials), native TLS on Windows (DL-10), external process plugins (DL-4, DL-14). Decisions: `docs/DECISION_LOG.md`.
 
 Nothing in this document has been implemented yet.
 
