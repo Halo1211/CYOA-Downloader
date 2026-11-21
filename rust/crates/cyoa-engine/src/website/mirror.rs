@@ -53,6 +53,112 @@ pub fn contained_path(root: &Path, rel: &str) -> Option<PathBuf> {
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
+/// Python session `Retry(total=3, connect=3, read=3, backoff_factor=1,
+/// status_forcelist=[429,500,502,503,504])` (urllib3 2.x): up to three
+/// retries; sleeps `Retry-After` for 413/429/503 when given, otherwise
+/// 0 s, 2 s, 4 s (`backoff_factor * 2**(n-1)`, first retry immediate), max 120 s.
+/// After the last attempt the final response or error is returned unchanged,
+/// so the caller's browser fallback still applies.
+async fn mirror_get_with_retries(
+    client: &FetchClient,
+    url: &Url,
+    opts: &FetchOptions,
+    cancel: &CancellationToken,
+) -> Result<cyoa_net::client::FetchResponse, cyoa_net::client::FetchError> {
+    use cyoa_net::client::FetchError as E;
+    let mut budget = cyoa_net::retry::TransportRetryBudget::default();
+    // requests follows redirects per hop; a status retry repeats the hop that
+    // failed, so later attempts target the effective URL.
+    let mut target = url.clone();
+    let mut hop_changes = 0u32;
+    loop {
+        let result = client.get(&target, opts, cancel).await;
+        let retry_after = match &result {
+            Ok(r) => {
+                let status = r.status.as_u16();
+                let header = r
+                    .headers
+                    .get("retry-after")
+                    .and_then(|v| v.to_str().ok())
+                    .map(str::to_owned);
+                // urllib3 is_retry: status_forcelist, or Retry-After present on
+                // 413/429/503. sleep_for_retry then honours Retry-After for
+                // every retried status.
+                let retryable = matches!(status, 429 | 500 | 502 | 503 | 504)
+                    || (matches!(status, 413 | 429 | 503) && header.is_some());
+                if !retryable {
+                    return result;
+                }
+                // requests gives every redirect hop its own Retry budget; the
+                // number of hops across retries stays within the redirect cap.
+                if r.final_url != target {
+                    hop_changes += 1;
+                    if hop_changes > 10 {
+                        return result;
+                    }
+                    budget = cyoa_net::retry::TransportRetryBudget::default();
+                    target = r.final_url.clone();
+                }
+                header
+            }
+            Err(
+                E::Cancelled | E::VpnBlocked | E::Policy(_) | E::TooLarge | E::TooManyRedirects,
+            ) => {
+                return result;
+            }
+            Err(_) => None,
+        };
+        let Some(backoff) = budget.next_backoff() else {
+            return result;
+        };
+        drop(result);
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0.0, |d| d.as_secs_f64());
+        // urllib3 sleep_for_retry: a positive Retry-After (capped at its
+        // 21600 s parser limit) wins, otherwise the 0/2/4 s backoff (max 120 s).
+        let delay = match retry_after.as_deref() {
+            Some(v) => {
+                let ra = cyoa_net::retry::retry_after_seconds(Some(v), now).min(21_600.0);
+                if ra > 0.0 { ra } else { backoff.min(120.0) }
+            }
+            None => backoff.min(120.0),
+        };
+        if delay > 0.0 {
+            tokio::select! {
+                () = tokio::time::sleep(std::time::Duration::from_secs_f64(delay)) => {}
+                () = cancel.cancelled() => return Err(E::Cancelled),
+            }
+        }
+    }
+}
+
+/// Python `WebsiteDownloader._headers_for`: the session headers
+/// (`network/sessions.py`) plus `Referer`/`Origin` of the target origin.
+/// These take precedence over the client's per-URL defaults, so servers that
+/// vary on User-Agent (Google Fonts CSS) answer as they do for Python.
+fn mirror_headers(url: &Url) -> cyoa_net::client::header::HeaderMap {
+    use cyoa_net::client::header::{HeaderMap, HeaderName, HeaderValue};
+    // urlparse netloc (credentialed URLs are rejected by the client anyway).
+    let netloc = &url[url::Position::BeforeHost..url::Position::AfterPort];
+    let base = format!("{}://{netloc}/", url.scheme());
+    let mut headers = HeaderMap::new();
+    for (k, v) in [
+        ("user-agent", "Mozilla/5.0"),
+        ("accept", "*/*"),
+        ("accept-language", "en-US,en;q=0.9,id;q=0.8"),
+        ("cache-control", "no-cache"),
+        ("pragma", "no-cache"),
+        ("referer", base.as_str()),
+        ("origin", base.trim_end_matches('/')),
+    ] {
+        if let Ok(value) = HeaderValue::from_str(v) {
+            headers.insert(HeaderName::from_static(k), value);
+        }
+    }
+    headers
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Entry {
     InProgress,
@@ -108,6 +214,8 @@ pub struct MirrorSink {
     /// `_browser_transport_preferred`: after one browser success, later
     /// requests go straight to the browser.
     browser_preferred: bool,
+    /// Set by Retry Assets / auto recovery: refuse to overwrite existing files.
+    pub(crate) no_overwrite: bool,
     /// `use_runtime_responses`: completed runtime-capture bodies to reuse.
     runtime_store: Option<crate::browser::CapturedStore>,
     /// F-043 AI Assist runtime (deep-scan AI round).
@@ -155,6 +263,7 @@ impl MirrorSink {
             archive_strategy: String::new(),
             browser: None,
             browser_preferred: false,
+            no_overwrite: false,
             runtime_store: None,
             ai: None,
         }
@@ -205,7 +314,11 @@ impl MirrorSink {
                 final_url: url.to_owned(),
             });
         }
-        if self.browser_preferred {
+        // Deviation (better than Python): the browser preference applies only
+        // to the start origin, the only origin the browser transport serves.
+        // Python fails every cross-origin asset (e.g. image CDNs) once the
+        // preference is set; here they keep using the native client.
+        if self.browser_preferred && self.same_origin_as_start(url) {
             let fetched = self.fetch_with_browser(url);
             if fetched.is_none() {
                 self.fail(url, "browser transport failed");
@@ -217,13 +330,16 @@ impl MirrorSink {
             return None;
         };
         let opts = FetchOptions {
+            headers: mirror_headers(&parsed),
             return_error_response: true,
             ..FetchOptions::default()
         };
-        let response = match self
-            .handle
-            .block_on(self.client.get(&parsed, &opts, &self.cancel))
-        {
+        let response = match self.handle.block_on(mirror_get_with_retries(
+            &self.client,
+            &parsed,
+            &opts,
+            &self.cancel,
+        )) {
             Ok(r) => r,
             Err(error) => {
                 if !matches!(
@@ -292,6 +408,24 @@ impl MirrorSink {
                 None
             }
         }
+    }
+
+    /// A downloaded asset. Recovery sinks start with an empty name allocator,
+    /// so they never replace an existing file with different content; an
+    /// unreadable existing file also refuses (fail closed). Localization
+    /// rewrites of existing pages use [`Self::write`] (Sol review 2026-11-21).
+    fn write_asset(&self, rel: &str, bytes: &[u8]) -> Result<(), String> {
+        if self.no_overwrite
+            && let Some(path) = contained_path(&self.root, rel)
+            && path.exists()
+        {
+            match std::fs::read(&path) {
+                Ok(existing) if existing == bytes => {}
+                Ok(_) => return Err(format!("would overwrite an existing file: {rel}")),
+                Err(e) => return Err(format!("could not compare existing file {rel}: {e}")),
+            }
+        }
+        self.write(rel, bytes)
     }
 
     fn write(&self, rel: &str, bytes: &[u8]) -> Result<(), String> {
@@ -522,7 +656,7 @@ impl MirrorSink {
                     sink: self,
                 }
                 .process_css(&text(), &source_url, &rel);
-                self.write(&rel, out.as_bytes())
+                self.write_asset(&rel, out.as_bytes())
             }
             "js" => {
                 let out = Rewriter {
@@ -531,7 +665,7 @@ impl MirrorSink {
                     sink: self,
                 }
                 .process_js(&text(), &source_url, &rel);
-                self.write(&rel, out.as_bytes())
+                self.write_asset(&rel, out.as_bytes())
             }
             "html" => {
                 if self.depth >= 16 {
@@ -549,11 +683,11 @@ impl MirrorSink {
                 .localize_html(&source_url, &rel, &text());
                 self.depth -= 1;
                 match page {
-                    Ok(p) => self.write(&rel, p.html.as_bytes()),
+                    Ok(p) => self.write_asset(&rel, p.html.as_bytes()),
                     Err(e) => Err(e.to_string()),
                 }
             }
-            _ => self.write(&rel, &r.bytes),
+            _ => self.write_asset(&rel, &r.bytes),
         };
         self.dep_depth -= 1;
         if let Err(error) = written {
@@ -1019,14 +1153,19 @@ impl MirrorSink {
 
     /// `_fetch_with_browser`: same-site retry through the reusable browser
     /// (Auto/Browser strategies only).
+    /// Python `(scheme, netloc)` equality with `start_url`.
+    fn same_origin_as_start(&self, url: &str) -> bool {
+        let (a, b) = (py_urlparse(url), py_urlparse(&self.start_url));
+        a.scheme.eq_ignore_ascii_case(&b.scheme) && a.netloc.eq_ignore_ascii_case(b.netloc)
+    }
+
     fn fetch_with_browser(&mut self, url: &str) -> Option<Fetched> {
         if !matches!(self.archive_strategy.as_str(), "auto" | "browser")
             || self.cancel.is_cancelled()
         {
             return None;
         }
-        let (a, b) = (py_urlparse(url), py_urlparse(&self.start_url));
-        if !(a.scheme.eq_ignore_ascii_case(&b.scheme) && a.netloc.eq_ignore_ascii_case(b.netloc)) {
+        if !self.same_origin_as_start(url) {
             return None;
         }
         let transport = self.browser_transport();
@@ -1637,6 +1776,72 @@ mod tests {
     use super::*;
     use cyoa_net::{client::ClientConfig, policy::DestinationPolicy};
     use wiremock::{Mock, MockServer, ResponseTemplate, matchers::path};
+
+    async fn retry_client(server: &MockServer) -> (FetchClient, Url) {
+        let start = format!("{}/", server.uri());
+        let client = FetchClient::new(ClientConfig {
+            policy: DestinationPolicy {
+                origin: Some(Url::parse(&start).unwrap()),
+                allow_internal: false,
+            },
+            ..ClientConfig::default()
+        })
+        .unwrap();
+        (client, Url::parse(&format!("{start}a.css")).unwrap())
+    }
+
+    #[tokio::test]
+    async fn mirror_retries_429_then_succeeds() {
+        let server = MockServer::start().await;
+        Mock::given(path("/a.css"))
+            .respond_with(ResponseTemplate::new(429).insert_header("retry-after", "0"))
+            .up_to_n_times(2)
+            .mount(&server)
+            .await;
+        Mock::given(path("/a.css"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("ok"))
+            .mount(&server)
+            .await;
+        let (client, url) = retry_client(&server).await;
+        let r = mirror_get_with_retries(
+            &client,
+            &url,
+            &FetchOptions {
+                return_error_response: true,
+                ..FetchOptions::default()
+            },
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(r.status.as_u16(), 200);
+    }
+
+    #[tokio::test]
+    async fn mirror_retry_budget_is_three() {
+        let server = MockServer::start().await;
+        Mock::given(path("/a.css"))
+            .respond_with(ResponseTemplate::new(503))
+            .expect(4)
+            .mount(&server)
+            .await;
+        let (client, url) = retry_client(&server).await;
+        let started = std::time::Instant::now();
+        let r = mirror_get_with_retries(
+            &client,
+            &url,
+            &FetchOptions {
+                return_error_response: true,
+                ..FetchOptions::default()
+            },
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(r.status.as_u16(), 503);
+        // urllib3 backoff 0 + 2 + 4 seconds.
+        assert!(started.elapsed() >= std::time::Duration::from_secs(6));
+    }
 
     #[tokio::test]
     async fn project_payload_localizes_custom_css_and_writes_alias() {

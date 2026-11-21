@@ -18,7 +18,7 @@
 //! Built-in scanners/detectors are native Rust and always run first.
 
 use std::collections::BTreeSet;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -27,6 +27,23 @@ use serde_json::{Map, Value, json};
 
 /// Largest reply read from a plugin.
 const MAX_REPLY_BYTES: usize = 4 * 1024 * 1024;
+
+/// Private per-call folder for the request/reply files; removed on drop.
+struct IoDir(PathBuf);
+
+impl IoDir {
+    fn create() -> Result<Self, String> {
+        let dir = std::env::temp_dir().join(format!("cyoa-plugin-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&dir).map_err(|e| format!("could not create temp dir: {e}"))?;
+        Ok(Self(dir))
+    }
+}
+
+impl Drop for IoDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
 /// Per-call time limit.
 const CALL_TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -210,38 +227,27 @@ impl PluginRegistry {
     }
 
     /// One plugin call: spawn, send the request, read the bounded reply.
+    ///
+    /// The request and reply go through temporary files instead of pipes, so
+    /// a descendant process that inherits the handles cannot keep a reader
+    /// thread or the caller waiting past the deadline (Sol review 2026-11-21).
     fn call(&self, plugin: &Plugin, request: &Value) -> Result<Value, String> {
+        let io_dir = IoDir::create()?;
+        let request_path = io_dir.0.join("request.json");
+        let reply_path = io_dir.0.join("reply.json");
+        let mut body = serde_json::to_vec(request).map_err(|e| e.to_string())?;
+        body.push(b'\n');
+        std::fs::write(&request_path, &body).map_err(|e| e.to_string())?;
+        let stdin = std::fs::File::open(&request_path).map_err(|e| e.to_string())?;
+        let stdout = std::fs::File::create(&reply_path).map_err(|e| e.to_string())?;
         let mut child = Command::new(self.program(&plugin.command))
             .args(&plugin.command[1..])
             .current_dir(&self.dir)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
+            .stdin(Stdio::from(stdin))
+            .stdout(Stdio::from(stdout))
             .stderr(Stdio::null())
             .spawn()
             .map_err(|e| format!("could not start: {e}"))?;
-        let body = serde_json::to_vec(request).map_err(|e| e.to_string())?;
-        let mut stdin = child.stdin.take().ok_or("no stdin")?;
-        let writer = std::thread::spawn(move || {
-            let _ = stdin.write_all(&body);
-            let _ = stdin.write_all(b"\n");
-        });
-        let mut stdout = child.stdout.take().ok_or("no stdout")?;
-        let reader = std::thread::spawn(move || {
-            let mut buf = Vec::new();
-            let mut chunk = [0u8; 8192];
-            loop {
-                match stdout.read(&mut chunk) {
-                    Ok(0) | Err(_) => break,
-                    Ok(n) => {
-                        buf.extend_from_slice(&chunk[..n]);
-                        if buf.len() > MAX_REPLY_BYTES {
-                            return Err("reply too large");
-                        }
-                    }
-                }
-            }
-            Ok(buf)
-        });
         let deadline = Instant::now() + self.timeout;
         loop {
             match child.try_wait() {
@@ -251,15 +257,27 @@ impl PluginRegistry {
                     let _ = child.wait();
                     return Err("timed out".into());
                 }
-                Ok(None) => std::thread::sleep(Duration::from_millis(10)),
+                Ok(None) => {
+                    // Bound the reply while the plugin runs (disk exhaustion).
+                    if std::fs::metadata(&reply_path)
+                        .is_ok_and(|m| m.len() > MAX_REPLY_BYTES as u64)
+                    {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return Err("reply too large".into());
+                    }
+                    std::thread::sleep(Duration::from_millis(10));
+                }
                 Err(e) => return Err(e.to_string()),
             }
         }
-        let _ = writer.join();
-        let bytes = reader
-            .join()
-            .map_err(|_| "reader panicked".to_owned())?
-            .map_err(str::to_owned)?;
+        let mut bytes = Vec::new();
+        std::fs::File::open(&reply_path)
+            .and_then(|f| f.take(MAX_REPLY_BYTES as u64 + 1).read_to_end(&mut bytes))
+            .map_err(|e| e.to_string())?;
+        if bytes.len() > MAX_REPLY_BYTES {
+            return Err("reply too large".into());
+        }
         let text = String::from_utf8_lossy(&bytes);
         let line = text.lines().rfind(|l| !l.trim().is_empty()).unwrap_or("");
         serde_json::from_str(line).map_err(|e| format!("invalid reply: {e}"))

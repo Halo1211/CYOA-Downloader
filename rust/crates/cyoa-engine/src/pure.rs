@@ -148,6 +148,10 @@ impl PureRun<'_> {
             .await
             .map_err(RunError::OutputStage)?;
         }
+        crate::website_recovery::auto_recover_site(&site, &self.client, &self.cancel).await;
+        if self.cancel.is_cancelled() {
+            return Err(RunError::Cancelled);
+        }
         let zip = {
             let (site_b, stem_b, out_b) =
                 (site.clone(), self.stem.clone(), self.output_dir.clone());

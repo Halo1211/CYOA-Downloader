@@ -1168,10 +1168,15 @@ impl Localizer<'_> {
         js_path: &Path,
         allow_relative: bool,
     ) -> String {
-        static ASSET: LazyLock<Option<fancy_regex::Regex>> = LazyLock::new(|| {
-            fre(
-                r#"(?i)(?P<quote>["'])(?P<url>[^"'\r\n]{1,300}\.(?:js|mjs|css|json|png|jpe?g|gif|webp|svg|avif|woff2?|ttf|otf|mp3|ogg|wav)(?:\?[^"'\s<>]*)?)(?P=quote)"#,
-            )
+        // Python `(?P<quote>["'])(?P<url>…)(?P=quote)`: the URL class excludes
+        // both quotes, so the backreference equals two quoted alternatives.
+        // The linear `regex` engine avoids the backtracking blow-up (minutes
+        // per large minified bundle).
+        static ASSET: LazyLock<Option<Regex>> = LazyLock::new(|| {
+            re(concat!(
+                r#"(?i)(?:"(?P<dq>[^"'\r\n]{1,300}\.(?:js|mjs|css|json|png|jpe?g|gif|webp|svg|avif|woff2?|ttf|otf|mp3|ogg|wav)(?:\?[^"'\s<>]*)?)""#,
+                r#"|'(?P<sq>[^"'\r\n]{1,300}\.(?:js|mjs|css|json|png|jpe?g|gif|webp|svg|avif|woff2?|ttf|otf|mp3|ogg|wav)(?:\?[^"'\s<>]*)?)')"#,
+            ))
         });
         let Some(r) = ASSET.as_ref() else {
             return text.to_owned();
@@ -1179,10 +1184,12 @@ impl Localizer<'_> {
         let mut count = 0;
         let mut out = String::new();
         let mut last = 0;
-        for caps in r.captures_iter(text).flatten() {
-            let (Some(m), Some(q), Some(u)) = (caps.get(0), caps.name("quote"), caps.name("url"))
-            else {
-                continue;
+        for caps in r.captures_iter(text) {
+            let Some(m) = caps.get(0) else { continue };
+            let (q, u) = match (caps.name("dq"), caps.name("sq")) {
+                (Some(u), _) => ("\"", u),
+                (None, Some(u)) => ("'", u),
+                (None, None) => continue,
             };
             out.push_str(&text[last..m.start()]);
             last = m.end();
@@ -1214,7 +1221,7 @@ impl Localizer<'_> {
                 Some(target) => {
                     let dir = js_path.parent().unwrap_or(&self.root).to_path_buf();
                     let local = relpath(&target.1, &dir);
-                    out.push_str(&format!("{q}{local}{q}", q = q.as_str()));
+                    out.push_str(&format!("{q}{local}{q}"));
                 }
                 None => keep(&mut out),
             }

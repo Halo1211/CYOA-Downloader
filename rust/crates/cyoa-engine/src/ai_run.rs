@@ -240,7 +240,10 @@ impl AiRuntime {
                     continue;
                 }
                 total = total.saturating_add(bytes.len() as u64);
-                let text = String::from_utf8_lossy(&bytes).into_owned();
+                // Python `Path.read_text()`: universal newlines.
+                let text = String::from_utf8_lossy(&bytes)
+                    .replace("\r\n", "\n")
+                    .replace('\r', "\n");
                 if text.chars().count() > 500
                     && let Ok(rel) = path.strip_prefix(folder)
                 {

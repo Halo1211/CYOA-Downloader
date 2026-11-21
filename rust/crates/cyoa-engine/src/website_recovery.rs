@@ -98,7 +98,29 @@ fn py_splitlines(s: &str) -> Vec<&str> {
 pub fn parse_failure_report_text(text: &str) -> (String, Vec<String>) {
     let mut source = String::new();
     let mut urls: Vec<String> = Vec::new();
+    // The PATH COLLISIONS section lists successful downloads that were
+    // renamed, not failures; skip only its records (later sections, such as
+    // appended asset failures, are still parsed). Sol review 2026-11-21.
+    let mut in_collisions = false;
     for line in py_splitlines(text) {
+        let t = line.trim();
+        if t == "PATH COLLISIONS" {
+            in_collisions = true;
+            continue;
+        }
+        if in_collisions {
+            let collision_line = t.is_empty()
+                || t.starts_with("====")
+                || t.starts_with("These files had name conflicts")
+                || t.starts_with("The JS/CSS referencing them")
+                || ["URL ", "Wanted ", "Saved as "]
+                    .iter()
+                    .any(|p| line.starts_with(p));
+            if collision_line {
+                continue;
+            }
+            in_collisions = false;
+        }
         if source.is_empty()
             && let Some(s) = cap(&SOURCE_RE, line.trim(), true)
         {
@@ -328,6 +350,7 @@ pub fn retry_website_assets(
             cancel.clone(),
             512 << 20,
         );
+        sink.no_overwrite = true;
         let mut remaining: Vec<(String, String)> = Vec::new();
         let mut recovered: BTreeSet<String> = BTreeSet::new();
         for url in &urls {
@@ -393,6 +416,43 @@ pub fn retry_website_assets(
     }
     summary.archives_pending += interrupted(&base).len();
     Ok(summary)
+}
+
+/// Automatic backup pass (deviation, better than Python, which only offers
+/// the manual Retry Assets action): when the finished site folder still lists
+/// failed assets, wait a short cool-down (rate limits) and run the Retry
+/// Assets recovery once before the output is finalized. Never fails the run.
+pub async fn auto_recover_site(
+    site: &Path,
+    client: &cyoa_net::client::FetchClient,
+    cancel: &tokio_util::sync::CancellationToken,
+) {
+    if cancel.is_cancelled() || !has_website_recovery_work(site) {
+        return;
+    }
+    tracing::info!("[Auto recovery] Failed assets found; retrying once after a 10 s cool-down…");
+    tokio::select! {
+        () = tokio::time::sleep(std::time::Duration::from_secs(10)) => {}
+        () = cancel.cancelled() => return,
+    }
+    let (site, client, cancel, handle) = (
+        site.to_path_buf(),
+        client.clone(),
+        cancel.clone(),
+        tokio::runtime::Handle::current(),
+    );
+    let outcome =
+        tokio::task::spawn_blocking(move || retry_website_assets(&site, &client, &handle, &cancel))
+            .await;
+    match outcome {
+        Ok(Ok(s)) => tracing::info!(
+            "[Auto recovery] {}/{} asset(s) recovered.",
+            s.recovered_assets,
+            s.discovered_assets
+        ),
+        Ok(Err(e)) => tracing::warn!("[Auto recovery] skipped: {e}"),
+        Err(e) => tracing::warn!("[Auto recovery] worker failed: {e}"),
+    }
 }
 
 #[cfg(test)]

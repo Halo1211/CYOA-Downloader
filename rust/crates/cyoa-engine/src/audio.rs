@@ -258,7 +258,9 @@ fn patch_raw(project: &str, map: &[(String, String)]) -> String {
             }
         }
     }
-    if any && !out[..out.len().min(200)].contains("\"useAudioURL\":true") {
+    // Python `out[:200]` counts characters; slicing bytes could split one.
+    let head_end = out.char_indices().nth(200).map_or(out.len(), |(i, _)| i);
+    if any && !out[..head_end].contains("\"useAudioURL\":true") {
         out = out.replacen("{\"version\":", "{\"useAudioURL\":true,\"version\":", 1);
     }
     out

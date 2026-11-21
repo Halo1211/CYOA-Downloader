@@ -232,6 +232,13 @@ pub fn validate_zip_archive<R: std::io::Read + std::io::Seek>(
                 "Archive contains duplicate paths: {name}"
             )));
         }
+        // Linear bound before building ancestor prefixes (quadratic in depth).
+        if ident.len() > 4096 || ident.matches('/').count() > 128 {
+            return Err(ArchiveError::Validation(format!(
+                "Archive path too long or too deep: {}",
+                python_repr(member)
+            )));
+        }
         let parts: Vec<&str> = ident.split('/').collect();
         let parents: HashSet<String> = (1..parts.len()).map(|n| parts[..n].join("/")).collect();
         if parents.iter().any(|p| files.contains(p)) || (!is_dir && dirs.contains(&ident)) {

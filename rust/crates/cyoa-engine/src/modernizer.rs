@@ -947,6 +947,49 @@ fn inject_marked_script(script_path: &Path, project_text: &str) -> Result<(), St
     write_text(script_path, &patched)
 }
 
+/// Canonicalize the nearest existing ancestor (resolving junctions and
+/// links), then re-append the missing components.
+fn canonical_with_missing(path: &Path) -> PathBuf {
+    let mut existing = path.to_path_buf();
+    let mut rest = Vec::new();
+    while !existing.exists() {
+        match (
+            existing.file_name().map(|n| n.to_os_string()),
+            existing.parent(),
+        ) {
+            (Some(name), Some(parent)) => {
+                rest.push(name);
+                existing = parent.to_path_buf();
+            }
+            _ => break,
+        }
+    }
+    let mut out = fs::canonicalize(&existing).unwrap_or(existing);
+    for part in rest.into_iter().rev() {
+        out.push(part);
+    }
+    out
+}
+
+/// Reject writes whose path below `root` passes through a link or junction
+/// (an attacker-supplied site could redirect writes outside itself).
+fn ensure_no_link_below(root: &Path, target: &Path) -> Result<(), String> {
+    let rel = target
+        .strip_prefix(root)
+        .map_err(|_| format!("path escapes site: {}", target.display()))?;
+    let mut current = root.to_path_buf();
+    for part in rel.components() {
+        current.push(part);
+        if is_link(&current) {
+            return Err(format!(
+                "refusing to write through a link: {}",
+                current.display()
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn backup_original(site_root: &Path, target: &Path) -> Result<Option<String>, String> {
     if !target.is_file() {
         return Ok(None);
@@ -960,6 +1003,7 @@ fn backup_original(site_root: &Path, target: &Path) -> Result<Option<String>, St
         return Ok(None);
     }
     let backup = site_root.join(ORIGINAL_SITE_DIR).join(rel);
+    ensure_no_link_below(site_root, &backup)?;
     if !backup.exists() {
         if let Some(p) = backup.parent() {
             fs::create_dir_all(p).map_err(|e| e.to_string())?;
@@ -987,6 +1031,7 @@ fn overlay_template(template_dir: &Path, dest: &Path) -> Result<Vec<String>, Str
         if preserve && target.exists() {
             continue;
         }
+        ensure_no_link_below(dest, &target)?;
         if let Some(p) = target.parent() {
             fs::create_dir_all(p).map_err(|e| e.to_string())?;
         }
@@ -1167,6 +1212,16 @@ pub fn modernize_site(
 ) -> Result<ModernizeResult, String> {
     let source = resolve(source_dir);
     let mut destination = resolve(destination_dir);
+    // An output inside the source would copy itself recursively.
+    if source != destination
+        && canonical_with_missing(&destination)
+            .starts_with(fs::canonicalize(&source).unwrap_or_else(|_| source.clone()))
+    {
+        return Err(format!(
+            "output folder must not be inside the source folder: {}",
+            destination.display()
+        ));
+    }
     if source != destination {
         if destination.exists() {
             return Err(destination.display().to_string());

@@ -120,8 +120,15 @@ pub fn project_metadata(cleaned: &str, source_url: &str, project_url: &str) -> S
         "author".into(),
         first_truthy(app, &["author", "authorName"]),
     );
-    meta.insert("source_url".into(), source_url.into());
-    meta.insert("project_url".into(), project_url.into());
+    // Distributable metadata: credentials in URLs are redacted (Sol review).
+    meta.insert(
+        "source_url".into(),
+        crate::logfile::redact(source_url).into(),
+    );
+    meta.insert(
+        "project_url".into(),
+        crate::logfile::redact(project_url).into(),
+    );
     meta.insert("rows".into(), rows.len().into());
     meta.insert("objects_total".into(), objects_total.into());
     meta.insert("backpack_slots".into(), len_of(app.get("backpack")).into());
@@ -172,7 +179,10 @@ pub fn write_failed_assets_log(
         ));
         lines.push(format!("  Path : {}", dash(it.path)));
         lines.push(format!("  URL  : {}", dash(it.url)));
-        lines.push(format!("  Err  : {}", dash(it.error)));
+        lines.push(format!(
+            "  Err  : {}",
+            dash(&crate::logfile::redact(it.error))
+        ));
         lines.push(String::new());
     }
     cyoa_storage::atomic_io::atomic_write_text(
@@ -220,7 +230,10 @@ pub fn append_asset_failures_to_backup_report(
         ));
         lines.push(format!("  Path : {}", dash(it.path)));
         lines.push(format!("  URL  : {}", dash(it.url)));
-        lines.push(format!("  Err  : {}", dash(it.error)));
+        lines.push(format!(
+            "  Err  : {}",
+            dash(&crate::logfile::redact(it.error))
+        ));
         lines.push(String::new());
     }
     let mut f = fs::OpenOptions::new().append(true).open(report)?;

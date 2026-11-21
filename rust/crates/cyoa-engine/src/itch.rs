@@ -651,8 +651,11 @@ pub async fn itch_test_connection(
     };
     let resolved = resolve_itch_api_key(explicit_key, Some(&OsItchKeyring));
     let cancel = CancellationToken::new();
-    let Ok(mut url) = Url::parse(if resolved.key.is_some() {
-        "https://itch.io/api/1/key/me"
+    let Ok(url) = Url::parse(if resolved.key.is_some() {
+        // Deviation: Python's `itch.io/api/1/key/me?api_key=` now answers
+        // `{"errors": ...}` for valid keys (verified 2026-11-21). The current
+        // API takes the key as a Bearer token, which also keeps it out of URLs.
+        "https://api.itch.io/profile"
     } else {
         "https://itch.io/"
     }) else {
@@ -661,13 +664,19 @@ pub async fn itch_test_connection(
             format!("itch.io probe error: invalid endpoint; {backend_line}."),
         );
     };
-    if let Some(key) = resolved.key.as_deref() {
-        url.query_pairs_mut().append_pair("api_key", key);
+    let mut headers = cyoa_net::client::header::HeaderMap::new();
+    if let Some(key) = resolved.key.as_deref()
+        && let Ok(mut value) =
+            cyoa_net::client::header::HeaderValue::from_str(&format!("Bearer {key}"))
+    {
+        value.set_sensitive(true);
+        headers.insert(cyoa_net::client::header::AUTHORIZATION, value);
     }
     let response = client
         .get(
             &url,
             &FetchOptions {
+                headers,
                 return_error_response: true,
                 ..FetchOptions::default()
             },

@@ -310,8 +310,86 @@ impl FetchResponse {
 impl FetchClient {
     pub fn new(cfg: ClientConfig) -> Result<Self, E> {
         let jar = Arc::new(reqwest::cookie::Jar::default());
+        Ok(Self {
+            http: Self::build_http(&cfg, &jar, None)?,
+            cfg,
+            jar,
+            user_agent: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
+            cloudscraper_logged: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            flaresolverr: Arc::new(std::sync::OnceLock::new()),
+        })
+    }
+
+    /// The resolver exempts the origin *host* (it cannot see the port). A
+    /// request to another port on that host is therefore resolved here (via
+    /// the configured DNS), checked against the full origin, and sent through
+    /// a client pinned to the vetted addresses, so DNS rebinding between check
+    /// and connect cannot reach an internal service (Sol review 2026-11-21).
+    async fn pin_for(
+        &self,
+        at: &Url,
+        cancel: &Cancel,
+        end: Option<tokio::time::Instant>,
+    ) -> Result<Option<reqwest::Client>, E> {
+        let Some(origin) = &self.cfg.policy.origin else {
+            return Ok(None);
+        };
+        let same_host = origin.host_str().zip(at.host_str()).is_some_and(|(a, b)| {
+            a.trim_end_matches('.')
+                .eq_ignore_ascii_case(b.trim_end_matches('.'))
+        });
+        if self.cfg.policy.allow_internal || !same_host || crate::policy::same_origin(origin, at) {
+            return Ok(None);
+        }
+        let host = at.host_str().unwrap_or_default().to_owned();
+        let port = at.port_or_known_default().unwrap_or(0);
+        let lookup = async {
+            let addrs: Vec<SocketAddr> = match (&self.cfg.dns, at.host()) {
+                (_, Some(url::Host::Ipv4(ip))) => vec![SocketAddr::new(ip.into(), port)],
+                (_, Some(url::Host::Ipv6(ip))) => vec![SocketAddr::new(ip.into(), port)],
+                (Some(resolver), _) => resolver
+                    .lookup(&host)
+                    .await
+                    .map_err(|e| io::Error::other(e.to_string()))?
+                    .into_iter()
+                    .map(|ip| SocketAddr::new(ip, port))
+                    .collect(),
+                (None, _) => tokio::net::lookup_host((host.as_str(), port))
+                    .await?
+                    .collect(),
+            };
+            Ok::<_, io::Error>(addrs)
+        };
+        let addrs = wait(cancel, end, lookup).await??;
+        let probe = DestinationPolicy {
+            allow_internal: false,
+            origin: None,
+        };
+        probe.check_addresses(at, &addrs)?;
+        Ok(Some(Self::build_http(
+            &self.cfg,
+            &self.jar,
+            Some((&host, &addrs)),
+        )?))
+    }
+
+    /// The reqwest client for `cfg`; `pin` forces `host` to resolve only to
+    /// the given vetted addresses (used for redirect hops the resolver's
+    /// host-level origin exemption cannot judge).
+    fn build_http(
+        cfg: &ClientConfig,
+        jar: &Arc<reqwest::cookie::Jar>,
+        pin: Option<(&str, &[SocketAddr])>,
+    ) -> Result<reqwest::Client, E> {
         // Rebuild with an explicit jar so solved cookies can be installed.
-        let mut b = reqwest::Client::builder()
+        // Windows: the native TLS stack (Schannel). Some CDNs (e.g. Vercel bot
+        // protection on faproulette.gg) rate-limit the rustls fingerprint while
+        // serving Python requests/curl normally. Other platforms keep rustls.
+        let mut b = reqwest::Client::builder();
+        if cfg!(windows) {
+            b = b.tls_backend_native();
+        }
+        let mut b = b
             .redirect(reqwest::redirect::Policy::none())
             .dns_resolver(Arc::new(PolicyResolver(
                 cfg.policy.clone(),
@@ -329,14 +407,10 @@ impl FetchClient {
             b = b.timeout(t);
         }
         b = cfg.proxy.apply(b)?;
-        Ok(Self {
-            http: b.build()?,
-            cfg,
-            jar,
-            user_agent: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
-            cloudscraper_logged: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            flaresolverr: Arc::new(std::sync::OnceLock::new()),
-        })
+        if let Some((host, addrs)) = pin {
+            b = b.resolve_to_addrs(host, addrs);
+        }
+        Ok(b.build()?)
     }
 
     pub fn budget(&self) -> &RequestBudget {
@@ -787,13 +861,19 @@ impl FetchClient {
         loop {
             check(cancel, end)?;
             self.cfg.policy.check(&at)?;
+            let pinned = self.pin_for(&at, cancel, end).await?;
             if !at.username().is_empty() || at.password().is_some() {
                 return Err(PolicyError::InvalidUrl.into());
             }
             let body = wait(
                 cancel,
                 end,
-                self.http.get(at.clone()).headers(headers.clone()).send(),
+                pinned
+                    .as_ref()
+                    .unwrap_or(&self.http)
+                    .get(at.clone())
+                    .headers(headers.clone())
+                    .send(),
             )
             .await??;
             check(cancel, end)?;

@@ -534,12 +534,16 @@ impl DeepScan<'_> {
         );
         st.known.extend(fresh.iter().cloned());
         let mut saved = 0;
-        for f in self.fetch_many(fresh).await {
-            if self.cancel.is_cancelled() {
-                break;
-            }
-            if f.content.is_some() && self.save(st, &f, "AI ✓") {
-                saved += 1;
+        // Bounded batches like the main round (Sol review: memory bound).
+        let batch = self.max_workers.clamp(1, 8) * 2;
+        'ai: for chunk in fresh.chunks(batch) {
+            for f in self.fetch_many(chunk.to_vec()).await {
+                if self.cancel.is_cancelled() {
+                    break 'ai;
+                }
+                if f.content.is_some() && self.save(st, &f, "AI ✓") {
+                    saved += 1;
+                }
             }
         }
         tracing::info!("[AI scan] Done — {saved} new asset(s)");
@@ -667,8 +671,14 @@ impl DeepScan<'_> {
                     st.record_failure(&f.url, &rel, &http_error(f.status));
                 }
             }
-            if !vite_retry.is_empty() {
-                for f in self.fetch_many(vite_retry).await {
+            // Bounded batches like the main round (Sol review: memory bound).
+            let vite_batches: Vec<Vec<String>> =
+                vite_retry.chunks(batch).map(<[String]>::to_vec).collect();
+            for vite_chunk in vite_batches {
+                if self.cancel.is_cancelled() {
+                    break;
+                }
+                for f in self.fetch_many(vite_chunk).await {
                     if f.content.is_some() {
                         if self.save(&mut st, &f, "✓ Vite") {
                             saved += 1;

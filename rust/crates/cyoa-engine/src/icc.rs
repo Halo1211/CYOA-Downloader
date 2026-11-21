@@ -254,6 +254,10 @@ impl IccRun<'_> {
         .await
         .map_err(|e| RunError::OutputStage(format!("website worker failed: {e}")))?;
         check.map_err(RunError::OutputStage)?;
+        crate::website_recovery::auto_recover_site(&site, &self.client, &self.cancel).await;
+        if self.cancel.is_cancelled() {
+            return Err(RunError::Cancelled);
+        }
         let zip = output::finalize_site_folder(&site, &self.stem, self.zip, &self.output_dir)?;
         tracing::info!("ICC download complete.");
         Ok(RunReport {
