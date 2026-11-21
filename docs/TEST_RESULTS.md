@@ -47,3 +47,24 @@ Fixtures are regenerated from Python with `python rust/fixtures/export_core.py` 
 ## 2026-11-19 test-hygiene incident (keyring)
 
 During a settings export/import differential run, a throwaway test profile contained fake secrets (`discord_bot_token`="SECRET123", `ai_api_key`="k"). Every Rust CLI run loads settings with the native keyring backend (DL-5 migration), so these fake values were written to the real Windows Credential Manager under service `CYOA Downloader` (Rust-only service; the Python app's `cyoa_downloader` / `cyoa_downloader_itch` entries were not touched). Any real value previously stored there by the Rust app would have been overwritten. Not read or deleted by the agent (secrets policy). Owner action: check Credential Manager > Windows Credentials > `CYOA Downloader`. Rule from now on: differential runs use settings without secret keys.
+
+## 2026-11-21 (real sites, Python vs Rust CLI; commit dc0f967)
+
+| Site / feature | Modes | Result |
+|---|---|---|
+| cyoa.cafe jrpg-traitor | embed, zip, both, icc, icc-folder, pure-folder | Embed byte-identical (156 MB); ICC 1060/1060 files; ZIP same content (dedup names deterministic in Rust) |
+| cyoa.cafe demon-s-blessing-expansion | all | Embed identical; ICC differs only in Cloudflare @font-face order; Python Pure crashed, Rust completed |
+| cyoa.cafe your-domme | icc-folder, pure-folder, FlareSolverr | 40/40 and 39/39 identical |
+| cyoa.cafe scpyoa-v1-5 (audio) | embed, zip, both, icc-folder, pure-folder | ICC 461/461 identical incl. 14/14 YouTube tracks via yt-dlp |
+| demxious FixingGodsFuckups, chuckeroo FalloutCYOA | embed, zip, icc-folder | Fallout byte-identical; Gods differs only in Google Fonts CSS |
+| mushoku newroad, flccncn hypnosisApp (CYOAP) | cyoap-vue-folder, icc-folder | Same content; differences are Google Fonts slices and runtime `?time=` hashes |
+| outer-reincarnation | pure-folder | Complete; Rust gets woff2 subsets |
+| faproulette isekai-quest | pure-folder | After native TLS: 588/588 files, identical list, 0 browser fallbacks, 12 min (Python ~9 min) |
+| itch.io welcome-to-yorha | --itch-only | 27/27 files; game ZIP and offline HTML5 identical |
+| Offline viewers | ICC Plus LocalViewer, ICC Plus 2.10.17, ICC Remix, Viewer 1.8, Lt. Ouroumov | 5/5 byte-identical packages |
+| Viewer playback (Chromium, internet blocked) | 8 ICC/Pure + 2 CYOAP outputs | Same behaviour as Python |
+| Cheat panel | ICC Plus, ICC Remix | Panel, point types, set points, unlimited, select/deselect all, remove requirements: working, 0 JS errors, same as Python |
+| AI Assist (Codex via OpenAI-compatible shim) | aggressive_recovery | 3 calls each, prompts identical |
+| Other CLI features | self-test, dependency-check, verify, export/import settings, flaresolverr-test, itch-test | Pass; export safer than Python |
+
+Gates on the final tree: `cargo fmt --all -- --check`, `cargo clippy --all-targets --offline -- -D warnings`, `cargo test --offline` (369 passed). GUI suites: `gui_e2e.sh`, `ICC_GUI=1 icc_parity.py` (10 OK), `ICC_GUI=1 cyoap_parity.py` (OK), `e2e_parity.sh`, `viewer_parity.sh`.

@@ -2,6 +2,8 @@
 
 Resume the CYOA Downloader Python→Rust migration on branch `migration/python-to-rust`. Do not repeat audits.
 
+**Session 9 update (2026-11-21, commit dc0f967 + docs):** Security relay for the browser, four Sol review rounds (all fixed, residuals in SECURITY_REVIEW.md), real-site testing of 12 sites and all major features (TEST_RESULTS.md), native TLS on Windows (DL-10), urllib3-style mirror retries, automatic recovery pass. 369 tests pass. Not pushed (owner pushes). Next: (1) owner review of the branch / PR to main; (2) optional: reduce deep-scan "not found" probes to Python's set; (3) release build smoke test (`rust/scripts/make_dist.sh`).
+
 **Session 8 update 3 (2026-11-20):** F-043 AI (A1–A4) and F-044 plugins done. Sol reviews pending (usage limit until 2026-11-21 11:19): browser.rs + mirror browser paths + proxy browser_route; ai_calls.rs/ai_run.rs/ai_panel.rs (secrets, endpoint client); plugins.rs (process spawning). Remaining features: F-045 browser cookie import (deferred, D3), F-049 GUI settings panels, F-055 packaging, manual GUI smoke tests.
 
 **Session 8 update 2 (2026-11-20):** F-028 browser/CDP done and Python-identical on `icc_parity.py` (15/15, Browser cases need Python Playwright + Chrome/Edge). Next: (1) after 2026-11-21 `sol_review` of `cyoa-engine/src/browser.rs`, the browser paths in `website/mirror.rs` (`fetch`, `fetch_with_browser`, `capture_runtime`), `fetch.rs` `headless_image`, and `cyoa-net/src/proxy.rs` `browser_route` (plus the earlier pending list below); (2) manual GUI smoke test with archive strategy Browser; (3) remaining gaps: F-045 browser cookie import (deferred), F-043/F-044 AI + plugins, F-049 settings panels.

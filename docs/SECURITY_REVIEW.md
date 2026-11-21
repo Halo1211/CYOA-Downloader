@@ -116,3 +116,27 @@ Open: preview shutdown does not abort in-flight client threads (bounded by the t
 
 Fixed: FlareSolverr targets pass destination policy (static + DNS internal check), VPN and cancellation before delegation, solver calls are cancellable; solver cookies only for the solved host or its parent domains, attribute injection rejected, `Secure` kept, inserted against the request URL; solved user agent validated (no CR/LF, <= 512 bytes) and scoped per origin; solver responses capped at 32 MiB; yt-dlp only receives real YouTube/SoundCloud hosts (Python's unanchored regex would pass `http://127.0.0.1/youtube.com/...`; deliberate divergence), 30 min total yt-dlp deadline, ffmpeg conversion cancellable with Python's 60 s timeout; gallery-dl output capped at 512 MiB, log tail read by seek, `--` before the URL. Regression tests added (foreign/injected solver cookies + CRLF UA, media host filter).
 Open: external helpers (gallery-dl, yt-dlp, FlareSolverr navigation) make their own follow-up requests outside DestinationPolicy (opt-in tools, as in Python); process-tree kill of helper descendants is not implemented (direct child only); helper disk quotas.
+
+## 2026-11-21 — Sol reviews of the Rust port (4 rounds) and fixes
+
+Reviews: hybrid-team tasks `20261121-150713-sol-02b261b997`, `20261121-162113-sol-5daa16bc4a`, `20261121-223322-sol-d86d7f7926`, plus two read-only Codex CLI bug checks with the Sol model. All findings below were fixed and covered by the workspace gates unless marked otherwise.
+
+| Area | Finding | Resolution |
+|---|---|---|
+| Browser (HIGH) | Proxy credentials given to chromiumoxide `page.authenticate` were sent to any origin's 401 challenge | Chromium always runs behind `cyoa_net::browser_relay` (loopback relay): it adds `Proxy-Authorization` upstream, so the browser never holds the password; HTTPS/SOCKS proxies with credentials are refused for the browser |
+| Browser (MEDIUM) | Browser fallback/runtime capture bypassed the destination (SSRF) policy | The relay applies `DestinationPolicy` with pinned addresses to every browser request (`--proxy-bypass-list=<-loopback>`) |
+| Relay | DNS for upstream routes, pipelining/framing, idle and head timeouts, handler cleanup, default proxy port, accept back-off | Fixed (one framed exchange per connection, chunked/conflicting Content-Length rejected, JoinSet aborted with the relay) |
+| HTTP client (HIGH) | The resolver exempts the origin host regardless of port; a redirect or retry to another port on that host was not re-checked | `pin_for()` runs before every hop: resolves through the configured DNS (cancel/deadline aware), checks with a no-origin policy, then connects through a client pinned to those addresses |
+| Modernizer (HIGH) | Writes and backups through existing links/junctions; output inside the source copied itself | `ensure_no_link_below`; descendant output rejected after resolving junctions |
+| ZIP (HIGH) | Ancestor-prefix validation was quadratic in path depth | Member names over 4096 bytes or 128 levels are rejected first |
+| Deep scan (HIGH) | AI-round and Vite-retry fetches retained every body until completion | Chunked like the main round (workers × 2) |
+| Reports (MEDIUM) | Credential-bearing URLs in error texts and metadata | Error lines and metadata URLs redacted; failed-asset URL lines stay exact because Retry Assets needs them |
+| Settings export (MEDIUM) | Credentials inside URL values and nested secrets were exported (Python too) | Recursive redaction (userinfo, secret query names incl. percent-encoded) |
+| AI (MEDIUM) | JS collection read unbounded data | 2000 files / 64 MiB, regular files only, capped reads |
+| Plugins (MEDIUM) | Hang after timeout via inherited pipes; unbounded reply on disk | Temp-file I/O, reply size checked while running |
+| Robustness | Char-boundary panic in audio JSON patch; catastrophic regex backtracking (integrity, offline viewer) | Fixed; regexes rewritten without backreferences (equivalent matches) |
+| itch.io | Key in the URL query of the auth test | Bearer header against `api.itch.io/profile` (also fixes false "auth failed") |
+
+Residual risks (documented): FlareSolverr resolves and navigates on its own server, so local destination checks cannot apply (same as Python). HTTPS/SOCKS upstream proxies without credentials are passed to Chromium directly (destination checks happen at the remote proxy). A transport error right after a redirect retries the previous hop URL (one fewer retry in a rare case).
+
+Verified during real-site testing: the itch.io API key used for a test run appears in no output, log, report or settings file.

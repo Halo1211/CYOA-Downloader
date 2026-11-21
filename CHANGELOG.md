@@ -5,6 +5,19 @@ instructions are in [README.md](README.md) and the linked guides.
 
 ## Unreleased
 
+### Rust port (preview, branch `migration/python-to-rust`)
+
+- Native Rust CLI and desktop app with Python-identical outputs on the
+  regression fixtures and on real sites (see `docs/TEST_RESULTS.md`).
+- Browser fallback runs behind a local relay that blocks internal addresses
+  and keeps proxy passwords out of the browser.
+- Windows uses the system TLS stack, so sites with bot protection serve the
+  Rust app like the Python app.
+- Website downloads retry rate-limited requests like the Python app and run an
+  automatic recovery pass for assets that still failed.
+- Settings export also removes passwords and keys embedded in URLs.
+
+
 - Keep website archive checkpoint databases in the application profile instead
   of creating `_audit` inside downloaded stories. Preserve interrupted-archive
   recovery and migrate owned legacy databases without removing unrelated files.
