@@ -204,8 +204,8 @@ app on the regression fixtures and on real sites. See the
 ```powershell
 cd rust
 cargo build --release
-.	argetelease\cyoa-downloader.exe --help
-.	argetelease\cyoa-desktop.exe
+.\target\release\cyoa-downloader.exe --help
+.\target\release\cyoa-desktop.exe
 ```
 
 ## Development and Windows builds
