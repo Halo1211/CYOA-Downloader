@@ -3,10 +3,11 @@
 User-facing changes are listed by release. Current setup and troubleshooting
 instructions are in [README.md](README.md) and the linked guides.
 
-## Unreleased
+## v1.1.6 — November 22, 2026
 
-### Rust port (preview, branch `migration/python-to-rust`)
+### Rust application (primary)
 
+- The Rust CLI and desktop app are now the primary application; the runnable Python reference remains under `old/`. Rust crates and parity fixtures are in root `crates/` and `fixtures/` folders.
 - Native Rust CLI and desktop app with Python-identical outputs on the
   regression fixtures and on real sites (see `docs/TEST_RESULTS.md`).
 - Browser fallback runs behind a local relay that blocks internal addresses

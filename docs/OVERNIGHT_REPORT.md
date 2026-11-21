@@ -91,7 +91,7 @@ c8705cc docs · e5c1d13 Stage 0 · e8ed523 1a · ffd7866 1a security fixes · ec
 
 ### How to continue (for a fresh session)
 
-- **Agents:** Luna and Sol can no longer write files (sandbox "Access is denied"). Ask them with `luna_review` / `sol_review` to RETURN code (one file, under about 14k characters). Claude saves the file, wires the modules, runs `python rust/fixtures/export_*.py`, and runs the gates.
+- **Agents:** Luna and Sol can no longer write files (sandbox "Access is denied"). Ask them with `luna_review` / `sol_review` to RETURN code (one file, under about 14k characters). Claude saves the file, wires the modules, runs `python fixtures/export_*.py`, and runs the gates.
 - **Crates:** Claude pre-fetches every new crate (`cargo add` + `cargo fetch`) because agents build `--offline`.
 - **Gates:** run from `rust/`: `cargo fmt --all -- --check`, `cargo clippy --all-targets --offline -- -D warnings`, `cargo test --offline`.
 
@@ -150,7 +150,7 @@ c8705cc docs · e5c1d13 Stage 0 · e8ed523 1a · ffd7866 1a security fixes · ec
 
 - **Report correction:** items 1–2 of the session-2 Next list were already committed (937f807 deep scan, 669fc73 `_process_images` collection, 3070429 asset naming). Verified baseline: 100 tests, fmt and clippy clean.
 - **Agent bridge:** `team_status` OK (ChatGPT login; writes enabled). luna_review and sol_review OK. luna_implement can **create** files but gets "Access is denied" when **rewriting** them (rustfmt, edits). Rule: Luna drafts new files; Claude formats, fixes and integrates.
-- **`cyoa-engine::fetch_plan`** (Luna draft, Claude fixes): the pure pre-network part of `fetch_one`. It covers asset URL resolution (CPython `urljoin` plus the `https:/` repair), `_ssrf_block_cross_origin` with injected DNS, and the direct-attempt count. 177 Python cases (95 resolve, 50 ssrf, 32 attempts) via `rust/fixtures/export_fetch_plan.py`.
+- **`cyoa-engine::fetch_plan`** (Luna draft, Claude fixes): the pure pre-network part of `fetch_one`. It covers asset URL resolution (CPython `urljoin` plus the `https:/` repair), `_ssrf_block_cross_origin` with injected DNS, and the direct-attempt count. 177 Python cases (95 resolve, 50 ssrf, 32 attempts) via `fixtures/export_fetch_plan.py`.
   - Bug fixed: `urljoin(base, "")` must return the base verbatim, including the fragment.
   - Luna's wrong unit expectation for `HTTPS:/` was corrected to the Python value.
 - **Totals:** 106 Rust tests pass; fmt and clippy clean.
@@ -168,7 +168,7 @@ c8705cc docs · e5c1d13 Stage 0 · e8ed523 1a · ffd7866 1a security fixes · ec
 - **Batch E + CLI MVP — FIRST END-TO-END PARITY** (Luna draft; Luna timed out/garbled once, then lost write access again → Claude finished):
   - `cyoa-engine::output` (naming, no-clobber paths, atomic JSON, deterministic ZIP), `run` (shared CLI/GUI backend: discover → process_images → outputs), `reports` (`_metadata.json`, `failed_assets.txt`, local timestamps), `cyoa-cli` (clap: url/-u/-o/-z/-b/-t/-w, Ctrl-C → 130).
   - Bugs fixed by Claude: Windows `sync_all` on read-only handle → "Access is denied"; output stem used project URL instead of user URL; Luna's guessed naming expectations; output.rs duplicated an unverified `clean_url_path_component` (now reuses localize's); subdomain logic now follows tldextract/PSL (ICANN-only) via `psl` crate.
-  - **Proof:** `bash rust/scripts/e2e_parity.sh` runs Python and Rust `--both` against `rust/fixtures/e2e_site` on a local http.server: embedded JSON, `_original.json`, ZIP contents byte-identical; metadata/failed_images/failed_assets identical except timestamps. Naming fixture `rust/fixtures/output/names.json` (46 URLs, 22 components) all match.
+  - **Proof:** `bash scripts/e2e_parity.sh` runs Python and Rust `--both` against `fixtures/e2e_site` on a local http.server: embedded JSON, `_original.json`, ZIP contents byte-identical; metadata/failed_images/failed_assets identical except timestamps. Naming fixture `fixtures/output/names.json` (46 URLs, 22 components) all match.
   - Not yet ported: Python's `cyoa_downloader.log` file in output dir, `backup_report.txt` append path, audio copy to output, offline viewer, cyoa-manager registration, `-L` list mode, ICC/website/cyoap-vue modes, proxy/DNS/VPN/Cloudflare flags.
 - **Totals:** 141 tests pass; fmt + clippy clean.
 - **Sol review of output stage → 9 findings, 8 fixed by Claude** (commit caa9990; see SECURITY_REVIEW). Luna could not write any file (create or modify) from this point on.
@@ -184,7 +184,7 @@ c8705cc docs · e5c1d13 Stage 0 · e8ed523 1a · ffd7866 1a security fixes · ec
   - Cache is now wired via `RunOptions.cache_dir/cache_limit_mb`. Tests and `e2e_parity.sh` use an isolated `USERPROFILE`/`HOME`.
   - Rust↔Python cache interop verified (300/300 hits).
 - **Batch import / `-L` (Claude-implemented):**
-  - `cyoa-engine::batch` ports `import_queue_items_from_file` for .txt and .csv. CSV follows pandas `read_csv` semantics, because pandas 3.0.2 is installed and used. Fixture `rust/fixtures/batch` (11 files, via `export_batch.py` against the real importer) all match.
+  - `cyoa-engine::batch` ports `import_queue_items_from_file` for .txt and .csv. CSV follows pandas `read_csv` semantics, because pandas 3.0.2 is installed and used. Fixture `fixtures/batch` (11 files, via `export_batch.py` against the real importer) all match.
   - CLI now has a positional `filename`, `-L/--list` and `failed_urls.txt` (append format). Exit codes: 2 for bad input, 1 when any item failed, 130 on cancel.
   - `RunOptions.file_name` output-name override.
   - Discovery failures now report Python's exact "Could not resolve project data …" message.
@@ -207,17 +207,17 @@ c8705cc docs · e5c1d13 Stage 0 · e8ed523 1a · ffd7866 1a security fixes · ec
 - Per-item filename and mode. Empty or "auto" uses the GUI default; unsupported modes fail visibly.
 - "Clear finished" bounds the queue history.
 - New tests:
-  - The GUI worker downloads `rust/fixtures/e2e_site` end to end (progress reaches the UI channel, the waker fires, JSON and ZIP are written, the 404 is counted).
+  - The GUI worker downloads `fixtures/e2e_site` end to end (progress reaches the UI channel, the waker fires, JSON and ZIP are written, the 404 is counted).
   - 100k-row frame time: 0.09 ms release.
 
 **Website/ICC mode started (plan: docs/WEBSITE_MODE_PLAN.md, audit by Luna via luna_review):**
 - Batch W1 `cyoa-engine::website` (Claude) ports `_normalize_remote_url`, `_normalize_cache_key`, `_safe_filename`, `_kind_from`, `_reserve_local_path`/`_allocate_local_path` (sequential collisions, case-insensitive) and `_local_asset_reference`.
-- Fixture `rust/fixtures/website/paths.json` comes from the real `WebsiteDownloader` (`export_website_paths.py`). All 74 cases match.
+- Fixture `fixtures/website/paths.json` comes from the real `WebsiteDownloader` (`export_website_paths.py`). All 74 cases match.
 - Known approximation: identity uses `to_lowercase`, where Python uses `casefold`.
 - Next: W2, the HTML/CSS/JS reference rewrite with golden fixtures.
 - Totals: 165 tests pass.
 - **W2-CSS** (Claude): `website::Rewriter::process_css`, the `AssetSink` trait, `_rewrite_direct_urls` (CSS context, with a look-around-free scanner for `_quoted_asset_re`), `_existing_local_asset` and `_asset_kind_from_path`.
-  - Fixture `rust/fixtures/website/css.json` (12 cases from the real `_process_css` with a stubbed `_download_asset`).
+  - Fixture `fixtures/website/css.json` (12 cases from the real `_process_css` with a stubbed `_download_asset`).
   - Output AND download-call sequence match Python.
 - **W2-JS** (Claude): `website::js` ports the following:
   - `_process_js` (dynamic-loader guard, app-bundle guard, vercel stub)
@@ -244,6 +244,6 @@ c8705cc docs · e5c1d13 Stage 0 · e8ed523 1a · ffd7866 1a security fixes · ec
 - **W3a classic mirror** (Luna drafted `mirror.rs` via `luna_review` because `luna_implement` failed twice to create files under `src/website/`; Claude fixed and integrated it):
   - `website::mirror::MirrorSink` implements AssetSink over cyoa-net, running blocking on a Tokio handle. It ports `_download_asset_impl` (telemetry skip, SSRF block, in-progress guard, cached failures, root and /assets/ fallbacks, content-type mismatch, recursive css/js/html, depth 16) and `_fetch`.
   - `examples/mirror_classic.rs`.
-  - **Proof:** `bash rust/scripts/website_parity.sh` runs Python `_download_html` against Rust `mirror_classic` on `rust/fixtures/site_mirror` (local http.server). The file list, all 14 files and the failed list are byte-identical.
+  - **Proof:** `bash scripts/website_parity.sh` runs Python `_download_html` against Rust `mirror_classic` on `fixtures/site_mirror` (local http.server). The file list, all 14 files and the failed list are byte-identical.
   - DEFERRED: checkpoint/304, browser transport, VPN guard, parallel prefetch, deep scan, `repair_missing_entry_scripts`, ICC project integration, `_site.zip`.
   - 176 tests pass.

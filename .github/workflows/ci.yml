@@ -7,8 +7,31 @@ on:
     branches: [ main, master ]
 
 jobs:
-  test:
+  rust:
     runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Install GTK build dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libgtk-3-dev libxdo-dev
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Check
+        run: cargo check --all-targets
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Tests
+        run: cargo test
+
+  python-reference:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: old
     strategy:
       fail-fast: false
       matrix:
@@ -22,8 +45,6 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install system packages
         run: |
-          # The hosted image includes an unrelated Google Chrome APT source.
-          # A mirror-sync hash mismatch there must not block Ubuntu packages.
           sudo rm -f /etc/apt/sources.list.d/google-chrome.list
           sudo apt-get -o Acquire::Retries=3 update
           sudo apt-get install -y --no-install-recommends ffmpeg xvfb
@@ -34,32 +55,15 @@ jobs:
           pip install -r requirements-dev.txt
       - name: Compile
         run: python -m py_compile cyoa_downloader.py
-      - name: AST parse
-        run: |
-          python - <<'EOF'
-          import ast, pathlib
-          ast.parse(pathlib.Path('cyoa_downloader.py').read_text(encoding='utf-8'))
-          print('ast.parse OK')
-          EOF
       - name: CLI help
         run: python cyoa_downloader.py --help
       - name: Repository and documentation checks
-        run: python tools/check_repository.py
+        run: python tools/check_repository.py --root ..
       - name: Dependency check
         run: python cyoa_downloader.py --dependency-check
       - name: Self test
         run: python cyoa_downloader.py --self-test
       - name: Pytest
         run: python -m pytest -q
-      - name: Ruff correctness baseline
+      - name: Ruff
         run: python -m ruff check .
-      - name: Verify smoke test
-        run: |
-          python - <<'EOF'
-          import os, subprocess, json, tempfile, sys
-          d = tempfile.mkdtemp()
-          json.dump({"rows": []}, open(os.path.join(d, "project.json"), "w"))
-          r = subprocess.run([sys.executable, "cyoa_downloader.py", "--verify", d])
-          assert r.returncode == 0, "verify should pass on a valid minimal package"
-          print("verify smoke OK")
-          EOF

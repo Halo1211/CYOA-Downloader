@@ -2,11 +2,11 @@
 
 > Historical audit of the Python baseline (2026-11-18). Rust status: `docs/MIGRATION_PROGRESS.md`; security follow-up: `docs/SECURITY_REVIEW.md`.
 
-Status: read-only audit, 2026-11-18. Sources: Claude inspection, Luna repository audit, Sol security and architecture review. Claims that Claude verified are marked ✔. File references are relative to `cyoa_downloader_app/` unless noted.
+Status: read-only audit, 2026-11-18. Sources: Claude inspection, Luna repository audit, Sol security and architecture review. Claims that Claude verified are marked ✔. File references are relative to `old/cyoa_downloader_app/` unless noted.
 
 ## 1. Size and shape
 
-- Version 1.1.5. About 60k lines of application Python across roughly 140 modules, plus 46 test files (`tests/test_program.py` alone is about 14.5k lines) and about 55 tool, benchmark and smoke scripts.
+- Python reference version 1.1.5; Rust release version 1.1.6. About 60k lines of application Python across roughly 140 modules, plus 46 test files (`tests/test_program.py` alone is about 14.5k lines) and about 55 tool, benchmark and smoke scripts.
 - The largest modules are `gui/app.py` (over 12k lines ✔), `gui/final_behaviors.py` (3.7k), `download/website.py` (3.1k), `download/image_pipeline.py` (1.7k), `integrations/offline_viewers/modernizer.py` (1.6k), `runtime/surface.py` (1.4k) and `download/asset_scan.py` (1.3k).
 - Entry point: `cyoa_downloader.py` → `cli.main()`. With no arguments, or with `--gui`, it starts the Tk GUI; any other arguments run the argparse CLI ✔.
 - There is a large compatibility layer: `compat.py`, `runtime/surface.py` and the `_bridge.py` modules mirror a legacy global symbol table. **This is not ported.** Rust gets explicit module APIs instead.

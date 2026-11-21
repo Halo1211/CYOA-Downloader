@@ -1,4 +1,4 @@
-name: Windows build
+name: Rust Windows release
 
 on:
   workflow_dispatch:
@@ -6,79 +6,50 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  build:
+  build-windows:
     runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-
-      - name: Set up Python
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Set up Python for license packaging
         uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-
-      - name: Install dependencies
+      - name: Build Rust applications
+        run: cargo build --release -p cyoa-cli -p cyoa-desktop
+      - name: Verify CLI binaries
         shell: pwsh
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
-          python -m pip install -r requirements-optional.txt
-          python -m pip install -r requirements-dev.txt
-
-      - name: Test and build standalone executable
-        shell: pwsh
-        run: .\tools\build_windows.ps1 -SkipInstall
-
-      - name: Test live GUI presentation
-        shell: pwsh
-        env:
-          CYOA_GUI_SMOKE: "1"
-        run: |
-          python -m pytest tests/test_gui_presentation_work.py -q
+          .\target\release\cyoa-downloader.exe --version
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python -m pytest tests/test_results_panel.py -q
+          .\target\release\cyoa-downloader.exe --help | Out-Null
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python -m pytest tests/test_run_snapshot_gui.py -q
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Build portable folder
-        shell: pwsh
-        run: .\tools\build_windows.ps1 -SkipInstall -SkipChecks -Layout onedir
-
-      - name: Smoke test both layouts
+      - name: Package applications and licenses
         shell: pwsh
         run: |
-          Expand-Archive -LiteralPath "dist/CYOA-Downloader-Windows-x64.zip" -DestinationPath "dist/verified/standalone"
-          Expand-Archive -LiteralPath "dist/portable/CYOA-Downloader-Windows-x64-portable.zip" -DestinationPath "dist/verified/portable"
-          python tools/verify_windows_package.py "dist/CYOA-Downloader-Windows-x64.zip" "dist/verified/standalone" --compare-runtime "dist/verified/portable/CYOA Downloader/_internal" --report dist/standalone-package.json
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python tools/verify_windows_package.py "dist/portable/CYOA-Downloader-Windows-x64-portable.zip" "dist/verified/portable" --report dist/portable-package.json
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python tools/smoke_windows_build.py "dist/verified/standalone/CYOA Downloader.exe" --require-self-test "queue snapshot identity" --report dist/standalone-smoke.json
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python tools/smoke_windows_build.py "dist/verified/portable/CYOA Downloader/CYOA Downloader.exe" --require-self-test "queue snapshot identity" --report dist/portable-smoke.json
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python tools/smoke_batch_formats.py --executable "dist/verified/standalone/CYOA Downloader.exe" --runtime-root "dist/verified/portable/CYOA Downloader/_internal" --report dist/standalone-batch.json
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python tools/smoke_batch_formats.py --executable "dist/verified/portable/CYOA Downloader/CYOA Downloader.exe" --runtime-root "dist/verified/portable/CYOA Downloader/_internal" --report dist/portable-batch.json
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python tools/benchmark_startup.py --after "dist/verified/portable/CYOA Downloader/CYOA Downloader.exe" --runs 1 --output dist/gui-startup-smoke.json
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Upload executable artifacts
+          $package = "dist/CYOA-Downloader-Windows-x64"
+          New-Item -ItemType Directory -Force -Path "$package/LICENSES" | Out-Null
+          Copy-Item target/release/cyoa-downloader.exe, target/release/cyoa-desktop.exe -Destination $package
+          Copy-Item README.md, LICENSE, docs/RUST_GUIDE.md -Destination $package
+          python scripts/third_party_notices.py --bundle "$package/LICENSES"
+          Copy-Item docs/THIRD_PARTY_NOTICES.md -Destination $package
+          Compress-Archive -Path "$package/*" -DestinationPath dist/CYOA-Downloader-Windows-x64.zip -Force
+      - name: Upload package artifact
         uses: actions/upload-artifact@v7
         with:
           name: CYOA-Downloader-Windows-x64
-          path: |
-            dist/CYOA-Downloader-Windows-x64.zip
-            dist/portable/CYOA-Downloader-Windows-x64-portable.zip
-            dist/standalone-smoke.json
-            dist/portable-smoke.json
-            dist/standalone-package.json
-            dist/portable-package.json
-            dist/standalone-batch.json
-            dist/portable-batch.json
-            dist/gui-startup-smoke.json
+          path: dist/CYOA-Downloader-Windows-x64.zip
+          if-no-files-found: error
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: dist/CYOA-Downloader-Windows-x64.zip

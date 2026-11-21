@@ -97,14 +97,14 @@ outside the downloader pipeline remain out of scope.
 UDP and TCP:
 
 ```powershell
-python cyoa_downloader.py URL --dns 1.1.1.1 --dns-protocol udp
-python cyoa_downloader.py URL --dns 1.1.1.1 --dns-protocol tcp --dns-timeout 8
+python old/cyoa_downloader.py URL --dns 1.1.1.1 --dns-protocol udp
+python old/cyoa_downloader.py URL --dns 1.1.1.1 --dns-protocol tcp --dns-timeout 8
 ```
 
 DoH without system fallback:
 
 ```powershell
-python cyoa_downloader.py URL `
+python old/cyoa_downloader.py URL `
   --dns https://cloudflare-dns.com/dns-query `
   --dns-protocol doh `
   --no-dns-fallback-system
@@ -113,7 +113,7 @@ python cyoa_downloader.py URL `
 DoT, per-scheme proxies, and a required VPN interface:
 
 ```powershell
-python cyoa_downloader.py URL `
+python old/cyoa_downloader.py URL `
   --dns tls://one.one.one.one --dns-protocol dot --dns-port 853 `
   --proxy-mode manual `
   --proxy-http http://127.0.0.1:8080 `
@@ -142,9 +142,9 @@ If a download fails:
 3. Confirm that manual proxy mode does not point to a stopped local service.
 4. Inspect `cyoa_downloader.log` and `backup_report.txt`. One optional favicon
    failure does not mean that project assets failed.
-5. Run `python cyoa_downloader.py --dependency-check` to confirm that dnspython
+5. Run `python old/cyoa_downloader.py --dependency-check` to confirm that dnspython
    and Requests SOCKS support are available.
-6. For source installs, run `python cyoa_downloader.py --version`. For the GUI
+6. For source installs, run `python old/cyoa_downloader.py --version`. For the GUI
    EXE, open **Properties → Details** and confirm that File Version and Product
    Version match the installed release. The in-app Help/Guide header also
    displays the version and patch ID.

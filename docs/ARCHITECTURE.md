@@ -1,8 +1,8 @@
 # Rust architecture (approved 2026-11-18, implemented)
 
-Status 2026-11-21: implemented as described. Additions since approval: `cyoa_net::browser_relay` (loopback relay in front of Chromium: destination policy and proxy credentials), native TLS on Windows (DL-10), external process plugins (DL-4, DL-14). Decisions: `docs/DECISION_LOG.md`.
+Status 2026-11-22: implemented, with Rust workspace at repository root and Python reference under `old/`. Additions since approval: `cyoa_net::browser_relay` (loopback relay in front of Chromium: destination policy and proxy credentials), native TLS on Windows (DL-10), external process plugins (DL-4, DL-14). Decisions: `docs/DECISION_LOG.md`.
 
-Nothing in this document has been implemented yet.
+
 
 ## GUI framework comparison
 
@@ -24,23 +24,15 @@ Nothing in this document has been implemented yet.
 
 ## Workspace layout
 
-```
-rust/                       # new; the Python tree stays untouched
-  Cargo.toml                # workspace
-  crates/
-    cyoa-core/              # domain models, settings schema, errors, path/URL policy (no I/O runtime)
-    cyoa-storage/           # atomic I/O, settings/history/cache/resume JSON, SQLite checkpoints, ZIP validation
-    cyoa-net/               # reqwest client, admission (20/12), retry/backoff, DNS, proxy, destination policy
-    cyoa-parse/             # project discovery, JSON/JSON5, HTML asset scanning and rewriting
-    cyoa-engine/            # job scheduler, download pipelines, packaging, reports, cancellation
-    cyoa-integrations/      # CDP browser, external exes (yt-dlp, gallery-dl, itch-dl, unrar), viewers, CYOA Manager
-    cyoa-cli/               # CLI binary (clap), flags compatible with Python
-    cyoa-desktop/           # eframe GUI binary
-  fixtures/                 # golden files exported from Python
-```
+The Python reference remains runnable under `old/`. Rust is the primary implementation; its workspace is at the repository root.
 
-Putting the workspace under `rust/` keeps the Python app runnable and makes it easy to produce a clean publication directory later.
-
+```
+Cargo.toml                 # root workspace manifest
+crates/                    # eight Rust crates
+fixtures/                  # golden files exported from Python
+scripts/                   # parity, packaging, and release utilities
+old/                       # Python reference application and tests
+```
 ## Concurrency and data flow
 
 ```

@@ -14,8 +14,8 @@
 
 <p align="center">
   <a href="https://github.com/Halo1211/CYOA-Downloader/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Halo1211/CYOA-Downloader/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/Halo1211/CYOA-Downloader/releases/latest"><img alt="Version" src="https://img.shields.io/badge/version-v1.1.5-20c997.svg"></a>
-  <img alt="Python 3.10 or newer" src="https://img.shields.io/badge/Python-3.10%2B-3aa6d0.svg">
+  <a href="https://github.com/Halo1211/CYOA-Downloader/releases/latest"><img alt="Version" src="https://img.shields.io/badge/version-v1.1.6-20c997.svg"></a>
+  <img alt="Rust 1.100+" src="https://img.shields.io/badge/Rust-1.100%2B-3aa6d0.svg">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg"></a>
 </p>
 
@@ -25,6 +25,10 @@
 <p align="center">
   <img src="assets/gui-screenshot.png" alt="CYOA Downloader main window" width="900">
 </p>
+
+## Download
+
+Download the single Windows package, [CYOA-Downloader-Windows-x64.zip](https://github.com/Halo1211/CYOA-Downloader/releases/latest/download/CYOA-Downloader-Windows-x64.zip). It contains the Rust CLI, desktop app, guide, notices, and dependency licenses.
 
 ## Features
 
@@ -42,7 +46,7 @@
 
 1. Download `CYOA-Downloader-Windows-x64.zip` from
    [GitHub Releases](https://github.com/Halo1211/CYOA-Downloader/releases/latest).
-2. Extract it and run `CYOA Downloader.exe`.
+2. Extract it and run `cyoa-desktop.exe`.
 3. Open **Diagnostics** and check the requirements for your chosen features.
 4. Paste a project URL, choose an output mode, and select **Download All**.
 
@@ -50,29 +54,32 @@ The executable is unsigned; Windows SmartScreen may require confirmation.
 FFmpeg, JavaScript runtimes, browser installations, and RAR helpers are external
 dependencies. Missing optional helpers affect only the related features.
 
-### Run from source
+### Run the Rust application from source
 
+Requires Rust 1.100 or newer. From the repository root:
+
+```powershell
+cargo run --release -p cyoa-desktop
+```
+
+Run the command-line tool with `cargo run --release -p cyoa-cli -- --help`.
+To build both applications, run `cargo build --release -p cyoa-cli -p cyoa-desktop`.
+
+### Python reference application
+
+The original Python implementation and its tests remain runnable under `old/`.
 Requires Python 3.10 or newer. On Windows:
 
 ```powershell
 py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-python cyoa_downloader.py --dependency-check
-python cyoa_downloader.py
+python -m pip install -r old/requirements.txt
+python old/cyoa_downloader.py --help
+python old/cyoa_downloader.py
 ```
 
-On Linux or macOS, use `python3 -m venv .venv` and
-`source .venv/bin/activate`, then run the remaining commands above. Linux GUI
-installs also need Tk, usually available as the `python3-tk` system package.
-
-Additional integrations and browser support:
-
-```powershell
-python -m pip install -r requirements-optional.txt
-python -m playwright install chromium
-```
+Optional Python integrations are listed in `old/requirements-optional.txt`.
 
 ## Choose an output
 
@@ -100,28 +107,28 @@ Limits are safety caps, not download targets. Safe interaction permits a narrow
 allowlist of controls and blocks forms, mutation requests, and risky actions.
 Sites that require a private backend may not work completely offline.
 
-## CLI examples
+## Rust CLI examples
 
 ```powershell
 # Embedded project
-python cyoa_downloader.py "https://example.com/story/" -o "output"
+cargo run --release -p cyoa-cli -- "https://example.com/story/" -o "output"
 
 # Project ZIP and embedded JSON
-python cyoa_downloader.py "https://example.com/story/" --both -o "output"
+cargo run --release -p cyoa-cli -- "https://example.com/story/" --both -o "output"
 
 # Custom website folder
-python cyoa_downloader.py "https://example.com/story/" `
+cargo run --release -p cyoa-cli -- "https://example.com/story/" `
   --pure-website-folder --archive-strategy auto `
   --archive-max-pages 800 --archive-max-depth 30 -o "output"
 
 # Batch queue
-python cyoa_downloader.py --list "examples/batch_urls.csv" -o "output"
+cargo run --release -p cyoa-cli -- --list "examples/batch_urls.csv" -o "output"
 
 # Check an individual completed package and write checksums
-python cyoa_downloader.py --verify "output/story_site" --write-manifest
+cargo run --release -p cyoa-cli -- --verify "output/story_site" --write-manifest
 ```
 
-Run `python cyoa_downloader.py --help` for all options. Queue mode editing,
+Run `cargo run --release -p cyoa-cli -- --help` for all options. Queue mode editing,
 CSV/TXT export, and import formats are covered in the
 [GUI queue guide](docs/GUI_QUEUE_GUIDE.md).
 
@@ -136,7 +143,7 @@ Register a viewer ZIP, RAR, or unpacked folder. ICC Plus 2 requires a matching
 local, offline, or standalone runtime. To modernize an existing library:
 
 ```powershell
-python cyoa_downloader.py `
+cargo run --release -p cyoa-cli -- `
   --modernize-library "E:\CYOA" `
   --viewer-collection "E:\CYOA Viewer Collection" `
   --modernize-output "E:\CYOA\_edited"
@@ -179,9 +186,9 @@ commit settings, tokens, API keys, cookies, or downloaded content.
 ## Troubleshooting
 
 ```powershell
-python cyoa_downloader.py --version
-python cyoa_downloader.py --dependency-check
-python cyoa_downloader.py --self-test
+cargo run --release -p cyoa-cli -- --version
+cargo run --release -p cyoa-cli -- --dependency-check
+cargo run --release -p cyoa-cli -- --self-test
 ```
 
 For incomplete downloads, inspect `backup_report.txt`, `failed_assets.txt`,
@@ -193,30 +200,30 @@ Include your version, output mode, reproduction steps, and sanitized logs in
 [a bug report](https://github.com/Halo1211/CYOA-Downloader/issues/new/choose).
 Report security issues through the process in [SECURITY.md](SECURITY.md).
 
-## Rust version (preview)
+## Rust application
 
-A native Rust rewrite (command-line tool and desktop app) lives in `rust/`.
-It reads the same settings file and produces the same outputs as this Python
-app on the regression fixtures and on real sites. See the
-[Rust preview guide](docs/RUST_PREVIEW_GUIDE.md) for what is supported, and
-[test results](docs/TEST_RESULTS.md) for the comparison runs.
+The Rust CLI and desktop application are the primary implementation. The
+workspace manifest is at the repository root; crates live in `crates/`.
+The Rust application shares settings and fixture-tested output formats with the
+Python reference.
 
 ```powershell
-cd rust
-cargo build --release
+cargo build --release -p cyoa-cli -p cyoa-desktop
 .\target\release\cyoa-downloader.exe --help
 .\target\release\cyoa-desktop.exe
 ```
 
+See the [Rust application guide](docs/RUST_GUIDE.md) and
+[test results](docs/TEST_RESULTS.md).
 ## Development and Windows builds
 
 ```powershell
-python -m pip install -r requirements-dev.txt
-python -m compileall -q cyoa_downloader_app cyoa_downloader.py
-python -m pytest -q
-python -m ruff check .
-python tools/benchmark_runtime.py
-python tools/benchmark_media_streaming.py
+python -m pip install -r old/requirements-dev.txt
+python -m compileall -q old/cyoa_downloader_app old/cyoa_downloader.py
+python -m pytest -q old/tests
+python -m ruff check old
+python old/tools/benchmark_runtime.py
+python old/tools/benchmark_media_streaming.py
 ```
 
 Performance work covers Auto preparation, file-backed media and embedded
@@ -233,7 +240,7 @@ The suite covers GUI/CLI dispatch, downloads, packages, network settings,
 storage, previews, and integrations. To run optional live checks, set
 `CYOA_GUI_SMOKE=1` and `CYOA_RUNTIME_SMOKE=1` with a graphical desktop and
 installed Playwright Chromium. Run a focused group with `pytest -k`, such as
-`python -m pytest -q -k discord_attachments`.
+`python -m pytest -q old/tests -k discord_attachments`.
 
 Build a Windows executable and ZIP with:
 

@@ -1,6 +1,6 @@
 # Security review: Python baseline
 
-Source: Sol's independent static review, 2026-11-18. Claude checked the citations marked ✔ against the source. Nothing was run, so exploitability was not tested. Paths are relative to `cyoa_downloader_app/`.
+Source: Sol's independent static review, 2026-11-18. Claude checked the citations marked ✔ against the source. Nothing was run, so exploitability was not tested. Paths are relative to `old/cyoa_downloader_app/`.
 
 | ID | Severity | Status | Finding | Location | Rust requirement |
 |---|---|---|---|---|---|

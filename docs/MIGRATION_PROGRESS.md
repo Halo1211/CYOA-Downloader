@@ -1,5 +1,7 @@
 # Migration progress (primary state document)
 
+**Repository layout (2026-11-22):** Rust is the primary application. Run Cargo commands from the repository root; workspace crates are in `crates/`, parity scripts in `scripts/`, and Python reference sources, tests, and tooling in `old/`. The Python reference remains runnable. See `README.md` for current commands.
+
 **Session 9 (cont., 2026-11-22): last gaps ported.** F-045 browser cookies (DL-15), yt-dlp browser-cookie retry, Retry Assets route continuation, bundled-viewer registration. 375 tests pass; fmt and clippy clean. Nothing remains unported except the obsolete cloudscraper solver (FlareSolverr instead).
 
 **Session 9 (2026-11-21): security hardening and real-site validation.** Browser relay (SSRF + proxy credentials), four Sol review rounds with all findings fixed (`docs/SECURITY_REVIEW.md`), real-site tests on 12 sites plus AI/audio/viewers/cheat/FlareSolverr/itch.io (`docs/TEST_RESULTS.md`), native TLS on Windows (DL-10), urllib3-style mirror retries (DL-11), origin-limited browser preference (DL-12), automatic recovery (DL-13), file-based plugin I/O (DL-14). Gates: fmt, clippy -D warnings, 369 tests. Commits 0550b3e, dc0f967 and the docs commit; not pushed.
@@ -14,7 +16,7 @@
 
 **Session 8 (2026-11-20):** Codex (Luna/Sol) unavailable until 2026-11-21; Claude worked alone, Ollama MiMo used for one port (rejected: did not compile) and one review (no findings). Done: GUI CYOA Manager library panel (F-038); F-037 V4 modernizer + CLI `--modernize-library` + ICC website hook (Python-identical fixture and CLI run); F-037 V5 viewer registration + GUI "Viewers…" panel (Python-identical fixture). 314 Rust tests pass; fmt and clippy (-D warnings) clean; e2e_parity 6/6, viewer_parity OK. Not run manually in the GUI. Pending: Sol review (V3 modules, library serve path, modernizer.rs, viewer_registry.rs), then F-028 browser/CDP.
 
-**Session 7 (2026-11-19): F-037 offline viewers V1–V3 + consumers.** 306+ Rust tests pass; fmt and clippy (-D warnings) clean; `e2e_parity.sh` 6/6 OK; new `rust/scripts/viewer_parity.sh` 5/5 identical to Python (manual viewer in embed/zip/both, auto selection + legacy index merge on a classic ICC page).
+**Session 7 (2026-11-19): F-037 offline viewers V1–V3 + consumers.** 306+ Rust tests pass; fmt and clippy (-D warnings) clean; `e2e_parity.sh` 6/6 OK; new `scripts/viewer_parity.sh` 5/5 identical to Python (manual viewer in embed/zip/both, auto selection + legacy index merge on a classic ICC page).
 - Plan: `docs/F037_PLAN.md` (approved V1–V3, RAR = system tar). V4 (modernizer, `--modernize-library`) and V5 (GUI viewer panel) still need approval.
 - V1 registry (`cyoa_integrations::offline_viewers`), V2 injection (`cyoa_engine::offline_viewer`), preserved publisher index (`cyoa_engine::preserved_index`), V3 wiring in `run.rs` (settings `offline_viewer_json_enabled` / `offline_viewer_preferred_id`, CLI + GUI), embed/both `audio/` merge into the output folder (was missing).
 - Unblocked: itch.io HTML5 ZIP offline folders (`cyoa_engine::itch_html5`, CLI `--itch*` now prepares them) and the CYOA Manager serve folder (`cyoa_engine::manager_serve`; GUI library panel still missing).
@@ -34,7 +36,7 @@
 
 **Current phase (session 4, 2026-11-18):**
 - Rust download engine, CLI MVP and GUI (A–C) work end to end.
-- Output is byte-identical to Python on the fixture site (`bash rust/scripts/e2e_parity.sh`) and on a 300-image benchmark.
+- Output is byte-identical to Python on the fixture site (`bash scripts/e2e_parity.sh`) and on a 300-image benchmark.
 - 154 Rust tests pass; fmt and clippy clean.
 - See `docs/NEXT_SESSION_PROMPT.md` for the exact next tasks, and `OVERNIGHT_REPORT.md` "session 4" for details.
 
@@ -65,7 +67,7 @@ Feature status:
 
 Rust tests: 59 in storage plus 7 in core, all passing; clippy -D warnings is clean.
 
-Resume procedure: `cd rust; cargo test --offline`. Regenerate fixtures with `python rust/fixtures/export_*.py`, run from the repo root. Pre-fetch any new crate with `cargo add` + `cargo fetch` before delegating (agents run `--offline`).
+Resume procedure: `cargo test --offline`. Regenerate fixtures with `python fixtures/export_*.py`, run from the repo root. Pre-fetch any new crate with `cargo add` + `cargo fetch` before delegating (agents run `--offline`).
 
 ---
 **Earlier state:** Phase 1 audit and Phase 2 architecture proposal complete.
@@ -101,11 +103,11 @@ After approval: Stage 0 (workspace skeleton plus a Python golden-fixture exporte
 - Unchecked checkboxes are rounded squares like CTk.
 - Dropdowns use a CTkOptionMenu-style chevron segment; CYOA Manager Library restyled (own window, pager, CTk-blue buttons).
 - Retry Assets/Images/Audio: both use native OS message boxes with the same titles and texts (verified in code).
-- New `rust/scripts/gui_e2e.sh`: drives the desktop app's real Add URL and Download All handlers (`CYOA_DESKTOP_E2E`) against the fixture site. Embed, Zip and Both outputs are byte-identical to the Python CLI; ZIP contents are identical (3 modes OK, 2026-11-21).
-- `ICC_GUI=1 python rust/scripts/icc_parity.py` runs the ICC/Pure cases through the desktop GUI handlers instead of the CLI. The Python side gets `--fonts`, because the GUI Fonts box defaults on in both apps. All 10 cases are OK, including the Browser strategy (2026-11-21).
+- New `scripts/gui_e2e.sh`: drives the desktop app's real Add URL and Download All handlers (`CYOA_DESKTOP_E2E`) against the fixture site. Embed, Zip and Both outputs are byte-identical to the Python CLI; ZIP contents are identical (3 modes OK, 2026-11-21).
+- `ICC_GUI=1 python scripts/icc_parity.py` runs the ICC/Pure cases through the desktop GUI handlers instead of the CLI. The Python side gets `--fonts`, because the GUI Fonts box defaults on in both apps. All 10 cases are OK, including the Browser strategy (2026-11-21).
 
 ## 2026-11-21 GUI parity (cont.) and security review
-- `ICC_GUI=1 python rust/scripts/cyoap_parity.py`: CYOAP Vue folder (15 files) and ICC folder (8 files) produced through the desktop GUI handlers are identical to Python (OK).
+- `ICC_GUI=1 python scripts/cyoap_parity.py`: CYOAP Vue folder (15 files) and ICC folder (8 files) produced through the desktop GUI handlers are identical to Python (OK).
 - Sol security review (task 20261121-150713-sol-02b261b997) of browser.rs, mirror.rs browser paths, proxy browser_route, ai_calls/ai_run, plugins, library serve, keyring. No traversal/zip-slip, command injection, disabled TLS or unsafe code found. Findings:
   1. HIGH, FIXED (owner approved 2026-11-21): proxy credentials via chromiumoxide `page.authenticate` are answered for *any* 401 challenge (verified in chromiumoxide 0.9.1 `handler/network.rs::on_fetch_auth_required`, no proxy/origin check), so a hostile origin can receive the proxy password. Proposed fix (needs owner approval, architecture): loopback relay proxy that adds `Proxy-Authorization` upstream, so Chrome never holds the credentials. Until then: avoid authenticated proxies with the Browser strategy.
   2. MEDIUM, FIXED: browser fallback / runtime capture bypass the native destination (SSRF) policy. Proposed fix: apply the destination check in the Fetch.requestPaused handler (fail private/loopback targets). Needs approval because it changes Python-parity behavior.

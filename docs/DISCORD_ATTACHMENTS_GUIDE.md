@@ -63,7 +63,7 @@ downloads automatically use the saved value when refresh is necessary.
 Provide a token for one process:
 
 ```powershell
-python cyoa_downloader.py "https://example.com/cyoa/" `
+python old/cyoa_downloader.py "https://example.com/cyoa/" `
   --discord-token "BOT_TOKEN"
 ```
 

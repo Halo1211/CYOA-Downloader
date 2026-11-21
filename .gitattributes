@@ -14,3 +14,4 @@ VERSION text eol=lf
 *.ico binary
 *.zip binary
 *.exe binary
+fixtures/** -text

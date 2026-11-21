@@ -1,10 +1,10 @@
 # Staged migration plan (approved 2026-11-18)
 
-Status 2026-11-21: all stages implemented; progress in `docs/MIGRATION_PROGRESS.md`, remaining gaps in `docs/RUST_PREVIEW_GUIDE.md`.
+Status 2026-11-21: all stages implemented; progress in `docs/MIGRATION_PROGRESS.md`, remaining gaps in `docs/RUST_GUIDE.md`.
 
 Principles:
 - The Python app stays runnable and is the reference implementation.
-- Rust lives under `rust/`.
+- Rust crates live under root `crates/`; Python stays under `old/`.
 - Each stage passes the quality gates, matches the golden files and gets a Sol review where the risk calls for it.
 - Commits stayed local during the migration; the branch is published through a pull request into `main` (owner decision, 2026-11-21).
 

@@ -6,7 +6,7 @@ CYOA Downloader processes remote URLs, archives, project JSON, HTML, CSS, JavaSc
 
 | Version | Supported |
 | --- | --- |
-| 1.1.5 | Current release |
+| 1.1.6 | Current release |
 | Earlier versions | Upgrade to the current release |
 
 ## Security boundaries

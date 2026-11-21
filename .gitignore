@@ -49,7 +49,6 @@ gui-repro-*/
 .stress_queue_*/
 .tmp_*/
 .workspace_archive_*/
-old/
 benchmark-results/
 
 
@@ -70,11 +69,16 @@ Thumbs.db
 .vscode/
 .idea/
 
-# Local AI configuration
-.claude/settings.local.json
-.env
-.env.*
-!.env.example
+# AI assistant configuration, prompts, and installed skills (kept local)
+.claude/
+.agents/
+.codex/
+.cursor/
+.windsurf/
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+skills-lock.json
 
 # Python
 __pycache__/
@@ -82,3 +86,6 @@ __pycache__/
 
 # Rust
 target/
+
+# Obsolete local Rust artifacts; the workspace now lives at the repository root
+/rust/
