@@ -25,13 +25,17 @@ Both programs read and write the same settings file as the Python app: `%USERPRO
   - Network flags given on the command line are saved to `settings.json`, as in the Python app.
 - **CYOA Manager:** with `--cyoa-manager` or the desktop checkbox, finished downloads are added to the CYOA Manager library. ZIP downloads are extracted beside the archive first.
 
+- **Website modes:** ICC ZIP/folder, Pure Website, CYOAP Vue, with Classic, Smart, Browser (Chrome/Edge/Brave over CDP) and Auto archive strategies; deep scan, route crawl, runtime capture, automatic recovery of failed assets, Retry Assets.
+- **Offline viewers:** packaging with registered viewers (ICC Plus, ICC Remix, Viewer 1.8, Lt. Ouroumov and others), the cheat panel, `--modernize-library`, the local preview server (`--serve`).
+- **Fallbacks:** yt-dlp YouTube audio, gallery-dl, Cloudflare (cloudscraper-style and FlareSolverr), browser transport, Discord attachment refresh.
+- **Integrations:** itch.io (itch-dl, HTML5 offline preparation), AI Assist (Anthropic, OpenAI, Gemini, Ollama, OpenAI-compatible custom endpoints), external plugins (`docs/PLUGINS.md`), XLSX/XLS/CSV/TXT batch import.
+- **Security:** the browser runs behind a local relay that blocks internal addresses and keeps proxy passwords out of the browser; on Windows the system TLS stack is used.
+
 ## Not yet supported (use the Python app)
 
-- Website, ICC and folder modes (`--icc`, pure website, CYOAP Vue).
-- Offline viewers and the local preview server.
-- Fallbacks: gallery-dl, yt-dlp audio recovery, browser capture, Cloudflare/FlareSolverr.
-- itch.io, Discord attachment refresh, AI features, plugins.
-- XLSX batch import.
+- Importing cookies from installed browser profiles (F-045, deferred by owner decision); supply a cookies.txt instead.
+- yt-dlp's automatic browser-cookie retry.
+- Continuing an interrupted route archive from Retry Assets.
 
 `docs/FEATURE_PARITY.md` in the source tree has the full list, with every known difference from the Python app.
 

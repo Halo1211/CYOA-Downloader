@@ -193,6 +193,21 @@ Include your version, output mode, reproduction steps, and sanitized logs in
 [a bug report](https://github.com/Halo1211/CYOA-Downloader/issues/new/choose).
 Report security issues through the process in [SECURITY.md](SECURITY.md).
 
+## Rust version (preview)
+
+A native Rust rewrite (command-line tool and desktop app) lives in `rust/`.
+It reads the same settings file and produces the same outputs as this Python
+app on the regression fixtures and on real sites. See the
+[Rust preview guide](docs/RUST_PREVIEW_GUIDE.md) for what is supported, and
+[test results](docs/TEST_RESULTS.md) for the comparison runs.
+
+```powershell
+cd rust
+cargo build --release
+.	argetelease\cyoa-downloader.exe --help
+.	argetelease\cyoa-desktop.exe
+```
+
 ## Development and Windows builds
 
 ```powershell
