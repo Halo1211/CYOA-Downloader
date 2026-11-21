@@ -219,7 +219,9 @@ struct Live {
     browser: Browser,
     handler: tokio::task::JoinHandle<()>,
     profile_dir: PathBuf,
-    credentials: Option<chromiumoxide::auth::Credentials>,
+    /// Loopback relay every browser request passes through (policy checks,
+    /// upstream proxy credentials); kept alive with the browser.
+    _relay: Option<cyoa_net::browser_relay::BrowserRelay>,
 }
 
 fn unique_profile_dir() -> PathBuf {
@@ -234,22 +236,27 @@ fn unique_profile_dir() -> PathBuf {
     ))
 }
 
-async fn launch(route: &BrowserRoute, intercept: bool) -> Result<Live, String> {
+async fn launch(
+    route: &BrowserRoute,
+    policy: cyoa_net::policy::DestinationPolicy,
+    intercept: bool,
+) -> Result<Live, String> {
     let exe = chromium_executable()
         .ok_or_else(|| "no Chromium-based browser (Chrome, Edge or Brave) was found".to_owned())?;
     if *route == BrowserRoute::Unsupported {
         return Err("manual proxy transport is unsupported by the browser".into());
     }
+    let relay = start_relay(route, policy).await?;
+    let proxy_server = relay
+        .as_ref()
+        .map(cyoa_net::browser_relay::BrowserRelay::proxy_server);
     sweep_stale_profiles();
     let profile_dir = unique_profile_dir();
-    let launched = match launch_config(exe, &profile_dir, route, intercept) {
-        Ok((cfg, credentials)) => Browser::launch(cfg)
-            .await
-            .map(|b| (b, credentials))
-            .map_err(|e| e.to_string()),
+    let launched = match launch_config(exe, &profile_dir, route, proxy_server, intercept) {
+        Ok(cfg) => Browser::launch(cfg).await.map_err(|e| e.to_string()),
         Err(e) => Err(e),
     };
-    let ((browser, mut handler), credentials) = match launched {
+    let (browser, mut handler) = match launched {
         Ok(v) => v,
         Err(e) => {
             remove_profile(profile_dir).await;
@@ -267,8 +274,46 @@ async fn launch(route: &BrowserRoute, intercept: bool) -> Result<Live, String> {
         browser,
         handler,
         profile_dir,
-        credentials,
+        _relay: relay,
     })
+}
+
+/// The relay for `route`: always for direct routing and plain-HTTP upstream
+/// proxies. HTTPS/SOCKS upstreams go to the browser directly (their DNS is
+/// remote), but only without credentials, which Chromium would otherwise
+/// answer for any origin's challenge.
+async fn start_relay(
+    route: &BrowserRoute,
+    policy: cyoa_net::policy::DestinationPolicy,
+) -> Result<Option<cyoa_net::browser_relay::BrowserRelay>, String> {
+    use cyoa_net::browser_relay::{BrowserRelay, Upstream};
+    let upstream = match route {
+        BrowserRoute::Unsupported => {
+            return Err("manual proxy transport is unsupported by the browser".into());
+        }
+        BrowserRoute::Direct => None,
+        BrowserRoute::Proxy {
+            server,
+            username,
+            password,
+        } => match server.strip_prefix("http://") {
+            Some(host_port) => Some(Upstream::new(
+                host_port.to_owned(),
+                username.as_deref(),
+                password.as_deref(),
+            )),
+            None if username.is_some() => {
+                return Err(
+                    "authenticated HTTPS/SOCKS proxies are not supported by the browser".into(),
+                );
+            }
+            None => return Ok(None),
+        },
+    };
+    BrowserRelay::start(policy, upstream)
+        .await
+        .map(Some)
+        .map_err(|e| format!("could not start the browser relay: {e}"))
 }
 
 /// The launch configuration; creates the profile directory.
@@ -276,8 +321,9 @@ fn launch_config(
     exe: PathBuf,
     profile_dir: &std::path::Path,
     route: &BrowserRoute,
+    relay_server: Option<String>,
     intercept: bool,
-) -> Result<(BrowserConfig, Option<chromiumoxide::auth::Credentials>), String> {
+) -> Result<BrowserConfig, String> {
     // Chromium falls back to its default profile when it cannot use the
     // requested one, and then refuses DevTools remote debugging.
     std::fs::create_dir_all(profile_dir)
@@ -310,27 +356,26 @@ fn launch_config(
         }
         cfg = cfg.env("USERPROFILE", home.display().to_string());
     }
-    let mut credentials = None;
-    match route {
-        BrowserRoute::Direct => {}
-        BrowserRoute::Unsupported => {
+    match (relay_server, route) {
+        (_, BrowserRoute::Unsupported) => {
             return Err("manual proxy transport is unsupported by the browser".into());
         }
-        BrowserRoute::Proxy {
-            server,
-            username,
-            password,
-        } => {
-            cfg = cfg.arg(format!("--proxy-server={server}"));
-            if let Some(username) = username {
-                credentials = Some(chromiumoxide::auth::Credentials {
-                    username: username.clone(),
-                    password: password.clone().unwrap_or_default(),
-                });
-            }
+        (Some(relay), _) => {
+            cfg = cfg
+                .arg(format!("--proxy-server={relay}"))
+                .arg("--proxy-bypass-list=<-loopback>");
         }
+        (None, BrowserRoute::Proxy { server, .. }) => {
+            // No relay for HTTPS/SOCKS upstreams (documented residual risk:
+            // destination checks happen at the remote proxy, not here); at
+            // least keep loopback from bypassing the proxy.
+            cfg = cfg
+                .arg(format!("--proxy-server={server}"))
+                .arg("--proxy-bypass-list=<-loopback>");
+        }
+        (None, BrowserRoute::Direct) => {}
     }
-    Ok((cfg.build()?, credentials))
+    cfg.build()
 }
 
 /// Once per process: remove `cyoa-browser-*` profiles older than one hour
@@ -405,11 +450,6 @@ impl Live {
             .new_page("about:blank")
             .await
             .map_err(|e| e.to_string())?;
-        if let Some(credentials) = &self.credentials {
-            page.authenticate(credentials.clone())
-                .await
-                .map_err(|e| e.to_string())?;
-        }
         page.execute(cdp_net::SetUserAgentOverrideParams::new(agent))
             .await
             .map_err(|e| e.to_string())?;
@@ -702,7 +742,7 @@ impl BrowserTransport {
             Self::close_runtime(state).await;
         }
         if state.live.is_none() {
-            let live = launch(&route, false).await?;
+            let live = launch(&route, self.client.destination_policy(), false).await?;
             state.live = Some(live);
             state.route = Some(route);
             self.bump(|s| s.launches += 1);
@@ -1607,7 +1647,7 @@ pub async fn capture_runtime_assets(
         tracing::error!("Manual proxy transport is unsupported by runtime browser capture");
         return Ok((result, Vec::new(), store));
     }
-    let live = match launch(&route, true).await {
+    let live = match launch(&route, client.destination_policy(), true).await {
         Ok(live) => live,
         Err(e) => {
             tracing::warn!(

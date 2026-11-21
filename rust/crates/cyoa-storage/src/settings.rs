@@ -520,7 +520,7 @@ impl SettingsStore {
             .values
             .iter()
             .filter(|(k, _)| !is_secret_setting_key(k))
-            .map(|(k, v)| (k.clone(), v.clone()))
+            .map(|(k, v)| (k.clone(), redact_export_value(v.clone())))
             .collect();
         let mut text = String::new();
         write_json(&mut text, &serde_json::json!({"settings": safe}), 0)?;
@@ -582,7 +582,7 @@ pub fn export_settings_file(store: &mut SettingsStore, path: &Path) -> (bool, St
         if is_secret_setting_key(&k) {
             redacted.push(k);
         } else {
-            safe.insert(k, v);
+            safe.insert(k, redact_export_value(v));
         }
     }
     redacted.sort();
@@ -774,10 +774,101 @@ const SECRET_FRAGMENTS: &[&str] = &[
     "bearer",
 ];
 
+/// Export-only redaction (safer than Python, which filters top-level key
+/// names only): drops nested secret keys and strips credentials embedded in
+/// URL strings (`scheme://user:pass@host`, secret-looking query parameters).
+pub fn redact_export_value(value: Value) -> Value {
+    match value {
+        Value::Object(map) => Value::Object(
+            map.into_iter()
+                .filter(|(k, _)| !is_secret_setting_key(k))
+                .map(|(k, v)| (k, redact_export_value(v)))
+                .collect(),
+        ),
+        Value::Array(items) => Value::Array(items.into_iter().map(redact_export_value).collect()),
+        Value::String(text) => Value::String(redact_url_credentials(&text)),
+        other => other,
+    }
+}
+
+fn redact_url_credentials(text: &str) -> String {
+    let Some(scheme_end) = text.find("://") else {
+        return text.to_owned();
+    };
+    let rest_start = scheme_end + 3;
+    let rest = &text[rest_start..];
+    let auth_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let mut out = text[..rest_start].to_owned();
+    match rest[..auth_end].rfind('@') {
+        Some(at) => out.push_str(&rest[at + 1..auth_end]),
+        None => out.push_str(&rest[..auth_end]),
+    }
+    let tail = &rest[auth_end..];
+    let Some(q) = tail.find('?') else {
+        out.push_str(tail);
+        return out;
+    };
+    out.push_str(&tail[..=q]);
+    let query = &tail[q + 1..];
+    let (query, fragment) = query.split_at(query.find('#').unwrap_or(query.len()));
+    let params: Vec<&str> = query
+        .split('&')
+        .filter(|pair| {
+            !is_secret_setting_key(&percent_decode_name(
+                pair.split('=').next().unwrap_or_default(),
+            ))
+        })
+        .collect();
+    out.push_str(&params.join("&"));
+    out.push_str(fragment);
+    out
+}
+
+/// `%xx`/`+` decoding of a query parameter name (lossy UTF-8).
+fn percent_decode_name(name: &str) -> String {
+    let bytes = name.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'%' if i + 2 < bytes.len() => {
+                let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).ok();
+                if let Some(v) = hex.and_then(|h| u8::from_str_radix(h, 16).ok()) {
+                    out.push(v);
+                    i += 3;
+                    continue;
+                }
+                out.push(b'%');
+            }
+            b'+' => out.push(b' '),
+            b => out.push(b),
+        }
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 pub fn is_secret_setting_key(key: &str) -> bool {
     let key = key.to_lowercase();
     matches!(key.as_str(), "proxy" | "proxy_http" | "proxy_https")
         || SECRET_FRAGMENTS
             .iter()
             .any(|fragment| key.contains(fragment))
+}
+
+#[cfg(test)]
+mod redaction_tests {
+    #[test]
+    fn export_redacts_embedded_credentials() {
+        let v = serde_json::json!({
+            "ai_custom_base_url": "https://bob:hunter2@api.example/v1?api_key=abc&model=x#f",
+            "extra": {"nested": {"discord_token": "t", "keep": "http://h/p"}},
+        });
+        let r = super::redact_export_value(v);
+        assert_eq!(r["ai_custom_base_url"], "https://api.example/v1?model=x#f");
+        assert!(r["extra"]["nested"].get("discord_token").is_none());
+        assert_eq!(r["extra"]["nested"]["keep"], "http://h/p");
+        let r = super::redact_export_value(serde_json::json!("https://h/?%61pi_key=x&q=1"));
+        assert_eq!(r, "https://h/?q=1");
+    }
 }

@@ -127,3 +127,9 @@ Source paths are relative to `cyoa_downloader_app/`.
 - Updates: Python has no main-row Updates pill; Rust opens the Batch Check Center from Settings > Maintenance > Updates.
 - App-update check: Python uses a separate `_check_updates_panel` dialog; Rust uses a compact "App update" button in the Batch Check Center header.
 - Reports Center, CYOA Manager Center, Batch Check Center, Pre-flight Check and CYOA Manager Library are their own OS windows with Python sizes, colors, and 12-per-page paging. Remaining differences are font rendering (egui vs Tk) only.
+
+## Security deviations (2026-11-21, safer than Python)
+- AI deep-scan JS collection is bounded (2000 files, 64 MiB total); Python reads all JS files. Identical output on normal sites.
+- Settings export redacts nested secret keys, URL userinfo and secret query parameters; Python filters top-level key names only.
+- Browser traffic goes through a loopback relay that enforces the destination policy and holds the proxy credentials; Python (Playwright) answered proxy challenges inside the browser and did not check destinations. HTTPS/SOCKS proxies with credentials are not supported for the browser strategy (Python supported them, which exposed the credentials).
+- ZIP image de-duplication picks the representative deterministically (sorted asset path); Python's choice depends on thread timing. Same image content, possibly different file names for duplicates.

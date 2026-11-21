@@ -686,7 +686,13 @@ pub async fn fetch_one(ctx: &FetchCtx, asset_path: &str) -> FetchOutcome {
             continue;
         }
         if !(200..300).contains(&status) {
-            last_error = format!("HTTP {status}: server error");
+            // requests `raise_for_status()` text (Python image_pipeline.py 793).
+            let reason = response.status.canonical_reason().unwrap_or("");
+            let side = if status < 500 { "Client" } else { "Server" };
+            last_error = format!(
+                "{status} {side} Error: {reason} for url: {}",
+                response.final_url
+            );
             ctx.domain.record_failure(&asset_url, || 0.5);
             drop(response);
             if let Some(delay) = policy.exception_delay(attempt)

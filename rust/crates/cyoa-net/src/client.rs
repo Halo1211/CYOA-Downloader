@@ -348,6 +348,11 @@ impl FetchClient {
         self.cfg.vpn.as_ref().is_none_or(|v| v.satisfied())
     }
 
+    /// This client's destination policy (shared with the browser relay).
+    pub fn destination_policy(&self) -> DestinationPolicy {
+        self.cfg.policy.clone()
+    }
+
     /// Browser routing for `url` under this client's proxy profile.
     pub fn browser_route(&self, url: &str) -> crate::proxy::BrowserRoute {
         self.cfg.proxy.browser_route(url)

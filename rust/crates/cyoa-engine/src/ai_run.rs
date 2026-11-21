@@ -59,6 +59,11 @@ impl std::fmt::Debug for AiRunConfig {
     }
 }
 
+/// [`AiRuntime::collect_js`] retention limits.
+pub const JS_COLLECT_MAX_FILES: usize = 2000;
+/// [`AiRuntime::collect_js`] total byte budget (64 MiB).
+pub const JS_COLLECT_MAX_BYTES: u64 = 64 * 1024 * 1024;
+
 /// One download's AI state: a client for the configured endpoint and the
 /// shared call budget (`AIUsageBudget`).
 pub struct AiRuntime {
@@ -184,8 +189,14 @@ impl AiRuntime {
 
     /// Deep-scan AI round input: `.js/.mjs/.cjs` files over 500 characters
     /// below `folder` (relative names; sorted, Python walks in OS order).
+    ///
+    /// Security bound (deviation from Python, which reads everything): at
+    /// most [`JS_COLLECT_MAX_FILES`] files and [`JS_COLLECT_MAX_BYTES`] in
+    /// total are retained, so a hostile site cannot exhaust memory here. The
+    /// prompt only samples file heads, so ordinary sites are unaffected.
     pub fn collect_js(folder: &Path) -> Vec<(String, String)> {
         let mut out = Vec::new();
+        let mut total: u64 = 0;
         let mut stack = vec![folder.to_path_buf()];
         while let Some(dir) = stack.pop() {
             let Ok(entries) = std::fs::read_dir(&dir) else {
@@ -204,9 +215,31 @@ impl AiRuntime {
                 if !(name.ends_with(".js") || name.ends_with(".mjs") || name.ends_with(".cjs")) {
                     continue;
                 }
-                let Ok(bytes) = std::fs::read(&path) else {
+                if out.len() >= JS_COLLECT_MAX_FILES {
+                    break;
+                }
+                // Regular files only (DirEntry::file_type does not follow
+                // symlinks); reads are capped to the remaining budget.
+                if !kind.is_file() {
+                    continue;
+                }
+                let remaining = JS_COLLECT_MAX_BYTES.saturating_sub(total);
+                let Ok(file) = std::fs::File::open(&path) else {
                     continue;
                 };
+                let mut bytes = Vec::new();
+                if std::io::Read::read_to_end(
+                    &mut std::io::Read::take(file, remaining + 1),
+                    &mut bytes,
+                )
+                .is_err()
+                {
+                    continue;
+                }
+                if bytes.len() as u64 > remaining {
+                    continue;
+                }
+                total = total.saturating_add(bytes.len() as u64);
                 let text = String::from_utf8_lossy(&bytes).into_owned();
                 if text.chars().count() > 500
                     && let Ok(rel) = path.strip_prefix(folder)

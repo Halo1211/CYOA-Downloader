@@ -158,6 +158,11 @@ struct LogSubscriber;
 
 impl Subscriber for LogSubscriber {
     fn enabled(&self, metadata: &Metadata<'_>) -> bool {
+        // chromiumoxide warns on every CDP event newer than its protocol
+        // ("WS Invalid message"); its own diagnostics are errors only.
+        if metadata.target().starts_with("chromiumoxide") {
+            return *metadata.level() <= Level::ERROR;
+        }
         *metadata.level() <= Level::INFO
     }
 

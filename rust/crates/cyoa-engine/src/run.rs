@@ -499,6 +499,70 @@ the viewer HTML/CSS/JS directly without needing a project file."
     Website(String),
 }
 
+/// Python `_v466_is_cafe_metadata_game_url`: `https://cyoa.cafe/game/<key>`.
+fn is_cafe_metadata_game_url(value: &str) -> bool {
+    let Ok(canonical) = cyoa_core::url::canonicalize_url(value) else {
+        return false;
+    };
+    let Ok(parsed) = Url::parse(&canonical) else {
+        return false;
+    };
+    let mut path = String::new();
+    for ch in parsed.path().chars() {
+        if !(ch == '/' && path.ends_with('/')) {
+            path.push(ch);
+        }
+    }
+    let rest = path.trim_end_matches('/');
+    parsed
+        .host_str()
+        .is_some_and(|h| h.eq_ignore_ascii_case("cyoa.cafe"))
+        && rest.len() > 6
+        && rest.is_char_boundary(6)
+        && rest[..6].eq_ignore_ascii_case("/game/")
+        && !rest[6..].contains('/')
+}
+
+/// Python `_v466_run_download` pre-resolution for website modes.
+async fn resolve_cafe_website_target(
+    url: &str,
+    client: &FetchClient,
+    cancel: &CancellationToken,
+) -> String {
+    if !is_cafe_metadata_game_url(url) {
+        return url.to_owned();
+    }
+    let (c, h, k, u) = (
+        client.clone(),
+        tokio::runtime::Handle::current(),
+        cancel.clone(),
+        url.to_owned(),
+    );
+    let resolved = tokio::task::spawn_blocking(move || {
+        let mut fetch = crate::discover_net::ClientCafeFetch {
+            client: c,
+            handle: h,
+            cancel: k,
+        };
+        let record = crate::cafe::fetch_cyoa_cafe_record(&mut fetch, &u, false);
+        if crate::cafe::classify_cyoa_cafe_record(record.as_ref()) == "static_pages" {
+            return None;
+        }
+        crate::cafe::CafeResolver::new(&mut fetch).resolve(&u).ok()
+    })
+    .await
+    .ok()
+    .flatten();
+    let canon = |v: &str| cyoa_core::url::canonicalize_url(v).unwrap_or_else(|_| v.to_owned());
+    match resolved {
+        Some(r) if canon(&r) != canon(url) => {
+            tracing::info!("CYOA.CAFE website target resolved before download: {url} → {r}");
+            r
+        }
+        _ => url.to_owned(),
+    }
+}
+
 pub async fn run_download(
     opts: &RunOptions,
     cancel: CancellationToken,
@@ -544,13 +608,24 @@ pub async fn run_download(
     {
         return Ok(report);
     }
+    // final_behaviors.py `_v466_run_download`: ICC/Pure Website mirror the
+    // resolved viewer, not the CYOA.CAFE catalogue page (the output name
+    // stays derived from the original URL).
+    let website_url = if matches!(
+        opts.mode,
+        OutputMode::IccZip | OutputMode::IccFolder | OutputMode::PureZip | OutputMode::PureFolder
+    ) {
+        resolve_cafe_website_target(&opts.url, &client, &cancel).await
+    } else {
+        opts.url.clone()
+    };
     // Pure website: no project discovery at all (orchestrator.py 374-424).
     if matches!(opts.mode, OutputMode::PureZip | OutputMode::PureFolder) {
         let temp_guard = RunTempDir::create()?;
         let spool_dir = temp_guard.0.join("spool");
         std::fs::create_dir(&spool_dir)?;
         let result = crate::pure::PureRun {
-            url: &opts.url,
+            url: &website_url,
             stem: output_stem(opts),
             output_dir: opts.output_dir.clone(),
             zip: opts.mode == OutputMode::PureZip,
@@ -737,7 +812,7 @@ pub async fn run_download(
         // temp_guard stays alive until the ICC run returns: the fetch spool
         // directory lives inside it.
         return crate::icc::IccRun {
-            entry_url: &opts.url,
+            entry_url: &website_url,
             source: &source,
             stem: output_stem(opts),
             output_dir: opts.output_dir.clone(),

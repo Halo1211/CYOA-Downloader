@@ -60,18 +60,36 @@ def main() -> int:
     home = work / "home"
     home.mkdir()
     iso = dict(os.environ, USERPROFILE=str(home), HOME=str(home))
+    # ICC_GUI=1: the Rust side is the desktop app (CYOA_DESKTOP_E2E handlers).
+    gui = os.environ.get("ICC_GUI") == "1"
     try:
         if not python_only:
-            subprocess.run(["cargo", "build", "-q", "-p", "cyoa-cli", "--offline"], cwd=ROOT / "rust", check=True)
-        rust_bin = ROOT / "rust" / "target" / "debug" / "cyoa-downloader"
+            subprocess.run(["cargo", "build", "-q", "-p", "cyoa-desktop" if gui else "cyoa-cli", "--offline"],
+                           cwd=ROOT / "rust", check=True)
+        rust_bin = ROOT / "rust" / "target" / "debug" / ("cyoa-desktop" if gui else "cyoa-downloader")
+        gui_modes = {"--cyoap-vue-folder": "CyoapFolder", "--icc-folder": "IccFolder"}
         ok = True
         for flag in ("--cyoap-vue-folder", "--icc-folder"):
             outs = {}
             sides = ("py",) if python_only else ("py", "rs")
             for side in sides:
                 out = work / f"{side}{flag}"
+                if side == "rs" and gui:
+                    out.mkdir(parents=True, exist_ok=True)
+                    env = dict(iso, CYOA_DESKTOP_E2E=f"{url}|{out}|{gui_modes[flag]}|game")
+                    subprocess.run([str(rust_bin)], cwd=ROOT / "rust", env=env, capture_output=True, timeout=600)
+                    st_file = out / "gui_e2e_status.txt"
+                    st = st_file.read_text(encoding="utf-8") if st_file.exists() else "no status"
+                    st_file.unlink(missing_ok=True)
+                    if not st.startswith("Done"):
+                        print(f"rs GUI {flag} job: {st}")
+                        return 2
+                    outs[side] = out
+                    continue
                 cmd = ([sys.executable, "cyoa_downloader.py"] if side == "py" else [str(rust_bin)])
                 cmd += [url, "game", flag, "-o", str(out), "-w", "0", "-t", "1"]
+                if gui:
+                    cmd.append("--fonts")
                 run = subprocess.run(cmd, cwd=ROOT, env=iso, capture_output=True, text=True,
                                      encoding="utf-8", errors="replace")
                 if run.returncode:

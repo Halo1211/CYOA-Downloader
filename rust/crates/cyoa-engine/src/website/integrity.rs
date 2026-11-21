@@ -10,7 +10,6 @@
 //! them); undecodable bytes are dropped like `errors="ignore"`.
 
 use super::*;
-use fancy_regex::Regex as FRegex;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
@@ -81,9 +80,13 @@ const ASSET_LINK_RELS: &[&str] = &[
     "apple-touch-icon",
 ];
 
-static JS_STATIC_REF_RE: LazyLock<Option<FRegex>> = LazyLock::new(|| {
-    FRegex::new(
-        r#"(?i)(?:\bfrom\s*|\bimport\s*(?:\(\s*)?|\bnew\s+URL\s*\(\s*|\b(?:src|href|poster)\s*=\s*)(?P<quote>["'])(?P<url>[^"']+)(?P=quote)"#,
+/// Python `(?P<quote>["'])(?P<url>[^"']+)(?P=quote)`: since `[^"']` excludes
+/// both quotes, the backreference equals two quoted alternatives, which the
+/// linear-time `regex` engine runs (the backtracking engine took minutes on
+/// large minified bundles).
+static JS_STATIC_REF_RE: LazyLock<Option<Regex>> = LazyLock::new(|| {
+    Regex::new(
+        r#"(?i)(?:\bfrom\s*|\bimport\s*(?:\(\s*)?|\bnew\s+URL\s*\(\s*|\b(?:src|href|poster)\s*=\s*)(?:"(?P<dq>[^"']+)"|'(?P<sq>[^"']+)')"#,
     )
     .ok()
 });
@@ -495,8 +498,11 @@ pub fn validate_integrity(root: &Path) -> Integrity {
             }
             _ => {
                 if let Some(re) = JS_STATIC_REF_RE.as_ref() {
-                    for caps in re.captures_iter(&text).flatten() {
-                        let candidate = caps.name("url").map_or("", |m| m.as_str());
+                    for caps in re.captures_iter(&text) {
+                        let candidate = caps
+                            .name("dq")
+                            .or_else(|| caps.name("sq"))
+                            .map_or("", |m| m.as_str());
                         if !candidate.contains("${") && has_file_extension(candidate) {
                             record(&mut refs, Some(candidate));
                         }

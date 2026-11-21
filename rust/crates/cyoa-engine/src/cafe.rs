@@ -5,7 +5,20 @@ use crate::{
     website::html::{self, Element, Node},
 };
 use cyoa_core::url::{canonicalize_url, is_probable_url};
-use cyoa_parse::project::looks_like_project_payload;
+use cyoa_parse::project::{extract_project_text_from_payload, looks_like_project_payload};
+
+/// Python `_looks_like_custom_viewer_html`: hand-written CYOA viewers.
+fn looks_like_custom_viewer_html(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    [
+        ("id=\"cyoa-container\"", "game_data"),
+        ("id='cyoa-container'", "game_data"),
+        ("id=\"bg-music\"", "point-bar"),
+        ("id='bg-music'", "point-bar"),
+    ]
+    .iter()
+    .any(|(a, b)| lower.contains(a) && lower.contains(b))
+}
 use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 use serde_json::Value;
 use std::{
@@ -293,6 +306,7 @@ pub struct CafeResolver<'a> {
     visited: HashSet<String>,
     rejections: Vec<(String, String)>,
     responses: HashMap<String, CafeResponse>,
+    #[allow(dead_code, reason = "kept for Python resolver signature parity")]
     timeout: u64,
     max_hops: usize,
     max_depth: usize,
@@ -468,6 +482,7 @@ impl<'a> CafeResolver<'a> {
         }
         self.visited.insert(u.clone());
         let Some(r) = self.fetch(&u) else {
+            self.rejections.push((u, "request failed".into()));
             return false;
         };
         if r.status == 404 {
@@ -475,13 +490,29 @@ impl<'a> CafeResolver<'a> {
             return false;
         }
         if r.status >= 400 {
+            self.rejections
+                .push((u.clone(), format!("HTTP {}", r.status)));
             return false;
         }
-        let low = r.text.to_lowercase();
-        let _timeout = self.timeout;
-        let _host = py_hostname(py_urlparse(&u).netloc);
-        let _project = looks_like_project_payload(r.text.trim());
-        if [
+        let text = &r.text;
+        let ctype = r.content_type.to_lowercase();
+        let parsed = py_urlparse(&u);
+        let path = parsed.path.to_lowercase();
+        if ctype.contains("json") || path.ends_with(".json") || path.ends_with(".txt") {
+            if path.ends_with("dist/nodes/list.json") {
+                return matches!(serde_json::from_str::<Value>(text), Ok(Value::Array(_)));
+            }
+            if path.ends_with("dist/platform.json") {
+                return matches!(serde_json::from_str::<Value>(text), Ok(Value::Object(_)));
+            }
+            if extract_project_text_from_payload(text).is_some_and(|t| !t.is_empty())
+                || looks_like_project_payload(text)
+            {
+                return true;
+            }
+        }
+        let low = text.to_lowercase();
+        const VIEWER_MARKERS: [&str; 11] = [
             "id=\"app\"",
             "id='app'",
             "interactive cyoa creator",
@@ -493,13 +524,80 @@ impl<'a> CafeResolver<'a> {
             "window.app",
             "cyoa-viewer",
             "loading omnitrix",
-            "id=\"cyoa-container\"",
-            "id='cyoa-container'",
-        ]
-        .iter()
-        .any(|m| low.contains(m))
+        ];
+        let custom = looks_like_custom_viewer_html(text);
+        if VIEWER_MARKERS.iter().any(|m| low.contains(m)) || custom {
+            if parsed.netloc.to_lowercase() == "cyoa.cafe"
+                && path.contains("/game/")
+                && !["iframe", "project.json", "interactive cyoa creator"]
+                    .iter()
+                    .any(|m| low.contains(m))
+                && !custom
+            {
+                self.rejections
+                    .push((u, "metadata page, not viewer".into()));
+                return false;
+            }
+            return true;
+        }
+        // Self-contained CSS/HTML-only CYOA published by the CYOA.CAFE core.
+        if (ctype.contains("text/html")
+            || low.starts_with("<!doctype html")
+            || low.starts_with("<html"))
+            && low.contains("<title>[cyoa]")
+            && ["<main", "<input", "<label"]
+                .iter()
+                .all(|m| low.contains(m))
         {
             return true;
+        }
+        let base = if u.ends_with('/') {
+            u.clone()
+        } else {
+            format!("{u}/")
+        };
+        let mut valid_platform = false;
+        let mut valid_nodes = false;
+        for endpoint in [
+            "project.json",
+            "project.txt",
+            "dist/platform.json",
+            "dist/nodes/list.json",
+        ] {
+            let ok = self.probe_project_endpoint(&python_urljoin(&base, endpoint));
+            match endpoint {
+                "dist/platform.json" => valid_platform = ok,
+                "dist/nodes/list.json" => valid_nodes = ok,
+                _ if ok => return true,
+                _ => {}
+            }
+        }
+        if valid_platform && valid_nodes {
+            return true;
+        }
+        self.rejections
+            .push((u, "no valid project/viewer signature".into()));
+        false
+    }
+    /// Python `_probe_project_endpoint`.
+    fn probe_project_endpoint(&mut self, url: &str) -> bool {
+        let Some(r) = self.fetch(url) else {
+            return false;
+        };
+        if r.status >= 400 {
+            return false;
+        }
+        let text = r.text.trim();
+        let path = py_urlparse(url).path.to_lowercase();
+        if path.ends_with("dist/nodes/list.json") {
+            return matches!(serde_json::from_str::<Value>(text), Ok(Value::Array(_)));
+        }
+        if path.ends_with("dist/platform.json") {
+            return matches!(serde_json::from_str::<Value>(text), Ok(Value::Object(_)));
+        }
+        if path.ends_with("project.json") || path.ends_with("project.txt") {
+            return extract_project_text_from_payload(text).is_some_and(|t| !t.is_empty())
+                || looks_like_project_payload(text);
         }
         false
     }
