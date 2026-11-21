@@ -289,6 +289,18 @@ pub fn retry_website_assets(
     handle: &tokio::runtime::Handle,
     cancel: &tokio_util::sync::CancellationToken,
 ) -> Result<WebsiteRecoverySummary, String> {
+    retry_website_assets_with(root, client, handle, cancel, true)
+}
+
+/// `retry_website_assets`; `resume_routes = false` retries assets only
+/// (the automatic pass leaves route archives to the manual action).
+fn retry_website_assets_with(
+    root: &Path,
+    client: &cyoa_net::client::FetchClient,
+    handle: &tokio::runtime::Handle,
+    cancel: &tokio_util::sync::CancellationToken,
+    resume_routes: bool,
+) -> Result<WebsiteRecoverySummary, String> {
     if !root.is_dir() {
         return Err(format!("Output folder not found: {}", root.display()));
     }
@@ -408,6 +420,9 @@ pub fn retry_website_assets(
     }
     // Python: continue unresolved route graphs (failed routes, page limit,
     // unfinished checkpoints) after the asset retries.
+    if !resume_routes {
+        return Ok(summary);
+    }
     for m in manifests(&base) {
         if cancel.is_cancelled() {
             break;
@@ -657,16 +672,32 @@ pub async fn auto_recover_site(
         () = tokio::time::sleep(std::time::Duration::from_secs(10)) => {}
         () = cancel.cancelled() => return,
     }
-    let (site, client, cancel, handle) = (
+    // Snapshot the reports: when nothing is recovered, the output stays
+    // byte-identical to a run without the automatic pass (Python parity).
+    let snapshot: Vec<(PathBuf, Vec<u8>)> = reports(site)
+        .into_iter()
+        .filter_map(|p| fs::read(&p).ok().map(|b| (p, b)))
+        .collect();
+    let (site_b, client, cancel, handle) = (
         site.to_path_buf(),
         client.clone(),
         cancel.clone(),
         tokio::runtime::Handle::current(),
     );
-    let outcome =
-        tokio::task::spawn_blocking(move || retry_website_assets(&site, &client, &handle, &cancel))
-            .await;
+    let outcome = tokio::task::spawn_blocking(move || {
+        retry_website_assets_with(&site_b, &client, &handle, &cancel, false)
+    })
+    .await;
     match outcome {
+        Ok(Ok(s)) if s.recovered_assets == 0 => {
+            for (path, bytes) in &snapshot {
+                let _ = cyoa_storage::atomic_io::atomic_write_bytes(path, bytes);
+            }
+            tracing::info!(
+                "[Auto recovery] 0/{} asset(s) recovered; reports left unchanged.",
+                s.discovered_assets
+            );
+        }
         Ok(Ok(s)) => tracing::info!(
             "[Auto recovery] {}/{} asset(s) recovered.",
             s.recovered_assets,
