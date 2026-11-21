@@ -17,6 +17,8 @@ mod worker;
 fn main() -> eframe::Result {
     // File log only; the GUI shows its own log view.
     cyoa_engine::logfile::init(false);
+    // Python `main()`: register bundled offline viewers (no-op when present).
+    cyoa_engine::viewer_registry::auto_register_bundled_viewers_default();
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title(format!("CYOA Downloader v{}", cyoa_core::app_version()))

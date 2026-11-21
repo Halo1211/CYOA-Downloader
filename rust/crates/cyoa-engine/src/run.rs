@@ -231,6 +231,7 @@ pub(crate) fn audio_config(opts: &RunOptions) -> crate::audio::AudioConfig {
     crate::audio::AudioConfig {
         enabled: opts.integrations.ytdlp,
         explicit_cookies: opts.integrations.ytdlp_cookies.clone(),
+        browser_cookies: true,
     }
 }
 

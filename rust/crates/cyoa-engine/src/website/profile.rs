@@ -1,6 +1,8 @@
 //! Archive profiling port of Python `download/archive_profiler.py` for the no-hint path.
 //!
-//! The `cyoa.cafe` static-record branch is not ported; it only applies to `cyoa.cafe` URLs.
+//! The `cyoa.cafe` static-record branch is handled earlier in Rust: static-page
+//! records are exported by `run::static_cafe_record` before any website archive
+//! (or profile) runs, which gives the same result as Python's Classic profile.
 //! Bundle traversal is sorted by path for deterministic Rust output, while Python uses
 //! `Path.rglob` iteration order, which may differ across filesystems.
 use crate::website::html::{self, Element, Node, StrKind};

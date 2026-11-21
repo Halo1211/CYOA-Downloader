@@ -2,6 +2,8 @@
 
 Resume the CYOA Downloader Python→Rust migration on branch `migration/python-to-rust`. Do not repeat audits.
 
+**Session 9 update 2 (2026-11-22):** All features ported (F-045 browser cookies, yt-dlp browser-cookie retry, route continuation, bundled viewers). Next: owner merges the PR; optional release build smoke test.
+
 **Session 9 update (2026-11-21, commit dc0f967 + docs):** Security relay for the browser, four Sol review rounds (all fixed, residuals in SECURITY_REVIEW.md), real-site testing of 12 sites and all major features (TEST_RESULTS.md), native TLS on Windows (DL-10), urllib3-style mirror retries, automatic recovery pass. 369 tests pass. Not pushed (owner pushes). Next: (1) owner review of the branch / PR to main; (2) optional: reduce deep-scan "not found" probes to Python's set; (3) release build smoke test (`rust/scripts/make_dist.sh`).
 
 **Session 8 update 3 (2026-11-20):** F-043 AI (A1–A4) and F-044 plugins done. Sol reviews pending (usage limit until 2026-11-21 11:19): browser.rs + mirror browser paths + proxy browser_route; ai_calls.rs/ai_run.rs/ai_panel.rs (secrets, endpoint client); plugins.rs (process spawning). Remaining features: F-045 browser cookie import (deferred, D3), F-049 GUI settings panels, F-055 packaging, manual GUI smoke tests.

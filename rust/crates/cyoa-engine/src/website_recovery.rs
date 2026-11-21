@@ -22,7 +22,8 @@ pub struct WebsiteRecoverySummary {
     pub failed_assets: usize,
     pub archives_resumed: usize,
     pub new_routes: usize,
-    /// Archives that need route continuation (not ported).
+    /// Archives that still need route continuation (kept for compatibility;
+    /// continuation is now performed, so this stays 0).
     pub archives_pending: usize,
 }
 
@@ -405,17 +406,238 @@ pub fn retry_website_assets(
             }
         }
     }
+    // Python: continue unresolved route graphs (failed routes, page limit,
+    // unfinished checkpoints) after the asset retries.
     for m in manifests(&base) {
-        if manifest_needs_routes(&m).is_some() {
-            summary.archives_pending += 1;
-            tracing::warn!(
-                "Retry Assets: route continuation for {} is not ported to the Rust version yet",
-                m.display()
-            );
+        if cancel.is_cancelled() {
+            break;
+        }
+        let Some(start_url) = manifest_needs_routes(&m).filter(|s| !s.is_empty()) else {
+            continue;
+        };
+        let Some(folder) = m.parent() else { continue };
+        match resume_existing_archive(folder, &start_url, client, handle, cancel) {
+            Ok((before, after)) => {
+                summary.archives_resumed += 1;
+                summary.new_routes += after.saturating_sub(before);
+            }
+            Err(e) => tracing::warn!("Retry Assets could not resume {}: {e}", m.display()),
         }
     }
-    summary.archives_pending += interrupted(&base).len();
+    for (folder, source) in interrupted(&base) {
+        if cancel.is_cancelled() {
+            break;
+        }
+        match resume_existing_archive(&folder, &source, client, handle, cancel) {
+            Ok((_, after)) => {
+                summary.archives_resumed += 1;
+                summary.new_routes += after;
+            }
+            Err(e) => tracing::warn!(
+                "Retry Assets could not resume interrupted archive {}: {e}",
+                folder.display()
+            ),
+        }
+    }
     Ok(summary)
+}
+
+/// Python `resume_existing_archive`: continue only the unresolved same-story
+/// routes of an archive folder. Existing pages are kept; seeds are missing
+/// pages, failed routes, saved pending routes and unarchived links found in
+/// the existing pages. Rewrites `archive_manifest.json` and returns
+/// (pages before, pages after).
+///
+/// Deviation: the continuation always uses the route crawler (Smart); a
+/// Browser-strategy archive is not re-captured at runtime, and the previous
+/// `runtime` section is kept unchanged.
+pub fn resume_existing_archive(
+    folder: &Path,
+    start_url: &str,
+    client: &cyoa_net::client::FetchClient,
+    handle: &tokio::runtime::Handle,
+    cancel: &tokio_util::sync::CancellationToken,
+) -> Result<(usize, usize), String> {
+    use crate::website::routes::RouteCrawler;
+    use serde_json::{Value, json};
+    let manifest_path = folder.join("archive_manifest.json");
+    let old: serde_json::Map<String, Value> = read_lossy(&manifest_path)
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+        .and_then(|v| match v {
+            Value::Object(m) => Some(m),
+            _ => None,
+        })
+        .unwrap_or_default();
+    let policy = old.get("policy").cloned().unwrap_or(Value::Null);
+    let int = |k: &str, d: i64| {
+        policy
+            .get(k)
+            .and_then(Value::as_i64)
+            .filter(|n| *n > 0)
+            .unwrap_or(d)
+    };
+    let max_pages = usize::try_from(int("max_pages", 300)).unwrap_or(300);
+    let max_depth = usize::try_from(
+        policy
+            .get("max_depth")
+            .and_then(Value::as_i64)
+            .filter(|n| *n >= 0)
+            .unwrap_or(8),
+    )
+    .unwrap_or(8);
+
+    let mut existing: Vec<(String, String)> = Vec::new();
+    let mut pending: Vec<String> = Vec::new();
+    for item in old
+        .get("pages")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let (Some(url), Some(local)) = (
+            item.get("url").and_then(Value::as_str),
+            item.get("local").and_then(Value::as_str),
+        ) else {
+            continue;
+        };
+        match crate::website::mirror::contained_path(folder, local) {
+            Some(p) if p.is_file() => {
+                existing.push((RouteCrawler::canonicalize(url), local.to_owned()))
+            }
+            Some(_) => pending.push(url.to_owned()),
+            None => {}
+        }
+    }
+    if old.is_empty() {
+        pending.push(start_url.to_owned());
+    }
+    for item in old
+        .get("route_failures")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        if let Some(u) = item.get("url").and_then(Value::as_str) {
+            pending.push(u.to_owned());
+        }
+    }
+    for u in old
+        .get("pending_routes")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        if let Some(u) = u.as_str() {
+            pending.push(u.to_owned());
+        }
+    }
+    let link_bases: Vec<(String, String)> = old
+        .get("route_link_bases")
+        .and_then(Value::as_object)
+        .map(|m| {
+            m.iter()
+                .filter_map(|(k, v)| {
+                    v.as_str()
+                        .map(|b| (RouteCrawler::canonicalize(k), b.to_owned()))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    // Seeds: pending routes plus unarchived links on the existing pages.
+    let mut crawler = RouteCrawler::new(start_url);
+    for (page, base) in &link_bases {
+        crawler.page_link_bases.insert(page.clone(), base.clone());
+    }
+    let known: std::collections::HashSet<String> =
+        existing.iter().map(|(u, _)| u.clone()).collect();
+    let mut seeds: BTreeSet<String> = BTreeSet::new();
+    for u in &pending {
+        let c = RouteCrawler::canonicalize(u);
+        if !c.is_empty() && crawler.is_allowed(&c) && !known.contains(&c) {
+            seeds.insert(c);
+        }
+    }
+    for (url, local) in &existing {
+        let Some(path) = crate::website::mirror::contained_path(folder, local) else {
+            continue;
+        };
+        let Some(html) = read_lossy(&path) else {
+            continue;
+        };
+        let base = crawler
+            .page_link_bases
+            .get(url)
+            .cloned()
+            .unwrap_or_else(|| url.clone());
+        for link in crawler.links_from(&html, &base) {
+            if !known.contains(&link) {
+                seeds.insert(link);
+            }
+        }
+    }
+    let before = existing.len();
+    let base_url = crate::website::js::directory_base_url(start_url);
+    let mut sink = crate::website::mirror::MirrorSink::new(
+        folder.to_path_buf(),
+        start_url,
+        &base_url,
+        client.clone(),
+        handle.clone(),
+        cancel.clone(),
+        512 << 20,
+    );
+    sink.no_overwrite = true;
+    let seed_count = seeds.len();
+    let crawl = sink.crawl_routes_from(
+        Some(seeds.into_iter().collect()),
+        existing,
+        link_bases,
+        max_pages,
+        max_depth,
+    );
+    let mut manifest = old.clone();
+    manifest.insert("format".into(), json!(1));
+    manifest.insert("start_url".into(), json!(start_url));
+    manifest.insert(
+        "pages".into(),
+        Value::Array(
+            crawl
+                .pages
+                .iter()
+                .map(|(u, l)| json!({"url": u, "local": l}))
+                .collect(),
+        ),
+    );
+    manifest.insert(
+        "route_failures".into(),
+        Value::Array(
+            crawl
+                .failed
+                .iter()
+                .map(|(u, e)| json!({"url": u, "error": e}))
+                .collect(),
+        ),
+    );
+    let mut bases = serde_json::Map::new();
+    for (k, v) in &crawl.link_bases {
+        bases.insert(k.clone(), json!(v));
+    }
+    manifest.insert("route_link_bases".into(), Value::Object(bases));
+    manifest.insert("pending_routes".into(), json!(crawl.pending));
+    manifest.insert("route_limit_reached".into(), json!(crawl.limit_reached));
+    manifest.insert(
+        "remaining_queued_routes".into(),
+        json!(crawl.remaining_queued),
+    );
+    let text = serde_json::to_string_pretty(&Value::Object(manifest)).map_err(|e| e.to_string())?;
+    cyoa_storage::atomic_io::atomic_write_text(&manifest_path, &text).map_err(|e| e.to_string())?;
+    tracing::info!(
+        "Archive resume: {seed_count} seed(s), {} total page(s), {} failed",
+        crawl.pages.len(),
+        crawl.failed.len()
+    );
+    Ok((before, crawl.pages.len()))
 }
 
 /// Automatic backup pass (deviation, better than Python, which only offers

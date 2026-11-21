@@ -367,8 +367,8 @@ fn valid_url(url: &str) -> bool {
 }
 
 /// Batch row mode OR-ed with the global flags, like Python's CLI loop.
-/// Website/ICC/pure/cyoap-vue modes are not ported yet: refuse instead of
-/// silently producing a different output.
+/// Unknown mode names are refused instead of silently producing a different
+/// output.
 fn item_mode(args: &Args, mode: &str) -> Result<OutputMode, String> {
     match mode {
         ""
@@ -876,6 +876,8 @@ async fn run_one(
 
 #[tokio::main]
 async fn main() -> ExitCode {
+    // Python `main()`: register bundled offline viewers (no-op when present).
+    cyoa_engine::viewer_registry::auto_register_bundled_viewers_default();
     if std::env::args_os().len() == 1 {
         use clap::CommandFactory;
         let _ = Args::command().print_help();

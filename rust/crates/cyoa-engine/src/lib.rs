@@ -6,6 +6,7 @@ pub mod audio_retry;
 pub mod auto_detect;
 pub mod batch;
 pub mod browser;
+pub mod browser_cookies;
 pub mod cafe;
 pub mod cafe_static;
 pub mod cyoap;

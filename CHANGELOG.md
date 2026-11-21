@@ -16,6 +16,9 @@ instructions are in [README.md](README.md) and the linked guides.
 - Website downloads retry rate-limited requests like the Python app and run an
   automatic recovery pass for assets that still failed.
 - Settings export also removes passwords and keys embedded in URLs.
+- Cookies from installed browsers are used for protected assets and YouTube
+  audio; Retry Assets continues interrupted route archives; viewer archives
+  shipped next to the program are registered automatically.
 
 
 - Keep website archive checkpoint databases in the application profile instead

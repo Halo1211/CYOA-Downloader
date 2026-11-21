@@ -542,15 +542,24 @@ pub async fn fetch_one(ctx: &FetchCtx, asset_path: &str) -> FetchOutcome {
     let mut last_error = String::new();
     let mut authentication_failed = false;
     let mut cookie_session_tried = false;
+    let mut cookie_header: Option<String> = None;
     let mut transport_exhausted = false;
 
     for attempt in 0..attempts {
         if ctx.cancel.is_cancelled() {
             return outcome(asset_path, None, "", &asset_url, "fetch cancelled");
         }
-        // Emulates the Python cookie-session branch's stopping condition only.
+        // Python `fetch_one` B: on the third attempt after an authentication
+        // failure, retry once with cookies from an installed browser
+        // (chrome, edge, firefox), exported through yt-dlp (F-045).
         if attempt == 2 && authentication_failed && !cookie_session_tried {
             cookie_session_tried = true;
+            if let Ok(parsed) = Url::parse(&asset_url) {
+                cookie_header = browser_cookie_header(&parsed).await;
+                if cookie_header.is_some() {
+                    tracing::info!("  [Cookie] retrying with browser cookies: {asset_url}");
+                }
+            }
         }
         if ctx.domain.wait_turn(&asset_url, &ctx.cancel).await.is_err() {
             return outcome(asset_path, None, "", &asset_url, "fetch cancelled");
@@ -564,9 +573,19 @@ pub async fn fetch_one(ctx: &FetchCtx, asset_path: &str) -> FetchOutcome {
         // None; only then does this loop see "fetch_response returned None".
         let mut transport = cyoa_net::retry::TransportRetryBudget::default();
         let response = loop {
+            let mut headers = cyoa_net::client::header::HeaderMap::new();
+            if let Some(value) = cookie_header
+                .as_deref()
+                .and_then(|v| cyoa_net::client::header::HeaderValue::from_str(v).ok())
+            {
+                let mut value = value;
+                value.set_sensitive(true);
+                headers.insert(cyoa_net::client::header::COOKIE, value);
+            }
             let r = caller_status_retry_scope(ctx.client.get(
                 &url,
                 &FetchOptions {
+                    headers,
                     return_error_response: true,
                     ..FetchOptions::default()
                 },
@@ -833,6 +852,51 @@ pub async fn fetch_one(ctx: &FetchCtx, asset_path: &str) -> FetchOutcome {
     }
     tracing::error!("All retries failed: {asset_url}");
     outcome(asset_path, None, "", &asset_url, last_error)
+}
+
+/// Cookies exported once per browser per process (Python re-reads the browser
+/// each time; one export per run avoids repeated profile copies).
+static BROWSER_COOKIES: std::sync::OnceLock<
+    std::sync::Mutex<
+        std::collections::HashMap<&'static str, Vec<crate::browser_cookies::BrowserCookie>>,
+    >,
+> = std::sync::OnceLock::new();
+
+/// `Cookie` header for `url` from the first installed browser (chrome, edge,
+/// firefox: Python's order) whose exported jar has matching cookies.
+async fn browser_cookie_header(url: &Url) -> Option<String> {
+    for browser in ["chrome", "edge", "firefox"] {
+        let cache = BROWSER_COOKIES.get_or_init(Default::default);
+        let cached = cache.lock().ok().and_then(|m| m.get(browser).cloned());
+        let cookies = match cached {
+            Some(c) => c,
+            None => {
+                let exported = tokio::task::spawn_blocking(move || {
+                    crate::browser_cookies::export_with_ytdlp(
+                        "yt-dlp",
+                        browser,
+                        None,
+                        std::time::Duration::from_secs(60),
+                    )
+                })
+                .await
+                .ok()
+                .and_then(|r| {
+                    r.map_err(|e| tracing::debug!("Cookie session: {browser} unavailable: {e}"))
+                        .ok()
+                })
+                .unwrap_or_default();
+                if let Ok(mut m) = cache.lock() {
+                    m.insert(browser, exported.clone());
+                }
+                exported
+            }
+        };
+        if let Some(header) = crate::browser_cookies::cookie_header_for(&cookies, url) {
+            return Some(header);
+        }
+    }
+    None
 }
 
 #[cfg(test)]

@@ -32,3 +32,6 @@ Chromium page subrequests are only filtered like Python `route_request`: non-GET
 - Expected differences: duplicate-image names in ZIPs (Rust deterministic, Python thread-order dependent), Google Fonts woff2 vs ttf (User-Agent dependent), runtime `?time=` hashes, YouTube track availability per run.
 - Deep scan tries a few more alternative paths than Python, so `failed_assets.txt` can list more "not found" probes (no real asset missing).
 - Rust `--self-test` covers 15 checks against Python's 42 (Python's extra checks exercise Python internals).
+
+## 2026-11-22
+- Browser cookie import needs yt-dlp. On this test machine Chrome refused while open ("Could not copy Chrome cookie database") and Edge refused with app-bound encryption ("Failed to decrypt with DPAPI"); Python's paths hit the same limits. Closing the browser or supplying an exported cookies.txt works around both.

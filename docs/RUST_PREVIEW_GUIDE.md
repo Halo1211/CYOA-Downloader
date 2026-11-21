@@ -31,11 +31,13 @@ Both programs read and write the same settings file as the Python app: `%USERPRO
 - **Integrations:** itch.io (itch-dl, HTML5 offline preparation), AI Assist (Anthropic, OpenAI, Gemini, Ollama, OpenAI-compatible custom endpoints), external plugins (`docs/PLUGINS.md`), XLSX/XLS/CSV/TXT batch import.
 - **Security:** the browser runs behind a local relay that blocks internal addresses and keeps proxy passwords out of the browser; on Windows the system TLS stack is used.
 
-## Not yet supported (use the Python app)
+- **Browser cookies:** cookies from installed Chrome/Edge/Brave/Chromium/Firefox profiles for authenticated assets and YouTube audio (read through `yt-dlp --cookies-from-browser`; set `CYOA_DISABLE_BROWSER_COOKIES=1` to turn it off). A browser that is open can lock its cookie database, and newer Chrome/Edge app-bound encryption can refuse the export; close the browser or supply an exported cookies.txt.
+- **Retry Assets** also continues interrupted or failed route archives.
+- **Bundled viewers:** viewer archives next to the program (including `ICCPlus-main.zip`) are registered at startup.
 
-- Importing cookies from installed browser profiles (F-045, deferred by owner decision); supply a cookies.txt instead.
-- yt-dlp's automatic browser-cookie retry.
-- Continuing an interrupted route archive from Retry Assets.
+## Differences from the Python app
+
+`docs/FEATURE_PARITY.md` lists every known difference. Notable ones: the cloudscraper JavaScript-challenge solver is not included (both apps use FlareSolverr for current Cloudflare challenges); resumed route archives use the route crawler without a new browser runtime capture.
 
 `docs/FEATURE_PARITY.md` in the source tree has the full list, with every known difference from the Python app.
 

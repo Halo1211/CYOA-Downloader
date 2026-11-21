@@ -103,8 +103,8 @@ impl From<Mode> for OutputMode {
     }
 }
 
-/// Python `ArchivePolicy` from the shared settings.json (`archive_*`);
-/// the browser strategy (CDP) is not ported and is refused.
+/// Python `ArchivePolicy` from the shared settings.json (`archive_*`),
+/// including the Browser strategy (CDP, F-028).
 /// Saved Cloudflare/FlareSolverr settings (Python GUI `_load_cloudflare_settings`).
 fn cloudflare_config() -> std::sync::Arc<cyoa_net::cloudflare::CloudflareConfig> {
     let mut store =

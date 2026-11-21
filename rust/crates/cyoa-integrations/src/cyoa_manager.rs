@@ -4,8 +4,8 @@
 //! `add_to_cyoa_manager`, `add_archive_to_cyoa_manager`,
 //! `_list_cyoa_manager_projects`, `_find_cyoa_manager_db`,
 //! `_scan_for_cyoa_manager_db`, `_cyoa_manager_viewer_pref`.
-//! `prepare_cyoa_manager_serve_folder` needs the offline viewers (F-037) and
-//! is not ported yet.
+//! `prepare_cyoa_manager_serve_folder` lives in
+//! `cyoa_engine::manager_serve` (it needs the offline viewers, F-037).
 
 use std::fmt;
 use std::fs::{self, File};

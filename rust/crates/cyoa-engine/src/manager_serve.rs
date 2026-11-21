@@ -1,9 +1,8 @@
 //! F-038 + F-037: make a CYOA Manager JSON entry playable by the local Serve.
 //!
 //! Port of Python `integrations/cyoa_manager.py::prepare_cyoa_manager_serve_folder`.
-//! Differences: bundled viewer auto-registration (`_auto_register_bundled_viewers`)
-//! is not ported, so only viewers already in `viewers.json` are used; the
-//! temporary root is a parameter (Python: `tempfile.gettempdir()`).
+//! Difference: the temporary root is a parameter (Python:
+//! `tempfile.gettempdir()`). Bundled viewers are registered first, as in Python.
 // Nested `if`s mirror the Python control flow.
 #![allow(clippy::collapsible_if)]
 use crate::offline_viewer::{ApplyOptions, AssetFetcher, apply_offline_viewer};
@@ -113,6 +112,8 @@ pub fn prepare_cyoa_manager_serve_folder(
     temp_root: &Path,
     fetcher: &dyn AssetFetcher,
 ) -> Result<PathBuf, String> {
+    // Python registers bundled viewers before choosing one.
+    crate::viewer_registry::auto_register_bundled_viewers_default();
     let project = fs::canonicalize(project_json_path).map_err(|e| e.to_string())?;
     let project = PathBuf::from(
         project

@@ -1034,16 +1034,41 @@ impl MirrorSink {
 
     /// `RouteCrawler.crawl()` (Smart strategy) over this mirror.
     pub fn crawl_routes(&mut self, max_pages: usize, max_depth: usize) -> RouteCrawl {
+        self.crawl_routes_from(None, Vec::new(), Vec::new(), max_pages, max_depth)
+    }
+
+    /// Python `RouteCrawler.crawl(seed_urls, existing_pages)`: `existing`
+    /// pages are kept (not refetched) and count toward `max_pages`; `seeds`
+    /// (default: the start URL) are crawled from depth 0. `link_bases` restores
+    /// saved per-page link bases (`route_link_bases`).
+    pub fn crawl_routes_from(
+        &mut self,
+        seeds: Option<Vec<String>>,
+        existing: Vec<(String, String)>,
+        link_bases: Vec<(String, String)>,
+        max_pages: usize,
+        max_depth: usize,
+    ) -> RouteCrawl {
         use super::routes::RouteCrawler;
         let mut crawler = RouteCrawler::new(&self.start_url);
         let mut out = RouteCrawl::default();
         let start = crawler.start_url.clone();
+        for (page, base) in link_bases {
+            crawler.page_link_bases.insert(page, base);
+        }
+        let mut queued: std::collections::HashSet<String> =
+            existing.iter().map(|(u, _)| u.clone()).collect();
+        out.pages = existing;
+        let seeds = seeds.unwrap_or_else(|| vec![start.clone()]);
         let mut queue: std::collections::VecDeque<(String, usize)> =
             std::collections::VecDeque::new();
-        if crawler.is_allowed(&start) {
-            queue.push_back((start.clone(), 0));
+        for seed in seeds {
+            let seed = RouteCrawler::canonicalize(&seed);
+            if !seed.is_empty() && crawler.is_allowed(&seed) && queued.insert(seed.clone()) {
+                queue.push_back((seed, 0));
+            }
         }
-        let mut queued: std::collections::HashSet<String> = [start.clone()].into();
+        queued.insert(start.clone());
         let mut base_order: Vec<String> = Vec::new();
         while !queue.is_empty() && out.pages.len() < max_pages {
             if self.cancel.is_cancelled() {

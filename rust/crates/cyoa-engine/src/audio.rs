@@ -323,6 +323,9 @@ pub struct YtAttempt {
     pub outtmpl: PathBuf,
     pub public_clients: bool,
     pub cookiefile: Option<PathBuf>,
+    /// yt-dlp `--cookies-from-browser BROWSER[:PROFILE]` (Python
+    /// `cookiesfrombrowser`): yt-dlp reads the browser profile itself.
+    pub cookies_from_browser: Option<String>,
     pub ffmpeg_location: Option<PathBuf>,
 }
 pub trait YtDlp {
@@ -424,6 +427,9 @@ impl YtDlp for YtDlpExe {
         if let Some(p) = &a.cookiefile {
             c.arg("--cookies").arg(p);
         }
+        if let Some(b) = &a.cookies_from_browser {
+            c.arg("--cookies-from-browser").arg(b);
+        }
         if let Some(p) = &a.ffmpeg_location {
             c.arg("--ffmpeg-location").arg(p);
         }
@@ -511,6 +517,9 @@ const YTDLP_DEADLINE: Duration = Duration::from_secs(30 * 60);
 pub struct AudioConfig {
     pub enabled: bool,
     pub explicit_cookies: Option<PathBuf>,
+    /// Probe installed browser profiles (Python `_ytdlp_browser_profiles`);
+    /// the differential fixture disables it like `make_audio.py` does.
+    pub browser_cookies: bool,
 }
 fn usable(p: &Path) -> bool {
     p.is_file() && p.metadata().map(|m| m.len() > 0).unwrap_or(false)
@@ -659,6 +668,7 @@ pub fn download_youtube_audio(
             outtmpl: tmpl.clone(),
             public_clients: true,
             cookiefile: None,
+            cookies_from_browser: None,
             ffmpeg_location: ff.clone(),
         };
         tracing::info!("  yt-dlp: trying public TV/mobile clients");
@@ -715,9 +725,49 @@ pub fn download_youtube_audio(
                     "(unknown error)"
                 }
             );
-            tracing::warn!(
-                "  yt-dlp: browser-cookie retry is not available in the Rust port; export a Netscape cookies.txt and pass --ytdlp-cookies"
-            );
+            // Python: installed browsers in this order, every local profile;
+            // a locked cookie database skips that browser's other profiles.
+            'browsers: for browser in ["chrome", "edge", "brave", "chromium", "firefox"] {
+                let profiles = if cfg.browser_cookies {
+                    crate::browser_cookies::browser_profiles(browser)
+                } else {
+                    Vec::new()
+                };
+                for profile in profiles {
+                    if cancel.is_cancelled() {
+                        break 'browsers;
+                    }
+                    let a = YtAttempt {
+                        public_clients: false,
+                        cookies_from_browser: Some(
+                            crate::browser_cookies::cookies_from_browser_arg(
+                                browser,
+                                profile.as_deref(),
+                            ),
+                        ),
+                        ..first.clone()
+                    };
+                    let err = ytdlp.run(&a, cancel).err();
+                    if err.is_some() {
+                        last = err.clone();
+                    }
+                    found = any_audio(&audio, &id);
+                    if found.is_some() {
+                        let suffix = profile
+                            .as_deref()
+                            .map(|p| format!(" ({p})"))
+                            .unwrap_or_default();
+                        tracing::info!("  yt-dlp: cookie source → {browser}{suffix}");
+                        break 'browsers;
+                    }
+                    if crate::browser_cookies::is_cookie_database_lock_error(err.as_deref()) {
+                        tracing::debug!(
+                            "  yt-dlp: skipping remaining {browser} profiles because its cookie database is locked"
+                        );
+                        break;
+                    }
+                }
+            }
         } else if found.is_none() {
             tracing::info!(
                 "  yt-dlp: supplied cookies.txt did not produce a file; automatic browser-cookie probing skipped"
@@ -915,6 +965,7 @@ mod flow_tests {
                 &AudioConfig {
                     enabled: true,
                     explicit_cookies: None,
+                    browser_cookies: false,
                 },
                 &fake,
                 &CancellationToken::new(),
@@ -975,6 +1026,7 @@ mod flow_tests {
             &AudioConfig {
                 enabled: false,
                 explicit_cookies: None,
+                browser_cookies: false,
             },
             &fake,
             &CancellationToken::new(),

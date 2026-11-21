@@ -1,5 +1,7 @@
 # Migration progress (primary state document)
 
+**Session 9 (cont., 2026-11-22): last gaps ported.** F-045 browser cookies (DL-15), yt-dlp browser-cookie retry, Retry Assets route continuation, bundled-viewer registration. 375 tests pass; fmt and clippy clean. Nothing remains unported except the obsolete cloudscraper solver (FlareSolverr instead).
+
 **Session 9 (2026-11-21): security hardening and real-site validation.** Browser relay (SSRF + proxy credentials), four Sol review rounds with all findings fixed (`docs/SECURITY_REVIEW.md`), real-site tests on 12 sites plus AI/audio/viewers/cheat/FlareSolverr/itch.io (`docs/TEST_RESULTS.md`), native TLS on Windows (DL-10), urllib3-style mirror retries (DL-11), origin-limited browser preference (DL-12), automatic recovery (DL-13), file-based plugin I/O (DL-14). Gates: fmt, clippy -D warnings, 369 tests. Commits 0550b3e, dc0f967 and the docs commit; not pushed.
 
 **Session 8 (cont. 4, 2026-11-20): F-049 Settings dashboard done.** Python `_settings_dashboard_panel` layout (Download/Network/Integrations/Viewers/Maintenance + keyword search) with Python-style cards (badges, framed surfaces, accent buttons, switches): cookies, itch key, archive policy, feature switches, AI Assist, CYOA Manager, Cloudflare/FlareSolverr (Save/Test/Clear sessions), gallery-dl config, Discord token test, viewers, settings tools, image cache. GUI runs honour saved switches. 361 Rust tests pass. Not compared visually (screen capture unavailable) — owner check requested.

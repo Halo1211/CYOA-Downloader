@@ -414,3 +414,168 @@ pub fn unregister_offline_viewer(viewers_dir: &Path, viewer_id: &str, delete_zip
     tracing::info!("Offline viewer removed: '{viewer_id}'");
     true
 }
+
+/// `auto_register_bundled_viewers` for the user's viewer folder and the
+/// folder of the running executable (Python: the script directory).
+pub fn auto_register_bundled_viewers_default() {
+    let Some(exe_dir) = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(Path::to_path_buf))
+    else {
+        return;
+    };
+    auto_register_bundled_viewers(&cyoa_integrations::offline_viewers::viewers_dir(), &exe_dir);
+}
+
+/// Python `_auto_register_bundled_viewers`: at startup, register viewer
+/// archives shipped beside the program (Rust: the executable's folder) that
+/// are not registered yet, and split `ICCPlus-main.zip` into its LocalViewer
+/// and Viewer subviewers.
+pub fn auto_register_bundled_viewers(viewers_dir: &Path, script_dir: &Path) {
+    if fs::create_dir_all(viewers_dir).is_err() {
+        return;
+    }
+    let iccplus_main = script_dir.join("ICCPlus-main.zip");
+    if iccplus_main.exists() {
+        extract_iccplus_subviewers(viewers_dir, &iccplus_main);
+    }
+    let bundled = [
+        (
+            "ICC_Plus_Viewer_v2_9_1_local.zip",
+            "ICC Plus v2.9.1 (Local)",
+            "icc_plus2",
+        ),
+        ("ICC_Remix.zip", "ICC Remix", "icc_remix"),
+        ("ICCRemixLocal4.zip", "ICC Remix Local v4", "icc_remix"),
+        ("Viewer_1_8.rar", "ICC Viewer 1.8", "icc_original"),
+        (
+            "New_Viewer_1_18_9.zip",
+            "New Viewer 1.18.9",
+            "icc_plus_legacy",
+        ),
+    ];
+    let manifest = cyoa_integrations::offline_viewers::load_manifest(viewers_dir);
+    for (fname, display, vtype) in bundled {
+        let vid = Path::new(fname)
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if manifest.contains_key(&vid) {
+            continue;
+        }
+        let src = script_dir.join(fname);
+        if src.exists() {
+            let opts = RegisterOptions {
+                name: display.into(),
+                viewer_type: vtype.into(),
+                ..RegisterOptions::default()
+            };
+            let _ = register_offline_viewer(viewers_dir, &src, &opts);
+        }
+    }
+}
+
+/// Python `_extract_iccplus_subviewers`: repackage `<root>/LocalViewer/` and
+/// `<root>/Viewer/` of an ICC Plus source ZIP as flat viewer ZIPs and register
+/// them (root-agnostic; only direct children of the single top-level folder).
+pub fn extract_iccplus_subviewers(viewers_dir: &Path, iccplus_zip: &Path) {
+    let limits = cyoa_storage::archive::ArchiveLimits {
+        max_members: 10_000,
+        max_member_size: 1024 * 1024 * 1024,
+        max_total_size: 4 * 1024 * 1024 * 1024,
+        max_ratio: 250.0,
+        ..cyoa_storage::archive::ArchiveLimits::default()
+    };
+    if let Err(e) = cyoa_storage::archive::validate_zip_path(iccplus_zip, limits) {
+        tracing::warn!("Could not process ICC Plus source ZIP: {e}");
+        return;
+    }
+    let result = (|| -> Result<(), String> {
+        let file = fs::File::open(iccplus_zip).map_err(|e| e.to_string())?;
+        let mut zip = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
+        let names: Vec<String> = (0..zip.len())
+            .filter_map(|i| {
+                zip.by_index(i)
+                    .ok()
+                    .and_then(|f| f.name().ok().map(|n| n.into_owned()))
+            })
+            .filter(|n| !n.ends_with('/'))
+            .collect();
+        // `_detect_root`: the single top-level directory, or "".
+        let mut tops = std::collections::BTreeSet::new();
+        let mut at_root = false;
+        for n in &names {
+            match n.split_once('/') {
+                Some((head, _)) => {
+                    tops.insert(head.to_owned());
+                }
+                None => at_root = true,
+            }
+        }
+        let root = if tops.len() == 1 && !at_root {
+            format!("{}/", tops.iter().next().map_or("", String::as_str))
+        } else {
+            String::new()
+        };
+        let manifest = cyoa_integrations::offline_viewers::load_manifest(viewers_dir);
+        let subviewers = [
+            (
+                "LocalViewer",
+                "ICCPlus_LocalViewer.zip",
+                "ICC Plus LocalViewer (recommended)",
+            ),
+            (
+                "Viewer",
+                "ICCPlus_Viewer_latest.zip",
+                "ICC Plus Viewer (latest)",
+            ),
+        ];
+        for (segment, dest_name, display) in subviewers {
+            let vid = dest_name.trim_end_matches(".zip");
+            if manifest.contains_key(vid) {
+                continue;
+            }
+            let prefix = format!("{root}{segment}/");
+            let matched: Vec<(String, String)> = names
+                .iter()
+                .filter_map(|n| {
+                    n.strip_prefix(&prefix)
+                        .filter(|rel| !rel.is_empty())
+                        .map(|rel| (n.clone(), rel.to_owned()))
+                })
+                .collect();
+            if matched.is_empty() {
+                continue;
+            }
+            let mut out = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+            let options = zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Deflated);
+            for (member, rel) in &matched {
+                let mut entry = zip.by_name(member).map_err(|e| e.to_string())?;
+                let mut data = Vec::new();
+                std::io::Read::read_to_end(&mut entry, &mut data).map_err(|e| e.to_string())?;
+                out.start_file(rel.as_str(), options)
+                    .map_err(|e| e.to_string())?;
+                std::io::Write::write_all(&mut out, &data).map_err(|e| e.to_string())?;
+            }
+            let bytes = out.finish().map_err(|e| e.to_string())?.into_inner();
+            let dest = viewers_dir.join(dest_name);
+            cyoa_storage::atomic_io::atomic_write_bytes(&dest, &bytes)
+                .map_err(|e| e.to_string())?;
+            let opts = RegisterOptions {
+                name: display.into(),
+                viewer_type: "icc_plus".into(),
+                ..RegisterOptions::default()
+            };
+            let _ = register_offline_viewer(viewers_dir, &dest, &opts);
+            tracing::info!(
+                "Extracted ICC Plus subviewer: {dest_name} ({} files)",
+                matched.len()
+            );
+        }
+        Ok(())
+    })();
+    if let Err(e) = result {
+        tracing::warn!("Could not process ICC Plus source ZIP: {e}");
+    }
+}

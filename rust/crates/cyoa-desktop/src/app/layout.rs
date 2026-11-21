@@ -1469,6 +1469,7 @@ impl DownloaderApp {
                 let cfg = cyoa_engine::audio::AudioConfig {
                     enabled: true,
                     explicit_cookies: cookies,
+                    browser_cookies: true,
                 };
                 let (ok, _) = cyoa_engine::audio_retry::retry_audio_groups(
                     &groups,
