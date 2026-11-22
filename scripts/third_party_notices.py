@@ -81,7 +81,8 @@ lines = [
     "Unlicense, CC0, BSL-1.0). Keep their copyright notices in the distribution's license bundle.",
     "- Build the bundle with `python scripts/third_party_notices.py --bundle <dist>/LICENSES`. "
     "For crates that omit license files, matching SPDX text is copied from serde (MIT/Apache-2.0), "
-    "alloc-no-stdlib (BSD-3-Clause), or cssparser (MPL-2.0), with source notes in each crate folder. "
+    "alloc-no-stdlib (BSD-3-Clause), cssparser (MPL-2.0), or error-code (BSL-1.0), "
+    "with source notes in each crate folder. "
     "Packaging fails if no matching license text can be found.",
     "",
 ]
@@ -105,6 +106,8 @@ LICENSE_FALLBACKS = {
     "MIT OR Apache-2.0": ("serde", ("APACHE", "MIT")),
     "BSD-3-Clause": ("alloc-no-stdlib", ()),
     "MPL-2.0": ("cssparser", ()),
+    # The full text matches clipboard-win 5.4.3's upstream LICENSE byte for byte.
+    "BSL-1.0": ("error-code", ()),
 }
 PKGS_BY_NAME = {pkg["name"]: pkg for pkg in pkgs.values()}
 
