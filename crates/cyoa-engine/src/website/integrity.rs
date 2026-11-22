@@ -662,9 +662,15 @@ mod tests {
             external: list("external"),
         };
         append_to_backup_report(tmp.path(), &result).unwrap();
+        let expected = fx["bytes"].as_str().unwrap();
+        let expected = if cfg!(windows) {
+            expected.to_owned()
+        } else {
+            expected.replace("\r\n", "\n")
+        };
         assert_eq!(
             std::fs::read_to_string(tmp.path().join("backup_report.txt")).unwrap(),
-            fx["bytes"].as_str().unwrap()
+            expected
         );
         // Nothing to report: file untouched.
         let empty = tempfile::tempdir().unwrap();

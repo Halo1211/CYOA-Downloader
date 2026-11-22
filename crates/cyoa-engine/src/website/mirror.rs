@@ -2032,7 +2032,13 @@ mod tests {
             let got = crate::reports::os_text(
                 &sink.manifest_text(case["project_url"].as_str().unwrap(), "2026-01-02 03:04:05"),
             );
-            assert_eq!(got, case["bytes"].as_str().unwrap());
+            let expected = case["bytes"].as_str().unwrap();
+            let expected = if cfg!(windows) {
+                expected.to_owned()
+            } else {
+                expected.replace("\r\n", "\n")
+            };
+            assert_eq!(got, expected);
         }
         // The real writer lands inside the root.
         let written = sink.write_manifest("").unwrap();
