@@ -13,7 +13,7 @@ path = "src/main.rs"
 cyoa-engine = { path = "../cyoa-engine" }
 cyoa-core = { path = "../cyoa-core" }
 cyoa-net = { path = "../cyoa-net" }
-eframe = { version = "0.37.0", default-features = false, features = ["default_fonts", "glow", "persistence"] }
+eframe = { version = "0.37.0", default-features = false, features = ["default_fonts", "glow", "persistence", "wayland", "x11"] }
 rfd = "0.18.0"
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros"] }
 tokio-util = "0.7.20"

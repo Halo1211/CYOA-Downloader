@@ -23,6 +23,10 @@ from ..core.atomic_io import interprocess_file_lock
 from ..core.cancellation import _raise_if_cancelled
 from ..core.paths import _safe_archive_join
 
+# SQLite result codes are not exposed as module constants by Python 3.10.
+SQLITE_BUSY = getattr(sqlite3, "SQLITE_BUSY", 5)
+SQLITE_LOCKED = getattr(sqlite3, "SQLITE_LOCKED", 6)
+
 
 def _checkpoint_root() -> Path:
     return Path.home() / ".cyoa_downloader" / "archive-checkpoints"
@@ -50,7 +54,7 @@ def _migrate_checkpoint(folder: str, destination: str) -> None:
 
             def progress(status, _remaining, _total):
                 _raise_if_cancelled()
-                if status in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED) and time.monotonic() > deadline:
+                if status in (SQLITE_BUSY, SQLITE_LOCKED) and time.monotonic() > deadline:
                     raise sqlite3.OperationalError("Legacy checkpoint is busy")
 
             target = sqlite3.connect(temporary)
