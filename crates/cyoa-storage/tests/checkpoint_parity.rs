@@ -1,7 +1,10 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 //! Cross-language parity with `fixtures/export_checkpoint.py` (live Python output).
-use cyoa_storage::archive_checkpoint::{path_for, python_json};
+#[cfg(windows)]
+use cyoa_storage::archive_checkpoint::path_for;
+use cyoa_storage::archive_checkpoint::python_json;
 use serde_json::{Map, Value};
+#[cfg(windows)]
 use std::path::Path;
 
 fn cases() -> Value {
