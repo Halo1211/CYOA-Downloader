@@ -6,6 +6,7 @@ instructions are in [README.md](README.md) and the linked guides.
 ## v1.1.6 — November 22, 2026
 
 ### Rust application (primary)
+- Windows releases provide a standalone desktop `.exe` and a companion third-party license archive; the CLI remains available from source.
 
 - The Rust CLI and desktop app are now the primary application; the runnable Python reference remains under `old/`. Rust crates and parity fixtures are in root `crates/` and `fixtures/` folders.
 - Native Rust CLI and desktop app with Python-identical outputs on the

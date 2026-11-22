@@ -20,7 +20,7 @@ def check(root):
     version = (root / "VERSION").read_text(encoding="utf-8").strip()
     if not re.fullmatch(r"\d+\.\d+\.\d+", version):
         errors.append("VERSION must contain a three-part release version")
-    metadata = ast.parse((root / "cyoa_downloader_app/app_info.py").read_text(encoding="utf-8"))
+    metadata = ast.parse((root / "old/cyoa_downloader_app/app_info.py").read_text(encoding="utf-8"))
     values = {node.targets[0].id: ast.literal_eval(node.value)
               for node in metadata.body if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name)}
     if values.get("_APP_VERSION") != version or values.get("_STABILIZATION_PATCH_ID") != "CYOA-v" + version:

@@ -11,7 +11,8 @@ $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
 
 $Python = (Get-Command python -ErrorAction Stop).Source
-$Version = (Get-Content -LiteralPath (Join-Path $Root "VERSION") -Raw).Trim()
+$RepoRoot = Split-Path -Parent $Root
+$Version = (Get-Content -LiteralPath (Join-Path $RepoRoot "VERSION") -Raw).Trim()
 Write-Host "Building CYOA Downloader v$Version"
 
 function Invoke-Python {

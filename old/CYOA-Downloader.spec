@@ -16,7 +16,7 @@ from tools.bundle_policy import keep_bundle_member
 
 
 ROOT = Path(SPEC).parent
-APP_VERSION = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+APP_VERSION = (ROOT.parent / "VERSION").read_text(encoding="utf-8").strip()
 version_numbers = [int(part) for part in APP_VERSION.split(".")[:4]]
 version_numbers.extend([0] * (4 - len(version_numbers)))
 version_tuple = tuple(version_numbers[:4])

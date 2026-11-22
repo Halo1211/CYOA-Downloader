@@ -1,7 +1,7 @@
 # Windows Rust release
 
-The Rust CLI and desktop application are the primary products. The Python
-reference remains in `old/`; it is not included in the Windows release package.
+The Rust desktop application is the primary product. The runnable Python
+reference remains under `old/` and is not part of the Windows release.
 
 ## Build and check
 
@@ -12,23 +12,21 @@ cargo fmt --all -- --check
 cargo check --all-targets
 cargo clippy --all-targets -- -D warnings
 cargo test
-cargo build --release -p cyoa-cli -p cyoa-desktop
-.\target\release\cyoa-downloader.exe --version
-.\target\release\cyoa-downloader.exe --help
+cargo build --locked --release -p cyoa-desktop
+.\target\release\cyoa-desktop.exe
 ```
 
-The executables are `target/release/cyoa-downloader.exe` and
-`target/release/cyoa-desktop.exe`.
+The release assets are the standalone desktop executable
+`CYOA-Downloader-Windows-x64.exe` and the companion archive
+`CYOA-Downloader-Third-Party-Licenses.zip`. The CLI remains buildable from
+source with `cargo run -p cyoa-cli -- --help`.
 
-## Package
+## GitHub release
 
-The `Rust Windows release` workflow builds the executables, gathers third-party
-license texts, packages both executables into one file,
-`CYOA-Downloader-Windows-x64.zip`, and uploads it as the workflow artifact. A
-version tag such as `v1.1.6` publishes that ZIP as the only GitHub Release
-asset. Manual workflow dispatch builds and uploads the artifact without
-publishing a release.
+Pushing a `v*` tag builds and publishes the Windows desktop `.exe` plus the
+third-party license archive. The executable artifact is uploaded without a ZIP
+wrapper; the license archive is a separate asset. A workflow dispatch builds
+the artifacts without publishing a release. The executable is unsigned; optional
+browser, FFmpeg, JavaScript runtime, and RAR integrations remain external.
 
-The ZIP contains both executables, this project's license, the application
-README and guide, third-party notices, and the full license bundle. Chromium,
-FFmpeg, JavaScript runtimes, and RAR helpers remain optional external tools.
+The license archive contains the generated notices and full license texts, including bundled font licenses. The current notices index is `docs/THIRD_PARTY_NOTICES.md`.

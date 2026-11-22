@@ -1,6 +1,10 @@
 # Migration progress (primary state document)
 
-**Repository layout (2026-11-22):** Rust is the primary application. Run Cargo commands from the repository root; workspace crates are in `crates/`, parity scripts in `scripts/`, and Python reference sources, tests, and tooling in `old/`. The Python reference remains runnable. See `README.md` for current commands.
+**Current status (2026-11-22):** Rust is the primary application; the Python reference remains runnable under `old/`. All numbered migration features have Rust implementations. Remaining behavior differences and checks not performed are listed in `docs/FEATURE_PARITY.md` and `docs/TEST_RESULTS.md`. The only intentionally omitted solver is the optional cloudscraper path. Run Cargo commands from the repository root; crates are in `crates/`. See `README.md` for current commands.
+
+**Repository layout:** parity scripts are in `scripts/`, fixtures in `fixtures/`, and Python reference sources, tests, and tooling are in `old/`.
+
+**Release status (2026-11-22):** GitHub Actions run [44959993152](https://github.com/Halo1211/CYOA-Downloader/actions/runs/44959993152) built the Rust binaries successfully, then failed in `scripts/third_party_notices.py` because `cargo metadata --offline` exited 101; artifact upload and release publication were skipped. The license packaging now uses locked online metadata and includes a companion license archive. This workflow correction has not yet run on GitHub; the existing `v1.1.6` tag still points to the failed run revision.
 
 **Session 9 (cont., 2026-11-22): last gaps ported.** F-045 browser cookies (DL-15), yt-dlp browser-cookie retry, Retry Assets route continuation, bundled-viewer registration. 375 tests pass; fmt and clippy clean. Nothing remains unported except the obsolete cloudscraper solver (FlareSolverr instead).
 
@@ -70,8 +74,8 @@ Rust tests: 59 in storage plus 7 in core, all passing; clippy -D warnings is cle
 Resume procedure: `cargo test --offline`. Regenerate fixtures with `python fixtures/export_*.py`, run from the repo root. Pre-fetch any new crate with `cargo add` + `cargo fetch` before delegating (agents run `--offline`).
 
 ---
-**Earlier state:** Phase 1 audit and Phase 2 architecture proposal complete.
-**Last updated:** 2026-11-18 · Branch `migration/python-to-rust` · No Rust code exists yet.
+**Historical baseline (2026-11-18; superseded by the session 9 status above):** Phase 1 audit and Phase 2 architecture proposal complete.
+
 
 ## Completed
 - Phase 0 environment validation (ENVIRONMENT.md).

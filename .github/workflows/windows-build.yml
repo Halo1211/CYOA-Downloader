@@ -8,12 +8,18 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: rust-windows-release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build-windows:
     runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -22,34 +28,43 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - name: Build Rust applications
-        run: cargo build --release -p cyoa-cli -p cyoa-desktop
-      - name: Verify CLI binaries
+      - name: Build desktop application
+        run: cargo build --locked --release -p cyoa-desktop
+      - name: Verify desktop executable
         shell: pwsh
         run: |
-          .\target\release\cyoa-downloader.exe --version
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          .\target\release\cyoa-downloader.exe --help | Out-Null
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Package applications and licenses
+          $binary = "target/release/cyoa-desktop.exe"
+          if (-not (Test-Path $binary)) { throw "Desktop executable was not produced" }
+          Get-Item $binary | Select-Object Name, Length
+      - name: Prepare release assets
         shell: pwsh
         run: |
-          $package = "dist/CYOA-Downloader-Windows-x64"
-          New-Item -ItemType Directory -Force -Path "$package/LICENSES" | Out-Null
-          Copy-Item target/release/cyoa-downloader.exe, target/release/cyoa-desktop.exe -Destination $package
-          Copy-Item README.md, LICENSE, docs/RUST_GUIDE.md -Destination $package
-          python scripts/third_party_notices.py --bundle "$package/LICENSES"
-          Copy-Item docs/THIRD_PARTY_NOTICES.md -Destination $package
-          Compress-Archive -Path "$package/*" -DestinationPath dist/CYOA-Downloader-Windows-x64.zip -Force
-      - name: Upload package artifact
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item target/release/cyoa-desktop.exe dist/CYOA-Downloader-Windows-x64.exe -Force
+          $licenses = "dist/CYOA-Downloader-Third-Party-Licenses"
+          python scripts/third_party_notices.py --bundle $licenses
+          Copy-Item docs/THIRD_PARTY_NOTICES.md $licenses
+          Compress-Archive -Path "$licenses/*" -DestinationPath dist/CYOA-Downloader-Third-Party-Licenses.zip -Force
+      - name: Upload single executable artifact
         uses: actions/upload-artifact@v7
         with:
-          name: CYOA-Downloader-Windows-x64
-          path: dist/CYOA-Downloader-Windows-x64.zip
+          path: dist/CYOA-Downloader-Windows-x64.exe
+          archive: false
+          if-no-files-found: error
+      - name: Upload third-party licenses artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: CYOA-Downloader-Third-Party-Licenses
+          path: dist/CYOA-Downloader-Third-Party-Licenses.zip
           if-no-files-found: error
       - name: Publish GitHub release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.event_name == 'push' && github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: dist/CYOA-Downloader-Windows-x64.zip
+          body: "Download the standalone Windows desktop executable and the companion third-party license bundle."
+          fail_on_unmatched_files: true
+          overwrite_files: true
+          files: |
+            dist/CYOA-Downloader-Windows-x64.exe
+            dist/CYOA-Downloader-Third-Party-Licenses.zip

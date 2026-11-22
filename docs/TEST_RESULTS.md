@@ -68,3 +68,7 @@ During a settings export/import differential run, a throwaway test profile conta
 | Other CLI features | self-test, dependency-check, verify, export/import settings, flaresolverr-test, itch-test | Pass; export safer than Python |
 
 Gates on the final tree: `cargo fmt --all -- --check`, `cargo clippy --all-targets --offline -- -D warnings`, `cargo test --offline` (369 passed). GUI suites: `gui_e2e.sh`, `ICC_GUI=1 icc_parity.py` (10 OK), `ICC_GUI=1 cyoap_parity.py` (OK), `e2e_parity.sh`, `viewer_parity.sh`.
+
+## 2026-11-22 (Windows release workflow)
+- GitHub Actions run 44959993152 on tag `v1.1.6`: Rust release compilation and CLI verification succeeded. License packaging failed when `scripts/third_party_notices.py` ran `cargo metadata --offline` (exit 101); the captured exception omitted Cargo stderr. Artifact upload and release publication were skipped.
+- Local follow-up edits replace offline metadata with locked metadata, retain full third-party/font license texts as a companion archive, and scope publishing to tag pushes. These edits have not yet run on GitHub. The existing tag still references the failed workflow revision.

@@ -1,4 +1,4 @@
-"""Generate docs/THIRD_PARTY_NOTICES.md from `cargo metadata` (offline).
+"""Generate docs/THIRD_PARTY_NOTICES.md from `cargo metadata --locked`.
 
 Lists every crate in the normal (non-dev, non-build) dependency graph of the
 workspace binaries for the host target, with its declared SPDX license.
@@ -21,9 +21,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 meta = json.loads(
     subprocess.run(
-        ["cargo", "metadata", "--format-version", "1", "--offline",
+        ["cargo", "metadata", "--format-version", "1", "--locked",
          "--filter-platform", "x86_64-pc-windows-msvc"],
-        cwd=ROOT, capture_output=True, check=True,
+        cwd=ROOT, stdout=subprocess.PIPE, check=True,
     ).stdout
 )
 pkgs = {p["id"]: p for p in meta["packages"]}

@@ -28,7 +28,7 @@
 
 ## Download
 
-Download the single Windows package, [CYOA-Downloader-Windows-x64.zip](https://github.com/Halo1211/CYOA-Downloader/releases/latest/download/CYOA-Downloader-Windows-x64.zip). It contains the Rust CLI, desktop app, guide, notices, and dependency licenses.
+Download the standalone Rust desktop app from [GitHub Releases](https://github.com/Halo1211/CYOA-Downloader/releases). A companion third-party license archive is provided with each Rust release. The Rust CLI remains available from source.
 
 ## Features
 
@@ -44,9 +44,9 @@ Download the single Windows package, [CYOA-Downloader-Windows-x64.zip](https://g
 
 ### Windows executable
 
-1. Download `CYOA-Downloader-Windows-x64.zip` from
-   [GitHub Releases](https://github.com/Halo1211/CYOA-Downloader/releases/latest).
-2. Extract it and run `cyoa-desktop.exe`.
+1. Download the standalone desktop executable and companion third-party license archive from
+   [GitHub Releases](https://github.com/Halo1211/CYOA-Downloader/releases).
+2. Run the downloaded executable.
 3. Open **Diagnostics** and check the requirements for your chosen features.
 4. Paste a project URL, choose an output mode, and select **Download All**.
 
@@ -242,19 +242,8 @@ storage, previews, and integrations. To run optional live checks, set
 installed Playwright Chromium. Run a focused group with `pytest -k`, such as
 `python -m pytest -q old/tests -k discord_attachments`.
 
-Build a Windows executable and ZIP with:
-
-```powershell
-.\tools\build_windows.ps1
-```
-
-The output is `dist\CYOA-Downloader-Windows-x64.zip`.
-
-For faster startup without unpacking the runtime on every launch, build a portable
-folder with `.\tools\build_windows.ps1 -Layout onedir`. The ZIP is written to
-`dist\portable\CYOA-Downloader-Windows-x64-portable.zip`. Extract the entire
-`CYOA Downloader` folder and keep `_internal` beside the executable. Both layouts
-include the same application modules and features.
+The Python reference can still be packaged from `old/` when needed; current
+Windows releases provide the standalone Rust desktop executable.
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes and
 [CHANGELOG.md](CHANGELOG.md) for release history. CYOA Downloader is available
