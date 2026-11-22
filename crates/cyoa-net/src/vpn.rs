@@ -181,6 +181,7 @@ impl VpnGuard {
     }
 }
 
+#[cfg(any(windows, test))]
 /// Parse `name<TAB>description` lines (one per up interface).
 fn parse_tab_lines(text: &str) -> Vec<NetInterface> {
     text.lines()
