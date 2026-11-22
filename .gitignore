@@ -55,6 +55,7 @@ benchmark-results/
 # Archives generated locally
 *.zip
 !examples/*.zip
+!fixtures/storage/zips/*.zip
 
 # Local settings and secrets
 settings.json

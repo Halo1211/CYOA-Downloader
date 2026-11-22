@@ -4,7 +4,7 @@
 
 ## Release CI follow-up (2026-11-22)
 
-The offline viewer output-tree fixture compares Rust and Python results, masking only generated timestamps and normalizing LF/CRLF differences in text reports. The remaining CI failure was this cross-platform line-ending mismatch; full Windows workspace tests pass after normalizing it.
+The offline viewer output-tree fixture compares Rust and Python results, masking only generated timestamps and normalizing LF/CRLF differences in text reports. The remaining CI failure was this cross-platform line-ending mismatch; full Windows workspace tests pass after normalizing it. The next Linux CI run also exposed that generated archive-verdict ZIP fixtures were ignored; the baseline ZIP files are now tracked.
 
 ## Status update (2026-11-18 ~05:45) — this section overrides the row statuses below
 
