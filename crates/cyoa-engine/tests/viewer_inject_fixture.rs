@@ -79,11 +79,11 @@ fn normalise(path: &str, bytes: &[u8]) -> Vec<u8> {
         return bytes.to_vec();
     }
     String::from_utf8_lossy(bytes)
+        .replace("\r\n", "\n")
         .split_inclusive('\n')
         .map(|l| {
             if l.starts_with("Generated : ") {
-                let end = if l.ends_with("\r\n") { "\r\n" } else { "\n" };
-                format!("Generated : <ts>{end}")
+                "Generated : <ts>\n".to_owned()
             } else {
                 l.to_owned()
             }

@@ -2,6 +2,10 @@
 
 > **Status 2026-11-22.** All numbered feature rows below have a Rust implementation. The final porting items recorded this date are F-045 browser cookies, yt-dlp browser-cookie retry, route-archive continuation, and bundled-viewer registration. The cloudscraper solver remains intentionally omitted because Python also falls back to a plain request when that optional package is absent; FlareSolverr is supported. Rows and later sections record behavior differences and checks still not performed. The first status table is a historical snapshot; use the numbered F-rows and `docs/TEST_RESULTS.md` for current feature coverage.
 
+## Release CI follow-up (2026-11-22)
+
+The offline viewer output-tree fixture compares Rust and Python results, masking only generated timestamps and normalizing LF/CRLF differences in text reports. The remaining CI failure was this cross-platform line-ending mismatch; full Windows workspace tests pass after normalizing it.
+
 ## Status update (2026-11-18 ~05:45) — this section overrides the row statuses below
 
 | ID | Status | Evidence |
