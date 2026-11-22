@@ -1,5 +1,7 @@
 #![allow(clippy::unwrap_used)]
-use cyoa_core::paths::{copytree_merge_safe, safe_archive_join, safe_join};
+#[cfg(windows)]
+use cyoa_core::paths::copytree_merge_safe;
+use cyoa_core::paths::{safe_archive_join, safe_join};
 use std::time::{SystemTime, UNIX_EPOCH};
 fn temp_root(label: &str) -> std::path::PathBuf {
     let tick = SystemTime::now()
