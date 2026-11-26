@@ -32,6 +32,10 @@ pub const MAX_DEPENDENCY_DEPTH: usize = 64;
 pub const DEFAULT_MAX_REQUESTS: usize = 100_000;
 pub const DEFAULT_MAX_TOTAL_BYTES: u64 = 20 * 1024 * 1024 * 1024;
 
+// Store redirect destinations alongside link bases in the archive manifest.
+// The reserved origin keeps these keys distinct from ordinary page URLs.
+const ROUTE_REDIRECT_PREFIX: &str = "https://cyoa.invalid/route-redirect/";
+
 /// Join an allocated `/`-separated relative path under `root` WITHOUT
 /// re-decoding it (the allocator already sanitized it, like Python's
 /// `_safe_join` result being written verbatim). Rejects traversal components
@@ -451,21 +455,22 @@ impl MirrorSink {
         alt: &str,
         full: &mut String,
         keys: (&str, &str),
-    ) -> Result<Option<Fetched>, Option<String>> {
+    ) -> Result<Option<Fetched>, String> {
         if alt.is_empty() || alt == full {
             return Ok(None);
         }
         if let Some(Entry::Done(cached)) = self.entry(alt).cloned() {
-            // Also record a cached failure: leaving the keys `InProgress` would
-            // stop a later captured browser response from repairing them.
-            self.set_entry(keys.0, Entry::Done(cached.clone()));
-            self.set_entry(keys.1, Entry::Done(cached.clone()));
-            return Err(cached);
+            let Some(local) = cached else {
+                // The next fallback can still succeed after this cached miss.
+                return Ok(None);
+            };
+            self.failed.retain(|(url, _)| url.as_str() != full.as_str());
+            self.complete(&[keys.0, keys.1], Some(local.clone()));
+            return Err(local);
         }
         let fetched = self.fetch(alt);
         if fetched.is_some() {
-            let old = full.clone();
-            self.failed.retain(|(u, _)| *u != old);
+            self.failed.retain(|(url, _)| url.as_str() != full.as_str());
             *full = alt.to_owned();
         }
         Ok(fetched)
@@ -565,7 +570,7 @@ impl MirrorSink {
                 };
                 match self.try_fallback(&alt, &mut full, keys_ref) {
                     Ok(r) => response = r,
-                    Err(cached) => return cached,
+                    Err(local) => return Some(local),
                 }
             }
         }
@@ -591,7 +596,7 @@ impl MirrorSink {
                 );
                 match self.try_fallback(&alt, &mut full, keys_ref) {
                     Ok(r) => response = r,
-                    Err(cached) => return cached,
+                    Err(local) => return Some(local),
                 }
             }
         }
@@ -718,6 +723,14 @@ impl MirrorSink {
     /// Classic mirror entry: fetch (or accept) the start page and localize it
     /// to `index.html`.
     pub fn mirror_classic(&mut self, html_text: Option<String>) -> Result<(), String> {
+        self.mirror_classic_with_headless(html_text, Self::fetch_headless_final)
+    }
+
+    fn mirror_classic_with_headless(
+        &mut self,
+        html_text: Option<String>,
+        fetch_headless: impl FnOnce(&mut Self, &str) -> Option<(Vec<u8>, String)>,
+    ) -> Result<(), String> {
         let start = self.start_url.clone();
         let mut url = start.clone();
         let text = match html_text {
@@ -734,12 +747,16 @@ impl MirrorSink {
                     // page through the headless browser.
                     let headless =
                         if matches!(self.archive_strategy.as_str(), "smart" | "browser" | "auto") {
-                            self.fetch_headless(&start)
+                            fetch_headless(self, &start)
                         } else {
                             None
                         };
                     headless
-                        .map(|raw| cyoa_parse::project::try_decode_bytes(&raw, ""))
+                        .map(|(raw, final_url)| {
+                            url = normalize_remote_url(&final_url, Some(&start), &start)
+                                .unwrap_or_else(|| start.clone());
+                            cyoa_parse::project::try_decode_bytes(&raw, "")
+                        })
                         .filter(|t| !t.is_empty())
                         .ok_or_else(|| format!("Could not download entry HTML: {start}"))?
                 }
@@ -1048,7 +1065,7 @@ impl MirrorSink {
     /// Python `RouteCrawler.crawl(seed_urls, existing_pages)`: `existing`
     /// pages are kept (not refetched) and count toward `max_pages`; `seeds`
     /// (default: the start URL) are crawled from depth 0. `link_bases` restores
-    /// saved per-page link bases (`route_link_bases`).
+    /// saved per-page link bases and redirect destinations (`route_link_bases`).
     pub fn crawl_routes_from(
         &mut self,
         seeds: Option<Vec<String>>,
@@ -1058,24 +1075,82 @@ impl MirrorSink {
         max_depth: usize,
     ) -> RouteCrawl {
         use super::routes::RouteCrawler;
+        use percent_encoding::{NON_ALPHANUMERIC, percent_decode_str, utf8_percent_encode};
         let mut crawler = RouteCrawler::new(&self.start_url);
         let mut out = RouteCrawl::default();
         let start = crawler.start_url.clone();
         // Restored bases stay in the export order so a later resume keeps
         // them even when their pages are not re-visited this time.
         let mut restored_order: Vec<String> = Vec::new();
+        let mut redirects = HashMap::new();
         for (page, base) in link_bases {
+            if let Some(encoded) = page.strip_prefix(ROUTE_REDIRECT_PREFIX) {
+                if let Ok(requested) = percent_decode_str(encoded).decode_utf8() {
+                    redirects.insert(requested.into_owned(), base);
+                }
+                continue;
+            }
             restored_order.push(page.clone());
             crawler.page_link_bases.insert(page, base);
         }
+        for (u, l) in &existing {
+            crawler.reserve_existing(u, l);
+        }
         let mut queued: std::collections::HashSet<String> =
-            existing.iter().map(|(u, _)| u.clone()).collect();
+            crawler.output_paths.keys().cloned().collect();
+        let seeds: Vec<_> = seeds
+            .unwrap_or_else(|| vec![start.clone()])
+            .into_iter()
+            .map(|seed| RouteCrawler::canonicalize(&seed))
+            .collect();
+        if redirects.is_empty() {
+            // An HTML base can be shared by unrelated pages. For legacy
+            // redirects, require the base to identify an unseeded alias.
+            let seed_urls: std::collections::HashSet<_> =
+                seeds.iter().map(String::as_str).collect();
+            let mut pages_by_base = HashMap::<_, Vec<_>>::new();
+            for (page, base) in &crawler.page_link_bases {
+                pages_by_base.entry(base).or_default().push(page);
+            }
+            for (base, pages) in pages_by_base {
+                if let [a, b] = pages.as_slice() {
+                    let (requested, effective) = match (queued.contains(*a), queued.contains(*b)) {
+                        (true, false) => (a, b),
+                        (false, true) => (b, a),
+                        _ => continue,
+                    };
+                    if seed_urls.contains(effective.as_str())
+                        || RouteCrawler::canonicalize(base) != effective.as_str()
+                    {
+                        continue;
+                    }
+                    redirects.insert((*requested).clone(), (*effective).clone());
+                }
+            }
+        }
+        redirects.retain(|requested, effective| {
+            *effective = RouteCrawler::canonicalize(effective);
+            queued.contains(requested)
+                && requested.as_str() != effective.as_str()
+                && crawler.is_allowed(effective)
+        });
+        if !redirects.is_empty() {
+            let targets: std::collections::HashSet<_> = redirects.values().collect();
+            for (url, _) in &existing {
+                let requested = RouteCrawler::canonicalize(url);
+                if let Some(effective) = redirects.get(&requested) {
+                    crawler.response_urls.insert(requested, effective.clone());
+                } else if targets.contains(&requested) {
+                    // Preserve crawl order when a target also has its own page.
+                    crawler.response_urls.insert(requested.clone(), requested);
+                }
+            }
+            queued.extend(targets.into_iter().cloned());
+        }
         out.pages = existing;
-        let seeds = seeds.unwrap_or_else(|| vec![start.clone()]);
         let mut queue: std::collections::VecDeque<(String, usize)> =
             std::collections::VecDeque::new();
         for seed in seeds {
-            let seed = RouteCrawler::canonicalize(&seed);
             if !seed.is_empty() && crawler.is_allowed(&seed) && queued.insert(seed.clone()) {
                 queue.push_back((seed, 0));
             }
@@ -1095,18 +1170,7 @@ impl MirrorSink {
                 None
             };
             let reused = reuse.is_some();
-            let fetched = match reuse {
-                Some(src) => {
-                    crawler.response_urls.insert(url.clone(), src.0.clone());
-                    Ok(Some(src))
-                }
-                None => self.fetch_route_html(&url).map(|r| {
-                    r.map(|(effective, html)| {
-                        crawler.response_urls.insert(url.clone(), effective.clone());
-                        (effective, html)
-                    })
-                }),
-            };
+            let fetched = reuse.map_or_else(|| self.fetch_route_html(&url), |src| Ok(Some(src)));
             let (page_url, html) = match fetched {
                 // Security divergence from Python (Sol review): a redirect
                 // leaving the route scope is not archived or crawled.
@@ -1134,6 +1198,7 @@ impl MirrorSink {
             out.pages.push((url.clone(), local));
             let links = crawler.links_from(&html, &page_url);
             let page_key = RouteCrawler::canonicalize(&page_url);
+            crawler.response_urls.insert(url.clone(), page_key.clone());
             let base = crawler
                 .page_link_bases
                 .get(&page_key)
@@ -1171,6 +1236,19 @@ impl MirrorSink {
             .into_iter()
             .filter_map(|k| crawler.page_link_bases.get(&k).map(|v| (k, v.clone())))
             .collect();
+        out.link_bases.extend(
+            crawler
+                .response_urls
+                .iter()
+                .filter(|(requested, effective)| requested != effective)
+                .map(|(requested, effective)| {
+                    let encoded = utf8_percent_encode(requested, NON_ALPHANUMERIC);
+                    (
+                        format!("{ROUTE_REDIRECT_PREFIX}{encoded}"),
+                        effective.clone(),
+                    )
+                }),
+        );
         self.entry_source = None;
         tracing::info!(
             "Archive route crawl: {} page(s), {} failed",
@@ -1246,17 +1324,6 @@ impl MirrorSink {
         let cancel = self.cancel.clone();
         self.handle
             .block_on(transport.fetch_headless_final(url, false, &cancel))
-    }
-
-    /// `_fetch_headless(url, browser_session=transport)`.
-    fn fetch_headless(&mut self, url: &str) -> Option<Vec<u8>> {
-        if self.cancel.is_cancelled() {
-            return None;
-        }
-        let transport = self.browser_transport();
-        let cancel = self.cancel.clone();
-        self.handle
-            .block_on(transport.fetch_headless(url, false, &cancel))
     }
 
     /// Close the browser for good (end of the website stages; must run on a
@@ -1616,6 +1683,7 @@ impl MirrorSink {
                 // an already-archived file such as the entry page.
                 let lower = alias.to_ascii_lowercase();
                 if alias != "project.json"
+                    && lower != "archive_manifest.json"
                     && !self.source_for_local.contains_key(&alias)
                     && !lower.ends_with(".html")
                     && !lower.ends_with(".htm")
@@ -2078,12 +2146,260 @@ mod tests {
     async fn serve(server: &MockServer, p: &str, ct: &str, body: &str) {
         Mock::given(path(p))
             .respond_with(
-                ResponseTemplate::new(200)
-                    .insert_header("Content-Type", ct)
-                    .set_body_string(body),
+                // `set_body_string` forces text/plain; `set_body_raw` keeps `ct`.
+                ResponseTemplate::new(200).set_body_raw(body.as_bytes().to_vec(), ct),
             )
             .mount(server)
             .await;
+    }
+
+    fn test_sink(root: &Path, start: &str) -> MirrorSink {
+        let client = FetchClient::new(ClientConfig {
+            policy: DestinationPolicy {
+                origin: Some(Url::parse(start).unwrap()),
+                allow_internal: false,
+            },
+            ..ClientConfig::default()
+        })
+        .unwrap();
+        MirrorSink::new(
+            root.to_path_buf(),
+            start,
+            start,
+            client,
+            tokio::runtime::Handle::current(),
+            CancellationToken::new(),
+            1 << 20,
+        )
+    }
+
+    #[tokio::test]
+    async fn project_alias_preserves_archive_manifest() {
+        let tmp = tempfile::tempdir().unwrap();
+        let manifest = tmp.path().join("archive_manifest.json");
+        let original = r#"{"format":1,"pages":[]}"#;
+        std::fs::write(&manifest, original).unwrap();
+        let mut sink = test_sink(tmp.path(), "https://story.test/");
+        sink.write_project_payload(
+            "https://story.test/data/archive_manifest.json",
+            r#"{"rows":[]}"#,
+        )
+        .unwrap();
+        assert_eq!(std::fs::read_to_string(manifest).unwrap(), original);
+        assert!(sink.project_aliases.is_empty());
+        assert!(tmp.path().join("project.json").is_file());
+    }
+
+    #[tokio::test]
+    async fn cached_404_allows_next_asset_fallback() {
+        let server = MockServer::start().await;
+        Mock::given(path("/game/assets/p.png"))
+            .respond_with(ResponseTemplate::new(404))
+            .expect(1)
+            .mount(&server)
+            .await;
+        serve(&server, "/game/chapter/assets/p.png", "image/png", "PNG").await;
+        let origin = server.uri();
+        tokio::task::spawn_blocking(move || {
+            let tmp = tempfile::tempdir().unwrap();
+            let mut sink = test_sink(tmp.path(), &format!("{origin}/game/chapter/"));
+            assert!(
+                sink.download(&format!("{origin}/game/assets/p.png"), "img", None)
+                    .is_none()
+            );
+            let local = sink
+                .download("../assets/p.png", "img", Some(&format!("{origin}/sub/")))
+                .expect("fallback under the story directory");
+            assert_eq!(std::fs::read(tmp.path().join(local)).unwrap(), b"PNG");
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn cached_fallback_success_clears_reported_failure() {
+        let server = MockServer::start().await;
+        serve(&server, "/game/p.png", "image/png", "PNG").await;
+        let origin = server.uri();
+        tokio::task::spawn_blocking(move || {
+            let tmp = tempfile::tempdir().unwrap();
+            let mut sink = test_sink(tmp.path(), &format!("{origin}/game/"));
+            let cached = sink
+                .download(&format!("{origin}/game/p.png"), "img", None)
+                .unwrap();
+            assert_eq!(
+                sink.download("p.png", "img", Some(&format!("{origin}/sub/"))),
+                Some(cached)
+            );
+            let report = sink.manifest_text("", "");
+            assert!(!report.contains("/sub/p.png"), "{report}");
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn headless_entry_uses_redirect_url_as_base() {
+        let server = MockServer::start().await;
+        serve(&server, "/story/chapter/style.css", "text/css", "p{}").await;
+        let start = format!("{}/story/", server.uri());
+        let effective = format!("{start}chapter/");
+        tokio::task::spawn_blocking(move || {
+            let tmp = tempfile::tempdir().unwrap();
+            let mut sink = test_sink(tmp.path(), &start);
+            sink.archive_strategy = "smart".into();
+            sink.mirror_classic_with_headless(None, |_, requested| {
+                assert_eq!(requested, start);
+                Some((
+                    b"<link rel=stylesheet href=style.css>".to_vec(),
+                    effective.clone(),
+                ))
+            })
+            .unwrap();
+            assert_eq!(sink.entry_source.as_ref().unwrap().0, effective);
+            assert!(
+                sink.success
+                    .iter()
+                    .any(|(url, _, _)| { url == &format!("{effective}style.css") })
+            );
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn resumed_crawl_reuses_redirect_alias_with_distinct_html_base() {
+        let server = MockServer::start().await;
+        Mock::given(path("/story/old/"))
+            .respond_with(ResponseTemplate::new(302).insert_header("Location", "/story/chapter/"))
+            .mount(&server)
+            .await;
+        Mock::given(path("/story/chapter/"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_raw("<base href='/story/assets/'><p>Chapter</p>", "text/html"),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(path("/story/next/"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_raw("<a href='/story/chapter/'>Chapter</a>", "text/html"),
+            )
+            .mount(&server)
+            .await;
+        let start = format!("{}/story/", server.uri());
+        tokio::task::spawn_blocking(move || {
+            use super::super::routes::RouteCrawler;
+            let tmp = tempfile::tempdir().unwrap();
+            let old = format!("{start}old/");
+            let effective = format!("{start}chapter/");
+            let next = format!("{start}next/");
+            let first = test_sink(tmp.path(), &start).crawl_routes_from(
+                Some(vec![old.clone()]),
+                vec![],
+                vec![],
+                1,
+                1,
+            );
+            assert_eq!(
+                first.pages.first().map(|(url, _)| url),
+                Some(&old),
+                "{first:?}"
+            );
+            // Recovery reads the bases from a JSON object and canonicalizes each key.
+            let bases: std::collections::BTreeMap<_, _> = first.link_bases.into_iter().collect();
+            let bases = bases
+                .into_iter()
+                .map(|(url, base)| (RouteCrawler::canonicalize(&url), base))
+                .collect();
+            let resumed = test_sink(tmp.path(), &start).crawl_routes_from(
+                Some(vec![effective, next.clone()]),
+                first.pages,
+                bases,
+                2,
+                1,
+            );
+            assert_eq!(resumed.pages[1].0, next);
+            let html = std::fs::read_to_string(tmp.path().join(&resumed.pages[1].1)).unwrap();
+            assert!(html.contains("href=\"../old/index.html\""), "{html}");
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn resumed_crawl_restores_legacy_redirect_alias() {
+        let tmp = tempfile::tempdir().unwrap();
+        let start = "https://story.test/story/";
+        let old = format!("{start}old/");
+        let effective = format!("{start}chapter/");
+        let mut sink = test_sink(tmp.path(), start);
+        sink.write("index.html", b"<a href='chapter/'>Chapter</a>")
+            .unwrap();
+        sink.write("routes/old/index.html", b"<p>Chapter</p>")
+            .unwrap();
+        sink.crawl_routes_from(
+            Some(vec![]),
+            vec![
+                (start.into(), "index.html".into()),
+                (old.clone(), "routes/old/index.html".into()),
+            ],
+            vec![(old, effective.clone()), (effective.clone(), effective)],
+            2,
+            1,
+        );
+        let html = std::fs::read_to_string(tmp.path().join("index.html")).unwrap();
+        assert!(html.contains("href=\"routes/old/index.html\""), "{html}");
+    }
+
+    #[tokio::test]
+    async fn resumed_crawl_refetches_missing_pages_with_shared_legacy_base() {
+        let server = MockServer::start().await;
+        serve(&server, "/story/b/", "text/html", "<p>Page B</p>").await;
+        let start = format!("{}/story/", server.uri());
+        tokio::task::spawn_blocking(move || {
+            let a = format!("{start}a/");
+            let b = format!("{start}b/");
+            for base in [format!("{start}shared/"), b.clone()] {
+                let tmp = tempfile::tempdir().unwrap();
+                let mut sink = test_sink(tmp.path(), &start);
+                sink.write("routes/a/index.html", b"<p>Page A</p>").unwrap();
+                let resumed = sink.crawl_routes_from(
+                    Some(vec![b.clone()]),
+                    vec![(a.clone(), "routes/a/index.html".into())],
+                    vec![(a.clone(), base.clone()), (b.clone(), base.clone())],
+                    2,
+                    1,
+                );
+                assert_eq!(
+                    resumed.pages.get(1).map(|(url, _)| url),
+                    Some(&b),
+                    "{base}: {resumed:?}"
+                );
+            }
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn resumed_crawl_ignores_legacy_alias_when_base_differs_from_both_pages() {
+        let tmp = tempfile::tempdir().unwrap();
+        let start = "https://story.test/story/";
+        let a = format!("{start}a/");
+        let b = format!("{start}b/");
+        let base = format!("{start}shared/");
+        let mut sink = test_sink(tmp.path(), start);
+        sink.write("routes/a/index.html", b"<p>Page A</p>").unwrap();
+        let resumed = sink.crawl_routes_from(
+            Some(vec![]),
+            vec![(a.clone(), "routes/a/index.html".into())],
+            vec![(a, base.clone()), (b, base)],
+            2,
+            1,
+        );
+        assert_eq!(resumed.link_bases.len(), 2, "{resumed:?}");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

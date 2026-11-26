@@ -2,10 +2,8 @@
 //! failed URLs recorded in `failed_assets.txt` / `backup_report.txt`,
 //! re-localize text assets, mark recovered rows and rewrite the failure log.
 //!
-//! Not ported yet: continuing route archives (`resume_existing_archive` for
-//! manifests with `route_failures` / `route_limit_reached` and interrupted
-//! checkpoints). Such folders are reported by `has_website_recovery_work`
-//! and counted in `archives_pending`.
+//! Manual recovery also continues route archives with failures, pending
+//! routes, or interrupted checkpoints.
 
 use crate::website::AssetSink;
 use std::{
@@ -282,7 +280,7 @@ struct Group {
     reports: Vec<PathBuf>,
 }
 
-/// Python `retry_website_assets` (asset part; route continuation pending).
+/// Python `retry_website_assets`, including route continuation.
 pub fn retry_website_assets(
     root: &Path,
     client: &cyoa_net::client::FetchClient,
@@ -395,6 +393,14 @@ fn retry_website_assets_with(
         if !recovered.is_empty() {
             sink.localize_existing_text_assets();
         }
+        // A recovered stylesheet (or the localize pass above) can pull in new
+        // dependencies that fail (`@import`); keep those retryable.
+        for (u, e) in &sink.failed {
+            if !recovered.contains(u) && !remaining.iter().any(|(r, _)| r == u) {
+                summary.failed_assets += 1;
+                remaining.push((u.clone(), e.clone()));
+            }
+        }
         for report in &group.reports {
             mark_recovered_backup_urls(report, &recovered);
         }
@@ -431,6 +437,7 @@ fn retry_website_assets_with(
     if !resume_routes {
         return Ok(summary);
     }
+    let max_pages = current_max_pages(&cyoa_storage::settings::default_path());
     for m in manifests(&base) {
         if cancel.is_cancelled() {
             break;
@@ -439,7 +446,9 @@ fn retry_website_assets_with(
             continue;
         };
         let Some(folder) = m.parent() else { continue };
-        match resume_existing_archive(folder, &start_url, client, handle, cancel) {
+        match resume_existing_archive_with_max_pages(
+            folder, &start_url, client, handle, cancel, max_pages,
+        ) {
             Ok((before, after)) => {
                 summary.archives_resumed += 1;
                 summary.new_routes += after.saturating_sub(before);
@@ -451,7 +460,9 @@ fn retry_website_assets_with(
         if cancel.is_cancelled() {
             break;
         }
-        match resume_existing_archive(&folder, &source, client, handle, cancel) {
+        match resume_existing_archive_with_max_pages(
+            &folder, &source, client, handle, cancel, max_pages,
+        ) {
             Ok((_, after)) => {
                 summary.archives_resumed += 1;
                 summary.new_routes += after;
@@ -463,6 +474,59 @@ fn retry_website_assets_with(
         }
     }
     Ok(summary)
+}
+
+fn current_max_pages(settings_path: &Path) -> Option<usize> {
+    use serde_json::Value;
+
+    let text = read_lossy(settings_path)?;
+    let root: Value = serde_json::from_str(text.trim_start_matches('\u{feff}')).ok()?;
+    let settings = root
+        .get("settings")
+        .and_then(Value::as_object)
+        .or_else(|| root.as_object())?;
+    settings.get("archive_max_pages")?;
+    usize::try_from(crate::icc::ArchivePolicy::from_settings(settings).max_pages).ok()
+}
+
+fn remove_local_route_links(
+    node: &mut crate::website::html::Element,
+    local_page: &url::Url,
+    folder: &Path,
+) {
+    if node.name == "a"
+        && (node.attr("data-cyoa-local-route").is_some()
+            || node.attr("href").is_some_and(|href| {
+                let href = href.trim();
+                if href.is_empty()
+                    || href.starts_with(['/', '\\', '#', '?'])
+                    || url::Url::parse(href).is_ok()
+                {
+                    return false;
+                }
+                let Ok(target) = local_page.join(href) else {
+                    return false;
+                };
+                let path = target.path().trim_start_matches('/');
+                if !path.starts_with("routes/") {
+                    return false;
+                }
+                // A remote relative link can also resolve under routes/; only a
+                // link whose target was actually saved is local.
+                percent_encoding::percent_decode_str(path)
+                    .decode_utf8()
+                    .ok()
+                    .and_then(|p| crate::website::mirror::contained_path(folder, &p))
+                    .is_some_and(|p| p.is_file() || p.join("index.html").is_file())
+            }))
+    {
+        node.remove_attr("href");
+    }
+    for child in &mut node.children {
+        if let crate::website::html::Node::Element(child) = child {
+            remove_local_route_links(child, local_page, folder);
+        }
+    }
 }
 
 /// Python `resume_existing_archive`: continue only the unresolved same-story
@@ -481,6 +545,18 @@ pub fn resume_existing_archive(
     handle: &tokio::runtime::Handle,
     cancel: &tokio_util::sync::CancellationToken,
 ) -> Result<(usize, usize), String> {
+    let max_pages = current_max_pages(&cyoa_storage::settings::default_path());
+    resume_existing_archive_with_max_pages(folder, start_url, client, handle, cancel, max_pages)
+}
+
+fn resume_existing_archive_with_max_pages(
+    folder: &Path,
+    start_url: &str,
+    client: &cyoa_net::client::FetchClient,
+    handle: &tokio::runtime::Handle,
+    cancel: &tokio_util::sync::CancellationToken,
+    current_max_pages: Option<usize>,
+) -> Result<(usize, usize), String> {
     use crate::website::routes::RouteCrawler;
     use serde_json::{Value, json};
     let manifest_path = folder.join("archive_manifest.json");
@@ -492,14 +568,14 @@ pub fn resume_existing_archive(
         })
         .unwrap_or_default();
     let policy = old.get("policy").cloned().unwrap_or(Value::Null);
-    let int = |k: &str, d: i64| {
+    let max_pages = current_max_pages.unwrap_or_else(|| {
         policy
-            .get(k)
+            .get("max_pages")
             .and_then(Value::as_i64)
             .filter(|n| *n > 0)
-            .unwrap_or(d)
-    };
-    let max_pages = usize::try_from(int("max_pages", 300)).unwrap_or(300);
+            .and_then(|n| usize::try_from(n).ok())
+            .unwrap_or(300)
+    });
     let max_depth = usize::try_from(
         policy
             .get("max_depth")
@@ -574,6 +650,7 @@ pub fn resume_existing_archive(
     }
     let known: std::collections::HashSet<String> =
         existing.iter().map(|(u, _)| u.clone()).collect();
+    let local_root = url::Url::parse("https://archive.invalid/").map_err(|e| e.to_string())?;
     let mut seeds: BTreeSet<String> = BTreeSet::new();
     for u in &pending {
         let c = RouteCrawler::canonicalize(u);
@@ -585,15 +662,22 @@ pub fn resume_existing_archive(
         let Some(path) = crate::website::mirror::contained_path(folder, local) else {
             continue;
         };
-        let Some(html) = read_lossy(&path) else {
+        let Some(mut doc) =
+            read_lossy(&path).and_then(|html| crate::website::html::parse(&html).ok())
+        else {
             continue;
         };
+        let mut local_page = local_root.clone();
+        if let Ok(mut segments) = local_page.path_segments_mut() {
+            segments.extend(local.split('/'));
+        }
+        remove_local_route_links(&mut doc, &local_page, folder);
         let base = crawler
             .page_link_bases
             .get(url)
             .cloned()
             .unwrap_or_else(|| url.clone());
-        for link in crawler.links_from(&html, &base) {
+        for link in crawler.links_from(&crate::website::html::serialize(&doc), &base) {
             if !known.contains(&link) {
                 seeds.insert(link);
             }
@@ -725,6 +809,116 @@ pub async fn auto_recover_site(
 mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
+    use cyoa_net::client::{ClientConfig, FetchClient};
+    use serde_json::json;
+    use tokio_util::sync::CancellationToken;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn resume_fixture() -> (tokio::runtime::Runtime, MockServer, FetchClient) {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap();
+        let server = rt.block_on(MockServer::start());
+        let client = FetchClient::new(ClientConfig {
+            policy: cyoa_net::policy::DestinationPolicy {
+                origin: None,
+                allow_internal: true,
+            },
+            proxy: cyoa_net::proxy::ProxyConfig::disabled(),
+            ..Default::default()
+        })
+        .unwrap();
+        (rt, server, client)
+    }
+
+    #[test]
+    fn resume_uses_current_page_cap_over_saved_cap() {
+        let (rt, server, client) = resume_fixture();
+        rt.block_on(
+            Mock::given(method("GET"))
+                .and(path("/story/ch2"))
+                .respond_with(ResponseTemplate::new(200).set_body_raw("chapter two", "text/html"))
+                .mount(&server),
+        );
+        let start = format!("{}/story/", server.uri());
+        let folder = tempfile::tempdir().unwrap();
+        fs::write(folder.path().join("index.html"), "<p>chapter one</p>").unwrap();
+        fs::write(
+            folder.path().join("archive_manifest.json"),
+            json!({
+                "policy": {"max_pages": 1},
+                "pages": [{"url": start, "local": "index.html"}],
+                "pending_routes": [format!("{start}ch2")],
+                "route_limit_reached": true,
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let settings = folder.path().join("settings.json");
+        fs::write(&settings, r#"{"archive_max_pages":10}"#).unwrap();
+
+        let counts = resume_existing_archive_with_max_pages(
+            folder.path(),
+            &start,
+            &client,
+            rt.handle(),
+            &CancellationToken::new(),
+            current_max_pages(&settings),
+        )
+        .unwrap();
+
+        assert_eq!(counts, (1, 2));
+    }
+
+    #[test]
+    fn resume_skips_links_into_local_routes_tree() {
+        let (rt, server, client) = resume_fixture();
+        rt.block_on(
+            Mock::given(method("GET"))
+                .and(path("/story/ch2/next"))
+                .respond_with(ResponseTemplate::new(200).set_body_raw("next chapter", "text/html"))
+                .mount(&server),
+        );
+        let start = format!("{}/story/", server.uri());
+        let folder = tempfile::tempdir().unwrap();
+        fs::write(
+            folder.path().join("index.html"),
+            r#"<a href="routes/ch2/index.html">chapter two</a>"#,
+        )
+        .unwrap();
+        fs::create_dir_all(folder.path().join("routes/ch2")).unwrap();
+        fs::write(
+            folder.path().join("routes/ch2/index.html"),
+            r##"<a href="index.html#chapter">local chapter</a><a href="next">next chapter</a>"##,
+        )
+        .unwrap();
+        fs::write(
+            folder.path().join("archive_manifest.json"),
+            json!({"pages": [
+                {"url": start, "local": "index.html"},
+                {"url": format!("{start}ch2/"), "local": "routes/ch2/index.html"},
+            ]})
+            .to_string(),
+        )
+        .unwrap();
+
+        resume_existing_archive_with_max_pages(
+            folder.path(),
+            &start,
+            &client,
+            rt.handle(),
+            &CancellationToken::new(),
+            None,
+        )
+        .unwrap();
+
+        let requests = rt.block_on(server.received_requests()).unwrap();
+        let paths: Vec<_> = requests.iter().map(|request| request.url.path()).collect();
+        assert_eq!(paths, ["/story/ch2/next"]);
+    }
 
     #[test]
     fn parse_and_mark_follow_python_rules() {

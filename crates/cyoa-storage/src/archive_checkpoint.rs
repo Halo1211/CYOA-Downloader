@@ -123,6 +123,33 @@ fn open_read_only(path: &Path) -> Result<Connection, rusqlite::Error> {
     Ok(db)
 }
 
+/// Move `src` to `dst` without replacing an existing `dst` (callers hold the
+/// migration lock). Hard links make this atomic; filesystems without them
+/// (FAT/exFAT, some shares) fall back to a checked rename.
+fn move_no_clobber(src: &Path, dst: &Path) -> std::io::Result<()> {
+    match fs::hard_link(src, dst) {
+        Ok(()) => {
+            if let Err(e) = fs::remove_file(src) {
+                let _ = fs::remove_file(dst);
+                return Err(e);
+            }
+            Ok(())
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists || dst.exists() => Err(e),
+        Err(_) => fs::rename(src, dst),
+    }
+}
+
+fn lock_migration(path: &Path) -> std::io::Result<fs::File> {
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path.with_extension("migration.lock"))?;
+    file.lock()?;
+    Ok(file)
+}
+
 /// Import a legacy in-folder DB once; unrelated/corrupt files are left untouched.
 fn migrate_legacy(folder: &Path, destination: &Path) {
     let Some(legacy) = legacy_path(folder) else {
@@ -158,7 +185,8 @@ fn migrate_legacy(folder: &Path, destination: &Path) {
         db.execute("VACUUM INTO ?1", [temporary.to_string_lossy().as_ref()])
             .is_ok()
     });
-    if snapshot && fs::rename(&temporary, destination).is_ok() {
+    // A concurrent database creation can win even while the migration lock is held.
+    if snapshot && move_no_clobber(&temporary, destination).is_ok() {
         let _ = fs::remove_file(&legacy);
         for suffix in ["-wal", "-shm"] {
             let mut side = legacy.as_os_str().to_owned();
@@ -286,9 +314,16 @@ impl ArchiveCheckpoint {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        migrate_legacy(&folder, &path);
-        let generation = unique_token();
+        let _migration_lock = if !path.exists() && legacy_path(&folder).is_some_and(|p| p.is_file())
+        {
+            let lock = lock_migration(&path)?;
+            migrate_legacy(&folder, &path);
+            Some(lock)
+        } else {
+            None
+        };
         let mut db = Connection::open(&path)?;
+        let generation = unique_token();
         db.busy_timeout(BUSY)?;
         let tx = db.transaction_with_behavior(TransactionBehavior::Deferred)?;
         tx.execute_batch(
@@ -408,20 +443,26 @@ impl ArchiveCheckpoint {
         kind: &str,
         url: &str,
     ) -> Result<Option<Map<String, Value>>, CheckpointError> {
-        let db = self.connect()?;
-        let owner: Option<Option<String>> = db
+        let mut db = self.connect()?;
+        let tx = db.transaction()?;
+        let owner: Option<Option<String>> = tx
             .query_row("SELECT generation FROM owner WHERE id=1", [], |r| r.get(0))
             .optional()?;
         if owner.flatten().as_deref() != Some(self.generation.as_str()) {
             return Ok(None);
         }
-        let row: Option<Option<String>> = db
+        #[cfg(test)]
+        if let Some(before_record_read) = tests::BEFORE_RECORD_READ.take() {
+            before_record_read();
+        }
+        let row: Option<Option<String>> = tx
             .query_row(
                 "SELECT data FROM records WHERE kind=? AND url=?",
                 params![kind, url],
                 |r| r.get(0),
             )
             .optional()?;
+        tx.commit()?;
         let Some(Some(text)) = row else {
             return Ok(None);
         };
@@ -486,10 +527,22 @@ pub fn relocate(source_folder: &Path, destination: &Path, root: &Path) -> bool {
     let (Ok(old), Ok(new)) = (path_for(source_folder, root), path_for(destination, root)) else {
         return false;
     };
-    if old == new || !old.is_file() {
+    if old == new {
         return false;
     }
-    if fs::rename(&old, &new).is_err() {
+    // A consistent order prevents opposing relocations from deadlocking.
+    let (first, second) = if old < new {
+        (&old, &new)
+    } else {
+        (&new, &old)
+    };
+    let Ok(_first_lock) = lock_migration(first) else {
+        return false;
+    };
+    let Ok(_second_lock) = lock_migration(second) else {
+        return false;
+    };
+    if !old.is_file() || move_no_clobber(&old, &new).is_err() {
         return false;
     }
     let Ok(real) = py_realpath(destination) else {
@@ -557,6 +610,11 @@ pub fn interrupted(output_root: &Path, root: &Path) -> Vec<(PathBuf, String)> {
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    thread_local! {
+        pub(super) static BEFORE_RECORD_READ: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+            const { std::cell::RefCell::new(None) };
+    }
 
     fn temp(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("cyoa-ckpt-{}-{name}", std::process::id()));
@@ -660,6 +718,132 @@ mod tests {
         assert_eq!(n, 1);
         drop(db);
         let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn concurrent_legacy_migration_preserves_new_records() {
+        let base = tempfile::tempdir().unwrap();
+        let site = base.path().join("site");
+        fs::create_dir_all(site.join("_audit")).unwrap();
+        let legacy = legacy_path(&site).unwrap();
+        Connection::open(legacy)
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE owner(id INTEGER PRIMARY KEY, generation TEXT, context TEXT);
+                 INSERT INTO owner VALUES (1, 'legacy', 'ctx');
+                 CREATE TABLE records(kind TEXT, url TEXT, data TEXT, PRIMARY KEY(kind, url));
+                 INSERT INTO records VALUES ('asset', 'legacy', '{}');",
+            )
+            .unwrap();
+        let root = base.path();
+        let destination = path_for(&site, root).unwrap();
+        let (opened, result) = std::sync::mpsc::channel();
+
+        std::thread::scope(|scope| {
+            let migration_lock = lock_migration(&destination).unwrap();
+            let site = &site;
+            scope.spawn(move || {
+                opened
+                    .send(ArchiveCheckpoint::open(site, root, "ctx", true, ""))
+                    .unwrap();
+            });
+            assert!(matches!(
+                result.recv_timeout(Duration::from_millis(500)),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+            ));
+            // Install the winning snapshot and commit a new record before releasing the lock.
+            migrate_legacy(site, &destination);
+            Connection::open(&destination)
+                .unwrap()
+                .execute("INSERT INTO records VALUES ('asset', 'new', '{}')", [])
+                .unwrap();
+            drop(migration_lock);
+            let checkpoint = result.recv().unwrap().unwrap();
+            let mut urls = checkpoint.urls("asset").unwrap();
+            urls.sort();
+            assert_eq!(urls, ["legacy", "new"]);
+        });
+    }
+
+    #[test]
+    fn relocate_preserves_existing_destination() {
+        let base = tempfile::tempdir().unwrap();
+        let root = base.path().join("ckpt");
+        let old = base.path().join("staging");
+        let new = base.path().join("archive");
+        let from =
+            ArchiveCheckpoint::open(&old, &root, "ctx", false, "https://x.test/old").unwrap();
+        let to = ArchiveCheckpoint::open(&new, &root, "ctx", false, "https://x.test/new").unwrap();
+
+        assert!(!relocate(&old, &new, &root));
+        assert_eq!(source(from.db_path()), "https://x.test/old");
+        assert_eq!(source(to.db_path()), "https://x.test/new");
+    }
+
+    #[test]
+    fn relocate_waits_for_destination_migration() {
+        let base = tempfile::tempdir().unwrap();
+        let root = &base.path().join("ckpt");
+        let old = &base.path().join("staging");
+        let new = &base.path().join("archive");
+        let checkpoint =
+            ArchiveCheckpoint::open(old, root, "ctx", false, "https://x.test/").unwrap();
+        let destination = path_for(new, root).unwrap();
+        let (started, ready) = std::sync::mpsc::channel();
+        let (finished, result) = std::sync::mpsc::channel();
+
+        std::thread::scope(|scope| {
+            let migration_lock = lock_migration(&destination).unwrap();
+            scope.spawn(move || {
+                started.send(()).unwrap();
+                finished.send(relocate(old, new, root)).unwrap();
+            });
+            ready.recv().unwrap();
+            let while_locked = result.recv_timeout(Duration::from_millis(500));
+            drop(migration_lock);
+
+            assert_eq!(
+                while_locked,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+            );
+            assert!(result.recv().unwrap());
+        });
+        assert!(!checkpoint.db_path().exists());
+        assert_eq!(source(&destination), "https://x.test/");
+    }
+
+    #[test]
+    fn new_checkpoint_without_legacy_skips_migration_lock() {
+        let base = tempfile::tempdir().unwrap();
+        let root = base.path().join("ckpt");
+        let site = base.path().join("archive");
+
+        ArchiveCheckpoint::open(&site, &root, "ctx", false, "").unwrap();
+
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn stale_reader_cannot_read_new_generation_record() {
+        let base = tempfile::tempdir().unwrap();
+        let site = base.path().join("site");
+        let root = base.path().join("ckpt");
+        fs::create_dir_all(&site).unwrap();
+        let file = site.join("a.png");
+        fs::write(&file, b"payload").unwrap();
+        let first = ArchiveCheckpoint::open(&site, &root, "old", false, "").unwrap();
+        // WAL lets the new owner commit while the old reader holds its snapshot.
+        Connection::open(first.db_path())
+            .unwrap()
+            .pragma_update(None, "journal_mode", "WAL")
+            .unwrap();
+
+        let url = "https://x.test/a.png";
+        BEFORE_RECORD_READ.set(Some(Box::new(move || {
+            let second = ArchiveCheckpoint::open(&site, &root, "new", false, "").unwrap();
+            assert!(second.put("asset", url, &file, Map::new()).unwrap());
+        })));
+        assert!(first.get("asset", url).unwrap().is_none());
     }
 
     #[test]

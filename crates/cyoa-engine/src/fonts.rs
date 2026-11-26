@@ -18,6 +18,10 @@ pub struct FontResponse {
 pub trait FontFetch {
     fn text(&mut self, url: &str) -> Option<String>;
     fn bytes(&mut self, url: &str) -> Option<FontResponse>;
+    /// True once the run was cancelled: no further font is written.
+    fn cancelled(&self) -> bool {
+        false
+    }
 }
 
 static DIRECT: LazyLock<Regex> = LazyLock::new(|| {
@@ -310,7 +314,12 @@ pub fn find_font_urls(
     }
     let mut icc_sorted: Vec<_> = icc.iter().cloned().collect();
     icc_sorted.sort();
-    for u in icc_sorted {
+    // The reference cap also bounds the stylesheet requests themselves.
+    // One budget for every stylesheet request (ICC + Google together).
+    let mut sheets_left = MAX_FONT_REFS;
+    let icc_take = icc_sorted.len().min(sheets_left);
+    sheets_left -= icc_take;
+    for u in icc_sorted.into_iter().take(icc_take) {
         if let Some(css) = f.text(&u) {
             css_fonts(&css, &u, "ICC Plus customCSS url()", &mut out, &mut google);
         }
@@ -336,7 +345,7 @@ pub fn find_font_urls(
     }
     let mut gf_sorted: Vec<_> = google.iter().cloned().collect();
     gf_sorted.sort();
-    for gf in gf_sorted {
+    for gf in gf_sorted.into_iter().take(sheets_left) {
         if let Some(css) = f.text(&gf) {
             for c in GF_URL.captures_iter(&css) {
                 let u = c[1].trim_matches(['"', '\'']).to_owned();
@@ -452,6 +461,10 @@ pub fn download_fonts_into_folder(
     let mut total = 0usize;
     for (identity, aliases) in groups {
         let url = &aliases[0];
+        if f.cancelled() {
+            tracing::warn!("Font download cancelled; remaining fonts keep their URLs.");
+            break;
+        }
         if total > MAX_FONT_TOTAL_BYTES {
             tracing::warn!("Font download budget reached; remaining fonts keep their URLs.");
             break;
@@ -467,6 +480,9 @@ pub fn download_fonts_into_folder(
         if response.body.is_empty() {
             tracing::error!("  Font failed: {url} — empty font response");
             continue;
+        }
+        if f.cancelled() {
+            break;
         }
         total += response.body.len();
         let parsed = crate::localize::py_urlparse(url);
@@ -515,11 +531,25 @@ pub fn download_fonts_into_folder(
             && let Err(e) =
                 cyoa_storage::atomic_io::atomic_write_bytes(dir.join(&name), &response.body)
         {
+            // Release the empty reservation so a retry can reuse the name.
+            let _ = std::fs::remove_file(dir.join(&name));
             tracing::error!("Font could not be saved: {} — {}", url, e);
             continue;
         }
+        // Cancelled while the font was being written: do not publish it.
+        if !same && f.cancelled() {
+            let _ = std::fs::remove_file(dir.join(&name));
+            break;
+        }
         used.insert(name.clone());
-        let local = format!("fonts/{name}");
+        // The name is a path, not a URL: escape what a URL would read as
+        // query/fragment/escape (`Display#Bold.woff2`).
+        let local = format!(
+            "fonts/{}",
+            name.replace('%', "%25")
+                .replace('#', "%23")
+                .replace('?', "%3F")
+        );
         for alias in aliases {
             mapping.insert(alias, local.clone());
         }
@@ -632,6 +662,29 @@ mod tests {
                 }),
                 _ => None,
             }
+        }
+    }
+    #[test]
+    fn hash_in_font_name_is_escaped_in_reference() {
+        let tmp = tempfile::tempdir().unwrap();
+        let url = "https://f.test/Display%23Bold.woff2";
+        let mut f = FixtureFetch {
+            sources: HashMap::new(),
+            binaries: HashMap::from([(url.to_owned(), json!("774f4632"))]),
+        };
+        let project = format!("{{\"font\":\"{url}\"}}");
+        let out = download_fonts_into_folder(&mut f, &project, "https://f.test/", tmp.path(), "");
+        let saved: Vec<String> = std::fs::read_dir(tmp.path().join("fonts"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(saved.len(), 1, "{saved:?}");
+        assert_eq!(saved[0], "Display#Bold.woff2");
+        {
+            assert!(
+                out.contains("Display%23Bold.woff2") && !out.contains("Display#"),
+                "{out}"
+            );
         }
     }
     fn decode_hex(s: &str) -> Vec<u8> {

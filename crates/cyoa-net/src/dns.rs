@@ -175,20 +175,32 @@ pub fn parse_dns_address_response(data: &[u8], tx_id: Option<u16>, qtype: u16) -
     // Names that lead to the address: the question, then CNAME targets
     // (followed until nothing new is added). Without a question section every
     // owner is accepted, as before (also when the question name is unreadable).
-    let mut chain: Vec<String> = qname.into_iter().collect();
-    let accept_any = chain.is_empty();
-    loop {
-        let before = chain.len();
-        for r in recs.iter().filter(|r| r.typ == 5 && r.class == 1) {
-            if r.owner.as_ref().is_some_and(|o| chain.contains(o))
-                && let Some(target) = read_name(data, r.start)
-                && !chain.contains(&target)
-            {
-                chain.push(target);
-            }
+    // A CNAME target must lie inside its own RDATA (an empty or short RDATA
+    // must not borrow the next record's owner name).
+    // Owner -> RDATA starts; targets are decoded only for names on the chain,
+    // so unrelated CNAMEs cost no allocation.
+    let mut targets: std::collections::HashMap<&str, Vec<usize>> = Default::default();
+    for r in recs
+        .iter()
+        .filter(|r| r.typ == 5 && r.class == 1 && r.len > 0)
+    {
+        if skip_name(data, r.start) > r.start + r.len {
+            continue;
         }
-        if chain.len() == before {
-            break;
+        if let Some(owner) = r.owner.as_deref() {
+            targets.entry(owner).or_default().push(r.start);
+        }
+    }
+    let accept_any = qname.is_none();
+    let mut chain: std::collections::HashSet<String> = qname.iter().cloned().collect();
+    let mut queue: Vec<String> = qname.into_iter().collect();
+    while let Some(name) = queue.pop() {
+        for &start in targets.get(name.as_str()).into_iter().flatten() {
+            if let Some(t) = read_name(data, start)
+                && chain.insert(t.clone())
+            {
+                queue.push(t);
+            }
         }
     }
     for r in &recs {
@@ -311,8 +323,15 @@ pub fn validate_dns_configuration(server: &str, protocol: &str) -> Result<(), Dn
         // The HTTP client must accept it too (e.g. `https://[resolver.test]/`
         // passes the split above but is not a valid URL); otherwise lookups
         // would silently fall back to system DNS.
-        if reqwest::Url::parse(endpoint).map_or(true, |u| u.host_str().is_none()) {
+        let Some(url) = reqwest::Url::parse(endpoint)
+            .ok()
+            .filter(|u| u.host_str().is_some())
+        else {
             return Err(DnsError::InvalidDoh);
+        };
+        // The client's view of the port decides (`:0\@x` hides it from the split).
+        if url.port() == Some(0) {
+            return Err(DnsError::InvalidDohPort);
         }
         return Ok(());
     }
@@ -472,6 +491,35 @@ mod tests {
             parse_dns_address_response(&data, Some(1), 1),
             Some(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)))
         );
+    }
+
+    #[test]
+    fn doh_port_zero_hidden_behind_backslash_is_rejected() {
+        assert!(
+            validate_dns_configuration(r"https://resolver.test:0\@ignored.test/dns-query", "doh")
+                .is_err()
+        );
+        assert!(validate_dns_configuration("https://resolver.test/dns-query", "doh").is_ok());
+    }
+
+    #[test]
+    fn empty_cname_rdata_does_not_borrow_next_owner() {
+        fn hex(s: &str) -> Vec<u8> {
+            (0..s.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap_or(0))
+                .collect()
+        }
+        // Question alias.test A; answers: alias.test CNAME <empty>, then
+        // target.test A 1.2.3.4 (unrelated to the question).
+        let data = hex(concat!(
+            "000181800001000200000000",
+            "05616c69617304746573740000010001",
+            "c00c000500010000003c0000",
+            "06746172676574047465737400",
+            "000100010000003c000401020304"
+        ));
+        assert_eq!(parse_dns_address_response(&data, Some(1), 1), None);
     }
 
     #[test]

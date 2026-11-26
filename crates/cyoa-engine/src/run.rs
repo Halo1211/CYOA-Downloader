@@ -676,7 +676,7 @@ pub async fn run_download(
     {
         tracing::info!("Phase 0/4: probing cyoap_vue dist/ structure…");
         let stem = output_stem(opts);
-        let site = output::unique_folder(&opts.output_dir.join(&stem));
+        let site = opts.output_dir.join(&stem);
         let zip = opts.mode == OutputMode::IccZip;
         match crate::cyoap::try_download_cyoap_vue_site(
             &client,
@@ -688,24 +688,15 @@ pub async fn run_download(
         )
         .await
         {
-            Ok(true) => {
-                let written = if zip {
-                    let name = site
-                        .file_name()
-                        .map(|n| n.to_string_lossy().into_owned())
-                        .unwrap_or_default();
-                    opts.output_dir.join(format!("{name}.zip"))
-                } else {
-                    site
-                };
+            Ok(Some(written)) => {
                 return Ok(RunReport {
                     stem,
                     written_paths: vec![written],
                     failed_assets: Vec::new(),
                 });
             }
-            Ok(false) if opts.engine == Engine::CyoapVue => return Err(RunError::CyoapNotFound),
-            Ok(false) => tracing::info!(
+            Ok(None) if opts.engine == Engine::CyoapVue => return Err(RunError::CyoapNotFound),
+            Ok(None) => tracing::info!(
                 "cyoap_vue probe: no dist/platform.json + dist/nodes/list.json pair found; falling back."
             ),
             Err(e) if e == crate::cyoap::CYOAP_CANCELLED => return Err(RunError::Cancelled),

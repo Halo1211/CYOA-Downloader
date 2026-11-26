@@ -3,7 +3,7 @@
 //! Port of Python `integrations/itch_offline.py`
 //! (`materialize_itch_html5_archive`); asset localization is the shared
 //! `offline_viewer::localize_preserved_index_assets`.
-use crate::offline_viewer::{AssetFetcher, localize_preserved_index_assets, py_json};
+use crate::offline_viewer::{AssetFetcher, localize_preserved_index_assets_counted, py_json};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use std::{
@@ -307,9 +307,12 @@ pub fn materialize_itch_html5_archive(
     let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
     let original = text.replace("\r\n", "\n").replace('\r', "\n");
     let site = index.parent().unwrap_or(&destination).to_path_buf();
-    let localized = localize_preserved_index_assets(&original, source_url, &site, fetcher, false);
+    let (localized, failures) =
+        localize_preserved_index_assets_counted(&original, source_url, &site, fetcher, false);
     cyoa_storage::atomic_io::atomic_write_text(&index, &localized).map_err(other)?;
-    let complete = !site.join("failed_assets.txt").exists();
+    // Count this run's failures directly: a bundled report file in the ZIP
+    // must not decide completeness either way.
+    let complete = failures == 0 && !site.join("failed_assets.txt").is_file();
     cyoa_storage::atomic_io::atomic_write_text(
         &marker_path,
         &marker_json(&digest, &entry, complete),

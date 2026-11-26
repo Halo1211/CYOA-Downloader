@@ -11,6 +11,7 @@ use serde_json::Value;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
+    io::{self, Write},
     path::{Path, PathBuf},
 };
 use tokio_util::sync::CancellationToken;
@@ -295,25 +296,19 @@ impl Results {
     }
 }
 
-/// Python `fetch_remote` result: body bytes + charset, or the error text.
+struct RemoteResponse {
+    body: Vec<u8>,
+    charset: String,
+    content_type: String,
+    final_url: String,
+}
+
 async fn fetch_remote(
     client: &FetchClient,
     url: &str,
     ssrf_base: &str,
     cancel: &CancellationToken,
-) -> Result<(Vec<u8>, String), String> {
-    fetch_remote_final(client, url, ssrf_base, cancel)
-        .await
-        .map(|(body, charset, _)| (body, charset))
-}
-
-/// `fetch_remote` that also returns the final URL after redirects.
-async fn fetch_remote_final(
-    client: &FetchClient,
-    url: &str,
-    ssrf_base: &str,
-    cancel: &CancellationToken,
-) -> Result<(Vec<u8>, String, String), String> {
+) -> Result<RemoteResponse, String> {
     if cyoa_parse::discover::ssrf_block_cross_origin(url, ssrf_base, false) {
         tracing::warn!("[SSRF blocked] CYOAP Vue asset: {url}");
         return Err("blocked: cross-origin internal host".into());
@@ -340,7 +335,12 @@ async fn fetch_remote_final(
             )
         })
         .unwrap_or_default();
-    Ok((body, charset, final_url))
+    Ok(RemoteResponse {
+        body,
+        charset,
+        content_type: ct,
+        final_url,
+    })
 }
 
 /// Error text used to carry cancellation out of `try_download_cyoap_vue_site`.
@@ -394,46 +394,101 @@ fn json_files(root: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
+fn reserve_output_folder(base: &Path) -> io::Result<PathBuf> {
+    if let Some(parent) = base.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut candidate = base.to_path_buf();
+    let mut counter = 1u64;
+    loop {
+        match fs::create_dir(&candidate) {
+            Ok(()) => return Ok(candidate),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+                let mut name = base.as_os_str().to_owned();
+                name.push(format!("_{counter}"));
+                candidate = PathBuf::from(name);
+                counter += 1;
+            }
+            Err(e) => return Err(e),
+        }
+    }
+}
+
+async fn fetch_dist(
+    client: &FetchClient,
+    base: &str,
+    cancel: &CancellationToken,
+) -> Option<(Value, String, String)> {
+    let join = crate::fetch_plan::python_urljoin;
+    let platform = fetch_remote(client, &join(base, "dist/platform.json"), base, cancel)
+        .await
+        .ok()?;
+    let platform_text = text_of(&platform.body, &platform.charset);
+    let platform_obj = serde_json::from_str(&platform_text).ok()?;
+    let list = fetch_remote(client, &join(base, "dist/nodes/list.json"), base, cancel)
+        .await
+        .ok()?;
+    Some((
+        platform_obj,
+        platform_text,
+        text_of(&list.body, &list.charset),
+    ))
+}
+
 /// Python `try_download_cyoap_vue_site`. Assets are processed sequentially
 /// in sorted order (one of Python's thread-pool orders; Python is
 /// deterministic only with one worker).
+/// `output_base` is the preferred working directory name.
 pub async fn try_download_cyoap_vue_site(
     client: &FetchClient,
     start_url: &str,
-    output_folder: &Path,
+    output_base: &Path,
     zip_output: bool,
     max_workers: usize,
     cancel: &CancellationToken,
-) -> Result<bool, String> {
+) -> Result<Option<PathBuf>, String> {
     let _ = max_workers;
-    let base = crate::website::js::directory_base_url(start_url);
     let join = crate::fetch_plan::python_urljoin;
-    let platform_url = join(&base, "dist/platform.json");
-    let list_url = join(&base, "dist/nodes/list.json");
+    let original_base = crate::website::js::directory_base_url(start_url);
+    let entry = fetch_remote(client, start_url, &original_base, cancel).await;
+    let page_url = entry
+        .as_ref()
+        .ok()
+        .map(|response| response.final_url.as_str())
+        .filter(|url| cyoa_core::url::same_origin(url, &original_base))
+        .unwrap_or(start_url);
+    let archive_base = if crate::localize::py_urlparse(page_url).path.ends_with('/') {
+        crate::website::js::directory_base_url(page_url)
+    } else {
+        original_base.clone()
+    };
+    let mut base = archive_base.as_str();
+    let mut dist = fetch_dist(client, base, cancel).await;
+    if dist.is_none() && base != original_base && !cancel.is_cancelled() {
+        // Some aliases expose the shell at the redirect target and dist at the start URL.
+        base = &original_base;
+        dist = fetch_dist(client, base, cancel).await;
+    }
+    if cancel.is_cancelled() {
+        return Err(CYOAP_CANCELLED.into());
+    }
+    let Some((platform_obj, platform_text, list_text)) = dist else {
+        return Ok(None);
+    };
+    let platform_url = join(base, "dist/platform.json");
+    let list_url = join(base, "dist/nodes/list.json");
     let mut res = Results::default();
     let mut corrected: BTreeMap<String, String> = BTreeMap::new();
-
-    let platform_text = match fetch_remote(client, &platform_url, &base, cancel).await {
-        Ok((b, cs)) => text_of(&b, &cs),
-        Err(e) => {
-            res.failed(&platform_url, "json", &e);
-            return Ok(false);
-        }
-    };
-    let Ok(platform_obj) = serde_json::from_str::<Value>(&platform_text) else {
-        return Ok(false);
-    };
-    let list_text = match fetch_remote(client, &list_url, &base, cancel).await {
-        Ok((b, cs)) => text_of(&b, &cs),
-        Err(e) => {
-            res.failed(&list_url, "json", &e);
-            return Ok(false);
-        }
-    };
     tracing::info!("cyoap_vue detected: using dist/platform.json + dist/nodes/list.json flow");
-    crate::output::prepare_clean_output_folder(output_folder).map_err(|e| e.to_string())?;
+    let output_folder = &reserve_output_folder(output_base).map_err(|e| e.to_string())?;
+    let project_local = |remote: &str| match remote.strip_prefix(base) {
+        Some(relative) if base != archive_base => {
+            local(output_folder, &join(&archive_base, relative))
+        }
+        _ => local(output_folder, remote),
+    };
 
-    let platform_local = local(output_folder, &platform_url)?;
+    let platform_local = project_local(&platform_url)?;
     write_text_mode(&platform_local, &platform_text)?;
     res.success(output_folder, &platform_url, &platform_local, "json");
     let (mut images, mut media) = (BTreeSet::new(), BTreeSet::new());
@@ -444,7 +499,7 @@ pub async fn try_download_cyoap_vue_site(
         Ok(_) => return Err("cyoap_vue list.json invalid: list.json is not a list".into()),
         Err(e) => return Err(format!("cyoap_vue list.json invalid: {e}")),
     };
-    let list_local = local(output_folder, &list_url)?;
+    let list_local = project_local(&list_url)?;
     write_text_mode(&list_local, &list_text)?;
     res.success(output_folder, &list_url, &list_local, "json");
 
@@ -464,15 +519,15 @@ pub async fn try_download_cyoap_vue_site(
         if name.is_empty() {
             continue;
         }
-        let node_url = join(&base, &format!("dist/nodes/{name}"));
+        let node_url = join(base, &format!("dist/nodes/{name}"));
         let text = match fetch_remote(client, &node_url, &list_url, cancel).await {
-            Ok((b, cs)) => text_of(&b, &cs),
+            Ok(r) => text_of(&r.body, &r.charset),
             Err(e) => {
                 res.failed(&node_url, "json", &e);
                 continue;
             }
         };
-        let node_local = local(output_folder, &node_url)?;
+        let node_local = project_local(&node_url)?;
         write_text_mode(&node_local, &text)?;
         res.success(output_folder, &node_url, &node_local, "json");
         if let Ok(v) = serde_json::from_str::<Value>(&text) {
@@ -502,12 +557,12 @@ pub async fn try_download_cyoap_vue_site(
         if cancel.is_cancelled() {
             return Err(CYOAP_CANCELLED.into());
         }
-        for remote in candidate_urls_for_cyoap_asset(&base, &item, bucket) {
-            let Ok((body, _)) = fetch_remote(client, &remote, &base, cancel).await else {
+        for remote in candidate_urls_for_cyoap_asset(base, &item, bucket) {
+            let Ok(response) = fetch_remote(client, &remote, base, cancel).await else {
                 continue;
             };
-            let p = local(output_folder, &remote)?;
-            write_raw(&p, &body)?;
+            let p = project_local(&remote)?;
+            write_raw(&p, &response.body)?;
             res.success(output_folder, &remote, &p, bucket);
             continue 'assets;
         }
@@ -516,16 +571,16 @@ pub async fn try_download_cyoap_vue_site(
             _ => item.clone(),
         };
         if fixed != item {
-            for remote in candidate_urls_for_cyoap_asset(&base, &fixed, bucket) {
-                let p = local(output_folder, &remote)?;
+            for remote in candidate_urls_for_cyoap_asset(base, &fixed, bucket) {
+                let p = project_local(&remote)?;
                 if p.is_file() {
                     corrected.insert(item.clone(), fixed.clone());
                     continue 'assets;
                 }
-                let Ok((body, _)) = fetch_remote(client, &remote, &base, cancel).await else {
+                let Ok(response) = fetch_remote(client, &remote, base, cancel).await else {
                     continue;
                 };
-                write_raw(&p, &body)?;
+                write_raw(&p, &response.body)?;
                 corrected.insert(item.clone(), fixed.clone());
                 res.success(output_folder, &remote, &p, bucket);
                 continue 'assets;
@@ -563,41 +618,50 @@ pub async fn try_download_cyoap_vue_site(
     }
 
     let mut entry_ok = false;
-    match fetch_remote_final(client, start_url, &base, cancel).await {
-        Err(e) => res.failed(start_url, "html", &e),
-        Ok((body, cs, final_url)) => {
+    let page = entry.as_ref().map_err(String::as_str).and_then(|response| {
+        let body = response
+            .body
+            .strip_prefix(b"\xef\xbb\xbf")
+            .unwrap_or(&response.body);
+        let text = text_of(body, &response.charset);
+        if text.trim().is_empty() {
+            Err("empty entry page")
+        } else {
+            Ok(text)
+        }
+    });
+    match page {
+        Err(e) => res.failed(start_url, "html", e),
+        Ok(page_text) => {
             entry_ok = true;
-            // Resolve the page's relative assets against where it actually
-            // lives after redirects (`/demo` -> `/demo/`), same origin only.
-            let page_base =
-                if !final_url.is_empty() && cyoa_core::url::same_origin(&final_url, &base) {
-                    final_url
-                } else {
-                    start_url.to_owned()
-                };
-            let page_text = text_of(&body, &cs);
-            // An explicit `/demo/index.html` entry is saved as-is; only a
-            // directory URL gets `/` appended (else `index.html/index.html`).
-            let path_lower = crate::localize::py_urlparse(start_url).path.to_lowercase();
-            let entry_url = if path_lower.ends_with(".html") || path_lower.ends_with(".htm") {
+            let entry_url = if !crate::localize::py_urlparse(page_url).path.ends_with('/')
+                && matches!(url_ext(start_url).as_str(), ".html" | ".htm")
+            {
                 start_url.to_owned()
             } else {
-                format!("{}/", start_url.trim_end_matches('/'))
+                join(&archive_base, "index.html")
             };
             let page_local = local(output_folder, &entry_url)?;
-            write_text_mode(&page_local, &page_text)?;
+            if let Some(dir) = page_local.parent() {
+                fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+            }
+            let mut file = fs::File::create_new(&page_local)
+                .map_err(|e| format!("Could not create entry {}: {e}", page_local.display()))?;
+            file.write_all(crate::reports::os_text(&page_text).as_bytes())
+                .map_err(|e| e.to_string())?;
+            drop(file);
             res.success(output_folder, start_url, &page_local, "html");
             site_assets(
                 client,
-                &page_base,
-                &base,
+                page_url,
+                &entry_url,
                 &page_text,
                 output_folder,
                 &mut res,
                 cancel,
             )
             .await?;
-            match localize_page(client, &page_local, &page_base, cancel).await {
+            match localize_page(client, &page_local, page_url, cancel).await {
                 Ok((styles, loaders)) => {
                     if styles > 0 {
                         tracing::info!("Localized {styles} external cyoap_vue style reference(s)");
@@ -659,7 +723,7 @@ pub async fn try_download_cyoap_vue_site(
             "cyoap_vue entry page could not be downloaded: {start_url}"
         ));
     }
-    if zip_output {
+    let written = if zip_output {
         let name = output_folder
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
@@ -669,7 +733,7 @@ pub async fn try_download_cyoap_vue_site(
         let (folder, parent) = (output_folder.to_path_buf(), parent.to_path_buf());
         let cancel_b = cancel.clone();
         tokio::task::spawn_blocking(move || {
-            crate::output::zip_package_cancellable(
+            let zip = crate::output::zip_package_cancellable(
                 &folder,
                 &format!("{name}.zip"),
                 &parent,
@@ -683,29 +747,35 @@ pub async fn try_download_cyoap_vue_site(
                 }
             })?;
             let _ = fs::remove_dir_all(&folder);
-            Ok::<(), String>(())
+            Ok::<PathBuf, String>(zip)
         })
         .await
-        .map_err(|e| e.to_string())??;
+        .map_err(|e| e.to_string())??
     } else {
         tracing::info!("ICC folder kept: {}", output_folder.display());
-    }
+        output_folder.to_path_buf()
+    };
     tracing::info!("cyoap_vue website download complete.");
-    Ok(true)
+    Ok(Some(written))
 }
 
 /// Same-origin site assets of the entry page (BFS like Python).
 async fn site_assets(
     client: &FetchClient,
     start_url: &str,
-    base: &str,
+    entry_url: &str,
     page_text: &str,
     root: &Path,
     res: &mut Results,
     cancel: &CancellationToken,
 ) -> Result<(), String> {
     let join = crate::fetch_plan::python_urljoin;
-    let mut queue: std::collections::VecDeque<String> = std::collections::VecDeque::new();
+    let mut queue = std::collections::VecDeque::new();
+    // Resolve each reference against both the live document and its archived location.
+    let resolve = |remote_base: &str, saved_base: &str, raw: &str| {
+        let remote = join(remote_base, raw);
+        cyoa_core::url::same_origin(&remote, start_url).then(|| (remote, join(saved_base, raw)))
+    };
     if let Ok(doc) = crate::website::html::parse(page_text) {
         let mut links = Vec::new();
         let mut srcs = Vec::new();
@@ -722,74 +792,80 @@ async fn site_assets(
             }
         });
         for v in links.into_iter().chain(srcs) {
-            if v.is_empty() {
-                continue;
-            }
-            let full = join(start_url, &v);
-            if cyoa_core::url::same_origin(&full, base) {
-                queue.push_back(full);
+            if !v.is_empty() {
+                queue.extend(resolve(start_url, entry_url, &v));
             }
         }
     }
-    queue.push_back(join(base, "favicon.ico"));
+    queue.extend(resolve(start_url, entry_url, "favicon.ico"));
     let import_re = regex::Regex::new(r#"(?i)@import\s+(?:url\()?["']?([^"')\s]+)"#).ok();
     let url_re = regex::Regex::new(r"(?i)url\(([^)]+)\)").ok();
     let mut seen = BTreeSet::new();
-    let mut requests = 0usize;
-    while let Some(remote) = queue.pop_front() {
+    let mut downloaded = Vec::new();
+    let mut stylesheets = BTreeMap::new();
+    while let Some((remote, saved_url)) = queue.pop_front() {
         if cancel.is_cancelled() {
             return Err(CYOAP_CANCELLED.into());
         }
-        if seen.contains(&remote) {
+        if !seen.insert((remote.clone(), saved_url.clone())) {
             continue;
         }
-        requests += 1;
-        if requests > MAX_CYOAP_SITE_REQUESTS {
+        if seen.len() > MAX_CYOAP_SITE_REQUESTS {
             tracing::warn!("cyoap_vue site asset limit reached ({MAX_CYOAP_SITE_REQUESTS})");
             break;
         }
-        if !seen.insert(remote.clone()) {
+        let p = local(root, &saved_url)?;
+        if p.try_exists().map_err(|e| e.to_string())? {
             continue;
         }
         let ext = url_ext(&remote);
         let fetched = fetch_remote(client, &remote, start_url, cancel).await;
-        let (body, charset) = match fetched {
+        let RemoteResponse {
+            body,
+            charset,
+            content_type,
+            ..
+        } = match fetched {
             Ok(v) => v,
             Err(e) => {
                 res.failed(&remote, "assets", &e);
                 continue;
             }
         };
-        let p = local(root, &remote)?;
+        let is_css = ext == ".css"
+            || content_type
+                .split(';')
+                .next()
+                .is_some_and(|mime| mime.trim().eq_ignore_ascii_case("text/css"));
         // Extensionless/unknown URLs (`/sprite` serving PNG) must not be decoded
         // as text: keep the bytes whenever they are not valid UTF-8.
         let texty = matches!(
             ext.as_str(),
-            ".css" | ".js" | ".mjs" | ".html" | ".htm" | ".json" | ".txt" | ".svg"
+            ".js" | ".mjs" | ".html" | ".htm" | ".json" | ".txt" | ".svg"
         );
-        if BINARY_SITE_EXT.contains(&ext.as_str())
-            || (!texty && std::str::from_utf8(&body).is_err())
+        if !is_css
+            && (BINARY_SITE_EXT.contains(&ext.as_str())
+                || (!texty && std::str::from_utf8(&body).is_err()))
         {
             write_raw(&p, &body)?;
-            res.success(root, &remote, &p, "assets");
+            downloaded.push((remote, p, "assets"));
             continue;
         }
         let text = text_of(&body, &charset);
         write_raw(&p, text.as_bytes())?;
-        let kind = match ext.as_str() {
-            ".css" => "css",
-            ".js" | ".mjs" => "js",
-            _ => "assets",
+        let kind = if is_css {
+            "css"
+        } else if matches!(ext.as_str(), ".js" | ".mjs") {
+            "js"
+        } else {
+            "assets"
         };
-        res.success(root, &remote, &p, kind);
-        if ext == ".css" {
+        if is_css {
+            stylesheets.insert(p.clone(), saved_url.clone());
             if let Some(re) = &import_re {
                 for c in re.captures_iter(&text) {
                     if let Some(m) = c.get(1) {
-                        let child = join(&remote, m.as_str());
-                        if cyoa_core::url::same_origin(&child, base) {
-                            queue.push_back(child);
-                        }
+                        queue.extend(resolve(&remote, &saved_url, m.as_str()));
                     }
                 }
             }
@@ -803,13 +879,100 @@ async fn site_assets(
                     if raw.is_empty() || raw.starts_with("data:") {
                         continue;
                     }
-                    let child = join(&remote, raw);
-                    if cyoa_core::url::same_origin(&child, base) {
-                        queue.push_back(child);
-                    }
+                    queue.extend(resolve(&remote, &saved_url, raw));
                 }
             }
         }
+        downloaded.push((remote, p, kind));
+    }
+
+    // Allocate suffixes after the crawl so real .css assets keep their paths.
+    let mut renamed_styles = BTreeMap::new();
+    for (path, url) in &stylesheets {
+        if !url_ext(url).is_empty() || path.extension().is_some_and(|ext| ext == "css") {
+            continue;
+        }
+        let mut dest = path.with_extension("css");
+        for suffix in 1.. {
+            if !dest.try_exists().map_err(|e| e.to_string())? {
+                break;
+            }
+            dest = path.with_extension(format!("{suffix}.css"));
+        }
+        fs::rename(path, &dest).map_err(|e| e.to_string())?;
+        renamed_styles.insert(path.clone(), dest);
+    }
+    if !renamed_styles.is_empty() {
+        let reference = |source_url: &str, source: &Path, raw: &str| {
+            if raw.is_empty() || raw.starts_with('#') {
+                return None;
+            }
+            let target_url = Url::parse(&join(source_url, raw)).ok()?;
+            if !cyoa_core::url::same_origin(target_url.as_str(), entry_url) {
+                return None;
+            }
+            let dest = renamed_styles.get(&local(root, target_url.as_str()).ok()?)?;
+            let offline_url = |path| {
+                Url::parse(&format!(
+                    "https://offline.invalid/{}",
+                    quote_path(&rel_of(root, path))
+                ))
+                .ok()
+            };
+            let mut dest_url = offline_url(dest)?;
+            dest_url.set_query(target_url.query());
+            dest_url.set_fragment(target_url.fragment());
+            offline_url(source)?.make_relative(&dest_url)
+        };
+        for (path, url) in &stylesheets {
+            let path = renamed_styles.get(path).unwrap_or(path);
+            let css = fs::read_to_string(path).map_err(|e| e.to_string())?;
+            let mut revised = std::borrow::Cow::Borrowed(css.as_str());
+            for re in [&import_re, &url_re].into_iter().flatten() {
+                revised = std::borrow::Cow::Owned(
+                    re.replace_all(&revised, |c: &regex::Captures<'_>| {
+                        let matched = &c[0];
+                        let Some(value) = c.get(1) else {
+                            return matched.to_owned();
+                        };
+                        let raw = value.as_str().trim().trim_matches(['\'', '"']);
+                        let Some(replacement) = reference(url, path, raw) else {
+                            return matched.to_owned();
+                        };
+                        let start = value.start() - c.get(0).map_or(0, |m| m.start())
+                            + value.as_str().find(raw).unwrap_or(0);
+                        format!(
+                            "{}{replacement}{}",
+                            &matched[..start],
+                            &matched[start + raw.len()..]
+                        )
+                    })
+                    .into_owned(),
+                );
+            }
+            if revised != css {
+                write_raw(path, revised.as_bytes())?;
+            }
+        }
+        if let Ok(mut doc) = crate::website::html::parse(page_text) {
+            let path = local(root, entry_url)?;
+            let mut changed = false;
+            collect_mut(&mut doc, &mut |tag| {
+                if tag.name == "link"
+                    && let Some(href) = tag.attr("href")
+                    && let Some(replacement) = reference(entry_url, &path, href.trim())
+                {
+                    tag.set_attr("href", replacement);
+                    changed = true;
+                }
+            });
+            if changed {
+                write_text_mode(&path, &crate::website::html::serialize(&doc))?;
+            }
+        }
+    }
+    for (url, path, kind) in downloaded {
+        res.success(root, &url, renamed_styles.get(&path).unwrap_or(&path), kind);
     }
     Ok(())
 }
@@ -821,6 +984,20 @@ fn collect(el: &crate::website::html::Element, f: &mut dyn FnMut(&crate::website
         {
             f(e);
             collect(e, f);
+        }
+    }
+}
+
+fn collect_mut(
+    el: &mut crate::website::html::Element,
+    f: &mut dyn FnMut(&mut crate::website::html::Element),
+) {
+    for child in &mut el.children {
+        if let crate::website::html::Node::Element(e) = child
+            && !e.removed
+        {
+            f(e);
+            collect_mut(e, f);
         }
     }
 }
@@ -880,20 +1057,7 @@ fn localize_external_styles(
         sink.download(remote, kind, Some(page_url))
     };
     let url_re = regex::Regex::new(r#"(?i)url\(\s*(['"]?)([^)'"]+)['"]?\s*\)"#).ok();
-    fn walk(
-        el: &mut crate::website::html::Element,
-        f: &mut dyn FnMut(&mut crate::website::html::Element),
-    ) {
-        for child in &mut el.children {
-            if let crate::website::html::Node::Element(e) = child
-                && !e.removed
-            {
-                f(e);
-                walk(e, f);
-            }
-        }
-    }
-    walk(&mut doc, &mut |tag| {
+    collect_mut(&mut doc, &mut |tag| {
         let rels: BTreeSet<String> = tag
             .attr("rel")
             .map(|r| r.split_whitespace().map(str::to_lowercase).collect())
@@ -1058,6 +1222,8 @@ fn js_files(dir: &Path, out: &mut Vec<PathBuf>) {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use cyoa_net::{client::ClientConfig, policy::DestinationPolicy};
+    use wiremock::{Mock, MockServer, ResponseTemplate, matchers::path};
 
     fn fixture() -> Value {
         serde_json::from_str(include_str!("../../../fixtures/cyoap.json")).unwrap()
@@ -1110,6 +1276,299 @@ mod tests {
         }
     }
 
+    async fn mock_cyoap_site(
+        start_path: &str,
+        entry: ResponseTemplate,
+    ) -> (MockServer, FetchClient) {
+        let server = MockServer::start().await;
+        for (suffix, response) in [
+            (
+                "dist/platform.json",
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({})),
+            ),
+            (
+                "dist/nodes/list.json",
+                ResponseTemplate::new(200).set_body_json(serde_json::json!([])),
+            ),
+            ("", entry),
+        ] {
+            Mock::given(path(format!("{start_path}{suffix}")))
+                .respond_with(response)
+                .mount(&server)
+                .await;
+        }
+        let client = FetchClient::new(ClientConfig {
+            policy: DestinationPolicy {
+                origin: Some(Url::parse(&server.uri()).unwrap()),
+                allow_internal: true,
+            },
+            ..ClientConfig::default()
+        })
+        .unwrap();
+        (server, client)
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn concurrent_cyoap_downloads_reserve_distinct_folders() {
+        let (server, client) = mock_cyoap_site(
+            "/demo/",
+            ResponseTemplate::new(200).set_body_string("<html>game</html>"),
+        )
+        .await;
+        let tmp = tempfile::tempdir().unwrap();
+        let out = tmp.path().join("game");
+        let start = format!("{}/demo/", server.uri());
+        let cancel = CancellationToken::new();
+        let (first, second) = tokio::join!(
+            try_download_cyoap_vue_site(&client, &start, &out, false, 1, &cancel),
+            try_download_cyoap_vue_site(&client, &start, &out, false, 1, &cancel),
+        );
+        let first = first.unwrap().unwrap();
+        let second = second.unwrap().unwrap();
+        assert_ne!(first, second);
+        assert!(first.join("demo/index.html").is_file());
+        assert!(second.join("demo/index.html").is_file());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn redirected_entry_is_saved_alongside_its_relative_script() {
+        let (server, client) = mock_cyoap_site(
+            "/demo/",
+            ResponseTemplate::new(302).insert_header("location", "/play/"),
+        )
+        .await;
+        Mock::given(path("/play/"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_string(r#"<script src="app.js"></script>"#),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(path("/play/dist/platform.json"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"play": true})),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(path("/play/dist/nodes/list.json"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!(["node.json"])),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(path("/play/dist/nodes/node.json"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"node": true})),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(path("/play/app.js"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("window.ready = true;"))
+            .mount(&server)
+            .await;
+        let tmp = tempfile::tempdir().unwrap();
+        let out = tmp.path().join("game");
+        let start = format!("{}/demo/", server.uri());
+        let written =
+            try_download_cyoap_vue_site(&client, &start, &out, false, 1, &CancellationToken::new())
+                .await
+                .unwrap()
+                .unwrap();
+        let page = written.join("play/index.html");
+        assert!(
+            fs::read_to_string(page)
+                .unwrap()
+                .contains(r#"src="app.js""#)
+        );
+        assert_eq!(
+            fs::read_to_string(written.join("play/app.js")).unwrap(),
+            "window.ready = true;"
+        );
+        for (file, expected) in [
+            ("platform.json", serde_json::json!({"play": true})),
+            ("nodes/list.json", serde_json::json!(["node.json"])),
+            ("nodes/node.json", serde_json::json!({"node": true})),
+        ] {
+            let data = fs::read(written.join("play/dist").join(file)).unwrap();
+            assert_eq!(serde_json::from_slice::<Value>(&data).unwrap(), expected);
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn redirect_to_json_variant_preserves_data_and_entry() {
+        let (server, client) = mock_cyoap_site(
+            "/demo/",
+            ResponseTemplate::new(302).insert_header("location", "/demo/dist/platform.json?view=1"),
+        )
+        .await;
+        Mock::given(path("/demo/dist/platform.json"))
+            .and(wiremock::matchers::query_param("view", "1"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("<html>entry</html>"))
+            .with_priority(1)
+            .mount(&server)
+            .await;
+        let tmp = tempfile::tempdir().unwrap();
+        let out = tmp.path().join("game");
+        let start = format!("{}/demo/", server.uri());
+        try_download_cyoap_vue_site(&client, &start, &out, false, 1, &CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(
+            fs::read_to_string(out.join("demo/dist/platform.json")).unwrap(),
+            "{}"
+        );
+        assert_eq!(
+            fs::read_to_string(out.join("demo/index.html")).unwrap(),
+            "<html>entry</html>"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn entry_refuses_to_overwrite_a_downloaded_file() {
+        use wiremock::matchers::query_param;
+        let (server, client) = mock_cyoap_site(
+            "/demo/",
+            ResponseTemplate::new(200).set_body_string("<html>entry</html>"),
+        )
+        .await;
+        Mock::given(path("/demo/dist/nodes/list.json"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!(["../../index.html?node=1"])),
+            )
+            .with_priority(1)
+            .mount(&server)
+            .await;
+        Mock::given(path("/demo/index.html"))
+            .and(query_param("node", "1"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("{}"))
+            .mount(&server)
+            .await;
+        let tmp = tempfile::tempdir().unwrap();
+        let out = tmp.path().join("game");
+        let start = format!("{}/demo/", server.uri());
+        let result =
+            try_download_cyoap_vue_site(&client, &start, &out, false, 1, &CancellationToken::new())
+                .await;
+
+        assert!(result.is_err());
+        assert_eq!(
+            fs::read_to_string(out.join("demo/index.html")).unwrap(),
+            "{}"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn extensionless_redirect_saves_html_with_its_relative_script() {
+        let (server, client) = mock_cyoap_site(
+            "/demo/",
+            ResponseTemplate::new(302).insert_header("location", "/play"),
+        )
+        .await;
+        Mock::given(path("/play"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_string(r#"<script src="app.js"></script>"#),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(path("/app.js"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("window.ready = true;"))
+            .mount(&server)
+            .await;
+        let tmp = tempfile::tempdir().unwrap();
+        let out = tmp.path().join("game");
+        let start = format!("{}/demo/", server.uri());
+        try_download_cyoap_vue_site(&client, &start, &out, false, 1, &CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert!(
+            fs::read_to_string(out.join("demo/index.html"))
+                .unwrap()
+                .contains(r#"src="app.js""#)
+        );
+        assert_eq!(
+            fs::read_to_string(out.join("demo/app.js")).unwrap(),
+            "window.ready = true;"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn bom_and_whitespace_entry_is_rejected() {
+        let (server, client) = mock_cyoap_site(
+            "/demo/",
+            ResponseTemplate::new(200).set_body_raw("\u{feff} \t\r\n", "text/html"),
+        )
+        .await;
+        let tmp = tempfile::tempdir().unwrap();
+        let out = tmp.path().join("game");
+        let start = format!("{}/demo/", server.uri());
+        let result =
+            try_download_cyoap_vue_site(&client, &start, &out, false, 1, &CancellationToken::new())
+                .await;
+        assert!(
+            result
+                .unwrap_err()
+                .contains("entry page could not be downloaded")
+        );
+        assert!(!out.join("demo/index.html").exists());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn extensionless_css_downloads_its_imports() {
+        let (server, client) = mock_cyoap_site(
+            "/demo/",
+            ResponseTemplate::new(200).set_body_string(r#"<link rel="stylesheet" href="theme">"#),
+        )
+        .await;
+        Mock::given(path("/demo/theme"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(
+                r#"@import "palette.css"; @import url('nested');"#,
+                "text/css; charset=utf-8",
+            ))
+            .mount(&server)
+            .await;
+        Mock::given(path("/demo/palette.css"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_raw("body { color: black; }", "text/css"),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(path("/demo/nested"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_raw("body { color: red; }", "text/css"),
+            )
+            .mount(&server)
+            .await;
+        let tmp = tempfile::tempdir().unwrap();
+        let out = tmp.path().join("game");
+        let start = format!("{}/demo/", server.uri());
+        let written =
+            try_download_cyoap_vue_site(&client, &start, &out, false, 1, &CancellationToken::new())
+                .await
+                .unwrap()
+                .unwrap();
+        assert_eq!(
+            fs::read_to_string(written.join("demo/palette.css")).unwrap(),
+            "body { color: black; }"
+        );
+        assert!(
+            fs::read_to_string(written.join("demo/index.html"))
+                .unwrap()
+                .contains(r#"href="theme.css""#)
+        );
+        assert_eq!(
+            fs::read_to_string(written.join("demo/theme.css")).unwrap(),
+            r#"@import "palette.css"; @import url('nested.css');"#
+        );
+        assert_eq!(
+            fs::read_to_string(written.join("demo/nested.css")).unwrap(),
+            "body { color: red; }"
+        );
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn cyoap_site_matches_python() {
         use cyoa_net::client::ClientConfig;
@@ -1157,7 +1616,7 @@ mod tests {
             try_download_cyoap_vue_site(&client, &start, &out, false, 1, &CancellationToken::new())
                 .await
                 .unwrap();
-        assert!(done);
+        assert_eq!(done.as_deref(), Some(out.as_path()));
         fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
             for e in fs::read_dir(dir).unwrap().flatten() {
                 if e.file_type().unwrap().is_dir() {

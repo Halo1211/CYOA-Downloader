@@ -238,6 +238,14 @@ impl RouteCrawler {
         let test = decoded.trim_end_matches('/');
         test == start || decoded.starts_with(&self.scope_path)
     }
+    /// Reserve local paths already used by an earlier run, so a resumed crawl
+    /// never hands a different URL the same `routes/.../index.html`.
+    pub fn reserve_existing(&mut self, url: &str, rel: &str) {
+        let canonical = Self::canonicalize(url);
+        self.local_route_owners
+            .insert(owner_key(rel), canonical.clone());
+        self.output_paths.insert(canonical, rel.to_owned());
+    }
     pub fn route_local_path(&mut self, url: &str) -> String {
         let canonical = Self::canonicalize(url);
         if canonical == self.start_url {
@@ -269,16 +277,34 @@ impl RouteCrawler {
             parts[last] = clean_url_path_component(&format!("{}_{}", parts[last], sha1_8(&query)));
         }
         let mut rel = format!("routes/{}/index.html", parts.join("/"));
-        if let Some(owner) = self.local_route_owners.get(&owner_key(&rel)) {
-            if owner != &canonical {
-                let last = parts.len() - 1;
-                parts[last] =
-                    clean_url_path_component(&format!("{}_{}", parts[last], sha1_8(&canonical)));
+        let mut key = owner_key(&rel);
+        if self
+            .local_route_owners
+            .get(&key)
+            .is_some_and(|owner| owner != &canonical)
+        {
+            let last = parts.len() - 1;
+            let stem = parts[last].clone();
+            let hash = sha1_8(&canonical);
+            for attempt in 1usize.. {
+                let component = if attempt == 1 {
+                    format!("{stem}_{hash}")
+                } else {
+                    format!("{stem}_{hash}_{attempt}")
+                };
+                parts[last] = clean_url_path_component(&component);
                 rel = format!("routes/{}/index.html", parts.join("/"));
+                key = owner_key(&rel);
+                if self
+                    .local_route_owners
+                    .get(&key)
+                    .is_none_or(|owner| owner == &canonical)
+                {
+                    break;
+                }
             }
         }
-        self.local_route_owners
-            .insert(owner_key(&rel), canonical.clone());
+        self.local_route_owners.insert(key, canonical.clone());
         self.output_paths.insert(canonical, rel.clone());
         rel
     }
@@ -486,6 +512,44 @@ fn find_body_mut(
 mod tests {
     use super::*;
     use serde_json::Value;
+    #[test]
+    fn resumed_route_does_not_reuse_archived_path() {
+        let mut first = RouteCrawler::new("https://story.test/story/");
+        let a = first.route_local_path("https://story.test/story/a_b/");
+        // Without the reservation both URLs collide on one path.
+        let mut fresh = RouteCrawler::new("https://story.test/story/");
+        assert_eq!(fresh.route_local_path("https://story.test/story/a__b/"), a);
+        let mut resumed = RouteCrawler::new("https://story.test/story/");
+        resumed.reserve_existing("https://story.test/story/a_b/", &a);
+        let b = resumed.route_local_path("https://story.test/story/a__b/");
+        assert_ne!(a, b);
+        assert_eq!(resumed.route_local_path("https://story.test/story/a_b/"), a);
+    }
+
+    #[test]
+    fn resumed_route_skips_multiple_occupied_paths() {
+        let start = "https://story.test/story/";
+        let url = "https://story.test/story/a__b/";
+        let occupied = [
+            ("https://story.test/story/a_b/", "routes/a_b/index.html"),
+            (
+                "https://story.test/story/a_b_1d2d6768/",
+                "routes/a_b_1d2d6768/index.html",
+            ),
+        ];
+        let mut resumed = RouteCrawler::new(start);
+        for (owner, path) in occupied {
+            resumed.reserve_existing(owner, path);
+        }
+
+        let local = resumed.route_local_path(url);
+        for (owner, path) in occupied {
+            assert_ne!(local, path);
+            assert_eq!(resumed.route_local_path(owner), path);
+        }
+        assert_eq!(resumed.route_local_path(url), local);
+    }
+
     #[test]
     fn routes_match_python() {
         let f: Value =
