@@ -23,7 +23,12 @@ def check(root):
     metadata = ast.parse((root / "old/cyoa_downloader_app/app_info.py").read_text(encoding="utf-8"))
     values = {node.targets[0].id: ast.literal_eval(node.value)
               for node in metadata.body if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name)}
-    if values.get("_APP_VERSION") != version or values.get("_STABILIZATION_PATCH_ID") != "CYOA-v" + version:
+    # The Python reference under old/ carries its own VERSION; the root VERSION
+    # tracks the Rust release.
+    py_version_file = root / "old/VERSION"
+    py_version = (py_version_file.read_text(encoding="utf-8").strip()
+                  if py_version_file.is_file() else version)
+    if values.get("_APP_VERSION") != py_version or values.get("_STABILIZATION_PATCH_ID") != "CYOA-v" + py_version:
         errors.append("Application metadata does not match VERSION")
     readme = (root / "README.md").read_text(encoding="utf-8")
     cargo = (root / "Cargo.toml").read_text(encoding="utf-8")
