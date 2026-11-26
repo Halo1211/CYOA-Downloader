@@ -401,7 +401,9 @@ fn handle(
             path.set_file_name("index.htm");
         }
     }
-    let (mut file, canonical) = match open_preview_file(path, root) {
+    // Python serves the MIME type of the requested name, not a symlink target.
+    let mime = content_type(&path);
+    let (mut file, _) = match open_preview_file(path, root) {
         Ok(opened) => opened,
         Err(_) => return not_found(stream, head),
     };
@@ -409,7 +411,6 @@ fn handle(
         Ok(m) if m.is_file() => m.len(),
         _ => return not_found(stream, head),
     };
-    let mime = content_type(&canonical);
     let is_html = mime == "text/html";
     let headers: &[_] = if is_html { &instance_headers } else { &[] };
     // Serve Tools: inject the snippet into HTML pages (bounded size, UTF-8).
@@ -462,6 +463,15 @@ fn open_preview_file(path: PathBuf, root: &Path) -> io::Result<(File, PathBuf)> 
 
 #[cfg(target_os = "linux")]
 fn open_resolved_file(path: PathBuf, root: &Path) -> io::Result<(File, PathBuf)> {
+    let file = open_linux_file(&path, root, Path::new("/proc/self/fd"))?;
+    Ok((file, path))
+}
+
+/// Opens `path` (canonical) for reading, confirming it is a regular file that
+/// still resolves inside `root`. `fd_dir` is normally `/proc/self/fd`; when it
+/// is unavailable the open falls back to a (device, inode) re-check.
+#[cfg(target_os = "linux")]
+fn open_linux_file(path: &Path, root: &Path, fd_dir: &Path) -> io::Result<File> {
     use std::os::{fd::AsRawFd, unix::fs::OpenOptionsExt};
 
     #[cfg(any(target_arch = "sparc", target_arch = "sparc64"))]
@@ -471,11 +481,8 @@ fn open_resolved_file(path: PathBuf, root: &Path) -> io::Result<(File, PathBuf)>
 
     // O_PATH opens a reference without opening a device or waiting on a FIFO.
     use std::os::unix::fs::MetadataExt;
-    let handle = File::options()
-        .read(true)
-        .custom_flags(O_PATH)
-        .open(&path)?;
-    let fd_path = PathBuf::from(format!("/proc/self/fd/{}", handle.as_raw_fd()));
+    let handle = File::options().read(true).custom_flags(O_PATH).open(path)?;
+    let fd_path = fd_dir.join(handle.as_raw_fd().to_string());
     match fd_path.read_link() {
         Ok(opened) => {
             // `opened` may carry " (deleted)"; it is only used for the check.
@@ -483,16 +490,16 @@ fn open_resolved_file(path: PathBuf, root: &Path) -> io::Result<(File, PathBuf)>
                 return Err(io::ErrorKind::NotFound.into());
             }
             // Reopen the kernel's reference to the same file for reading.
-            Ok((File::open(fd_path)?, path))
+            File::open(fd_path)
         }
         Err(_) => {
             // No procfs (chroot/container): `path` is canonical; open it and
             // confirm (device, inode) that it still resolves inside the root
             // to this very file, so a swap after the check is rejected.
-            if !std::fs::symlink_metadata(&path)?.is_file() {
+            if !std::fs::symlink_metadata(path)?.is_file() {
                 return Err(io::ErrorKind::NotFound.into());
             }
-            let file = File::open(&path)?;
+            let file = File::open(path)?;
             let meta = file.metadata()?;
             let again = path.canonicalize()?;
             let check = std::fs::metadata(&again)?;
@@ -503,7 +510,7 @@ fn open_resolved_file(path: PathBuf, root: &Path) -> io::Result<(File, PathBuf)>
             {
                 return Err(io::ErrorKind::NotFound.into());
             }
-            Ok((file, path))
+            Ok(file)
         }
     }
 }
