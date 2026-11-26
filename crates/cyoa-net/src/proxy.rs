@@ -4,6 +4,7 @@
 //! `manual` (per-scheme URLs with an explicit bypass list) and `disabled`
 //! (ignores environment proxies too). Credentials never appear in `Debug`.
 
+use hyper_util::client::proxy::matcher::Matcher;
 use std::collections::BTreeMap;
 use std::fmt;
 
@@ -290,7 +291,7 @@ impl ProxyConfig {
     /// A bare `*` bypass entry means "never proxy", including IP literals
     /// (the matcher only applies `*` to host names).
     fn bypasses_everything(&self) -> bool {
-        self.no_proxy.split([',', ';']).any(|e| e.trim() == "*")
+        no_proxy_is_wildcard(&self.no_proxy)
     }
 
     pub fn apply(
@@ -299,6 +300,7 @@ impl ProxyConfig {
     ) -> reqwest::Result<reqwest::ClientBuilder> {
         match self.mode {
             ProxyMode::Disabled => Ok(builder.no_proxy()),
+            ProxyMode::InheritEnv if env_no_proxy_is_wildcard() => Ok(builder.no_proxy()),
             ProxyMode::InheritEnv => Ok(builder),
             ProxyMode::Manual => {
                 // Manual profiles must not also pick up environment proxies.
@@ -326,10 +328,6 @@ impl ProxyConfig {
         let Ok(uri) = url.parse::<http::Uri>() else {
             return BrowserRoute::Direct;
         };
-        let target = url
-            .split_once("://")
-            .map_or("https", |(s, _)| s)
-            .to_ascii_lowercase();
         let proxy_url = match self.mode {
             ProxyMode::Disabled => return BrowserRoute::Direct,
             ProxyMode::Manual => {
@@ -337,44 +335,106 @@ impl ProxyConfig {
                     return BrowserRoute::Direct;
                 }
                 // `_should_bypass_manual_proxy` (requests `should_bypass_proxies`).
-                let bypass = hyper_util::client::proxy::matcher::Matcher::builder()
+                let bypass = Matcher::builder()
                     .all("http://bypass.invalid")
                     .no(self.no_proxy.as_str())
                     .build();
                 if bypass.intercept(&uri).is_none() {
                     return BrowserRoute::Direct;
                 }
+                let target = url
+                    .split_once("://")
+                    .map_or("https", |(s, _)| s)
+                    .to_ascii_lowercase();
                 self.active_proxies().remove(target.as_str())
             }
             ProxyMode::InheritEnv => {
                 // `get_environ_proxies(url)`: NO_PROXY first, then per-scheme
                 // variables with ALL_PROXY as the fallback.
-                if hyper_util::client::proxy::matcher::Matcher::from_env()
-                    .intercept(&uri)
-                    .is_none()
-                {
+                if env_no_proxy_is_wildcard() {
                     return BrowserRoute::Direct;
                 }
-                let env = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
-                let upper = target.to_ascii_uppercase();
-                env(&format!("{target}_proxy"))
-                    .or_else(|| env(&format!("{upper}_PROXY")))
-                    .or_else(|| env("all_proxy"))
-                    .or_else(|| env("ALL_PROXY"))
+                return browser_route_from_matcher(&Matcher::from_env(), &uri);
             }
         };
-        let Some(proxy_url) = proxy_url else {
-            return BrowserRoute::Direct;
-        };
-        // A scheme-less value (`127.0.0.1:8887`) is an HTTP proxy for the
-        // native client; route the browser through the same proxy.
-        let proxy_url = if proxy_url.contains("://") {
-            proxy_url
-        } else {
-            format!("http://{}", proxy_url.trim())
-        };
-        browser_proxy_from_url(&proxy_url)
+        proxy_url
+            .as_deref()
+            .map_or(BrowserRoute::Direct, browser_proxy_from_url)
     }
+}
+
+fn browser_route_from_matcher(matcher: &Matcher, uri: &http::Uri) -> BrowserRoute {
+    let Some(proxy) = matcher.intercept(uri) else {
+        return BrowserRoute::Direct;
+    };
+    let BrowserRoute::Proxy { server, .. } = browser_proxy_from_url(&proxy.uri().to_string())
+    else {
+        return BrowserRoute::Unsupported;
+    };
+    let (username, password) = if let Some((user, pass)) = proxy.raw_auth() {
+        (Some(user.to_owned()), Some(pass.to_owned()))
+    } else if let Some(auth) = proxy.basic_auth() {
+        let Some((user, pass)) = decode_basic_proxy_auth(auth) else {
+            return BrowserRoute::Unsupported;
+        };
+        (Some(user), Some(pass))
+    } else {
+        (None, None)
+    };
+    BrowserRoute::Proxy {
+        server,
+        username,
+        password,
+    }
+}
+
+// The matcher strips userinfo from the proxy URI and exposes HTTP proxy
+// credentials as a Basic header. The browser requires the decoded pair.
+fn decode_basic_proxy_auth(auth: &http::HeaderValue) -> Option<(String, String)> {
+    let encoded = auth.to_str().ok()?.strip_prefix("Basic ")?;
+    let mut bytes = Vec::with_capacity(encoded.len() / 4 * 3);
+    let mut accumulator = 0u16;
+    let mut bits = 0;
+    for byte in encoded.trim_end_matches('=').bytes() {
+        let value = match byte {
+            b'A'..=b'Z' => byte - b'A',
+            b'a'..=b'z' => byte - b'a' + 26,
+            b'0'..=b'9' => byte - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => return None,
+        };
+        accumulator = (accumulator << 6) | u16::from(value);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            bytes.push((accumulator >> bits) as u8);
+        }
+    }
+    let decoded = String::from_utf8(bytes).ok()?;
+    let (user, pass) = decoded.split_once(':')?;
+    Some((user.to_owned(), pass.to_owned()))
+}
+
+/// A bare `*` entry means "never proxy", IP literals included (the matchers
+/// only apply `*` to host names).
+fn no_proxy_is_wildcard(no_proxy: &str) -> bool {
+    no_proxy.split([',', ';']).any(|e| e.trim() == "*")
+}
+
+fn env_no_proxy_is_wildcard() -> bool {
+    env_wildcard_from(
+        std::env::var("NO_PROXY").ok(),
+        std::env::var("no_proxy").ok(),
+    )
+}
+
+/// Same precedence and separator as the environment matcher: `NO_PROXY`
+/// wins over `no_proxy`, entries are comma-separated.
+fn env_wildcard_from(upper: Option<String>, lower: Option<String>) -> bool {
+    upper
+        .or(lower)
+        .is_some_and(|v| v.split(',').any(|e| e.trim() == "*"))
 }
 
 /// Browser routing for one request (Python: `{}` / `{"server": …}` / `None`).
@@ -444,7 +504,59 @@ fn browser_proxy_from_url(proxy_url: &str) -> BrowserRoute {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
+    #[test]
+    fn env_wildcard_follows_matcher_precedence() {
+        let o = |v: &str| Some(v.to_owned());
+        assert!(!env_wildcard_from(o("localhost"), o("*")));
+        assert!(env_wildcard_from(None, o("*")));
+        assert!(env_wildcard_from(o("a.test, *"), None));
+        assert!(!env_wildcard_from(o("localhost;*"), None));
+    }
+
     use super::*;
+
+    #[test]
+    fn browser_uses_matchers_all_proxy_fallback() {
+        let matcher = Matcher::builder()
+            .https("ftp://proxy.test:21")
+            .all("127.0.0.1:8887")
+            .build();
+        let uri = http::Uri::from_static("https://story.test/");
+
+        assert_eq!(
+            browser_route_from_matcher(&matcher, &uri),
+            BrowserRoute::Proxy {
+                server: "http://127.0.0.1:8887".into(),
+                username: None,
+                password: None,
+            },
+        );
+    }
+
+    #[test]
+    fn browser_preserves_matched_proxy_credentials() {
+        let uri = http::Uri::from_static("https://story.test/");
+        for (proxy, server) in [
+            (
+                "http://user:p%40ss%3Aword@proxy.test:8887",
+                "http://proxy.test:8887",
+            ),
+            (
+                "socks5h://user:p%40ss%3Aword@proxy.test:8887",
+                "socks5://proxy.test:8887",
+            ),
+        ] {
+            let matcher = Matcher::builder().all(proxy).build();
+            assert_eq!(
+                browser_route_from_matcher(&matcher, &uri),
+                BrowserRoute::Proxy {
+                    server: server.into(),
+                    username: Some("user".into()),
+                    password: Some("p@ss:word".into()),
+                },
+            );
+        }
+    }
 
     fn resolve(args: ProxyArgs<'_>, saved: &[(&str, &str)]) -> Result<ProxyConfig, ProxyError> {
         let map: std::collections::HashMap<String, String> = saved

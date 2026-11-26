@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{self, Read, Write};
+use std::io::{self, Read, Seek, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::{
@@ -10,6 +10,7 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const CACHE: &str = "no-store, no-cache, must-revalidate, max-age=0";
+const INSTANCE_HEADER: &str = "X-CYOA-Preview-Instance";
 const CLEAR_BODY: &str = "<!doctype html><meta charset=\"utf-8\"><title>Clearing preview cache...</title>\n<script>\n(async function() {\n  try { localStorage.clear(); } catch (e) {}\n  try { sessionStorage.clear(); } catch (e) {}\n  try {\n    if ('caches' in window) {\n      const names = await caches.keys();\n      await Promise.all(names.map(n => caches.delete(n)));\n    }\n  } catch (e) {}\n  try {\n    if ('serviceWorker' in navigator) {\n      const regs = await navigator.serviceWorker.getRegistrations();\n      await Promise.all(regs.map(r => r.unregister()));\n    }\n  } catch (e) {}\n  location.replace('/?cb={stamp}&preview={stamp}');\n})();\n</script>\n<p>Clearing preview cache...</p>";
 
 pub struct PreviewServer {
@@ -32,6 +33,12 @@ impl PreviewServer {
     /// (also `tools=0`, `serve_tools=0`, `cyoa_tools=0`). Enables the
     /// `/__serve_tools__` page and `/__serve_tools__/status.json`.
     pub fn start_with_tools(folder: &Path, port: u16, tools: Option<String>) -> io::Result<Self> {
+        if !cfg!(any(windows, target_os = "linux", target_os = "macos")) {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "secure preview file opens are unavailable on this platform",
+            ));
+        }
         let root = folder.canonicalize()?;
         let tools: Option<Arc<str>> = tools.map(Arc::from);
         let listener = TcpListener::bind(("127.0.0.1", port))?;
@@ -115,6 +122,7 @@ fn accept_loop(
     tools: Option<Arc<str>>,
 ) {
     let slots = Arc::new(std::sync::Mutex::new(0usize));
+    let instance: Arc<str> = uuid::Uuid::new_v4().to_string().into();
     while !stop.load(Ordering::Acquire) {
         match listener.accept() {
             Ok((stream, _)) => {
@@ -136,15 +144,14 @@ fn accept_loop(
                 drop(count);
                 let root = root.clone();
                 let tools = tools.clone();
-                let slots2 = Arc::clone(&slots);
+                let instance = Arc::clone(&instance);
                 let _ = thread::Builder::new()
                     .name("cyoa-preview-client".into())
-                    .spawn(move || {
-                        let _guard = SlotGuard(slots2);
-                        if let Err(e) = handle(stream, &root, port, tools.as_deref()) {
+                    .spawn(connection_task(Arc::clone(&slots), move || {
+                        if let Err(e) = handle(stream, &root, port, tools.as_deref(), &instance) {
                             tracing::debug!("preview request failed: {e}");
                         }
-                    });
+                    }));
             }
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
                 thread::sleep(Duration::from_millis(10))
@@ -157,6 +164,15 @@ fn accept_loop(
     }
 }
 struct SlotGuard(Arc<std::sync::Mutex<usize>>);
+fn connection_task(slots: Arc<std::sync::Mutex<usize>>, task: impl FnOnce()) -> impl FnOnce() {
+    // The spawn attempt drops the closure if no thread can start.
+    let slot = SlotGuard(slots);
+    move || {
+        let _slot = slot;
+        task();
+    }
+}
+
 impl Drop for SlotGuard {
     fn drop(&mut self) {
         let mut n = self.0.lock().unwrap_or_else(|e| e.into_inner());
@@ -169,7 +185,13 @@ const HEADER_DEADLINE: Duration = Duration::from_secs(10);
 /// Per-write timeout for response bodies (stalled readers free their slot).
 const WRITE_TIMEOUT: Duration = Duration::from_secs(30);
 
-fn handle(mut stream: TcpStream, root: &Path, port: u16, tools: Option<&str>) -> io::Result<()> {
+fn handle(
+    mut stream: TcpStream,
+    root: &Path,
+    port: u16,
+    tools: Option<&str>,
+    instance: &str,
+) -> io::Result<()> {
     // Accepted sockets inherit the listener's non-blocking mode on Windows.
     stream.set_nonblocking(false)?;
     stream.set_write_timeout(Some(WRITE_TIMEOUT))?;
@@ -261,6 +283,28 @@ fn handle(mut stream: TcpStream, root: &Path, port: u16, tools: Option<&str>) ->
         );
     }
     let head = method == "HEAD";
+    for (name, value) in lines.filter_map(|line| line.split_once(':')) {
+        let (name, value) = (name.trim(), value.trim());
+        // Browsers identify worker registrations and updates regardless of the script URL.
+        if (name.eq_ignore_ascii_case("Service-Worker") && value.eq_ignore_ascii_case("script"))
+            || (name.eq_ignore_ascii_case("Sec-Fetch-Dest")
+                && value.eq_ignore_ascii_case("serviceworker"))
+        {
+            return respond(stream, 403, "Forbidden", "text/plain", b"", head, &[]);
+        }
+        if name.eq_ignore_ascii_case(INSTANCE_HEADER) && value != instance {
+            return respond(
+                stream,
+                412,
+                "Precondition Failed",
+                "text/plain",
+                b"",
+                head,
+                &[],
+            );
+        }
+    }
+    let instance_headers = [(INSTANCE_HEADER, instance)];
     let raw_path = target.split(['?', '#']).next().unwrap_or("");
     let decoded = match percent_decode(raw_path) {
         Ok(s) => s,
@@ -288,7 +332,12 @@ fn handle(mut stream: TcpStream, root: &Path, port: u16, tools: Option<&str>) ->
             "text/html; charset=utf-8",
             body.as_bytes(),
             head,
-            &[("Clear-Site-Data", "\"cache\", \"storage\"")],
+            // A HEAD probe must never wipe saved progress.
+            if head {
+                &[]
+            } else {
+                &[("Clear-Site-Data", "\"cache\", \"storage\"")]
+            },
         );
     }
     let query = target.split('#').next().unwrap_or("");
@@ -303,7 +352,7 @@ fn handle(mut stream: TcpStream, root: &Path, port: u16, tools: Option<&str>) ->
                 "text/html; charset=utf-8",
                 SERVE_TOOLS_PAGE.as_bytes(),
                 head,
-                &[],
+                &instance_headers,
             );
         }
         if decoded == "/__serve_tools__/status.json" {
@@ -318,7 +367,7 @@ fn handle(mut stream: TcpStream, root: &Path, port: u16, tools: Option<&str>) ->
                 "application/json; charset=utf-8",
                 body.as_bytes(),
                 head,
-                &[],
+                &instance_headers,
             );
         }
     }
@@ -335,7 +384,8 @@ fn handle(mut stream: TcpStream, root: &Path, port: u16, tools: Option<&str>) ->
         if !trailing {
             // Python SimpleHTTPRequestHandler: the raw (still encoded) path.
             let query = target.find('?').map(|i| &target[i..]).unwrap_or("");
-            let location = format!("{raw_path}/{query}");
+            // `//sub` would be a scheme-relative URL to host `sub`.
+            let location = format!("/{}/{query}", raw_path.trim_start_matches('/'));
             return respond(
                 stream,
                 301,
@@ -351,40 +401,34 @@ fn handle(mut stream: TcpStream, root: &Path, port: u16, tools: Option<&str>) ->
             path.set_file_name("index.htm");
         }
     }
-    let canonical = match path.canonicalize() {
-        Ok(p) if p.starts_with(root) => p,
-        _ => return not_found(stream, head),
-    };
-    // Check the type before opening: opening a FIFO blocks until a writer appears.
-    if !std::fs::metadata(&canonical).is_ok_and(|m| m.is_file()) {
-        return not_found(stream, head);
-    }
-    let mut file = match File::open(&canonical) {
-        Ok(f) => f,
+    let (mut file, canonical) = match open_preview_file(path, root) {
+        Ok(opened) => opened,
         Err(_) => return not_found(stream, head),
     };
-    let len = match file.metadata() {
+    let mut len = match file.metadata() {
         Ok(m) if m.is_file() => m.len(),
         _ => return not_found(stream, head),
     };
     let mime = content_type(&canonical);
+    let is_html = mime == "text/html";
+    let headers: &[_] = if is_html { &instance_headers } else { &[] };
     // Serve Tools: inject the snippet into HTML pages (bounded size, UTF-8).
     if let Some(snippet) = tools
-        && mime.starts_with("text/html")
-        && len <= 32 * 1024 * 1024
+        && is_html
+        && len <= HTML_INJECTION_CAP
     {
-        let mut raw = Vec::new();
-        if file.read_to_end(&mut raw).is_ok() {
-            let body = match String::from_utf8(raw) {
-                Ok(text) => inject_tools(&text, snippet).into_bytes(),
-                Err(e) => e.into_bytes(),
-            };
-            return respond(stream, 200, "OK", mime, &body, head, &[]);
+        match read_tools_html(&mut file, snippet) {
+            Ok(Some(body)) => return respond(stream, 200, "OK", mime, &body, head, headers),
+            Ok(None) => {
+                file.rewind()?;
+                len = file.metadata()?.len();
+            }
+            Err(_) => return not_found(stream, head),
         }
-        return not_found(stream, head);
     }
-    write_headers(&mut stream, 200, "OK", mime, len, &[])?;
+    write_headers(&mut stream, 200, "OK", mime, len, headers)?;
     if !head {
+        let mut file = file.take(len);
         let mut chunk = [0u8; 64 * 1024];
         loop {
             match file.read(&mut chunk) {
@@ -404,6 +448,135 @@ fn handle(mut stream: TcpStream, root: &Path, port: u16, tools: Option<&str>) ->
     }
     let _ = stream.shutdown(Shutdown::Both);
     Ok(())
+}
+
+const HTML_INJECTION_CAP: u64 = 32 * 1024 * 1024;
+
+fn open_preview_file(path: PathBuf, root: &Path) -> io::Result<(File, PathBuf)> {
+    let canonical = path.canonicalize()?;
+    if !canonical.starts_with(root) {
+        return Err(io::ErrorKind::NotFound.into());
+    }
+    open_resolved_file(canonical, root)
+}
+
+#[cfg(target_os = "linux")]
+fn open_resolved_file(path: PathBuf, root: &Path) -> io::Result<(File, PathBuf)> {
+    use std::os::{fd::AsRawFd, unix::fs::OpenOptionsExt};
+
+    #[cfg(any(target_arch = "sparc", target_arch = "sparc64"))]
+    const O_PATH: i32 = 0x1000000;
+    #[cfg(not(any(target_arch = "sparc", target_arch = "sparc64")))]
+    const O_PATH: i32 = 0o10000000;
+
+    // O_PATH opens a reference without opening a device or waiting on a FIFO.
+    use std::os::unix::fs::MetadataExt;
+    let handle = File::options()
+        .read(true)
+        .custom_flags(O_PATH)
+        .open(&path)?;
+    let fd_path = PathBuf::from(format!("/proc/self/fd/{}", handle.as_raw_fd()));
+    match fd_path.read_link() {
+        Ok(opened) => {
+            // `opened` may carry " (deleted)"; it is only used for the check.
+            if !opened.starts_with(root) || !handle.metadata()?.is_file() {
+                return Err(io::ErrorKind::NotFound.into());
+            }
+            // Reopen the kernel's reference to the same file for reading.
+            Ok((File::open(fd_path)?, path))
+        }
+        Err(_) => {
+            // No procfs (chroot/container): `path` is canonical; open it and
+            // confirm (device, inode) that it still resolves inside the root
+            // to this very file, so a swap after the check is rejected.
+            if !std::fs::symlink_metadata(&path)?.is_file() {
+                return Err(io::ErrorKind::NotFound.into());
+            }
+            let file = File::open(&path)?;
+            let meta = file.metadata()?;
+            let again = path.canonicalize()?;
+            let check = std::fs::metadata(&again)?;
+            if !meta.is_file()
+                || !again.starts_with(root)
+                || meta.dev() != check.dev()
+                || meta.ino() != check.ino()
+            {
+                return Err(io::ErrorKind::NotFound.into());
+            }
+            Ok((file, path))
+        }
+    }
+}
+
+#[cfg(windows)]
+fn open_resolved_file(path: PathBuf, _root: &Path) -> io::Result<(File, PathBuf)> {
+    use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+    const FILE_TRAVERSE: u32 = 0x20;
+    const FILE_READ_ATTRIBUTES: u32 = 0x80;
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+    const FILE_SHARE_READ: u32 = 1;
+    const FILE_SHARE_WRITE: u32 = 2;
+
+    // Win32's no-follow flag covers the final component. Hold each checked
+    // parent open without delete sharing (no rename/replace) until the leaf
+    // is open; write sharing stays allowed so a process adding files to the
+    // archive does not make every request fail.
+    let parents: Vec<_> = path.ancestors().skip(1).collect();
+    let mut pinned = Vec::with_capacity(parents.len());
+    for parent in parents.into_iter().rev() {
+        let dir = File::options()
+            .access_mode(FILE_TRAVERSE | FILE_READ_ATTRIBUTES)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS)
+            .open(parent)?;
+        let meta = dir.metadata()?;
+        if !meta.is_dir() || meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return Err(io::ErrorKind::NotFound.into());
+        }
+        pinned.push(dir);
+    }
+    let file = File::options()
+        .read(true)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(&path)?;
+    let meta = file.metadata()?;
+    if !meta.is_file() || meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        return Err(io::ErrorKind::NotFound.into());
+    }
+    Ok((file, path))
+}
+
+#[cfg(target_os = "macos")]
+fn open_resolved_file(path: PathBuf, _root: &Path) -> io::Result<(File, PathBuf)> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    const O_NOFOLLOW_ANY: i32 = 0x2000_0000;
+    const O_NONBLOCK: i32 = 4;
+    let file = File::options()
+        .read(true)
+        .custom_flags(O_NOFOLLOW_ANY | O_NONBLOCK)
+        .open(&path)?;
+    Ok((file, path))
+}
+
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+fn open_resolved_file(_path: PathBuf, _root: &Path) -> io::Result<(File, PathBuf)> {
+    Err(io::ErrorKind::Unsupported.into())
+}
+
+fn read_tools_html(reader: impl Read, snippet: &str) -> io::Result<Option<Vec<u8>>> {
+    let mut raw = Vec::new();
+    reader.take(HTML_INJECTION_CAP + 1).read_to_end(&mut raw)?;
+    if raw.len() as u64 > HTML_INJECTION_CAP {
+        return Ok(None);
+    }
+    Ok(Some(match String::from_utf8(raw) {
+        Ok(text) => inject_tools(&text, snippet).into_bytes(),
+        Err(e) => e.into_bytes(),
+    }))
 }
 fn percent_decode(s: &str) -> Result<String, ()> {
     let bytes = s.as_bytes();
@@ -486,10 +659,102 @@ pub fn inject_tools(html: &str, snippet: &str) -> String {
     if html.contains("id=\"cyoa-serve-tools\"") {
         return html.to_owned();
     }
-    match html.to_ascii_lowercase().rfind("</body>") {
+    match last_body_end(html.as_bytes()) {
         Some(i) => format!("{}{snippet}{}", &html[..i], &html[i..]),
         None => format!("{html}{snippet}"),
     }
+}
+
+/// Position of the last real `</body>` tag: one that is not inside a
+/// comment, a script (including the script-data escaped states), or an
+/// attribute value. Unterminated comments/scripts end the scan.
+fn last_body_end(b: &[u8]) -> Option<usize> {
+    let lower = b.to_ascii_lowercase();
+    let at = |i: usize, s: &str| lower[i..].starts_with(s.as_bytes());
+    let delim = |i: usize| {
+        lower
+            .get(i)
+            .is_none_or(|c| c.is_ascii_whitespace() || *c == b'>' || *c == b'/')
+    };
+    // End of the tag starting at `i` (index after `>`), honouring quotes.
+    let tag_end = |mut i: usize| -> Option<usize> {
+        let mut quote = None;
+        while i < b.len() {
+            match (quote, b[i]) {
+                (None, b'"' | b'\'') => quote = Some(b[i]),
+                (Some(q), c) if c == q => quote = None,
+                (None, b'>') => return Some(i + 1),
+                _ => {}
+            }
+            i += 1;
+        }
+        None
+    };
+    let mut last = None;
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] != b'<' {
+            i += 1;
+            continue;
+        }
+        if at(i, "<!--") {
+            let Some(end) = find(&lower, i + 4, b"-->") else {
+                break;
+            };
+            i = end + 3;
+        } else if at(i, "<script") && delim(i + 7) {
+            let Some(mut j) = tag_end(i + 7) else { break };
+            // Script data with the escaped / double-escaped states.
+            let (mut escaped, mut double) = (false, false);
+            let end = loop {
+                if j >= b.len() {
+                    break None;
+                }
+                if at(j, "<!--") && !escaped {
+                    escaped = true;
+                    j += 4;
+                } else if escaped && at(j, "-->") {
+                    escaped = false;
+                    double = false;
+                    j += 3;
+                } else if escaped && !double && at(j, "<script") && delim(j + 7) {
+                    double = true;
+                    j += 7;
+                } else if at(j, "</script") && delim(j + 8) {
+                    if double {
+                        double = false;
+                        j += 8;
+                    } else {
+                        break tag_end(j + 8);
+                    }
+                } else {
+                    j += 1;
+                }
+            };
+            let Some(end) = end else { break };
+            i = end;
+        } else if at(i, "</body") && delim(i + 6) {
+            last = Some(i);
+            let Some(end) = tag_end(i + 6) else { break };
+            i = end;
+        } else if b
+            .get(i + 1)
+            .is_some_and(|c| c.is_ascii_alphabetic() || *c == b'/' || *c == b'!')
+        {
+            let Some(end) = tag_end(i + 1) else { break };
+            i = end;
+        } else {
+            i += 1;
+        }
+    }
+    last
+}
+
+fn find(hay: &[u8], from: usize, needle: &[u8]) -> Option<usize> {
+    hay.get(from..)?
+        .windows(needle.len())
+        .position(|w| w == needle)
+        .map(|p| p + from)
 }
 
 /// `/__serve_tools__`: help page for the injected preview tools.
@@ -547,6 +812,36 @@ fn write_headers(
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tools_not_injected_inside_script_string() {
+        let html = "<p>x</p><script>window.ready = \"</body>\";</script>";
+        let out = inject_tools(html, "<!--T-->");
+        assert_eq!(out, format!("{html}<!--T-->"));
+        let normal = "<script>a()</script></body>";
+        assert_eq!(
+            inject_tools(normal, "<!--T-->"),
+            "<script>a()</script><!--T--></body>"
+        );
+    }
+
+    #[test]
+    fn tools_use_last_body_end_outside_scripts_and_comments() {
+        for tail in [
+            "<!-- truncated </script>",
+            "<!-- </body> -->",
+            r#"<ScRiPt data-note=">">const fake = "</body>"; </scripture>const stillFake = "</body>";</sCrIpT >"#,
+            "<script><!-- <script></script></body> --></script>",
+            r#"<div title="</body>"></div>"#,
+        ] {
+            let html = format!("<body>First</body><body>Game</BoDy></html>{tail}");
+            assert_eq!(
+                inject_tools(&html, "<!--T-->"),
+                format!("<body>First</body><body>Game<!--T--></BoDy></html>{tail}")
+            );
+        }
+    }
+
     fn get(server: &PreviewServer, request: &str) -> (String, Vec<u8>) {
         let mut s = TcpStream::connect(("127.0.0.1", server.port())).expect("connect");
         // Tests write bare request lines; add the valid authority.
@@ -577,6 +872,170 @@ mod tests {
         let d = tempfile::tempdir().expect("tempdir");
         let server = PreviewServer::start(d.path()).expect("start");
         (d, server)
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn serves_files_while_directory_has_shared_write_handle() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let (d, s) = server();
+        std::fs::write(d.path().join("index.html"), "home").expect("write");
+        let _writer = File::options()
+            .access_mode(0x0002) // FILE_ADD_FILE
+            .share_mode(0x0001 | 0x0002 | 0x0004) // FILE_SHARE_READ | WRITE | DELETE
+            .custom_flags(0x0200_0000) // FILE_FLAG_BACKUP_SEMANTICS
+            .open(d.path())
+            .expect("open shared directory writer");
+
+        let (headers, body) = get(&s, "GET /index.html HTTP/1.1\r\n\r\n");
+        assert!(headers.contains("200 OK"), "{headers}");
+        assert_eq!(body, b"home");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn serves_mime_type_of_requested_name() {
+        let (d, s) = server();
+        std::fs::write(d.path().join("script.data"), "void 0;").expect("write");
+        std::os::unix::fs::symlink("script.data", d.path().join("app.js")).expect("symlink");
+
+        let (headers, body) = get(&s, "GET /app.js HTTP/1.1\r\n\r\n");
+        assert!(
+            headers.contains("Content-Type: text/javascript\r\n"),
+            "{headers}"
+        );
+        assert_eq!(body, b"void 0;");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn opens_file_without_procfs_and_rejects_replaced_parent() {
+        let d = tempfile::tempdir().expect("tempdir");
+        let root = d.path().join("archive");
+        let parent = root.join("pages");
+        let outside = d.path().join("outside");
+        std::fs::create_dir_all(&parent).expect("pages");
+        std::fs::create_dir(&outside).expect("outside");
+        std::fs::write(parent.join("index.html"), "home").expect("write page");
+        std::fs::write(outside.join("index.html"), "outside").expect("write outside page");
+        let root = root.canonicalize().expect("root");
+        let path = root.join("pages/index.html");
+        let missing_fds = d.path().join("missing-proc/self/fd");
+
+        let mut file = open_linux_file(&path, &root, &missing_fds).expect("open without procfs");
+        let mut body = String::new();
+        file.read_to_string(&mut body).expect("read page");
+        assert_eq!(body, "home");
+
+        std::fs::rename(&parent, root.join("old-pages")).expect("rename pages");
+        std::os::unix::fs::symlink(&outside, &parent).expect("replace pages with symlink");
+        assert!(open_linux_file(&path, &root, &missing_fds).is_err());
+    }
+
+    #[test]
+    fn dropping_unstarted_connection_releases_slot() {
+        let slots = Arc::new(std::sync::Mutex::new(1));
+        let task = connection_task(Arc::clone(&slots), || panic!("task never started"));
+        drop(task);
+        assert_eq!(*slots.lock().expect("slots"), 0);
+    }
+
+    #[test]
+    fn html_injection_reads_at_most_cap_plus_one() {
+        let mut reader = io::repeat(b'x').take(HTML_INJECTION_CAP + 10);
+        assert!(
+            read_tools_html(&mut reader, "<!-- tools -->")
+                .expect("read")
+                .is_none()
+        );
+        assert_eq!(reader.limit(), 9);
+    }
+
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn replaced_parent_is_rejected_at_open() {
+        let fixture = tempfile::tempdir().expect("tempdir");
+        let root = fixture.path().join("archive");
+        let parent = root.join("pages");
+        let other = fixture.path().join("outside");
+        std::fs::create_dir_all(&parent).expect("parent");
+        std::fs::create_dir(&other).expect("outside");
+        std::fs::write(parent.join("page.html"), "archive").expect("write");
+        std::fs::write(other.join("page.html"), "outside").expect("write");
+        let root = root.canonicalize().expect("root");
+        let path = parent.join("page.html").canonicalize().expect("page");
+        let _ = open_resolved_file(path.clone(), &root).expect("open ordinary archive page");
+
+        std::fs::remove_file(parent.join("page.html")).expect("remove fixture page");
+        std::fs::remove_dir(&parent).expect("remove fixture directory");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&other, &parent).expect("symlink");
+        #[cfg(windows)]
+        {
+            // Creating a junction works without Windows Developer Mode.
+            let output = std::process::Command::new("powershell.exe")
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    "New-Item -ItemType Junction -Path $env:CYOA_TEST_LINK -Target $env:CYOA_TEST_TARGET -ErrorAction Stop | Out-Null",
+                ])
+                .env("CYOA_TEST_LINK", &parent)
+                .env("CYOA_TEST_TARGET", &other)
+                .output()
+                .expect("create junction");
+            assert!(output.status.success(), "{:?}", output);
+        }
+        assert!(open_resolved_file(path, &root).is_err());
+    }
+
+    #[test]
+    fn rejects_service_worker_script_requests() {
+        let (d, s) = server();
+        std::fs::write(d.path().join("worker.js"), "self.skipWaiting()").expect("write");
+        for header in ["Service-Worker: script", "Sec-Fetch-Dest: serviceworker"] {
+            let (h, _) = get(&s, &format!("GET /worker.js HTTP/1.1\r\n{header}\r\n\r\n"));
+            assert!(h.contains("403 Forbidden"), "{h}");
+        }
+        let (h, _) = get(&s, "GET /worker.js HTTP/1.1\r\n\r\n");
+        assert!(h.contains("200 OK"));
+    }
+
+    #[test]
+    fn rejects_instance_header_from_previous_server() {
+        let (d, first) = server();
+        std::fs::write(d.path().join("index.html"), "first").expect("write");
+        let port = first.port();
+        let (h, _) = get(&first, "GET / HTTP/1.1\r\n\r\n");
+        let first_id = h
+            .lines()
+            .find_map(|line| line.strip_prefix("X-CYOA-Preview-Instance: "))
+            .expect("first instance header");
+        first.stop();
+
+        let other = tempfile::tempdir().expect("other archive");
+        std::fs::write(other.path().join("index.html"), "second").expect("write");
+        let second = PreviewServer::start_on(other.path(), port).expect("reuse port");
+        let (h, _) = get(
+            &second,
+            &format!("GET / HTTP/1.1\r\nX-CYOA-Preview-Instance: {first_id}\r\n\r\n"),
+        );
+        assert!(h.contains("412 Precondition Failed"), "{h}");
+
+        let (h, body) = get(&second, "GET / HTTP/1.1\r\n\r\n");
+        assert!(h.contains("Cache-Control: no-store"));
+        let second_id = h
+            .lines()
+            .find_map(|line| line.strip_prefix("X-CYOA-Preview-Instance: "))
+            .expect("second instance header");
+        assert_ne!(first_id, second_id);
+        assert_eq!(body, b"second");
+        let (h, _) = get(
+            &second,
+            &format!("GET / HTTP/1.1\r\nX-CYOA-Preview-Instance: {second_id}\r\n\r\n"),
+        );
+        assert!(h.contains("200 OK"));
     }
     #[test]
     fn serve_tools_are_injected_into_html_only_and_can_be_disabled() {
@@ -711,7 +1170,9 @@ mod tests {
         let (h, _) = get(&s, "POST / HTTP/1.1\r\n\r\n");
         assert!(h.contains("405 Method Not Allowed"));
         let (h, b) = get(&s, "HEAD /__clear_cache__ HTTP/1.1\r\n\r\n");
-        assert!(h.contains("Clear-Site-Data:") && h.contains("Content-Length: ") && b.is_empty());
+        assert!(!h.contains("Clear-Site-Data:") && h.contains("Content-Length: ") && b.is_empty());
+        let (h, _) = get(&s, "GET /__clear_cache__ HTTP/1.1\r\n\r\n");
+        assert!(h.contains("Clear-Site-Data:"));
     }
     #[test]
     fn symlink_escape_is_not_served() {

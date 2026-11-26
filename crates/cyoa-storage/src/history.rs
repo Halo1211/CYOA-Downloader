@@ -1,5 +1,6 @@
 use serde_json::{Map, Value};
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
@@ -53,7 +54,7 @@ pub fn save_history(
 /// Port of `storage/history.py::_record_history` in background mode (the GUI path):
 /// successful entries are written with `metadata_state: "pending"` for the later
 /// metadata worker. Metadata probing/merging (F-009 background part) is ported with
-/// the network stage. Not yet ported: the inter-process file lock.
+/// the network stage.
 pub fn record_history(
     path: impl AsRef<Path>,
     url: &str,
@@ -64,26 +65,31 @@ pub fn record_history(
     metadata_id: &str,
 ) -> Result<(), HistoryError> {
     let path = path.as_ref();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
     // Serialize read-modify-write within the process: two workers recording
     // different URLs must not both load the same snapshot and drop one entry.
     static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _guard = LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    // Inter-process lock (CLI and GUI at once): an exclusive lock on a sibling
-    // `.lock` file, held until this update is saved. Best effort: if the lock
-    // file cannot be used, the in-process lock still applies.
-    let _file_lock = {
-        let mut lock_path = path.as_os_str().to_owned();
-        lock_path.push(".lock");
-        std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(std::path::PathBuf::from(lock_path))
-            .ok()
-            .filter(|f| f.lock().is_ok())
-    };
+    let mut lock_path = path.as_os_str().to_owned();
+    lock_path.push(".lock");
+    let mut file_lock = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(PathBuf::from(lock_path))?;
+    // Python writes a byte to an empty sidecar before trying to lock it. Seed
+    // it before our Windows lock covers that byte, including old empty sidecars.
+    if file_lock.metadata()?.len() == 0
+        && let Err(error) = file_lock.write_all(&[0])
+        && file_lock.metadata()?.len() == 0
+    {
+        return Err(error.into());
+    }
+    file_lock.lock()?;
     let mut history = load_history(path);
     let mut entry = Map::new();
     entry.insert("last_downloaded".into(), Value::String(clock()));
@@ -117,4 +123,60 @@ pub fn record_history(
         }
     }
     save_history(path, &history)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn history_lock_is_initialized_before_python_can_contend() {
+        let home = tempfile::tempdir().unwrap();
+        let path = home.path().join(HISTORY_FILE);
+        let lock_path = home.path().join("download_history.json.lock");
+        fs::File::create(&lock_path).unwrap();
+
+        record_history(
+            &path,
+            "https://x.test/",
+            "archive",
+            "website",
+            true,
+            || {
+                // Python writes a byte before trying to lock an empty sidecar.
+                assert_eq!(fs::metadata(&lock_path).unwrap().len(), 1);
+                "2026-11-26T00:00:00".into()
+            },
+            "first",
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn first_history_write_holds_file_lock() {
+        let home = tempfile::tempdir().unwrap();
+        let parent = home.path().join(".cyoa_downloader");
+        let path = parent.join(HISTORY_FILE);
+        let lock_path = parent.join("download_history.json.lock");
+        assert!(!parent.exists());
+
+        record_history(
+            &path,
+            "https://x.test/",
+            "archive",
+            "website",
+            true,
+            || {
+                let contender = fs::OpenOptions::new().write(true).open(&lock_path).unwrap();
+                assert!(matches!(
+                    contender.try_lock(),
+                    Err(fs::TryLockError::WouldBlock)
+                ));
+                "2026-11-26T00:00:00".into()
+            },
+            "first",
+        )
+        .unwrap();
+    }
 }

@@ -225,57 +225,71 @@ pub fn find_script_sources(
         if let Some(selector) = SCRIPT_SEL.as_ref() {
             for (index, script) in document.select(selector).enumerate() {
                 let markup = script.html();
-                // A loader script without an app path is still an ordinary
-                // (inline or src) script: fall through instead of dropping it.
                 let loader_path = markup
                     .contains("document.createElement")
                     .then(|| extract_app_js_path(&markup))
                     .filter(|p| !p.is_empty());
-                if let Some(path) = loader_path {
-                    let src = resolve(&path);
-                    if !blocked(&src)
-                        && let Some(content) = fetch(&src)
-                    {
-                        results.push((src, content));
+                let mut failed_loader = None;
+                if let Some(src) = loader_path.map(|path| resolve(&path))
+                    && !blocked(&src)
+                {
+                    if let Some(content) = fetch(&src) {
+                        results.push((src, content, None));
+                        continue;
                     }
-                } else if let Some(raw) = script.value().attr("src") {
+                    failed_loader = Some(src);
+                }
+                if let Some(raw) = script.value().attr("src") {
                     let src = resolve(&raw.replace("\\/", "/"));
                     if !blocked(&src)
+                        && failed_loader.as_ref() != Some(&src)
                         && let Some(content) = fetch(&src)
                     {
-                        results.push((src, content));
+                        results.push((src, content, failed_loader));
                     }
                 } else {
                     let inline: String = script.text().collect();
                     if !inline.trim().is_empty() {
-                        results.push((format!("inline_script_{}", index + 1), inline));
+                        results.push((
+                            format!("inline_script_{}", index + 1),
+                            inline,
+                            failed_loader,
+                        ));
                     }
                 }
             }
         }
     }
-    let mut seen: HashSet<String> = results
+    let mut seen: HashSet<_> = results
         .iter()
-        .filter(|(l, _)| l.starts_with("http://") || l.starts_with("https://"))
-        .map(|(l, _)| l.clone())
+        .filter(|(l, _, _)| l.starts_with("http://") || l.starts_with("https://"))
+        .map(|(l, _, _)| l.clone())
         .collect();
     let mut cursor = 0;
     while cursor < results.len() && results.len() < 64 {
         let dynamic_path = extract_app_js_path(&results[cursor].1);
+        let failed_loader = results[cursor].2.as_ref();
         cursor += 1;
         if dynamic_path.is_empty() {
             continue;
         }
         let dynamic_url = resolve(&dynamic_path.replace("\\/", "/"));
-        if blocked(&dynamic_url) || !seen.insert(dynamic_url.clone()) {
+        if blocked(&dynamic_url)
+            || failed_loader == Some(&dynamic_url)
+            || seen.contains(&dynamic_url)
+        {
             continue;
         }
         if let Some(content) = fetch(&dynamic_url) {
-            results.push((dynamic_url, content));
+            seen.insert(dynamic_url.clone());
+            results.push((dynamic_url, content, None));
         }
     }
-    results.sort_by_key(|(label, _)| script_priority(label));
+    results.sort_by_key(|(label, _, _)| script_priority(label));
     results
+        .into_iter()
+        .map(|(label, content, _)| (label, content))
+        .collect()
 }
 
 pub fn extract_iframe_urls(html_source: &str) -> Vec<String> {
@@ -551,5 +565,49 @@ mod inline_loader_tests {
         let found = find_script_sources(html, None, false, &mut |_| None);
         assert_eq!(found.len(), 1);
         assert!(found[0].1.contains("__APP__"));
+    }
+
+    #[test]
+    fn failed_loader_fetch_keeps_inline_project() {
+        let inline =
+            "window.__APP__ = {rows: []}; document.createElement('script').src = 'js/app.abc.js';";
+        let html = format!("<script>{inline}</script>");
+        let mut requests = Vec::new();
+        let found = find_script_sources(
+            &html,
+            Some("https://example.com/game/"),
+            false,
+            &mut |url| {
+                requests.push(url.to_owned());
+                None
+            },
+        );
+
+        assert_eq!(
+            found,
+            vec![("inline_script_1".to_owned(), inline.to_owned())]
+        );
+        assert_eq!(requests, ["https://example.com/game/js/app.abc.js"]);
+    }
+
+    #[test]
+    fn later_script_retries_a_failed_loader_url() {
+        let inline = "document.createElement('script').src = 'js/app.abc.js';";
+        let html =
+            format!("<script>{inline}</script><script>const app = 'js/app.abc.js';</script>");
+        let app_url = "https://example.com/game/js/app.abc.js";
+        let mut requests = Vec::new();
+        let found = find_script_sources(
+            &html,
+            Some("https://example.com/game/"),
+            false,
+            &mut |url| {
+                requests.push(url.to_owned());
+                (requests.len() == 2).then(|| "window.__APP__ = {rows: []};".into())
+            },
+        );
+
+        assert_eq!(requests, [app_url, app_url]);
+        assert!(found.iter().any(|(url, _)| url == app_url));
     }
 }

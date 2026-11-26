@@ -1457,15 +1457,28 @@ pub fn localize_preserved_index_assets(
     fetcher: &dyn AssetFetcher,
     allow_internal: bool,
 ) -> String {
+    localize_preserved_index_assets_counted(html, source_url, site_folder, fetcher, allow_internal)
+        .0
+}
+
+/// `localize_preserved_index_assets` plus the number of assets that failed.
+pub fn localize_preserved_index_assets_counted(
+    html: &str,
+    source_url: &str,
+    site_folder: &Path,
+    fetcher: &dyn AssetFetcher,
+    allow_internal: bool,
+) -> (String, usize) {
     use crate::website::html::{self as h, Node, StrKind};
     if html.is_empty() {
-        return html.to_owned();
+        return (html.to_owned(), 0);
     }
     let root =
         normpath(&std::path::absolute(site_folder).unwrap_or_else(|_| site_folder.to_path_buf()));
     let Ok(mut doc) = h::parse(html) else {
         tracing::warn!("Could not parse viewer HTML for asset localization; left unchanged");
-        return html.to_owned();
+        // Not localized at all: count it as a failure so it is retried.
+        return (html.to_owned(), 1);
     };
     let mut loc = Localizer {
         root: root.clone(),
@@ -1602,7 +1615,7 @@ pub fn localize_preserved_index_assets(
             "Preserved Viewer Asset Download Failures",
         );
     }
-    h::serialize(&doc)
+    (h::serialize(&doc), loc.failed.len())
 }
 
 // ───────────────────────────── main entry ─────────────────────────────

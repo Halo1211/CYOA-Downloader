@@ -204,6 +204,23 @@ fn cache_put(key: &str, value: &str) {
         },
     );
 }
+fn fetch_record_or_slug(
+    id: &str,
+    lookup_id: bool,
+    mut fetch: impl FnMut(&str) -> Option<CafeResponse>,
+) -> Option<CafeResponse> {
+    if lookup_id {
+        let response = fetch(&format!(
+            "https://cyoa.cafe/api/collections/games/records/{}",
+            quote(id)
+        ))?;
+        if response.status != 404 {
+            return Some(response);
+        }
+    }
+    fetch(&slug_url(id))
+}
+
 pub fn fetch_cyoa_cafe_record(f: &mut dyn CafeFetch, url: &str, refresh: bool) -> Option<Value> {
     let id = record_id(url);
     if id.is_empty() {
@@ -226,42 +243,29 @@ pub fn fetch_cyoa_cafe_record(f: &mut dyn CafeFetch, url: &str, refresh: bool) -
             c.misses.remove(&key);
         }
     }
-    let mut urls = Vec::new();
-    if refresh || !id.contains(['-', '_']) {
-        urls.push(format!(
-            "https://cyoa.cafe/api/collections/games/records/{}",
-            quote(&id)
-        ));
-    }
-    // A slug id (`space-quest`) is only findable through the slug lookup, so a
-    // refresh must still query it or the stale cached viewer is kept.
-    if !refresh || id.contains(['-', '_']) {
-        urls.push(slug_url(&id));
-    }
-    let mut data = None;
-    for u in urls {
-        let Some(r) = f.fetch(&u) else { continue };
-        if r.status >= 400 {
-            continue;
+    let response = fetch_record_or_slug(&id, refresh || !id.contains(['-', '_']), |u| f.fetch(u))?;
+    let data = if response.status == 404 {
+        None
+    } else {
+        if !(200..300).contains(&response.status) {
+            return None;
         }
-        let Ok(v) = serde_json::from_str::<Value>(&r.text) else {
-            continue;
-        };
+        let v = serde_json::from_str::<Value>(&response.text).ok()?;
         if v.get("id").and_then(Value::as_str) == Some(&id) {
-            data = Some(v);
-            break;
+            Some(v)
+        } else {
+            v.get("items").and_then(Value::as_array).and_then(|items| {
+                items
+                    .iter()
+                    .find(|x| {
+                        x.get("slug")
+                            .and_then(Value::as_str)
+                            .is_some_and(|s| s.eq_ignore_ascii_case(&id))
+                    })
+                    .cloned()
+            })
         }
-        if let Some(items) = v.get("items").and_then(Value::as_array) {
-            if let Some(x) = items.iter().find(|x| {
-                x.get("slug")
-                    .and_then(Value::as_str)
-                    .is_some_and(|s| s.eq_ignore_ascii_case(&id))
-            }) {
-                data = Some(x.clone());
-                break;
-            }
-        }
-    }
+    };
     let mut c = lock();
     if let Some(v) = data.filter(|v| {
         v.get("id")
@@ -364,27 +368,27 @@ impl<'a> CafeResolver<'a> {
         let p = py_urlparse(n);
         let host = p.netloc.to_ascii_lowercase();
         let parts: Vec<_> = p.path.split('/').filter(|x| !x.is_empty()).collect();
-        let mut urls = Vec::new();
-        if host == "cyoa.cafe" && parts.len() >= 2 && parts[0] == "game" {
-            let id = parts[1];
-            urls.push(format!(
-                "https://cyoa.cafe/api/collections/games/records/{}",
-                quote(id)
-            ));
-            urls.push(slug_url(id));
-        } else if host.ends_with(".cyoa.cafe") {
-            if let Some(slug) = parts.first() {
-                for x in [format!("slug='{slug}'"), format!("iframe_url~'{slug}'")] {
-                    urls.push(format!(
-                        "https://cyoa.cafe/api/collections/games/records?filter={}&perPage=10",
-                        quote(&x)
-                    ));
-                }
+        let responses = if host == "cyoa.cafe" && parts.len() >= 2 && parts[0] == "game" {
+            fetch_record_or_slug(parts[1], true, |u| self.fetch(u))
+                .into_iter()
+                .collect()
+        } else if host.ends_with(".cyoa.cafe")
+            && let Some(slug) = parts.first()
+        {
+            let mut responses = Vec::new();
+            for x in [format!("slug='{slug}'"), format!("iframe_url~'{slug}'")] {
+                let url = format!(
+                    "https://cyoa.cafe/api/collections/games/records?filter={}&perPage=10",
+                    quote(&x)
+                );
+                responses.extend(self.fetch(&url));
             }
-        }
+            responses
+        } else {
+            Vec::new()
+        };
         let mut out = Vec::new();
-        for u in urls {
-            let Some(r) = self.fetch(&u) else { continue };
+        for r in responses {
             if r.status >= 400 {
                 continue;
             }
@@ -659,16 +663,7 @@ impl<'a> CafeResolver<'a> {
             ));
         }
         if cs.is_empty() && host == "cyoa.cafe" && !record_id(&n).is_empty() {
-            let id = record_id(&n);
-            for endpoint in [
-                format!(
-                    "https://cyoa.cafe/api/collections/games/records/{}",
-                    quote(&id)
-                ),
-                slug_url(&id),
-            ] {
-                let _ = self.fetcher.fetch(&endpoint);
-            }
+            let _ = fetch_record_or_slug(&record_id(&n), true, |u| self.fetcher.fetch(u));
             let _ = self.fetcher.fetch(&n);
         }
         let mut seen = HashSet::new();
@@ -729,6 +724,9 @@ mod tests {
         fn fetch(&mut self, url: &str) -> Option<CafeResponse> {
             self.requests.push(url.into());
             let v = self.site.get(url);
+            if v.is_some_and(Value::is_null) {
+                return None;
+            }
             Some(CafeResponse {
                 status: v
                     .and_then(|x| x.get("status"))
@@ -748,6 +746,59 @@ mod tests {
         }
     }
     #[test]
+    fn refresh_falls_back_to_alphanumeric_slug_lookup() {
+        let record = serde_json::json!({
+            "id": "spacequestrecord",
+            "slug": "spacequest",
+            "iframe_url": "https://spacequest.cyoa.cafe/new/",
+        });
+        let mut fake = Fake {
+            site: serde_json::json!({
+                (slug_url("spacequest")): {
+                    "status": 200,
+                    "ct": "application/json",
+                    "text": serde_json::json!({"items": [record]}).to_string(),
+                },
+            }),
+            requests: vec![],
+        };
+
+        let found = fetch_cyoa_cafe_record(&mut fake, "https://cyoa.cafe/game/spacequest", true);
+        assert_eq!(found, Some(record));
+    }
+
+    #[test]
+    fn cafe_slug_lookup_requires_id_not_found() {
+        let id = "abcdefghijklmno";
+        let game = format!("https://cyoa.cafe/game/{id}");
+        let lookup = format!("https://cyoa.cafe/api/collections/games/records/{id}");
+        let slug = slug_url(id);
+        let record = serde_json::json!({"id": "othergame", "slug": id});
+        for response in [
+            serde_json::json!({"status": 503}),
+            Value::Null,
+            serde_json::json!({"status": 200, "text": "{}"}),
+        ] {
+            let mut fake = Fake {
+                site: serde_json::json!({
+                    (lookup.clone()): response,
+                    (slug.clone()): {
+                        "status": 200,
+                        "text": serde_json::json!({"items": [record]}).to_string(),
+                    },
+                }),
+                requests: vec![],
+            };
+
+            assert_eq!(fetch_cyoa_cafe_record(&mut fake, &game, true), None);
+            assert_eq!(fake.requests, [lookup.as_str()]);
+            fake.requests.clear();
+            assert!(CafeResolver::new(&mut fake).resolve(&game).is_err());
+            assert!(!fake.requests.contains(&slug));
+        }
+    }
+
+    #[test]
     fn cafe_matches_python() {
         let fixture: Value =
             serde_json::from_str(include_str!("../../../fixtures/cafe.json")).unwrap();
@@ -762,12 +813,21 @@ mod tests {
                     requests: vec![],
                 };
                 let got = CafeResolver::new(&mut fake).resolve(input["url"].as_str().unwrap());
-                let req: Vec<String> = input["requests"]
+                let mut req: Vec<String> = input["requests"]
                     .as_array()
                     .unwrap()
                     .iter()
                     .map(|v| v.as_str().unwrap().to_owned())
                     .collect();
+                // These records exist. Their unusable viewer targets still
+                // allow HTML discovery, while slug fallback requires a 404.
+                if matches!(
+                    sc["name"].as_str(),
+                    Some("record_points_offsite" | "static_pages_record")
+                ) {
+                    let slug = slug_url(&record_id(input["url"].as_str().unwrap()));
+                    req.retain(|url| url != &slug);
+                }
                 assert_eq!(fake.requests, req, "{}", sc["name"]);
                 if let Some(ok) = input.get("ok") {
                     assert_eq!(got.unwrap(), ok.as_str().unwrap(), "{}", sc["name"])

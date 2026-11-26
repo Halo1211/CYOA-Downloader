@@ -523,6 +523,12 @@ fn prepare_html5_archives(
             }
         }
     }
+    // Cancelled during the last (or only) archive: never report success.
+    if cancel.is_cancelled() {
+        result.ok = false;
+        result.message = "itch.io: cancelled while preparing HTML5 archives.".into();
+        return;
+    }
     if result.offline_failed > 0 {
         result.ok = false;
         result.failed = result.offline_failed;

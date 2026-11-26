@@ -19,10 +19,21 @@ const PANEL: &str = r#"<div id="cyoa-serve-tools" class="min">
 <div class="bar"><span class="t" data-a="toggle" title="CYOA Serve Tools">⚡ Tools</span>
 <span class="x"><button data-a="clear" title="Wipe storage, caches and service workers, then reload">Clear state</button>
 <button data-a="reveal" title="Re-enable greyed-out buttons and choices">Reveal UI</button>
-<a href="?no_tools=1" title="Reload without tools">Clean</a>
+<a data-a="clean" href="?no_tools=1" title="Reload without tools">Clean</a>
 <a href="/__serve_tools__" target="_blank" title="Help">?</a></span></div>
 <script>(function(){
 var root=document.getElementById('cyoa-serve-tools');if(!root||root.dataset.ready)return;root.dataset.ready='1';
+var clean=root.querySelector('[data-a="clean"]');
+function updateCleanLink(){
+ var href=location.href;
+ var hash=href.indexOf('#');
+ var url=hash<0?href:href.slice(0,hash);
+ var query=url.indexOf('?');
+ var separator=query<0?'?':query===url.length-1?'':'&';
+ clean.href=url+separator+'no_tools=1'+href.slice(url.length);
+}
+updateCleanLink();
+['click','auxclick','contextmenu'].forEach(function(event){clean.addEventListener(event,updateCleanLink);});
 async function clearState(){
  try{localStorage.clear();sessionStorage.clear();}catch(e){}
  try{if('caches' in window){var k=await caches.keys();await Promise.all(k.map(function(n){return caches.delete(n);}));}}catch(e){}
@@ -138,6 +149,66 @@ mod tests {
         let off = serve_tools_snippet(false);
         assert!(off.contains("id=\"cyoa-serve-tools\""));
         assert!(!off.contains("<template"));
+    }
+
+    #[test]
+    fn clean_link_adds_flag_to_current_url() -> Result<(), Box<dyn std::error::Error>> {
+        check_clean_link("")
+    }
+
+    #[test]
+    fn clean_link_works_when_page_declares_url() -> Result<(), Box<dyn std::error::Error>> {
+        check_clean_link("const URL = './project.json';")
+    }
+
+    fn check_clean_link(page_setup: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let snippet = serve_tools_snippet(false);
+        assert!(snippet.contains(r#"<a data-a="clean" href="?no_tools=1""#));
+        let (_, script) = snippet
+            .split_once("<script>")
+            .ok_or("missing panel script")?;
+        let (script, _) = script
+            .split_once("</script>")
+            .ok_or("unclosed panel script")?;
+        let setup = r#"
+            const assert = require('node:assert/strict');
+            const window = {};
+            const location = {href: 'http://127.0.0.1:8080/play/?scenario=a%2Bb#start?x'};
+            const events = {};
+            const clean = {addEventListener(name, callback) { events[name] = callback; }};
+            const root = {dataset: {}, querySelector() { return clean; }, addEventListener() {}};
+            const document = {getElementById(id) { return id === 'cyoa-serve-tools' ? root : null; }};
+        "#;
+        let checks = r#"
+            assert.equal(typeof window.$serveTools.revealUI, 'function');
+            assert.equal(clean.href, 'http://127.0.0.1:8080/play/?scenario=a%2Bb&no_tools=1#start?x');
+            location.href = 'http://127.0.0.1:8080/play/#next';
+            for (const event of ['click', 'auxclick', 'contextmenu']) {
+                clean.href = '';
+                events[event]();
+                assert.equal(clean.href, 'http://127.0.0.1:8080/play/?no_tools=1#next');
+            }
+            location.href = 'http://127.0.0.1:8080/play/?#';
+            events.click();
+            assert.equal(clean.href, 'http://127.0.0.1:8080/play/?no_tools=1#');
+        "#;
+        match std::process::Command::new("node")
+            .args(["-e", &format!("{setup}{page_setup}{script}{checks}")])
+            .output()
+        {
+            Ok(output) => assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            ),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                eprintln!(
+                    "Skipping Serve Tools JavaScript execution because Node.js is unavailable"
+                );
+            }
+            Err(error) => return Err(error.into()),
+        }
+        Ok(())
     }
 
     #[test]

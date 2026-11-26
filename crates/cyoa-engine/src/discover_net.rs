@@ -215,6 +215,9 @@ impl crate::cafe_static::StaticFetch for ClientCafeFetch {
 }
 
 impl crate::fonts::FontFetch for ClientCafeFetch {
+    fn cancelled(&self) -> bool {
+        self.cancel.is_cancelled()
+    }
     /// Python `get_source(url)`: text of a 200 response.
     fn text(&mut self, url: &str) -> Option<String> {
         crate::cafe::CafeFetch::fetch(self, url)

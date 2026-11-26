@@ -379,13 +379,29 @@ pub fn zip_package_cancellable(
                 if cancelled() {
                     return Err(io::Error::new(io::ErrorKind::Interrupted, "ZIP cancelled").into());
                 }
-                // ZIP64 for members of 4 GiB and more (the writer refuses otherwise).
-                let large = fs::metadata(path).is_ok_and(|m| m.len() >= u64::from(u32::MAX));
+                // ZIP64 near 4 GiB (the writer refuses otherwise); the margin covers
+                // DEFLATE growing an incompressible member past the limit.
+                let large =
+                    fs::metadata(path).is_ok_and(|m| m.len() >= u64::from(u32::MAX) - (64 << 20));
                 let options = SimpleFileOptions::default()
                     .compression_method(zip_method(path))
                     .large_file(large);
                 archive.start_file(relative.as_str(), options)?;
-                io::copy(&mut File::open(path)?, &mut archive)?;
+                // Check for cancel between chunks, not only between members.
+                let mut src = File::open(path)?;
+                let mut buf = vec![0u8; 1 << 20];
+                loop {
+                    let n = io::Read::read(&mut src, &mut buf)?;
+                    if n == 0 {
+                        break;
+                    }
+                    if cancelled() {
+                        return Err(
+                            io::Error::new(io::ErrorKind::Interrupted, "ZIP cancelled").into()
+                        );
+                    }
+                    io::Write::write_all(&mut archive, &buf[..n])?;
+                }
             }
             // A cancel during the last (large) entry must still stop publication.
             if cancelled() {
@@ -403,6 +419,13 @@ pub fn zip_package_cancellable(
         archive.finish().map_err(io::Error::other)
     });
     match (published, zip_err) {
+        // A cancel during publication (e.g. the copy fallback where hard links
+        // are unsupported) must not leave a ZIP that lets the caller delete
+        // the source folder.
+        (Ok(p), _) if cancelled() => {
+            let _ = fs::remove_file(&p);
+            Err(io::Error::new(io::ErrorKind::Interrupted, "ZIP cancelled").into())
+        }
         (Ok(p), _) => Ok(p),
         (Err(_), Some(e)) => Err(e),
         (Err(e), None) => Err(e.into()),
@@ -490,7 +513,36 @@ pub fn finalize_site_folder_cancellable(
         return Ok(None);
     }
     // The ZIP must not live inside the folder we are about to delete.
-    let norm = |p: &Path| fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    // Canonicalize the deepest existing ancestor and re-append the missing tail, so a
+    // not-yet-created destination like `site/zips` is still compared canonically.
+    let norm = |p: &Path| {
+        let abs = std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf());
+        let mut base = abs.as_path();
+        let mut tail: Vec<std::ffi::OsString> = Vec::new();
+        loop {
+            if let Ok(c) = fs::canonicalize(base) {
+                // Apply the missing tail lexically: `gap/../zips` is `zips`.
+                let mut out = c;
+                for s in tail.iter().rev() {
+                    match s.to_str() {
+                        Some("..") => {
+                            out.pop();
+                        }
+                        Some(".") => {}
+                        _ => out.push(s),
+                    }
+                }
+                return out;
+            }
+            match (base.parent(), base.components().next_back()) {
+                (Some(parent), Some(name)) => {
+                    tail.push(name.as_os_str().to_os_string());
+                    base = parent;
+                }
+                _ => return abs.clone(),
+            }
+        }
+    };
     if norm(directory).starts_with(norm(site_folder)) {
         return Err(OutputError::Io(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -534,6 +586,28 @@ mod tests {
         fs::create_dir(&site).unwrap();
         fs::write(site.join("index.html"), "x").unwrap();
         assert!(finalize_site_folder(&site, "game", true, &site).is_err());
+        assert!(site.join("index.html").is_file());
+    }
+
+    #[test]
+    fn dotdot_through_missing_dir_inside_site_is_rejected() {
+        let tmp = tempfile::tempdir().unwrap();
+        let site = tmp.path().join("site");
+        fs::create_dir(&site).unwrap();
+        fs::write(site.join("index.html"), "x").unwrap();
+        let dest = site.join("gap").join("..").join("zips");
+        assert!(finalize_site_folder(&site, "game", true, &dest).is_err());
+        assert!(site.join("index.html").is_file());
+    }
+
+    #[test]
+    fn missing_zip_destination_inside_site_is_rejected() {
+        let tmp = tempfile::tempdir().unwrap();
+        let site = tmp.path().join("site");
+        fs::create_dir(&site).unwrap();
+        fs::write(site.join("index.html"), "x").unwrap();
+        let dest = site.join("zips").join("deeper");
+        assert!(finalize_site_folder(&site, "game", true, &dest).is_err());
         assert!(site.join("index.html").is_file());
     }
 
