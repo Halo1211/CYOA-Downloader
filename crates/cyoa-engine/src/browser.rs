@@ -630,12 +630,12 @@ async fn navigate_body(
 
 /// The Selenium compatibility step: open `url` (establishing origin and
 /// cookies, possibly passing simple JS checks), then `fetch` it in-page with
-/// credentials. Returns (bytes, content type).
+/// credentials. Returns (bytes, content type, final URL after redirects).
 async fn in_page_fetch(
     page: &Page,
     url: &str,
     cancel: &CancellationToken,
-) -> Result<Option<(Vec<u8>, String)>, String> {
+) -> Result<Option<(Vec<u8>, String, String)>, String> {
     let _ = navigate_body(page, url, Duration::from_secs(30), cancel).await;
     if cancel.is_cancelled() {
         return Err("cancelled".into());
@@ -649,7 +649,7 @@ async fn in_page_fetch(
     for (let i = 0; i < bytes.length; i += 32768) {{
       binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 32768));
     }}
-    return {{ok: r.ok, status: r.status, contentType: r.headers.get('content-type') || '', data: btoa(binary)}};
+    return {{ok: r.ok, status: r.status, contentType: r.headers.get('content-type') || '', url: r.url || '', data: btoa(binary)}};
   }} catch (e) {{ return null; }}
 }})()"#,
         url = Value::String(url.to_owned())
@@ -673,7 +673,13 @@ async fn in_page_fetch(
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_owned();
-    Ok(Some((bytes, content_type)))
+    let final_url = value
+        .get("url")
+        .and_then(Value::as_str)
+        .filter(|u| u.starts_with("http://") || u.starts_with("https://"))
+        .unwrap_or(url)
+        .to_owned();
+    Ok(Some((bytes, content_type, final_url)))
 }
 
 // ── Reusable browser transport (`BrowserFetchSession`) ──────────────────
@@ -912,13 +918,15 @@ impl BrowserTransport {
             let _ = page.close().await;
         }
         match fetched {
-            Ok(Some((data, content_type))) => {
+            Ok(Some((data, content_type, final_url))) => {
                 if reject_error_documents && looks_like_error_document(&data, &content_type) {
                     tracing::warn!("  [Headless/CDP] rejected error document: {url}");
                     return None;
                 }
                 tracing::info!("  [Headless/CDP] {url} → {} bytes", data.len());
-                Some((data, url.to_owned()))
+                // Report where the in-page fetch actually landed so relative
+                // links resolve against the redirect target.
+                Some((data, final_url))
             }
             Ok(None) => None,
             Err(e) => {
