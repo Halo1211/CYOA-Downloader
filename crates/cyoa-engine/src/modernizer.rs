@@ -1357,6 +1357,27 @@ pub fn modernize_collection(
     progress: &mut dyn FnMut(usize, usize, &str),
     fetcher: &dyn AssetFetcher,
 ) -> Result<CollectionReport, String> {
+    modernize_collection_with_templates(
+        source_dir,
+        destination_dir,
+        &resolve_viewer_templates(viewer_collection),
+        progress,
+        fetcher,
+        &|| false,
+    )
+}
+
+/// `modernize_collection` with templates from any source (a viewer
+/// collection folder or the registered offline viewers) and a cancel check
+/// between items (finished items are kept; the report covers them).
+pub fn modernize_collection_with_templates(
+    source_dir: &Path,
+    destination_dir: &Path,
+    templates: &Templates,
+    progress: &mut dyn FnMut(usize, usize, &str),
+    fetcher: &dyn AssetFetcher,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<CollectionReport, String> {
     let source = resolve(source_dir);
     let destination = resolve(destination_dir);
     if !source.is_dir() {
@@ -1367,11 +1388,12 @@ pub fn modernize_collection(
     }
     fs::create_dir_all(&destination).map_err(|e| e.to_string())?;
     let destination = resolve(&destination);
-    let templates = resolve_viewer_templates(viewer_collection);
     let mut items: Vec<PathBuf> = sorted_entries(&source)
         .1
         .into_iter()
-        .filter(|p| resolve(p) != destination)
+        // Skip the output folder and any item that contains it: copying such an
+        // item would recurse into its own freshly created output.
+        .filter(|p| !destination.starts_with(resolve(p)))
         .collect();
     items.sort_by_key(|p| {
         p.file_name()
@@ -1379,13 +1401,23 @@ pub fn modernize_collection(
             .unwrap_or_default()
     });
     let (mut results, mut failed, mut modernized) = (Vec::new(), 0, 0);
+    let mut processed = 0usize;
     for (pos, item) in items.iter().enumerate() {
+        if cancelled() {
+            tracing::warn!(
+                "Modernization cancelled after {pos} of {} item(s).",
+                items.len()
+            );
+            break;
+        }
+        processed += 1;
         let name = item
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
         progress(pos + 1, items.len(), &name);
         let target = destination.join(&name);
+        let results_before = results.len();
         let outcome = (|| -> Result<bool, String> {
             if target.exists() {
                 return Err(target.display().to_string());
@@ -1406,7 +1438,7 @@ pub fn modernize_collection(
             }
             let mut any = false;
             for site in roots {
-                let r = modernize_site(&site, &site, None, &templates, "", fetcher)?;
+                let r = modernize_site(&site, &site, None, templates, "", fetcher)?;
                 let original = item.join(site.strip_prefix(&target).unwrap_or(Path::new("")));
                 let original = if site == target {
                     item.clone()
@@ -1423,6 +1455,14 @@ pub fn modernize_collection(
         })();
         match outcome {
             Ok(true) => modernized += 1,
+            // A site that failed inside the item is a failure, not a plain copy.
+            Ok(false)
+                if results[results_before..]
+                    .iter()
+                    .any(|r| r.status == "failed") =>
+            {
+                failed += 1;
+            }
             Ok(false) => {}
             Err(e) => {
                 failed += 1;
@@ -1447,7 +1487,8 @@ pub fn modernize_collection(
         destination: destination.clone(),
         total_items: items.len(),
         modernized,
-        copied: items.len().saturating_sub(modernized + failed),
+        // Items skipped by a cancel are neither copied nor failed.
+        copied: processed.saturating_sub(modernized + failed),
         failed,
         site_results: results,
     };

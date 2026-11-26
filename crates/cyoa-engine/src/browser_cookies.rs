@@ -179,7 +179,10 @@ pub fn cookie_header_for(cookies: &[BrowserCookie], url: &url::Url) -> Option<St
             let domain_ok = host == d
                 || (c.domain.starts_with('.') || c.include_subdomains)
                     && host.ends_with(&format!(".{d}"));
-            domain_ok && path.starts_with(&c.path) && (!c.secure || secure)
+            let path_ok = path.strip_prefix(&c.path).is_some_and(|suffix| {
+                suffix.is_empty() || c.path.ends_with('/') || suffix.starts_with('/')
+            });
+            domain_ok && path_ok && (!c.secure || secure)
         })
         .map(|c| format!("{}={}", c.name, c.value))
         .collect();
@@ -287,6 +290,21 @@ other.org\tFALSE\t/\tFALSE\t0\tempty\t\n";
             Some("sid=abc; cart=42")
         );
         assert_eq!(cookie_header_for(&c, &u("https://example.net/")), None);
+    }
+
+    #[test]
+    fn cookie_path_requires_a_slash_boundary() {
+        let cookies = parse_netscape(JAR);
+        let exact = url::Url::parse("https://shop.example.com/cart").unwrap();
+        let sibling = url::Url::parse("https://shop.example.com/cartoon").unwrap();
+        assert_eq!(
+            cookie_header_for(&cookies, &exact).as_deref(),
+            Some("sid=abc; cart=42")
+        );
+        assert_eq!(
+            cookie_header_for(&cookies, &sibling).as_deref(),
+            Some("sid=abc")
+        );
     }
 
     #[test]

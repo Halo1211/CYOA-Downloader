@@ -24,7 +24,7 @@ mod tests {
 
     #[test]
     fn version_matches_python_reference() {
-        assert_eq!(app_version(), "1.1.6");
+        assert_eq!(app_version(), "1.1.7");
     }
 }
 

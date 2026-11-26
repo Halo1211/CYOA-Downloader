@@ -17,6 +17,9 @@ fn temp_dir() -> PathBuf {
         std::process::id(),
         NEXT.fetch_add(1, Ordering::Relaxed)
     ));
+    // PIDs get reused (often on Windows): never inherit a stale dir from an
+    // earlier run, e.g. a leftover settings.json.
+    let _ = fs::remove_dir_all(&path);
     fs::create_dir_all(&path).unwrap();
     path
 }

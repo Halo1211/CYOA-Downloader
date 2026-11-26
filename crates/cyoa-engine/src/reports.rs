@@ -303,6 +303,13 @@ pub fn write_failed_url_log(
         text.push_str(&format!("{}\t{}\n", clean(url), clean(err)));
     }
     text.push('\n');
+    // Never follow a planted link/junction out of the output folder.
+    if cyoa_core::paths::is_link_or_junction(&path) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("Refusing to append to linked report: {}", path.display()),
+        ));
+    }
     let mut f = fs::OpenOptions::new()
         .create(true)
         .append(true)

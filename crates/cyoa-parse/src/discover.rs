@@ -225,15 +225,18 @@ pub fn find_script_sources(
         if let Some(selector) = SCRIPT_SEL.as_ref() {
             for (index, script) in document.select(selector).enumerate() {
                 let markup = script.html();
-                if markup.contains("document.createElement") {
-                    let path = extract_app_js_path(&markup);
-                    if !path.is_empty() {
-                        let src = resolve(&path);
-                        if !blocked(&src)
-                            && let Some(content) = fetch(&src)
-                        {
-                            results.push((src, content));
-                        }
+                // A loader script without an app path is still an ordinary
+                // (inline or src) script: fall through instead of dropping it.
+                let loader_path = markup
+                    .contains("document.createElement")
+                    .then(|| extract_app_js_path(&markup))
+                    .filter(|p| !p.is_empty());
+                if let Some(path) = loader_path {
+                    let src = resolve(&path);
+                    if !blocked(&src)
+                        && let Some(content) = fetch(&src)
+                    {
+                        results.push((src, content));
                     }
                 } else if let Some(raw) = script.value().attr("src") {
                     let src = resolve(&raw.replace("\\/", "/"));
@@ -536,4 +539,17 @@ pub fn build_default_project_candidates(url: &str) -> Vec<String> {
         add(urljoin(&b, "PROJECT.JSON"));
     }
     result
+}
+
+#[cfg(test)]
+mod inline_loader_tests {
+    use super::*;
+
+    #[test]
+    fn loader_without_app_path_is_kept_as_inline_script() {
+        let html = "<html><body><script>document.createElement('div'); window.__APP__ = {rows: []};</script></body></html>";
+        let found = find_script_sources(html, None, false, &mut |_| None);
+        assert_eq!(found.len(), 1);
+        assert!(found[0].1.contains("__APP__"));
+    }
 }

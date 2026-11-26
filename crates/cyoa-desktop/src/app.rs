@@ -191,6 +191,8 @@ impl Default for Settings {
 /// the yt-dlp cookie file.
 struct RunToggles {
     deep_scan: bool,
+    /// `cyoap_vue_first`: probe CYOAP Vue `dist/` sites before the standard flow.
+    cyoap_vue_first: bool,
     integrations: cyoa_engine::run::Integrations,
 }
 
@@ -215,6 +217,7 @@ fn saved_run_toggles(path: Option<&std::path::Path>) -> RunToggles {
     let cookies = text("ytdlp_cookies");
     RunToggles {
         deep_scan: flag("deep_scan_enabled", true),
+        cyoap_vue_first: flag("cyoap_vue_first", false),
         integrations: cyoa_engine::run::Integrations {
             selenium: flag("selenium_enabled", true),
             gallery_dl_mode: match text("gallery_dl_mode").as_str() {
@@ -227,6 +230,13 @@ fn saved_run_toggles(path: Option<&std::path::Path>) -> RunToggles {
             },
             gallery_dl_config: text("gallery_dl_config"),
             itch: flag("itch_enabled", false),
+            itch_mirror_web: flag("itch_mirror_web", false),
+            itch_parallel: st
+                .get("itch_parallel")
+                .and_then(serde_json::Value::as_i64)
+                .map_or(1, |n| n.clamp(1, 16) as i32),
+            itch_only: flag("itch_only", false),
+            discord_refresh: flag("discord_refresh_enabled", true),
             ytdlp_cookies: (!cookies.is_empty() && std::path::Path::new(&cookies).is_file())
                 .then(|| std::path::PathBuf::from(&cookies)),
             ..defaults
@@ -371,8 +381,6 @@ pub struct DownloaderApp {
     updates: Option<crate::updates_panel::UpdatesPanel>,
     /// Python "Filename" entry next to the URL.
     fn_input: String,
-    /// Python `theme_mode` (System / Light / Dark), saved to settings.json.
-    theme_mode: String,
     show_settings: bool,
     show_credits: bool,
     show_help: bool,
@@ -460,7 +468,19 @@ impl DownloaderApp {
                     .map(str::to_owned)
             })
             .unwrap_or_else(|| "System".into());
-        crate::theme::install(&cc.egui_ctx, &theme_mode);
+        let accent = cyoa_storage::settings::SettingsStore::new(&shared_path)
+            .load()
+            .ok()
+            .and_then(|m| {
+                m.get("theme_accent_color")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_owned)
+            })
+            .unwrap_or_default();
+        if let Ok(values) = cyoa_storage::settings::SettingsStore::new(&shared_path).load() {
+            crate::theme::load_overrides(values);
+        }
+        crate::theme::install(&cc.egui_ctx, &theme_mode, &accent);
         crate::i18n::set_language(&saved_str_lang(&shared_path));
         let saved_str = |k: &str, d: &str| {
             cyoa_storage::settings::SettingsStore::new(&shared_path)
@@ -474,6 +494,14 @@ impl DownloaderApp {
                 .to_owned();
         let cf_mode =
             cyoa_net::cloudflare::normalize_cloudflare_mode(&saved_str("cloudflare_mode", "auto"));
+        // settings.json wins for HTTP/2 too (the CLI's `--http2` saves there).
+        if let Some(v) = cyoa_storage::settings::SettingsStore::new(&shared_path)
+            .load()
+            .ok()
+            .and_then(|s| s.get("http2_enabled").and_then(serde_json::Value::as_bool))
+        {
+            settings.http2 = v;
+        }
         let ai_enabled = cyoa_storage::settings::SettingsStore::new(&shared_path)
             .load()
             .ok()
@@ -517,7 +545,6 @@ impl DownloaderApp {
             },
             updates: None,
             fn_input: String::new(),
-            theme_mode,
             show_settings: false,
             show_credits: false,
             show_help: false,
@@ -603,6 +630,10 @@ impl DownloaderApp {
                     && let Some(dir) = s.written.iter().map(PathBuf::from).find(|p| p.is_dir())
                 {
                     self.last_preview = Some(dir);
+                    // Optional: serve the fresh website right away.
+                    if self.preview.is_none() && self.serve_options().auto_after_download {
+                        self.start_preview();
+                    }
                 }
                 let line;
                 if let Some(j) = self.job_mut(job) {
@@ -714,11 +745,18 @@ impl DownloaderApp {
                     dns: net.dns,
                     vpn: net.vpn,
                     archive: archive_auto.unwrap_or_default(),
-                    engine: mode.engine(),
+                    engine: match mode.engine() {
+                        cyoa_engine::run::Engine::Standard if saved_toggles.cyoap_vue_first => {
+                            cyoa_engine::run::Engine::Auto
+                        }
+                        e => e,
+                    },
                     fonts: self.settings.fonts,
                     bandwidth_kbps: self.settings.bandwidth_kbps,
                     cloudflare: Some(cloudflare_config()),
-                    analyse_fonts: self.settings.analyse_fonts,
+                    // CLI semantics: analyse without Fonts = analysis only.
+                    analyse_fonts: self.settings.analyse_fonts || self.settings.fonts,
+                    analysis_only: self.settings.analyse_fonts && !self.settings.fonts,
                     offline_viewer: offline_viewer_config(),
                     ai: crate::ai_panel::run_config(
                         self.shared.as_ref().map(|(p, _)| p.as_path()),
@@ -819,16 +857,45 @@ impl DownloaderApp {
         Ok(rt)
     }
 
+    /// Serve options from settings.json (defaults when unreadable).
+    pub(crate) fn serve_options(&self) -> cyoa_engine::serve_tools::ServeOptions {
+        let values = self
+            .shared
+            .as_ref()
+            .and_then(|(p, _)| {
+                cyoa_storage::settings::SettingsStore::new(p)
+                    .load()
+                    .ok()
+                    .cloned()
+            })
+            .unwrap_or_default();
+        cyoa_engine::serve_tools::ServeOptions::from_settings(&values)
+    }
+
     fn start_preview(&mut self) {
         let Some(folder) = self.last_preview.clone() else {
             return;
         };
-        match cyoa_integrations::preview::PreviewServer::start(&folder) {
+        let opts = self.serve_options();
+        // Same toggle the CLI's `--serve` and the Library honour.
+        if !opts.enabled {
+            self.log.push(
+                "[Server] Serve preview is disabled in Settings — not starting the server.".into(),
+            );
+            return;
+        }
+        match cyoa_integrations::preview::PreviewServer::start_with_tools(
+            &folder,
+            opts.port,
+            opts.snippet(),
+        ) {
             Ok(server) => {
                 let url = server.url();
                 self.log
                     .push(format!("[Server] Serving {} at {url}", folder.display()));
-                if let Err(e) = open_in_browser(&url) {
+                if opts.open_browser
+                    && let Err(e) = open_in_browser(&opts.open_url(&url))
+                {
                     self.log
                         .push(format!("[Server] Could not open browser: {e}"));
                 }
@@ -1109,7 +1176,6 @@ mod tests {
             ai_session: crate::ai_panel::AiSession::default(),
             updates: None,
             fn_input: String::new(),
-            theme_mode: "System".into(),
             show_settings: false,
             show_credits: false,
             show_help: false,

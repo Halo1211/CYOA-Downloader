@@ -82,6 +82,17 @@ pub fn build_output_name(raw_url: &str) -> String {
             .map(|p| clean_url_path_component(p))
             .collect::<Vec<_>>()
             .join("_");
+        // Three long segments can exceed the 255-byte filesystem name limit;
+        // keep the name bounded (char-safe, no trailing `.`/space for Windows).
+        let full = if full.chars().count() > 150 {
+            full.chars()
+                .take(150)
+                .collect::<String>()
+                .trim_end_matches(['.', ' ', '_'])
+                .to_owned()
+        } else {
+            full
+        };
         if !GENERIC.contains(&full.to_lowercase().trim_matches('_')) && full.chars().count() > 1 {
             return full;
         }
@@ -322,6 +333,17 @@ pub fn zip_package(
     filename: &str,
     directory: &Path,
 ) -> Result<PathBuf, OutputError> {
+    zip_package_cancellable(folder, filename, directory, &|| false)
+}
+
+/// `zip_package` that stops between entries once `cancelled()` is true; the
+/// partial temp file is discarded and nothing is published.
+pub fn zip_package_cancellable(
+    folder: &Path,
+    filename: &str,
+    directory: &Path,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<PathBuf, OutputError> {
     if !folder.is_dir() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -354,9 +376,20 @@ pub fn zip_package(
         let mut archive = ZipWriter::new(file);
         let res = (|| -> Result<(), OutputError> {
             for (relative, path) in &entries {
-                let options = SimpleFileOptions::default().compression_method(zip_method(path));
+                if cancelled() {
+                    return Err(io::Error::new(io::ErrorKind::Interrupted, "ZIP cancelled").into());
+                }
+                // ZIP64 for members of 4 GiB and more (the writer refuses otherwise).
+                let large = fs::metadata(path).is_ok_and(|m| m.len() >= u64::from(u32::MAX));
+                let options = SimpleFileOptions::default()
+                    .compression_method(zip_method(path))
+                    .large_file(large);
                 archive.start_file(relative.as_str(), options)?;
                 io::copy(&mut File::open(path)?, &mut archive)?;
+            }
+            // A cancel during the last (large) entry must still stop publication.
+            if cancelled() {
+                return Err(io::Error::new(io::ErrorKind::Interrupted, "ZIP cancelled").into());
             }
             Ok(())
         })();
@@ -441,13 +474,36 @@ pub fn finalize_site_folder(
     zip_output: bool,
     directory: &Path,
 ) -> Result<Option<PathBuf>, OutputError> {
+    finalize_site_folder_cancellable(site_folder, file_name, zip_output, directory, &|| false)
+}
+
+/// `finalize_site_folder` that aborts the ZIP (keeping the folder) on cancel.
+pub fn finalize_site_folder_cancellable(
+    site_folder: &Path,
+    file_name: &str,
+    zip_output: bool,
+    directory: &Path,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<Option<PathBuf>, OutputError> {
     if !zip_output {
         tracing::info!("ICC folder kept: {}", site_folder.display());
         return Ok(None);
     }
+    // The ZIP must not live inside the folder we are about to delete.
+    let norm = |p: &Path| fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    if norm(directory).starts_with(norm(site_folder)) {
+        return Err(OutputError::Io(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "ZIP destination {} is inside the site folder {}",
+                directory.display(),
+                site_folder.display()
+            ),
+        )));
+    }
     let zip_name = format!("{file_name}_site.zip");
     tracing::info!("Zipping → {zip_name}");
-    let zip = zip_package(site_folder, &zip_name, directory)?;
+    let zip = zip_package_cancellable(site_folder, &zip_name, directory, cancelled)?;
     let _ = fs::remove_dir_all(site_folder);
     tracing::info!("Folder {} deleted after zipping.", site_folder.display());
     Ok(Some(zip))
@@ -457,6 +513,29 @@ pub fn finalize_site_folder(
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cancelled_zip_publishes_nothing_and_keeps_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let site = tmp.path().join("site");
+        fs::create_dir(&site).unwrap();
+        fs::write(site.join("index.html"), "x").unwrap();
+        let out = tmp.path().join("out");
+        fs::create_dir(&out).unwrap();
+        assert!(finalize_site_folder_cancellable(&site, "game", true, &out, &|| true).is_err());
+        assert!(site.join("index.html").is_file());
+        assert!(fs::read_dir(&out).unwrap().next().is_none());
+    }
+
+    #[test]
+    fn zip_destination_inside_site_is_rejected() {
+        let tmp = tempfile::tempdir().unwrap();
+        let site = tmp.path().join("site");
+        fs::create_dir(&site).unwrap();
+        fs::write(site.join("index.html"), "x").unwrap();
+        assert!(finalize_site_folder(&site, "game", true, &site).is_err());
+        assert!(site.join("index.html").is_file());
+    }
 
     #[test]
     fn site_folder_helpers() {

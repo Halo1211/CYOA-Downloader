@@ -628,6 +628,10 @@ pub fn download_youtube_audio(
         tracing::warn!("Could not create audio directory: {e}");
         return vec![];
     }
+    if cyoa_core::paths::is_link_or_junction(&audio) {
+        tracing::warn!("Refusing linked audio directory: {}", audio.display());
+        return vec![];
+    }
     let mut result = Vec::new();
     let mut failed = Vec::new();
     let mut reasons = BTreeMap::new();
@@ -796,7 +800,15 @@ pub fn download_youtube_audio(
                             })
                         })
                         .unwrap_or_else(|| PathBuf::from("ffmpeg"));
-                    let tmp = audio.join(format!(".cyoa-audio-{}.part.mp3", std::process::id()));
+                    // Unique per conversion: concurrent jobs in one process must
+                    // not share (and publish) each other's temp file.
+                    static TMP_SEQ: std::sync::atomic::AtomicU64 =
+                        std::sync::atomic::AtomicU64::new(0);
+                    let tmp = audio.join(format!(
+                        ".cyoa-audio-{}-{}.part.mp3",
+                        std::process::id(),
+                        TMP_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                    ));
                     let mut ffmpeg = Command::new(exe);
                     ffmpeg
                         .args(["-i"])

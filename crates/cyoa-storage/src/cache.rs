@@ -292,6 +292,14 @@ impl ImageCache {
         Ok(())
     }
 
+    /// Enforce the configured limit against payloads already in the cache and
+    /// persist the updated index. Opening a cache with a smaller limit alone
+    /// does not evict existing payloads.
+    pub fn enforce_limit(&self) -> Result<(), ImageCacheError> {
+        self.evict_to_limit()?;
+        self.flush()
+    }
+
     /// Entry count and combined size of unique payloads (cache panel).
     pub fn stats(&self) -> ImageCacheStats {
         let state = lock(&self.state);
@@ -492,6 +500,23 @@ mod tests {
             fs::read_to_string(root.join(INDEX_FILE)).expect("index"),
             "{}"
         );
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn reopening_with_lower_limit_evicts_existing_payloads() {
+        let root = root();
+        let cache = ImageCache::open(&root, 2).expect("open at 2 MB");
+        cache.put("a", &vec![1; 700 * 1024]).expect("put a");
+        cache.put("b", &vec![2; 700 * 1024]).expect("put b");
+        cache.flush().expect("flush initial cache");
+        assert!(cache.stats().size_bytes > 1024 * 1024);
+
+        let smaller = ImageCache::open(&root, 1).expect("reopen at 1 MB");
+        smaller.enforce_limit().expect("enforce smaller limit");
+
+        assert!(smaller.stats().size_bytes <= 1024 * 1024);
+        assert_eq!(load_index(&root.join(INDEX_FILE)).len(), 1);
         fs::remove_dir_all(root).expect("cleanup");
     }
 

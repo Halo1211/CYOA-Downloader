@@ -437,7 +437,74 @@ async fn run_job(job: JobId, spec: JobSpec, cancel: CancellationToken, link: Arc
             }
         }
     });
-    let result = run_download(&opts, cancel.clone(), Some(ptx)).await;
+    // Like the CLI: with the itch.io downloader enabled, the optional itch-dl
+    // backend runs first for itch.io URLs; it never affects the CYOA result.
+    let itch_url = cyoa_engine::itch::is_itch_url(&opts.url);
+    let itch_only = opts.integrations.itch_only && itch_url;
+    let mut itch_outcome: Option<Result<String, String>> = None;
+    if (opts.integrations.itch || itch_only) && itch_url {
+        tracing::info!("itch.io downloader enabled — invoking itch-dl backend.");
+        let (url, out, cancel_c) = (opts.url.clone(), opts.output_dir.clone(), cancel.clone());
+        // itch-only mirrors web builds like the CLI's `--itch-only`.
+        let mirror = opts.integrations.itch_mirror_web || itch_only;
+        let parallel = opts.integrations.itch_parallel.clamp(1, 16);
+        let html5 = cyoa_engine::offline_viewer::NetworkAssetFetcher::new(
+            &url,
+            opts.proxy.clone(),
+            opts.dns.clone(),
+            opts.vpn.clone(),
+            opts.http2,
+            cancel_c.clone(),
+        );
+        match tokio::task::spawn_blocking(move || {
+            cyoa_engine::itch::download_itch_assets(
+                &url,
+                &out,
+                None,
+                mirror,
+                parallel,
+                &cancel_c,
+                &cyoa_engine::itch::SystemItchBackend,
+                html5
+                    .as_ref()
+                    .map(|f| f as &dyn cyoa_engine::offline_viewer::AssetFetcher),
+            )
+        })
+        .await
+        {
+            Ok(Ok(r)) => {
+                tracing::info!("[itch] {}", r.message);
+                itch_outcome = Some(if r.ok { Ok(r.message) } else { Err(r.message) });
+            }
+            Ok(Err(e)) => {
+                tracing::warn!("[itch] downloader error (CYOA result unaffected): {e}");
+                itch_outcome = Some(Err(e.to_string()));
+            }
+            Err(e) => {
+                tracing::warn!("[itch] Optional backend failed: {e}");
+                itch_outcome = Some(Err(e.to_string()));
+            }
+        }
+    }
+    let result = if itch_only {
+        // itch.io only: the CYOA download is skipped; the job reflects itch-dl.
+        drop(ptx);
+        match itch_outcome {
+            Some(Ok(_)) => Ok(cyoa_engine::run::RunReport {
+                stem: "itch_assets".into(),
+                written_paths: vec![opts.output_dir.join("itch_assets")],
+                failed_assets: Vec::new(),
+            }),
+            Some(Err(e)) => Err(cyoa_engine::run::RunError::OutputStage(format!(
+                "itch.io: {e}"
+            ))),
+            None => Err(cyoa_engine::run::RunError::OutputStage(
+                "itch.io: backend did not run".into(),
+            )),
+        }
+    } else {
+        run_download(&opts, cancel.clone(), Some(ptx)).await
+    };
     let _ = forward.await;
     let result = match result {
         Ok(report) => {

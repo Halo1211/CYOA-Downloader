@@ -154,12 +154,8 @@ fn find_head_end(buf: &[u8]) -> Option<usize> {
 }
 
 async fn reply(stream: &mut TcpStream, status: &str) {
-    let _ = stream
-        .write_all(
-            format!("HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
-                .as_bytes(),
-        )
-        .await;
+    let head = format!("HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+    let _ = write_idle(stream, head.as_bytes()).await;
 }
 
 /// Policy check for one destination. Direct routes get pinned addresses;
@@ -188,7 +184,26 @@ async fn vet(
     }
 }
 
-/// Copy `from` -> `to` until EOF or [`IDLE_TIMEOUT`] without data.
+/// Write all bytes, refreshing the deadline whenever a write makes progress.
+async fn write_idle<W: tokio::io::AsyncWrite + Unpin>(
+    to: &mut W,
+    mut data: &[u8],
+) -> std::io::Result<()> {
+    use std::io::{Error, ErrorKind};
+
+    while !data.is_empty() {
+        let written = tokio::time::timeout(IDLE_TIMEOUT, to.write(data))
+            .await
+            .map_err(|_| Error::new(ErrorKind::TimedOut, "relay write timed out"))??;
+        if written == 0 {
+            return Err(Error::new(ErrorKind::WriteZero, "relay writer closed"));
+        }
+        data = &data[written..];
+    }
+    Ok(())
+}
+
+/// Copy `from` -> `to` until EOF or [`IDLE_TIMEOUT`] without read or write progress.
 async fn copy_idle<R, W>(from: &mut R, to: &mut W) -> std::io::Result<()>
 where
     R: tokio::io::AsyncRead + Unpin,
@@ -204,7 +219,7 @@ where
             let _ = to.shutdown().await;
             return Ok(());
         }
-        to.write_all(&buf[..n]).await?;
+        write_idle(to, &buf[..n]).await?;
     }
 }
 
@@ -212,7 +227,7 @@ where
 async fn tunnel(client: TcpStream, server: TcpStream) {
     let (mut cr, mut cw) = client.into_split();
     let (mut sr, mut sw) = server.into_split();
-    let _ = tokio::join!(copy_idle(&mut cr, &mut sw), copy_idle(&mut sr, &mut cw));
+    let _ = tokio::try_join!(copy_idle(&mut cr, &mut sw), copy_idle(&mut sr, &mut cw));
 }
 
 /// Request body framing: exactly one exchange per relayed connection.
@@ -311,7 +326,7 @@ async fn handle(
                     req.push_str(&format!("Proxy-Authorization: {auth}\r\n"));
                 }
                 req.push_str("\r\n");
-                s.write_all(req.as_bytes())
+                write_idle(&mut s, req.as_bytes())
                     .await
                     .map_err(|e| e.to_string())?;
                 let (resp, extra) = read_head(&mut s).await?;
@@ -321,11 +336,12 @@ async fn handle(
                     reply(&mut client, "502 Bad Gateway").await;
                     return Err("upstream proxy refused CONNECT".into());
                 }
-                client
-                    .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+                write_idle(&mut client, b"HTTP/1.1 200 Connection Established\r\n\r\n")
                     .await
                     .map_err(|e| e.to_string())?;
-                client.write_all(&extra).await.map_err(|e| e.to_string())?;
+                write_idle(&mut client, &extra)
+                    .await
+                    .map_err(|e| e.to_string())?;
                 s
             }
             None => {
@@ -337,14 +353,15 @@ async fn handle(
                     }
                 };
                 let s = connect_any(&addrs).await?;
-                client
-                    .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+                write_idle(&mut client, b"HTTP/1.1 200 Connection Established\r\n\r\n")
                     .await
                     .map_err(|e| e.to_string())?;
                 s
             }
         };
-        server.write_all(&rest).await.map_err(|e| e.to_string())?;
+        write_idle(&mut server, &rest)
+            .await
+            .map_err(|e| e.to_string())?;
         tunnel(client, server).await;
         return Ok(());
     }
@@ -373,7 +390,7 @@ async fn handle(
                 req.push_str(&format!("Proxy-Authorization: {auth}\r\n"));
             }
             req.push_str("\r\n");
-            s.write_all(req.as_bytes())
+            write_idle(&mut s, req.as_bytes())
                 .await
                 .map_err(|e| e.to_string())?;
             s
@@ -393,7 +410,7 @@ async fn handle(
                 path.push_str(q);
             }
             let req = format!("{method} {path} {version}\r\n{headers}\r\n");
-            s.write_all(req.as_bytes())
+            write_idle(&mut s, req.as_bytes())
                 .await
                 .map_err(|e| e.to_string())?;
             s
@@ -403,7 +420,9 @@ async fn handle(
     // second request) are never relayed.
     let mut body = rest;
     body.truncate(usize::try_from(body_len).unwrap_or(usize::MAX));
-    server.write_all(&body).await.map_err(|e| e.to_string())?;
+    write_idle(&mut server, &body)
+        .await
+        .map_err(|e| e.to_string())?;
     let mut remaining = body_len - body.len() as u64;
     let mut chunk = vec![0u8; 16 * 1024];
     while remaining > 0 {
@@ -415,8 +434,7 @@ async fn handle(
         if n == 0 {
             return Err("request body truncated".into());
         }
-        server
-            .write_all(&chunk[..n])
+        write_idle(&mut server, &chunk[..n])
             .await
             .map_err(|e| e.to_string())?;
         remaining -= n as u64;
@@ -487,6 +505,18 @@ mod tests {
         assert_eq!(body_length(&["Content-Length: 5"]), Ok(5));
         assert!(body_length(&["Content-Length: 5", "Content-Length: 6"]).is_err());
         assert!(body_length(&["Transfer-Encoding: chunked"]).is_err());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn relay_times_out_a_stalled_write() {
+        let mut payload: &[u8] = b"response";
+        let (mut writer, _idle_peer) = tokio::io::duplex(1);
+        let copied = tokio::time::timeout(
+            IDLE_TIMEOUT + Duration::from_millis(1),
+            copy_idle(&mut payload, &mut writer),
+        )
+        .await;
+        assert!(matches!(copied, Ok(Err(e)) if e.kind() == std::io::ErrorKind::TimedOut));
     }
 
     #[tokio::test]

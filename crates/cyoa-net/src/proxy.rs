@@ -287,6 +287,12 @@ impl ProxyConfig {
         map
     }
 
+    /// A bare `*` bypass entry means "never proxy", including IP literals
+    /// (the matcher only applies `*` to host names).
+    fn bypasses_everything(&self) -> bool {
+        self.no_proxy.split([',', ';']).any(|e| e.trim() == "*")
+    }
+
     pub fn apply(
         &self,
         builder: reqwest::ClientBuilder,
@@ -297,6 +303,9 @@ impl ProxyConfig {
             ProxyMode::Manual => {
                 // Manual profiles must not also pick up environment proxies.
                 let mut builder = builder.no_proxy();
+                if self.bypasses_everything() {
+                    return Ok(builder);
+                }
                 let bypass = reqwest::NoProxy::from_string(&self.no_proxy);
                 for (scheme, url) in self.active_proxies() {
                     let proxy = if scheme == "http" {
@@ -324,6 +333,9 @@ impl ProxyConfig {
         let proxy_url = match self.mode {
             ProxyMode::Disabled => return BrowserRoute::Direct,
             ProxyMode::Manual => {
+                if self.bypasses_everything() {
+                    return BrowserRoute::Direct;
+                }
                 // `_should_bypass_manual_proxy` (requests `should_bypass_proxies`).
                 let bypass = hyper_util::client::proxy::matcher::Matcher::builder()
                     .all("http://bypass.invalid")
@@ -353,6 +365,13 @@ impl ProxyConfig {
         };
         let Some(proxy_url) = proxy_url else {
             return BrowserRoute::Direct;
+        };
+        // A scheme-less value (`127.0.0.1:8887`) is an HTTP proxy for the
+        // native client; route the browser through the same proxy.
+        let proxy_url = if proxy_url.contains("://") {
+            proxy_url
+        } else {
+            format!("http://{}", proxy_url.trim())
         };
         browser_proxy_from_url(&proxy_url)
     }

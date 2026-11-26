@@ -105,12 +105,20 @@ async fn static_cafe_record(
     if !outcome {
         return Ok(None);
     }
+    // A cancelled fetch looks like an ordinary page failure inside the static
+    // downloader; never zip/report a partial gallery as success.
+    if cancel.is_cancelled() {
+        return Err(RunError::Cancelled);
+    }
     let zip = matches!(opts.mode, OutputMode::IccZip | OutputMode::PureZip);
     let written = {
         let (site_b, stem_b, out_b) = (site.clone(), stem.clone(), opts.output_dir.clone());
         let zip_b = zip;
+        let cancel_b = cancel.clone();
         tokio::task::spawn_blocking(move || {
-            output::finalize_site_folder(&site_b, &stem_b, zip_b, &out_b)
+            output::finalize_site_folder_cancellable(&site_b, &stem_b, zip_b, &out_b, &|| {
+                cancel_b.is_cancelled()
+            })
         })
         .await
         .map_err(|e| RunError::OutputStage(format!("archive worker failed: {e}")))??
@@ -285,6 +293,12 @@ pub struct Integrations {
     pub gallery_dl_config: String,
     /// `_set_itch_enabled`.
     pub itch: bool,
+    /// `--itch-mirror-web` / settings `itch_mirror_web`.
+    pub itch_mirror_web: bool,
+    /// `--itch-parallel` / settings `itch_parallel` (1..=16).
+    pub itch_parallel: i32,
+    /// `--itch-only` / settings `itch_only`: run only itch-dl for itch.io URLs.
+    pub itch_only: bool,
     /// Discord API root (tests point it at a local mock).
     pub discord_api_root: String,
 }
@@ -301,6 +315,9 @@ impl Default for Integrations {
             gallery_dl_path: "gallery-dl".into(),
             gallery_dl_config: String::new(),
             itch: false,
+            itch_mirror_web: false,
+            itch_parallel: 1,
+            itch_only: false,
             discord_api_root: crate::discord::DEFAULT_API_ROOT.into(),
         }
     }
@@ -395,6 +412,8 @@ pub struct OfflineViewerOptions {
     pub viewers_dir: PathBuf,
     /// `auto` or a registered viewer id.
     pub preferred_id: String,
+    /// `cheat_enabled` (default on): inject the cheat panel overlay.
+    pub cheat_panel: bool,
 }
 
 impl OfflineViewerOptions {
@@ -421,6 +440,10 @@ impl OfflineViewerOptions {
         Some(Self {
             viewers_dir: cyoa_integrations::offline_viewers::viewers_dir(),
             preferred_id: preferred,
+            cheat_panel: settings
+                .get("cheat_enabled")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(true),
         })
     }
 }
@@ -1093,6 +1116,7 @@ fn offline_viewer_stage(
         preserved_asset_cache_dir: None,
         fetcher: fetch,
         allow_internal: false,
+        cheat_panel: v.cheat_panel,
     })?;
     let name = meta
         .get("name")

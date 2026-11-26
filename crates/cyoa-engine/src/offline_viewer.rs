@@ -163,6 +163,8 @@ pub struct ApplyOptions<'a> {
     pub preserved_asset_cache_dir: Option<&'a Path>,
     pub fetcher: &'a dyn AssetFetcher,
     pub allow_internal: bool,
+    /// Inject the in-viewer cheat panel (settings `cheat_enabled`, default on).
+    pub cheat_panel: bool,
 }
 
 // ───────────────────────────── Python value helpers ─────────────────────────────
@@ -1918,8 +1920,10 @@ pub fn apply_offline_viewer(opts: ApplyOptions<'_>) -> Option<PathBuf> {
             .into_owned();
     }
 
-    // ── Cheat overlay ──
-    if html.contains("</body>") {
+    // ── Cheat overlay ── (skipped when the Cheat panel toggle is off)
+    if !opts.cheat_panel {
+        // Toggle off: no overlay.
+    } else if html.contains("</body>") {
         html = html.replacen("</body>", &format!("{CHEAT_OVERLAY}\n</body>"), 1);
     } else if html.contains("</html>") {
         html = html.replacen("</html>", &format!("{CHEAT_OVERLAY}\n</html>"), 1);
@@ -2087,6 +2091,7 @@ mod tests {
             preserved_asset_cache_dir: None,
             fetcher: &NoNetwork,
             allow_internal: false,
+            cheat_panel: true,
         })
         .unwrap();
         assert_eq!(res, out.join("p_offline").join("index.html"));

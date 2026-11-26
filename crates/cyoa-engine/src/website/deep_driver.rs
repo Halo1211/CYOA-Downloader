@@ -40,6 +40,102 @@ pub const MAX_CANDIDATES_PER_ROUND: usize = 20_000;
 pub const DEEP_SCAN_MAX_REQUESTS: usize = 100_000;
 pub const DEEP_SCAN_MAX_TOTAL_BYTES: u64 = 20 * 1024 * 1024 * 1024;
 
+/// User-tunable deep-scan limits (settings `deep_scan_*`); the defaults are
+/// the built-in caps above.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DeepScanLimits {
+    /// Discovery rounds (each rescans newly saved files).
+    pub max_rounds: usize,
+    pub max_candidates_per_round: usize,
+    /// Per-file size cap.
+    pub max_file_bytes: u64,
+    /// Requests and bytes for the whole deep scan.
+    pub max_requests: usize,
+    pub max_total_bytes: u64,
+}
+
+impl Default for DeepScanLimits {
+    fn default() -> Self {
+        Self {
+            max_rounds: MAX_ROUNDS,
+            max_candidates_per_round: MAX_CANDIDATES_PER_ROUND,
+            max_file_bytes: DEEP_SCAN_MAX_BYTES,
+            max_requests: DEEP_SCAN_MAX_REQUESTS,
+            max_total_bytes: DEEP_SCAN_MAX_TOTAL_BYTES,
+        }
+    }
+}
+
+/// Settings keys, labels and ranges for the deep-scan limits:
+/// (key, label, help, min, max, default).
+pub const DEEP_SCAN_SETTINGS: [(&str, &str, &str, i64, i64, i64); 5] = [
+    (
+        "deep_scan_max_rounds",
+        "Rounds (1–20)",
+        "Rescan passes over newly saved files.",
+        1,
+        20,
+        6,
+    ),
+    (
+        "deep_scan_max_candidates",
+        "Candidates / round (100–100000)",
+        "New URLs fetched per round; the rest wait for the next round.",
+        100,
+        100_000,
+        20_000,
+    ),
+    (
+        "deep_scan_max_file_mb",
+        "Max file MB (1–4096)",
+        "Larger single assets are skipped.",
+        1,
+        4096,
+        512,
+    ),
+    (
+        "deep_scan_max_requests",
+        "Max requests (100–1000000)",
+        "Total requests for the whole deep scan.",
+        100,
+        1_000_000,
+        100_000,
+    ),
+    (
+        "deep_scan_max_total_gb",
+        "Max total GB (1–200)",
+        "Total bytes for the whole deep scan.",
+        1,
+        200,
+        20,
+    ),
+];
+
+impl DeepScanLimits {
+    pub fn from_settings(settings: &serde_json::Map<String, serde_json::Value>) -> Self {
+        let get = |i: usize| {
+            let (key, _, _, lo, hi, default) = DEEP_SCAN_SETTINGS[i];
+            settings
+                .get(key)
+                .and_then(|v| {
+                    v.as_i64()
+                        .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+                })
+                .unwrap_or(default)
+                .clamp(lo, hi)
+        };
+        let usize_of = |v: i64| usize::try_from(v).unwrap_or(usize::MAX);
+        let u64_of = |v: i64| u64::try_from(v).unwrap_or(u64::MAX);
+        Self {
+            max_rounds: usize_of(get(0)),
+            max_candidates_per_round: usize_of(get(1)),
+            max_file_bytes: u64_of(get(2)).saturating_mul(1024 * 1024),
+            max_requests: usize_of(get(3)),
+            max_total_bytes: u64_of(get(4)).saturating_mul(1024 * 1024 * 1024),
+        }
+    }
+}
+
 /// One failed deep-scan asset (`failed_deep_assets` item, kind "deep-scan").
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeepFailure {
@@ -72,6 +168,8 @@ pub struct DeepScan<'a> {
     pub source_urls: &'a mut HashMap<PathBuf, String>,
     /// F-043: AI Assist runtime for the Aggressive Recovery final round.
     pub ai: Option<Arc<crate::ai_run::AiRuntime>>,
+    /// Round/candidate/size/request/byte caps (settings `deep_scan_*`).
+    pub limits: DeepScanLimits,
 }
 
 /// `os.path.splitext(name)[1].lower()`.
@@ -171,6 +269,7 @@ async fn try_fetch(
     cancel: CancellationToken,
     url: String,
     base: String,
+    max_file_bytes: u64,
 ) -> Fetched {
     let none = |status: u16| Fetched {
         url: url.clone(),
@@ -226,9 +325,12 @@ async fn try_fetch(
             url.clone()
         }
     };
-    match FetchClient::bytes(resp, DEEP_SCAN_MAX_BYTES).await {
+    match FetchClient::bytes(resp, max_file_bytes).await {
         Ok(bytes) => {
-            if crate::localize::asset_is_error_document(&mime, &bytes, false) {
+            // A zero-byte image is never usable (empty CSS/JS can be legitimate).
+            if (bytes.is_empty() && mime.starts_with("image/"))
+                || crate::localize::asset_is_error_document(&mime, &bytes, false)
+            {
                 return none(200);
             }
             Fetched {
@@ -254,9 +356,13 @@ impl DeepScan<'_> {
                 self.base_url.to_owned(),
             );
             let sem = sem.clone();
+            let max_file_bytes = self.limits.max_file_bytes;
             set.spawn(async move {
                 let _permit = sem.acquire_owned().await;
-                (i, try_fetch(client, cancel, url, base).await)
+                (
+                    i,
+                    try_fetch(client, cancel, url, base, max_file_bytes).await,
+                )
             });
         }
         let mut out = Vec::new();
@@ -283,14 +389,15 @@ struct State {
     generated: GeneratedEntryImageIndex,
     requests: usize,
     total_bytes: u64,
+    limits: DeepScanLimits,
     /// F-044 user asset-scanner plugins (empty without `plugins.json`).
     plugins: cyoa_integrations::plugins::PluginRegistry,
 }
 
 impl State {
     fn budget_exhausted(&self) -> bool {
-        let out = self.requests >= DEEP_SCAN_MAX_REQUESTS
-            || self.total_bytes >= DEEP_SCAN_MAX_TOTAL_BYTES;
+        let out = self.requests >= self.limits.max_requests
+            || self.total_bytes >= self.limits.max_total_bytes;
         if out {
             tracing::warn!("[deep scan] request/byte budget exhausted; stopping");
         }
@@ -537,6 +644,10 @@ impl DeepScan<'_> {
         // Bounded batches like the main round (Sol review: memory bound).
         let batch = self.max_workers.clamp(1, 8) * 2;
         'ai: for chunk in fresh.chunks(batch) {
+            if self.cancel.is_cancelled() || st.budget_exhausted() {
+                break;
+            }
+            st.requests += chunk.len();
             for f in self.fetch_many(chunk.to_vec()).await {
                 if self.cancel.is_cancelled() {
                     break 'ai;
@@ -568,34 +679,48 @@ impl DeepScan<'_> {
             generated: GeneratedEntryImageIndex::new(),
             requests: 0,
             total_bytes: 0,
+            limits: self.limits,
             plugins: cyoa_integrations::plugins::PluginRegistry::load_default(),
         };
         let mut round = 0;
-        while round < MAX_ROUNDS && !self.cancel.is_cancelled() {
+        // Candidates cut by the per-round cap: their source files are already
+        // marked scanned, so they are carried into the next round explicitly.
+        let mut carry: Vec<String> = Vec::new();
+        while round < self.limits.max_rounds && !self.cancel.is_cancelled() {
             round += 1;
-            let new = self.collect_candidates(&mut st);
+            let mut new = std::mem::take(&mut carry);
+            let mut seen: std::collections::HashSet<String> = new.iter().cloned().collect();
+            for u in self.collect_candidates(&mut st) {
+                if seen.insert(u.clone()) {
+                    new.push(u);
+                }
+            }
             if new.is_empty() {
                 break;
             }
-            st.known.extend(new.iter().cloned());
-            let to_download: Vec<String> = new
-                .into_iter()
-                .filter(|u| {
-                    let rel = deep_scan_url_to_local(u, self.base_url, None);
-                    rel.is_empty() || !st.disk_files.contains(&rel)
-                })
-                .collect();
+            let mut to_download = Vec::new();
+            for u in new {
+                let rel = deep_scan_url_to_local(&u, self.base_url, None);
+                if rel.is_empty() || !st.disk_files.contains(&rel) {
+                    to_download.push(u);
+                } else {
+                    st.known.insert(u);
+                }
+            }
             if to_download.is_empty() {
                 break;
             }
-            let mut to_download = to_download;
-            if to_download.len() > MAX_CANDIDATES_PER_ROUND {
+            let cap = self.limits.max_candidates_per_round;
+            if to_download.len() > cap {
                 tracing::warn!(
-                    "[deep scan] Round {round}: {} candidates, keeping the first {MAX_CANDIDATES_PER_ROUND}",
+                    "[deep scan] Round {round}: {} candidates, keeping the first {cap}",
                     to_download.len()
                 );
-                to_download.truncate(MAX_CANDIDATES_PER_ROUND);
+                carry = to_download.split_off(cap);
             }
+            // Only kept candidates become `known`: the truncated tail stays
+            // eligible for the next round instead of being silently dropped.
+            st.known.extend(to_download.iter().cloned());
             tracing::info!(
                 "[deep scan] Round {round}: fetching {} asset(s)…",
                 to_download.len()
@@ -632,6 +757,7 @@ impl DeepScan<'_> {
                             continue;
                         }
                         st.known.insert(alt.clone());
+                        st.requests += 1;
                         let r = self.fetch_many(vec![alt]).await.into_iter().next();
                         if let Some(r) = r.filter(|r| r.content.is_some())
                             && self.save(&mut st, &r, "✓ CSS root")
@@ -642,6 +768,7 @@ impl DeepScan<'_> {
                     }
                     if let Some(route) = viewer_route_asset_fallback(&f.url, self.base_url) {
                         st.known.insert(route.clone());
+                        st.requests += 1;
                         let r = self.fetch_many(vec![route]).await.into_iter().next();
                         if let Some(r) = r.filter(|r| r.content.is_some())
                             && self.save(&mut st, &r, "✓ route")
@@ -650,15 +777,20 @@ impl DeepScan<'_> {
                             continue;
                         }
                     }
-                    let path = crate::localize::py_urlparse(&f.url).path.to_owned();
+                    let parsed_path = crate::localize::py_urlparse(&f.url).path;
+                    // `path` borrows from `f.url`; insert at its own offset so a
+                    // hostname containing the same text (`app.js.example`) is untouched,
+                    // matching Python's `parsed._replace(path='/assets' + path)`.
+                    let path_at = parsed_path.as_ptr() as usize - f.url.as_ptr() as usize;
+                    let path = parsed_path.to_owned();
                     if path.matches('/').count() == 1
                         && (path.to_lowercase().ends_with(".js")
                             || path.to_lowercase().ends_with(".mjs"))
                     {
-                        let alt = canonical_scan_url(&f.url.replacen(
-                            &path,
-                            &format!("/assets{path}"),
-                            1,
+                        let alt = canonical_scan_url(&format!(
+                            "{}/assets{}",
+                            &f.url[..path_at],
+                            &f.url[path_at..]
                         ));
                         if !st.known.contains(&alt) {
                             vite_origin.insert(alt.clone(), (f.url.clone(), f.status));
@@ -675,9 +807,11 @@ impl DeepScan<'_> {
             let vite_batches: Vec<Vec<String>> =
                 vite_retry.chunks(batch).map(<[String]>::to_vec).collect();
             for vite_chunk in vite_batches {
-                if self.cancel.is_cancelled() {
+                // Same request/byte budget as the main round.
+                if self.cancel.is_cancelled() || st.budget_exhausted() {
                     break;
                 }
+                st.requests += vite_chunk.len();
                 for f in self.fetch_many(vite_chunk).await {
                     if f.content.is_some() {
                         if self.save(&mut st, &f, "✓ Vite") {
@@ -706,9 +840,15 @@ impl DeepScan<'_> {
                     ""
                 }
             );
-            if saved == 0 {
+            if saved == 0 && carry.is_empty() {
                 break;
             }
+        }
+        if !carry.is_empty() {
+            tracing::warn!(
+                "[deep scan] {} candidate(s) left unfetched after {round} round(s); raise Deep Scan rounds or candidates per round.",
+                carry.len()
+            );
         }
         if !st.downloaded.is_empty() {
             tracing::info!(
@@ -763,6 +903,25 @@ fn http_error(status: u16) -> String {
 mod tests {
     use super::*;
     use cyoa_net::{client::ClientConfig, policy::DestinationPolicy};
+
+    #[test]
+    fn deep_scan_limits_from_settings_are_clamped_and_default() {
+        assert_eq!(
+            DeepScanLimits::from_settings(&serde_json::Map::new()),
+            DeepScanLimits::default()
+        );
+        let s: serde_json::Map<String, serde_json::Value> = serde_json::from_str(
+            r#"{"deep_scan_max_rounds": 99, "deep_scan_max_candidates": "500",
+                "deep_scan_max_file_mb": 0, "deep_scan_max_total_gb": 2}"#,
+        )
+        .unwrap_or_default();
+        let l = DeepScanLimits::from_settings(&s);
+        assert_eq!(l.max_rounds, 20);
+        assert_eq!(l.max_candidates_per_round, 500);
+        assert_eq!(l.max_file_bytes, 1024 * 1024);
+        assert_eq!(l.max_requests, DEEP_SCAN_MAX_REQUESTS);
+        assert_eq!(l.max_total_bytes, 2 * 1024 * 1024 * 1024);
+    }
 
     #[tokio::test]
     async fn cross_port_internal_hosts_are_blocked() {
@@ -820,6 +979,7 @@ mod tests {
             exclude_relative_paths: &["project.json"],
             source_urls: &mut sources,
             ai: None,
+            limits: DeepScanLimits::default(),
         }
         .run()
         .await;

@@ -92,8 +92,215 @@ pub const LIGHT: Palette = Palette {
     manager: (hex(0xf3e8ff), hex(0x7e22ce)),
 };
 
+/// `theme_accent_color` (default `#3b82f6`), applied over both palettes.
+static ACCENT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0x3b82f6);
+
+/// Accent presets offered in the header (Python default first).
+pub const ACCENT_PRESETS: [&str; 6] = [
+    "#3b82f6", "#8b5cf6", "#10b981", "#f59e0b", "#ef4444", "#ec4899",
+];
+
+/// Parse `#rrggbb`; anything else is rejected.
+pub fn parse_accent(value: &str) -> Option<u32> {
+    let v = value.trim().strip_prefix('#')?;
+    (v.len() == 6)
+        .then(|| u32::from_str_radix(v, 16).ok())
+        .flatten()
+}
+
+fn accented(mut p: Palette) -> Palette {
+    let a = hex(ACCENT.load(std::sync::atomic::Ordering::Relaxed));
+    p.accent = a;
+    p.sel_bar = a;
+    p.sel_desc = a;
+    p
+}
+
+// ── Advanced theme editor ─────────────────────────────────────────────
+
+/// Palette colors the theme editor can override: (key, label).
+pub const EDITABLE: [(&str, &str); 9] = [
+    ("bg", "Background"),
+    ("panel", "Panel"),
+    ("sidebar", "Sidebar"),
+    ("surface", "Surface"),
+    ("surface2", "Raised surface"),
+    ("input_bg", "Input fields"),
+    ("fg", "Text"),
+    ("muted", "Muted text"),
+    ("border", "Border"),
+];
+
+/// UI zoom limits for the editor's scale slider.
+pub const SCALE_RANGE: std::ops::RangeInclusive<f32> = 0.8..=1.5;
+
+#[derive(Clone, Default)]
+struct Overrides {
+    dark: std::collections::BTreeMap<&'static str, u32>,
+    light: std::collections::BTreeMap<&'static str, u32>,
+    scale: Option<f32>,
+}
+
+static OVERRIDES: std::sync::Mutex<Option<Overrides>> = std::sync::Mutex::new(None);
+
+fn with_overrides<T>(f: impl FnOnce(&mut Overrides) -> T) -> T {
+    let mut guard = OVERRIDES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    f(guard.get_or_insert_with(Overrides::default))
+}
+
+fn field<'a>(p: &'a mut Palette, key: &str) -> Option<&'a mut Color32> {
+    Some(match key {
+        "bg" => &mut p.bg,
+        "panel" => &mut p.panel,
+        "sidebar" => &mut p.sidebar,
+        "surface" => &mut p.surface,
+        "surface2" => &mut p.surface2,
+        "input_bg" => &mut p.input_bg,
+        "fg" => &mut p.fg,
+        "muted" => &mut p.muted,
+        "border" => &mut p.border,
+        _ => return None,
+    })
+}
+
+/// Base palette + accent + the user's overrides.
+fn themed(dark: bool) -> Palette {
+    let mut p = accented(if dark { DARK } else { LIGHT });
+    let map = with_overrides(|o| {
+        if dark {
+            o.dark.clone()
+        } else {
+            o.light.clone()
+        }
+    });
+    for (key, rgb) in map {
+        if let Some(slot) = field(&mut p, key) {
+            *slot = hex(rgb);
+        }
+    }
+    p
+}
+
 pub fn palette(ui: &egui::Ui) -> Palette {
-    if ui.visuals().dark_mode { DARK } else { LIGHT }
+    themed(ui.visuals().dark_mode)
+}
+
+/// The effective color of an editable key, and whether it is overridden.
+pub fn editable_color(dark: bool, key: &str) -> (Color32, bool) {
+    let mut p = themed(dark);
+    let overridden = with_overrides(|o| {
+        if dark {
+            o.dark.contains_key(key)
+        } else {
+            o.light.contains_key(key)
+        }
+    });
+    (
+        field(&mut p, key).map_or(Color32::TRANSPARENT, |c| *c),
+        overridden,
+    )
+}
+
+/// Set (`Some`) or clear (`None`) one palette override.
+pub fn set_override(dark: bool, key: &str, color: Option<Color32>) {
+    let Some(&(key, _)) = EDITABLE.iter().find(|(k, _)| *k == key) else {
+        return;
+    };
+    with_overrides(|o| {
+        let map = if dark { &mut o.dark } else { &mut o.light };
+        match color {
+            Some(c) => {
+                map.insert(
+                    key,
+                    (u32::from(c.r()) << 16) | (u32::from(c.g()) << 8) | u32::from(c.b()),
+                );
+            }
+            None => {
+                map.remove(key);
+            }
+        }
+    });
+}
+
+pub fn ui_scale() -> f32 {
+    with_overrides(|o| o.scale).unwrap_or(1.0)
+}
+
+pub fn set_ui_scale(scale: f32) {
+    let s = scale.clamp(*SCALE_RANGE.start(), *SCALE_RANGE.end());
+    with_overrides(|o| o.scale = ((s - 1.0).abs() > f32::EPSILON).then_some(s));
+}
+
+/// Drop every override and restore the default accent.
+pub fn reset_overrides() {
+    with_overrides(|o| *o = Overrides::default());
+    ACCENT.store(0x3b82f6, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn accent_hex() -> String {
+    format!("#{:06x}", ACCENT.load(std::sync::atomic::Ordering::Relaxed))
+}
+
+/// Settings `theme_custom` (`{"dark": {"bg": "#rrggbb"}, "light": {...}}`)
+/// and `ui_scale`.
+pub fn load_overrides(settings: &serde_json::Map<String, serde_json::Value>) {
+    let mut o = Overrides::default();
+    if let Some(custom) = settings.get("theme_custom").and_then(|v| v.as_object()) {
+        for (mode, target) in [("dark", &mut o.dark), ("light", &mut o.light)] {
+            let Some(map) = custom.get(mode).and_then(|v| v.as_object()) else {
+                continue;
+            };
+            for (key, _) in EDITABLE {
+                if let Some(rgb) = map.get(key).and_then(|v| v.as_str()).and_then(parse_accent) {
+                    target.insert(key, rgb);
+                }
+            }
+        }
+    }
+    o.scale = settings
+        .get("ui_scale")
+        .and_then(serde_json::Value::as_f64)
+        .map(|s| (s as f32).clamp(*SCALE_RANGE.start(), *SCALE_RANGE.end()))
+        .filter(|s| (s - 1.0).abs() > f32::EPSILON);
+    with_overrides(|cur| *cur = o);
+}
+
+/// `theme_custom` value for settings.json.
+pub fn overrides_json() -> serde_json::Value {
+    with_overrides(|o| {
+        let side = |m: &std::collections::BTreeMap<&'static str, u32>| {
+            serde_json::Value::Object(
+                m.iter()
+                    .map(|(k, v)| {
+                        (
+                            (*k).to_owned(),
+                            serde_json::Value::String(format!("#{v:06x}")),
+                        )
+                    })
+                    .collect(),
+            )
+        };
+        serde_json::json!({ "dark": side(&o.dark), "light": side(&o.light) })
+    })
+}
+
+/// Re-install both visuals and the zoom factor after any theme change.
+pub fn reapply(ctx: &egui::Context) {
+    ctx.set_visuals_of(egui::Theme::Dark, visuals(&themed(true), true));
+    ctx.set_visuals_of(egui::Theme::Light, visuals(&themed(false), false));
+    ctx.set_zoom_factor(ui_scale());
+}
+
+/// Switch the accent at runtime (invalid values keep the current one).
+pub fn apply_accent(ctx: &egui::Context, value: &str) -> bool {
+    let Some(rgb) = parse_accent(value) else {
+        return false;
+    };
+    ACCENT.store(rgb, std::sync::atomic::Ordering::Relaxed);
+    reapply(ctx);
+    true
 }
 
 fn visuals(p: &Palette, dark: bool) -> egui::Visuals {
@@ -136,9 +343,11 @@ fn visuals(p: &Palette, dark: bool) -> egui::Visuals {
 }
 
 /// Install both palettes, Segoe UI (Windows) and the saved theme mode.
-pub fn install(ctx: &egui::Context, theme_mode: &str) {
-    ctx.set_visuals_of(egui::Theme::Dark, visuals(&DARK, true));
-    ctx.set_visuals_of(egui::Theme::Light, visuals(&LIGHT, false));
+pub fn install(ctx: &egui::Context, theme_mode: &str, accent: &str) {
+    if let Some(rgb) = parse_accent(accent) {
+        ACCENT.store(rgb, std::sync::atomic::Ordering::Relaxed);
+    }
+    reapply(ctx);
     apply_theme_mode(ctx, theme_mode);
     let mut fonts = egui::FontDefinitions::default();
     let windir = std::env::var("WINDIR").unwrap_or_else(|_| r"C:\Windows".into());
@@ -528,4 +737,37 @@ pub fn combo_icon(ui: &egui::Ui, rect: egui::Rect, _v: &egui::style::WidgetVisua
     let st = Stroke::new(1.6, Color32::WHITE);
     ui.painter().line_segment([pts[0], pts[1]], st);
     ui.painter().line_segment([pts[1], pts[2]], st);
+}
+
+#[cfg(test)]
+mod accent_tests {
+    use super::*;
+
+    #[test]
+    fn accent_parsing_and_presets() {
+        assert_eq!(parse_accent("#3b82f6"), Some(0x3b82f6));
+        assert_eq!(parse_accent(" #EF4444 "), Some(0xef4444));
+        for bad in ["", "3b82f6", "#3b82f", "#zzzzzz", "#3b82f6ff"] {
+            assert_eq!(parse_accent(bad), None, "{bad}");
+        }
+        assert!(ACCENT_PRESETS.iter().all(|p| parse_accent(p).is_some()));
+    }
+
+    #[test]
+    fn overrides_round_trip_and_reset() {
+        let settings: serde_json::Map<String, serde_json::Value> = serde_json::from_str(
+            r##"{"theme_custom":{"dark":{"bg":"#101010","bogus":"#ffffff"},"light":{"fg":"#000001"}},"ui_scale":1.25}"##,
+        )
+        .unwrap_or_default();
+        load_overrides(&settings);
+        assert_eq!(editable_color(true, "bg"), (hex(0x101010), true));
+        assert_eq!(editable_color(false, "fg"), (hex(0x000001), true));
+        assert!((ui_scale() - 1.25).abs() < 1e-6);
+        let saved = overrides_json();
+        assert_eq!(saved["dark"]["bg"], "#101010");
+        assert!(saved["dark"].get("bogus").is_none());
+        reset_overrides();
+        assert_eq!(editable_color(true, "bg"), (DARK.bg, false));
+        assert!((ui_scale() - 1.0).abs() < 1e-6);
+    }
 }

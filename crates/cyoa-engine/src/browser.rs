@@ -390,10 +390,17 @@ fn sweep_stale_profiles() {
         let own = format!("cyoa-browser-{}-", std::process::id());
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
-            let ours = name
-                .strip_prefix("cyoa-browser-")
-                .and_then(|rest| rest.split('-').next())
-                .is_some_and(|pid| !pid.is_empty() && pid.bytes().all(|b| b.is_ascii_digit()));
+            // Exactly `cyoa-browser-<pid>-<counter>-<8 hex>` (see profile_dir);
+            // anything else may belong to another tool and must survive.
+            let ours = name.strip_prefix("cyoa-browser-").is_some_and(|rest| {
+                let parts: Vec<&str> = rest.split('-').collect();
+                parts.len() == 3
+                    && [parts[0], parts[1]]
+                        .iter()
+                        .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
+                    && parts[2].len() == 8
+                    && parts[2].bytes().all(|b| b.is_ascii_hexdigit())
+            });
             if !ours || name.starts_with(&own) {
                 continue;
             }
@@ -857,6 +864,19 @@ impl BrowserTransport {
         reject_error_documents: bool,
         cancel: &CancellationToken,
     ) -> Option<Vec<u8>> {
+        self.fetch_headless_final(url, reject_error_documents, cancel)
+            .await
+            .map(|(data, _)| data)
+    }
+
+    /// `fetch_headless` plus the final URL after redirects (the requested URL
+    /// for the in-page fallback), so callers can enforce their crawl scope.
+    pub async fn fetch_headless_final(
+        &self,
+        url: &str,
+        reject_error_documents: bool,
+        cancel: &CancellationToken,
+    ) -> Option<(Vec<u8>, String)> {
         if self.client.browser_route(url) == BrowserRoute::Unsupported {
             tracing::error!("Manual proxy transport is unsupported by browser fallback: {url}");
             return None;
@@ -865,14 +885,25 @@ impl BrowserTransport {
             .fetch(url, Duration::from_secs(30), reject_error_documents, cancel)
             .await
         {
-            return Some(r.content);
+            return Some((r.content, r.url));
         }
         if cancel.is_cancelled() || self.closed.load(Ordering::SeqCst) {
             return None;
         }
         let parsed = Url::parse(url).ok()?;
-        let mut state = self.state.lock().await;
-        if state.unavailable {
+        let mut state = tokio::select! {
+            biased;
+            () = cancel.cancelled() => return None,
+            state = self.state.lock() => state,
+        };
+        if state.unavailable || self.closed.load(Ordering::SeqCst) {
+            return None;
+        }
+        if !vpn_ok(&self.client).await {
+            tracing::error!("VPN guard blocked in-page browser fetch: {url}");
+            return None;
+        }
+        if cancel.is_cancelled() || self.closed.load(Ordering::SeqCst) {
             return None;
         }
         let page = self.prepare(&mut state, &parsed).await.ok()?;
@@ -887,7 +918,7 @@ impl BrowserTransport {
                     return None;
                 }
                 tracing::info!("  [Headless/CDP] {url} → {} bytes", data.len());
-                Some(data)
+                Some((data, url.to_owned()))
             }
             Ok(None) => None,
             Err(e) => {

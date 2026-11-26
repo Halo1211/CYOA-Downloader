@@ -42,7 +42,7 @@ impl DownloaderApp {
             self.show_settings = false;
             return;
         };
-        self.dash.ensure_loaded(&path);
+        self.dash.ensure_loaded(&path, ctx);
         if self.ai_panel.is_none() {
             self.ai_panel = Some(crate::ai_panel::AiPanel::open(
                 path.clone(),

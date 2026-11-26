@@ -480,6 +480,10 @@ impl SettingsStore {
         self.values = match read(&self.path) {
             Ok(Some(values)) => values,
             Ok(None) => defaults(),
+            // A transient read failure (sharing violation, permissions) is not
+            // corruption: report it instead of returning defaults that a later
+            // save would write over the user's real settings.
+            Err(SettingsError::Io(error)) => return Err(SettingsError::Io(error)),
             Err(_) => {
                 let mut backup = self.path.as_os_str().to_owned();
                 backup.push(".corrupt");

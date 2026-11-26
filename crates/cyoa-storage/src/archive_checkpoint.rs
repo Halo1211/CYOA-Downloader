@@ -152,8 +152,19 @@ fn migrate_legacy(folder: &Path, destination: &Path) {
         return;
     }
     let temporary = destination.with_extension(format!("{}.tmp", unique_token()));
-    if fs::copy(&legacy, &temporary).is_ok() && fs::rename(&temporary, destination).is_ok() {
+    // `VACUUM INTO` goes through SQLite, so committed records still in the
+    // legacy `-wal` file are included (a raw file copy would drop them).
+    let snapshot = rusqlite::Connection::open(&legacy).is_ok_and(|db| {
+        db.execute("VACUUM INTO ?1", [temporary.to_string_lossy().as_ref()])
+            .is_ok()
+    });
+    if snapshot && fs::rename(&temporary, destination).is_ok() {
         let _ = fs::remove_file(&legacy);
+        for suffix in ["-wal", "-shm"] {
+            let mut side = legacy.as_os_str().to_owned();
+            side.push(suffix);
+            let _ = fs::remove_file(std::path::PathBuf::from(side));
+        }
         if let Some(parent) = legacy.parent() {
             let _ = fs::remove_dir(parent);
         }
@@ -360,6 +371,10 @@ impl ArchiveCheckpoint {
         let relative = self.relative(file)?;
         let safe = safe_archive_join(&self.folder.to_string_lossy(), &relative, false)
             .map_err(|_| CheckpointError::UnsafePath(relative.clone()))?;
+        // Only regular files: opening a FIFO/device to hash it can block forever.
+        if !std::fs::metadata(&safe).is_ok_and(|m| m.is_file()) {
+            return Err(CheckpointError::UnsafePath(relative));
+        }
         let before = identity(&safe)?;
         let digest = digest_file(&safe)?;
         if identity(&safe)? != before {
@@ -609,6 +624,42 @@ mod tests {
         assert!(!third.compatible);
         assert!(third.urls("asset").unwrap().is_empty());
         fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn legacy_migration_keeps_records_still_in_wal() {
+        let base = temp("wal");
+        let site = base.join("site");
+        fs::create_dir_all(site.join("_audit")).unwrap();
+        let legacy = legacy_path(&site).unwrap();
+        let writer = Connection::open(&legacy).unwrap();
+        writer
+            .execute_batch(
+                "PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0;
+                 CREATE TABLE owner(id INTEGER PRIMARY KEY, generation TEXT, context TEXT);
+                 CREATE TABLE records(kind TEXT, url TEXT, data TEXT, PRIMARY KEY(kind, url));",
+            )
+            .unwrap();
+        // Checkpoint the schema into the main file; the record stays in the WAL.
+        writer
+            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))
+            .unwrap();
+        writer
+            .execute(
+                "INSERT INTO records VALUES ('asset', 'https://x.test/a', '{}')",
+                [],
+            )
+            .unwrap();
+        let destination = base.join("migrated.sqlite3");
+        migrate_legacy(&site, &destination);
+        drop(writer);
+        let db = Connection::open(&destination).unwrap();
+        let n: i64 = db
+            .query_row("SELECT COUNT(*) FROM records", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 1);
+        drop(db);
+        let _ = fs::remove_dir_all(base);
     }
 
     #[test]

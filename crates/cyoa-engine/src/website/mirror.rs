@@ -209,6 +209,8 @@ pub struct MirrorSink {
     pub entry_source: Option<(String, String)>,
     /// Python `archive_strategy` (`""` = no browser fallbacks, e.g. tests).
     pub archive_strategy: String,
+    /// Deep-scan caps for `run_deep_scan` (settings `deep_scan_*`).
+    pub deep_limits: super::deep_driver::DeepScanLimits,
     /// Lazily launched reusable browser (`_get_browser_transport`).
     browser: Option<Arc<crate::browser::BrowserTransport>>,
     /// `_browser_transport_preferred`: after one browser success, later
@@ -261,6 +263,7 @@ impl MirrorSink {
             source_for_local: HashMap::new(),
             entry_source: None,
             archive_strategy: String::new(),
+            deep_limits: super::deep_driver::DeepScanLimits::default(),
             browser: None,
             browser_preferred: false,
             no_overwrite: false,
@@ -359,7 +362,9 @@ impl MirrorSink {
             self.fail(url, format!("HTTP {status} (permanently missing)"));
             return None;
         }
-        if status >= 400 {
+        // 304 without a conditional request has no body to save: treat it like
+        // an HTTP error instead of writing an empty file as "downloaded".
+        if status >= 400 || status == 304 {
             drop(response);
             // Python `_fetch`: an HTTP error is retried through the browser.
             let fetched = self.fetch_with_browser(url);
@@ -451,10 +456,10 @@ impl MirrorSink {
             return Ok(None);
         }
         if let Some(Entry::Done(cached)) = self.entry(alt).cloned() {
-            if cached.is_some() {
-                self.set_entry(keys.0, Entry::Done(cached.clone()));
-                self.set_entry(keys.1, Entry::Done(cached.clone()));
-            }
+            // Also record a cached failure: leaving the keys `InProgress` would
+            // stop a later captured browser response from repairing them.
+            self.set_entry(keys.0, Entry::Done(cached.clone()));
+            self.set_entry(keys.1, Entry::Done(cached.clone()));
             return Err(cached);
         }
         let fetched = self.fetch(alt);
@@ -905,6 +910,7 @@ impl MirrorSink {
                 exclude_relative_paths: &[],
                 source_urls: &mut sources,
                 ai: self.ai.clone(),
+                limits: self.deep_limits,
             }
             .run(),
         );
@@ -1013,10 +1019,12 @@ impl MirrorSink {
     fn fetch_route_html(&mut self, url: &str) -> Result<Option<(String, String)>, String> {
         let Some(r) = self.fetch(url) else {
             if matches!(self.archive_strategy.as_str(), "smart" | "browser" | "auto")
-                && let Some(raw) = self.fetch_headless(url)
+                && let Some((raw, final_url)) = self.fetch_headless_final(url)
             {
+                // Report where the browser ended up so the crawler's scope
+                // check can reject a redirect out of the story.
                 return Ok(Some((
-                    url.to_owned(),
+                    final_url,
                     cyoa_parse::project::try_decode_bytes(&raw, ""),
                 )));
             }
@@ -1053,7 +1061,11 @@ impl MirrorSink {
         let mut crawler = RouteCrawler::new(&self.start_url);
         let mut out = RouteCrawl::default();
         let start = crawler.start_url.clone();
+        // Restored bases stay in the export order so a later resume keeps
+        // them even when their pages are not re-visited this time.
+        let mut restored_order: Vec<String> = Vec::new();
         for (page, base) in link_bases {
+            restored_order.push(page.clone());
             crawler.page_link_bases.insert(page, base);
         }
         let mut queued: std::collections::HashSet<String> =
@@ -1069,7 +1081,7 @@ impl MirrorSink {
             }
         }
         queued.insert(start.clone());
-        let mut base_order: Vec<String> = Vec::new();
+        let mut base_order: Vec<String> = restored_order;
         while !queue.is_empty() && out.pages.len() < max_pages {
             if self.cancel.is_cancelled() {
                 break;
@@ -1223,6 +1235,17 @@ impl MirrorSink {
             charset,
             final_url: fetched.url,
         })
+    }
+
+    /// `fetch_headless` with the final URL after redirects.
+    fn fetch_headless_final(&mut self, url: &str) -> Option<(Vec<u8>, String)> {
+        if self.cancel.is_cancelled() {
+            return None;
+        }
+        let transport = self.browser_transport();
+        let cancel = self.cancel.clone();
+        self.handle
+            .block_on(transport.fetch_headless_final(url, false, &cancel))
     }
 
     /// `_fetch_headless(url, browser_session=transport)`.
@@ -1589,7 +1612,14 @@ impl MirrorSink {
             let basename = path.rsplit('/').next().unwrap_or("");
             if !basename.is_empty() && !basename.eq_ignore_ascii_case("project.json") {
                 let alias = cyoa_core::paths::safe_rel_path(basename, "project");
-                if alias != "project.json" {
+                // Never let a basename alias (`/data/index.html` payload) replace
+                // an already-archived file such as the entry page.
+                let lower = alias.to_ascii_lowercase();
+                if alias != "project.json"
+                    && !self.source_for_local.contains_key(&alias)
+                    && !lower.ends_with(".html")
+                    && !lower.ends_with(".htm")
+                {
                     self.write(&alias, &bytes)?;
                     self.source_for_local
                         .insert(alias.clone(), project_source.clone());

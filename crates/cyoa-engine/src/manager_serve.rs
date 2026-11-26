@@ -237,6 +237,7 @@ pub fn prepare_cyoa_manager_serve_folder(
         preserved_asset_cache_dir: Some(&shared_assets),
         fetcher,
         allow_internal: false,
+        cheat_panel: true,
     })
     .ok_or("Unable to build a local viewer for the CYOA Manager project")?;
     let site = index.parent().unwrap_or(&cache_root).to_path_buf();

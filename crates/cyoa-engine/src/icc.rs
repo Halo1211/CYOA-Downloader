@@ -67,6 +67,7 @@ impl IccRun<'_> {
                 MirrorSink::new(site_c, &entry, &base, client, handle, cancel, 512 << 20);
             sink.workers = workers;
             sink.archive_strategy = policy.strategy.clone();
+            sink.deep_limits = policy.deep_limits;
             sink.ai = ai_rt;
             let result = sink.download_site(pre_deep_scan).map(|()| {
                 // run_archive_extensions: Smart crawls same-story routes,
@@ -172,6 +173,7 @@ impl IccRun<'_> {
             );
             let handle = tokio::runtime::Handle::current();
             let ai = self.ctx.ai.clone();
+            let deep_limits = self.policy.deep_limits;
             tokio::task::spawn_blocking(move || {
                 let mut sources = HashMap::new();
                 handle.block_on(
@@ -185,6 +187,7 @@ impl IccRun<'_> {
                         exclude_relative_paths: &["project.json"],
                         source_urls: &mut sources,
                         ai,
+                        limits: deep_limits,
                     }
                     .run(),
                 )
@@ -379,6 +382,8 @@ pub struct ArchivePolicy {
     pub max_scroll_steps: i64,
     pub max_interactions: i64,
     pub no_progress_rounds: i64,
+    /// Deep-scan caps (settings `deep_scan_*`; not part of the manifest policy).
+    pub deep_limits: crate::website::deep_driver::DeepScanLimits,
 }
 
 impl Default for ArchivePolicy {
@@ -446,6 +451,7 @@ impl ArchivePolicy {
             max_scroll_steps: bounded("archive_max_scroll_steps", 100, 1, 1000),
             max_interactions: bounded("archive_max_interactions", 20, 0, 100),
             no_progress_rounds: bounded("archive_no_progress_rounds", 2, 1, 10),
+            deep_limits: crate::website::deep_driver::DeepScanLimits::from_settings(s),
         }
     }
 

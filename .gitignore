@@ -77,9 +77,26 @@ Thumbs.db
 .cursor/
 .windsurf/
 AGENTS.md
+AGENTS.*.md
+AGENTS.old.md
 CLAUDE.md
+CLAUDE.*.md
 GEMINI.md
 skills-lock.json
+.gemini/
+.opencode/
+opencode.json
+.mcp.json
+.aider*
+.continue/
+.roo/
+.clinerules
+# AI bug-hunt team (playbook, worker scripts, findings) and agent prompts
+cyoa-bugteam/
+docs/AGENT_TASKS.md
+docs/NEXT_SESSION_PROMPT.md
+docs/AI_TEAM.md
+docs/bughunt/
 
 # Python
 __pycache__/
@@ -87,6 +104,13 @@ __pycache__/
 
 # Rust
 target/
+*.pdb
+
+# Scratch / editor leftovers
+*.bak
+*.orig
+*.rej
+*~
 
 # Obsolete local Rust artifacts; the workspace now lives at the repository root
 /rust/

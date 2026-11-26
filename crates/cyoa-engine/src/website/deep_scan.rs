@@ -203,6 +203,12 @@ const JSON_ASSET_EXTENSIONS: &[&str] = &[
     ".webmanifest",
 ];
 
+static BASE_PREFIX_RE: LazyLock<Option<Regex>> = LazyLock::new(|| {
+    re(&format!(
+        r#"(?i)(?:^|[^\w$])([A-Za-z_$][\w$]*)\s*\+\s*["']([^"']+{ASSET_EXTS})["']"#
+    ))
+});
+
 fn is_match(r: &LazyLock<Option<Regex>>, t: &str) -> bool {
     r.as_ref().is_some_and(|r| r.is_match(t))
 }
@@ -792,7 +798,7 @@ pub fn scan_file_for_assets(
     }
 
     // Explicit `x = new URL('../', currentScript.src)` bases.
-    let mut js_bases: Vec<(String, String)> = Vec::new();
+    let mut js_bases: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     if is_js(file_ext)
         && let Some(r) = JS_BASE_RE.as_ref()
     {
@@ -801,22 +807,35 @@ pub fn scan_file_for_assets(
                 continue;
             };
             let joined = urljoin(file_url, rel.as_str());
-            match js_bases.iter_mut().find(|(n, _)| n == name.as_str()) {
-                Some(slot) => slot.1 = joined,
-                None => js_bases.push((name.as_str().to_owned(), joined)),
-            }
+            // Last assignment wins (map lookup instead of a linear scan per name).
+            js_bases.insert(name.as_str().to_owned(), joined);
         }
     }
     let mut base_prefixed: BTreeSet<String> = BTreeSet::new();
-    for (name, explicit) in &js_bases {
-        let pat = format!(
-            r#"(?i)\b{}\s*\+\s*["']([^"']+{ASSET_EXTS})["']"#,
-            regex::escape(name)
-        );
-        if let Ok(r) = Regex::new(&pat) {
-            for c in r.captures_iter(text) {
-                if let Some(raw) = c.get(1) {
-                    base_prefixed.insert(raw.as_str().to_owned());
+    if !js_bases.is_empty() {
+        // One pass over the text for every `<ident> + "x.png"`; the old code
+        // compiled and ran one regex per base name (quadratic on big bundles).
+        let by_lower: std::collections::HashMap<String, Vec<&String>> =
+            js_bases.iter().fold(Default::default(), |mut m, (n, e)| {
+                m.entry(n.to_lowercase()).or_default().push(e);
+                m
+            });
+        for c in BASE_PREFIX_RE
+            .as_ref()
+            .into_iter()
+            .flat_map(|r| r.captures_iter(text))
+        {
+            let (Some(name), Some(raw)) = (c.get(1), c.get(2)) else {
+                continue;
+            };
+            let lower = name.as_str().to_lowercase();
+            // Declarations are recorded without a leading `$` (`var $base`).
+            if let Some(explicits) = by_lower
+                .get(&lower)
+                .or_else(|| by_lower.get(lower.trim_start_matches('$')))
+            {
+                base_prefixed.insert(raw.as_str().to_owned());
+                for explicit in explicits {
                     found.insert(urljoin(explicit, raw.as_str()));
                 }
             }

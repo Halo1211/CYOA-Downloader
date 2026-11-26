@@ -321,17 +321,24 @@ pub fn looks_like_project_payload(text: &str) -> bool {
 }
 
 pub fn extract_balanced_brace_block(text: &str, start_idx: usize) -> String {
-    let chars: Vec<char> = text.chars().collect();
-    if start_idx >= chars.len() || chars[start_idx] != '{' {
+    // Walk from the start brace only: collecting the whole text into a
+    // `Vec<char>` per call made repeated candidate scans quadratic.
+    let Some((start_byte, '{')) = text.char_indices().nth(start_idx) else {
         return String::new();
-    }
+    };
+    let tail = &text[start_byte..];
     let (mut depth, mut in_string, mut escaped, mut line_comment, mut block_comment) =
         (0_i32, false, false, false, false);
     let mut quote = '\0';
-    for i in start_idx..chars.len() {
-        let ch = chars[i];
-        let prev = if i > start_idx { chars[i - 1] } else { '\0' };
-        let next = chars.get(i + 1).copied().unwrap_or('\0');
+    let mut comment_open = 0_usize;
+    let mut prev = '\0';
+    let mut iter = tail.char_indices().peekable();
+    let mut i = 0_usize;
+    while let Some((byte, ch)) = iter.next() {
+        let next = iter.peek().map_or('\0', |&(_, c)| c);
+        let before = std::mem::replace(&mut prev, ch);
+        let at = i;
+        i += 1;
         if line_comment {
             if ch == '\r' || ch == '\n' {
                 line_comment = false;
@@ -339,7 +346,8 @@ pub fn extract_balanced_brace_block(text: &str, start_idx: usize) -> String {
             continue;
         }
         if block_comment {
-            if prev == '*' && ch == '/' {
+            // `at > comment_open + 2`: the opening `/*`'s own `*` can't close it (`/*/`).
+            if before == '*' && ch == '/' && at > comment_open + 2 {
                 block_comment = false;
             }
             continue;
@@ -360,6 +368,7 @@ pub fn extract_balanced_brace_block(text: &str, start_idx: usize) -> String {
         }
         if ch == '/' && next == '*' {
             block_comment = true;
+            comment_open = at;
             continue;
         }
         if ch == '"' || ch == '\'' {
@@ -372,7 +381,7 @@ pub fn extract_balanced_brace_block(text: &str, start_idx: usize) -> String {
         } else if ch == '}' {
             depth -= 1;
             if depth == 0 {
-                return chars[start_idx..=i].iter().collect();
+                return tail[..byte + 1].to_owned();
             }
         }
     }
@@ -384,9 +393,27 @@ fn block_at(text: &str, brace_idx: usize) -> Option<String> {
     (!block.is_empty() && looks_like_project_payload(&block)).then_some(block)
 }
 
+/// Heuristic: is byte `at` on a line that is a `//` comment? Stops a
+/// commented-out declaration from winning over the live project.
+fn in_js_comment(text: &str, at: usize) -> bool {
+    let before = &text[..at];
+    let line_start = before
+        .rfind(['\n', '\r', '\u{2028}', '\u{2029}'])
+        .map_or(0, |i| {
+            i + before[i..].chars().next().map_or(1, char::len_utf8)
+        });
+    let line = &before[line_start..];
+    // Only `//` at line start: `/*` also appears in strings like "image/*",
+    // so block-comment detection would hide real projects in bundles.
+    line.trim_start().starts_with("//")
+}
+
 pub fn extract_embedded_project_from_js(js_text: &str) -> Option<String> {
     if let Some(re) = MARKER_RE.as_ref() {
         for m in re.find_iter(js_text) {
+            if in_js_comment(js_text, m.start()) {
+                continue;
+            }
             let end = char_index(js_text, m.end());
             if let Some(i) = find_char(js_text, "{", end)
                 && let Some(block) = block_at(js_text, i)
@@ -443,6 +470,7 @@ pub fn extract_embedded_project_from_js(js_text: &str) -> Option<String> {
     if let Some(re) = REACTIVE_RE.as_ref() {
         for captures in re.captures_iter(js_text) {
             if let Some(m) = captures.get(1)
+                && !in_js_comment(js_text, m.start())
                 && let Some(block) = block_at(js_text, char_index(js_text, m.start()))
             {
                 return Some(block);
@@ -451,6 +479,9 @@ pub fn extract_embedded_project_from_js(js_text: &str) -> Option<String> {
     }
     for re in FALLBACK_RES.iter().flatten() {
         for m in re.find_iter(js_text) {
+            if in_js_comment(js_text, m.start()) {
+                continue;
+            }
             if let Some(i) = find_char(js_text, "{", char_index(js_text, m.start()))
                 && let Some(block) = block_at(js_text, i)
             {
@@ -460,6 +491,9 @@ pub fn extract_embedded_project_from_js(js_text: &str) -> Option<String> {
     }
     for re in KEYWORD_RES.iter().flatten() {
         for m in re.find_iter(js_text) {
+            if in_js_comment(js_text, m.start()) {
+                continue;
+            }
             let at = char_index(js_text, m.start());
             let scan = at.saturating_sub(250_000);
             let mut brace = js_text[..byte_of(js_text, at)]
@@ -558,3 +592,22 @@ pub fn extract_project_text_from_payload(text: &str) -> Option<String> {
 }
 
 // TODO(F-020): port extract_project_from_archive_bytes and _extract_website_from_archive_zip_name.
+
+#[cfg(test)]
+mod brace_comment_tests {
+    use super::*;
+
+    #[test]
+    fn commented_out_declaration_does_not_win() {
+        let js = "// const preview = {rows: []};\nconst current = {rows: [{title: 'Live'}]};";
+        let got = extract_embedded_project_from_js(js).unwrap_or_default();
+        assert!(got.contains("Live"), "{got}");
+    }
+
+    #[test]
+    fn opening_star_does_not_close_block_comment() {
+        let text = "{ /*/ } */ rows: [] }";
+        assert_eq!(extract_balanced_brace_block(text, 0), text);
+        assert_eq!(extract_balanced_brace_block("{/**/a}", 0), "{/**/a}");
+    }
+}

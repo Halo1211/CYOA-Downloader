@@ -575,12 +575,17 @@ pub fn clear_plain_keys(settings: &mut Settings, provider: Option<&str>) {
         Some(p) => vec![normalize_provider(p)],
         None => PROVIDERS.to_vec(),
     };
+    let clears_anthropic = providers.contains(&"anthropic");
     for p in providers {
         if p != "ollama" {
             settings.insert(format!("ai_api_key_{p}"), Value::from(""));
         }
     }
-    settings.insert("ai_api_key".into(), Value::from(""));
+    // The legacy `ai_api_key` field holds the Anthropic key; clearing another
+    // provider must not erase it.
+    if clears_anthropic {
+        settings.insert("ai_api_key".into(), Value::from(""));
+    }
 }
 
 /// `_mask_secret`.
@@ -846,6 +851,9 @@ mod tests {
         st.insert("ai_api_key".into(), "y".into());
         clear_plain_keys(&mut st, Some("gpt"));
         assert_eq!(st["ai_api_key_openai"], "");
+        // The legacy field is the Anthropic key: clearing OpenAI keeps it.
+        assert_eq!(st["ai_api_key"], "y");
+        clear_plain_keys(&mut st, Some("anthropic"));
         assert_eq!(st["ai_api_key"], "");
     }
 }

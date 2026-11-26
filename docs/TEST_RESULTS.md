@@ -72,3 +72,11 @@ Gates on the final tree: `cargo fmt --all -- --check`, `cargo clippy --all-targe
 ## 2026-11-22 (Windows release workflow)
 - GitHub Actions run 44959993152 on tag `v1.1.6`: Rust release compilation and CLI verification succeeded. License packaging failed when `scripts/third_party_notices.py` ran `cargo metadata --offline` (exit 101); the captured exception omitted Cargo stderr. Artifact upload and release publication were skipped.
 - Local follow-up edits replace offline metadata with locked metadata, retain full third-party/font license texts as a companion archive, and scope publishing to tag pushes. These edits have not yet run on GitHub. The existing tag still references the failed workflow revision.
+
+## 2026-11-22 broad bug audit (Windows)
+- `cargo fmt --all -- --check`: passed.
+- `cargo check --all-targets`: passed.
+- `cargo clippy --all-targets -- -D warnings`: passed.
+- `cargo test`: 380 passed, 3 ignored, 0 failed. This includes the cache eviction regression and the local Chromium browser integration test (3/3).
+- Sol's focused `cargo test --locked -p cyoa-net`: 67 passed; browser-cookie regression suite 5/5 and bandwidth throttle suite 4/4 passed.
+- Real VPN software, user browser cookie stores, remote proxies, and production website behavior were not tested.

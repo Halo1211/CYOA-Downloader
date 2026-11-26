@@ -166,7 +166,10 @@ impl Walker {
                         self.out
                             .youtube
                             .insert(format!("https://www.youtube.com/watch?v={v}"));
-                    } else if AUDIO_EXTENSIONS.iter().any(|e| v.ends_with(e)) {
+                    } else if AUDIO_EXTENSIONS
+                        .iter()
+                        .any(|e| v.split(['?', '#']).next().unwrap_or(v).ends_with(e))
+                    {
                         self.out.audio.insert(v.to_owned());
                     }
                 }
@@ -287,6 +290,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn json_escapes_do_not_create_bogus_assets() {
+        let assets = collect_project_assets(r#"{"audio":"music/a.mp3"}"#);
+        assert!(assets.audio.contains("music/a.mp3"), "{:?}", assets.audio);
+        assert!(
+            !assets.audio.iter().any(|a| a.contains("\\u")),
+            "{:?}",
+            assets.audio
+        );
+    }
+
+    #[test]
+    fn bgm_list_keeps_cache_busted_tracks() {
+        let scan = deep_scan_value(&serde_json::json!({"bgmList": ["music/theme.mp3?v=2"]}));
+        assert!(
+            scan.audio.contains("music/theme.mp3?v=2"),
+            "{:?}",
+            scan.audio
+        );
+    }
+
+    #[test]
     fn splitext_matches_ntpath() {
         assert_eq!(py_splitext_ext("a/b.PNG"), ".PNG");
         assert_eq!(py_splitext_ext(".bashrc"), "");
@@ -343,7 +367,10 @@ pub fn collect_project_assets(input: &str) -> ProjectAssets {
     if let Some(re) = FIELD_RE.as_ref() {
         for c in re.captures_iter(input) {
             let field = &c[1];
-            let path = c[2].replace("\\/", "/");
+            // Decode JSON escapes (`a`, `\/`) like the parsed deep scan
+            // does, so the regex supplement doesn't add a literal-escape twin.
+            let path = serde_json::from_str::<String>(&format!("\"{}\"", &c[2]))
+                .unwrap_or_else(|_| c[2].replace("\\/", "/"));
             if is_data_uri(&path) {
                 continue;
             }

@@ -37,7 +37,12 @@ fn check(section: &str, mut f: impl FnMut(&[&str], &Value) -> Value) {
     for (key, expected) in fx[section].as_object().unwrap() {
         let parts: Vec<&str> = key.split('|').collect();
         let got = f(&parts, expected);
-        let want = if section == "parse" {
+        // Deliberate divergence: a malformed (looping/out-of-range) owner
+        // pointer is rejected instead of yielding Python's 0.0.0.0.
+        let rejected = serde_json::json!({ "ok": null });
+        let want = if section == "parse" && key == "pointer_loop" {
+            &rejected
+        } else if section == "parse" {
             &expected["py"]
         } else {
             expected

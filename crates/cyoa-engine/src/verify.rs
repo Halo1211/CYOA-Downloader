@@ -596,6 +596,14 @@ mod tests {
             .collect()
     }
 
+    /// Reports carry the running app version; the Python fixtures say 1.1.6.
+    fn fixture_version(report: &str) -> String {
+        report.replace(
+            &format!("CYOA Downloader v{} ", cyoa_core::app_version()),
+            "CYOA Downloader v1.1.6 ",
+        )
+    }
+
     #[test]
     fn matches_python_package_fixtures() {
         let fixture: Value = serde_json::from_str(
@@ -634,6 +642,12 @@ mod tests {
                             .find(&std::fs::read_to_string(folder.join(MANIFEST_NAME)).unwrap())
                             .map_or(String::new(), |m| m.as_str().to_owned()),
                         r#""created_utc": "CREATED""#,
+                    )
+                    // The manifest records the running app version; the
+                    // Python fixtures were exported by 1.1.6.
+                    .replace(
+                        &format!(r#""app_version": "{}""#, cyoa_core::app_version()),
+                        r#""app_version": "1.1.6""#,
                     );
                 assert_eq!(
                     got, expected["manifest_text"],
@@ -680,13 +694,18 @@ mod tests {
                     .join("\n")
             };
             assert_eq!(ok, expected["verify_ok"], "{} verify ok", case["name"]);
-            assert_eq!(report, expected_report, "{} report", case["name"]);
+            assert_eq!(
+                fixture_version(&report),
+                expected_report,
+                "{} report",
+                case["name"]
+            );
         }
         let (ok, report) =
             verify_output_package(Path::new("this-folder-should-not-exist-cyoa-fixture"));
         assert_eq!(ok, fixture["missing_folder"]["verify_ok"]);
         assert_eq!(
-            report.replace("this-folder-should-not-exist-cyoa-fixture", "FOLDER"),
+            fixture_version(&report).replace("this-folder-should-not-exist-cyoa-fixture", "FOLDER"),
             fixture["missing_folder"]["report"].as_str().unwrap()
         );
     }

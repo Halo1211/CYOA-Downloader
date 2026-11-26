@@ -156,11 +156,18 @@ impl PureRun<'_> {
             let (site_b, stem_b, out_b) =
                 (site.clone(), self.stem.clone(), self.output_dir.clone());
             let zip_b = self.zip;
-            tokio::task::spawn_blocking(move || {
-                output::finalize_site_folder(&site_b, &stem_b, zip_b, &out_b)
+            let cancel_b = self.cancel.clone();
+            let done = tokio::task::spawn_blocking(move || {
+                output::finalize_site_folder_cancellable(&site_b, &stem_b, zip_b, &out_b, &|| {
+                    cancel_b.is_cancelled()
+                })
             })
             .await
-            .map_err(|e| RunError::OutputStage(format!("archive worker failed: {e}")))??
+            .map_err(|e| RunError::OutputStage(format!("archive worker failed: {e}")))?;
+            if done.is_err() && self.cancel.is_cancelled() {
+                return Err(RunError::Cancelled);
+            }
+            done?
         };
         if self.custom_fallback {
             tracing::info!("Custom viewer archive fallback complete.");

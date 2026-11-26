@@ -105,6 +105,8 @@ fn decode(bytes: &[u8]) -> Option<String> {
 fn parse_txt(text: &str) -> Vec<BatchItem> {
     let mut items = Vec::new();
     // Python iterates file lines (universal newlines) and strips each.
+    // Universal newlines: `\r\n`, `\n` and a lone `\r` all end a line.
+    let text = text.replace("\r\n", "\n").replace('\r', "\n");
     for raw in text.split_inclusive('\n') {
         let line = raw.trim();
         if line.is_empty() || line.starts_with('#') {
@@ -511,6 +513,13 @@ pub async fn import_batch_source(
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn txt_accepts_cr_only_line_endings() {
+        let items = parse_txt("# comment\rhttps://example.org/a\r");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].url, "https://example.org/a");
+    }
 
     #[test]
     fn matches_python_importer_fixture() {

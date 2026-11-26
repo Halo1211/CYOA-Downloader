@@ -70,6 +70,35 @@ pub fn build_dns_query_wire(host: &str, qtype: u16, tx_id: u16) -> Result<Vec<u8
     Ok(out)
 }
 
+/// Decode a (possibly compressed) DNS name at `start`, lowercased, without
+/// the trailing dot. At most 16 pointer jumps, so it cannot loop.
+fn read_name(data: &[u8], start: usize) -> Option<String> {
+    let mut off = start;
+    let mut labels: Vec<String> = Vec::new();
+    let mut jumps = 0;
+    loop {
+        let len = *data.get(off)?;
+        if len == 0 {
+            return Some(labels.join("."));
+        }
+        if len & 0xc0 == 0xc0 {
+            jumps += 1;
+            if jumps > 16 {
+                return None;
+            }
+            let lo = *data.get(off + 1)?;
+            off = (usize::from(len & 0x3f) << 8) | usize::from(lo);
+            continue;
+        }
+        if len & 0xc0 != 0 {
+            return None;
+        }
+        let label = data.get(off + 1..off + 1 + usize::from(len))?;
+        labels.push(String::from_utf8_lossy(label).to_ascii_lowercase());
+        off += usize::from(len) + 1;
+    }
+}
+
 /// Python `_skip_name`: compression pointers are skipped, never followed,
 /// so the scan always advances and cannot loop.
 fn skip_name(data: &[u8], start: usize) -> usize {
@@ -105,39 +134,79 @@ pub fn parse_dns_address_response(data: &[u8], tx_id: Option<u16>, qtype: u16) -
     let qd = usize::from(word(4)?);
     let an = usize::from(word(6)?);
     let mut off = 12usize;
+    let qname = if qd > 0 { read_name(data, off) } else { None };
     for _ in 0..qd {
         off = skip_name(data, off) + 4;
     }
+    // Collect the answers first: resolvers may send `target A` before
+    // `alias CNAME target`, so the chain must not depend on record order.
+    // A malformed record ends the list (earlier records stay usable).
+    struct Rec {
+        owner: Option<String>,
+        typ: u16,
+        class: u16,
+        start: usize,
+        len: usize,
+    }
+    let mut recs = Vec::new();
     for _ in 0..an {
+        let owner = read_name(data, off);
         off = skip_name(data, off);
-        let end = off.checked_add(10)?;
-        if end > data.len() {
-            return None;
-        }
-        let typ = word(off)?;
-        let class = word(off + 2)?;
-        let rdlen = usize::from(word(off + 8)?);
-        let rstart = end;
-        let rend = rstart.checked_add(rdlen)?;
-        if rend > data.len() {
-            return None;
-        }
-        if typ == qtype && class == 1 {
-            if qtype == 1 && rdlen == 4 {
-                return Some(IpAddr::V4(Ipv4Addr::new(
-                    data[rstart],
-                    data[rstart + 1],
-                    data[rstart + 2],
-                    data[rstart + 3],
-                )));
-            }
-            if qtype == 28 && rdlen == 16 {
-                let mut octets = [0u8; 16];
-                octets.copy_from_slice(&data[rstart..rend]);
-                return Some(IpAddr::V6(Ipv6Addr::from(octets)));
-            }
-        }
+        let Some(end) = off.checked_add(10).filter(|e| *e <= data.len()) else {
+            break;
+        };
+        let (Some(typ), Some(class), Some(rdlen)) = (word(off), word(off + 2), word(off + 8))
+        else {
+            break;
+        };
+        let rdlen = usize::from(rdlen);
+        let Some(rend) = end.checked_add(rdlen).filter(|r| *r <= data.len()) else {
+            break;
+        };
+        recs.push(Rec {
+            owner,
+            typ,
+            class,
+            start: end,
+            len: rdlen,
+        });
         off = rend;
+    }
+    // Names that lead to the address: the question, then CNAME targets
+    // (followed until nothing new is added). Without a question section every
+    // owner is accepted, as before (also when the question name is unreadable).
+    let mut chain: Vec<String> = qname.into_iter().collect();
+    let accept_any = chain.is_empty();
+    loop {
+        let before = chain.len();
+        for r in recs.iter().filter(|r| r.typ == 5 && r.class == 1) {
+            if r.owner.as_ref().is_some_and(|o| chain.contains(o))
+                && let Some(target) = read_name(data, r.start)
+                && !chain.contains(&target)
+            {
+                chain.push(target);
+            }
+        }
+        if chain.len() == before {
+            break;
+        }
+    }
+    for r in &recs {
+        let owner_ok = accept_any || r.owner.as_ref().is_some_and(|o| chain.contains(o));
+        if !owner_ok || r.typ != qtype || r.class != 1 {
+            continue;
+        }
+        let rdata = &data[r.start..r.start + r.len];
+        if qtype == 1 && r.len == 4 {
+            return Some(IpAddr::V4(Ipv4Addr::new(
+                rdata[0], rdata[1], rdata[2], rdata[3],
+            )));
+        }
+        if qtype == 28 && r.len == 16 {
+            let mut octets = [0u8; 16];
+            octets.copy_from_slice(rdata);
+            return Some(IpAddr::V6(Ipv6Addr::from(octets)));
+        }
     }
     None
 }
@@ -238,6 +307,12 @@ pub fn validate_dns_configuration(server: &str, protocol: &str) -> Result<(), Dn
         }
         if port == Some(0) {
             return Err(DnsError::InvalidDohPort);
+        }
+        // The HTTP client must accept it too (e.g. `https://[resolver.test]/`
+        // passes the split above but is not a valid URL); otherwise lookups
+        // would silently fall back to system DNS.
+        if reqwest::Url::parse(endpoint).map_or(true, |u| u.host_str().is_none()) {
+            return Err(DnsError::InvalidDoh);
         }
         return Ok(());
     }
@@ -350,6 +425,55 @@ impl DnsConfig {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    #[test]
+    fn answers_for_other_names_are_ignored() {
+        fn hex(s: &str) -> Vec<u8> {
+            (0..s.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap_or(0))
+                .collect()
+        }
+        // Question one.test A; answers: two.test A 1.1.1.1, then one.test A 2.2.2.2.
+        let data = hex(concat!(
+            "000181800001000200000000",
+            "036f6e650474657374000001",
+            "0001",
+            "0374776f04746573740000010001",
+            "0000003c000401010101",
+            "c00c00010001",
+            "0000003c000402020202"
+        ));
+        assert_eq!(
+            parse_dns_address_response(&data, Some(1), 1),
+            Some(IpAddr::V4(Ipv4Addr::new(2, 2, 2, 2)))
+        );
+    }
+
+    #[test]
+    fn cname_chain_does_not_depend_on_answer_order() {
+        fn hex(s: &str) -> Vec<u8> {
+            (0..s.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap_or(0))
+                .collect()
+        }
+        // Question alias.test A; answers: target.test A 1.2.3.4, then
+        // alias.test CNAME target.test.
+        let data = hex(concat!(
+            "000181800001000200000000",
+            "05616c69617304746573740000010001",
+            "06746172676574047465737400",
+            "00010001",
+            "0000003c000401020304",
+            "c00c00050001",
+            "0000003c0002c01c"
+        ));
+        assert_eq!(
+            parse_dns_address_response(&data, Some(1), 1),
+            Some(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)))
+        );
+    }
+
     #[test]
     fn query_bytes() {
         assert_eq!(

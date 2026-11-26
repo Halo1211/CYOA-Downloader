@@ -108,8 +108,8 @@ struct Args {
     #[arg(long)]
     serve: bool,
     /// Local server port used with --serve. 0 means auto-pick a fresh port.
-    #[arg(long, default_value_t = 0)]
-    serve_port: u16,
+    #[arg(long)]
+    serve_port: Option<u16>,
     /// Cloudflare handling mode. Auto escalates only after a challenge is detected.
     #[arg(long, value_parser = ["off", "auto", "cloudscraper", "flaresolverr"])]
     cloudflare: Option<String>,
@@ -152,7 +152,7 @@ struct Args {
     /// itch-dl game download workers (default: 1, maximum: 16).
     #[arg(long, default_value_t = 1, value_name = "1-16", value_parser = clap::value_parser!(i32).range(1..=16))]
     itch_parallel: i32,
-    /// Print Serve-only userscript integration credit/source notes and exit.
+    /// Describe the Serve preview tools and exit.
     #[arg(long)]
     userscript_info: bool,
     /// CLI/UI language preference. Saved only when explicitly provided.
@@ -414,29 +414,21 @@ fn item_mode(args: &Args, mode: &str) -> Result<OutputMode, String> {
     )
 }
 
-/// Python `preview_assets.userscript_integration_report()`.
+/// `--userscript-info`: what the Serve preview injects (native tools only).
 fn userscript_integration_report() -> String {
     let v = cyoa_core::app_version();
     [
-        format!("CYOA Downloader v{v} userscript integration"),
+        format!("CYOA Downloader v{v} Serve Tools"),
         "=".repeat(58),
-        "Name       : IntCyoaEnhancer".into(),
-        "Author     : agreg".into(),
-        "Version    : 0.7".into(),
-        "License    : MIT".into(),
-        "Source     : https://greasyfork.org/en/scripts/438947-intcyoaenhancer".into(),
-        "Remote JS  : https://update.greasyfork.org/scripts/438947/IntCyoaEnhancer.user.js".into(),
-        "Credit     : IntCyoaEnhancer by agreg, MIT License, GreasyFork script 438947".into(),
+        "Serve preview injects native helpers into served HTML pages:".into(),
+        "- ⚡ Tools bar: Clear state, Reveal UI, Clean preview, help page.".into(),
+        "- ⚙ Cheat panel: edit points, select/deselect choices, unblock audio".into(),
+        "  (follows the cheat_enabled setting).".into(),
+        "- Console: window.$serveTools.clearState() / .revealUI().".into(),
         String::new(),
-        "Policy".into(),
-        "------".into(),
-        "- Downloaded CYOA output files are never modified by the userscript integration.".into(),
-        "- Serve preview exposes a bundled localhost helper at /__userscripts__/intcyoaenhancer.user.js.".into(),
-        "- The bundled helper includes a visible Native Cheat Panel; no Tampermonkey menu is required.".into(),
-        "- Local .user.js files can still override the bundled helper for advanced testing.".into(),
-        "- Local file lookup order: served CYOA folder, userscripts/, serve_userscripts/.".into(),
-        "- Native Serve Tools remain available as a fallback through window.$serveTools.".into(),
-        "- Use this for localhost/offline debugging, accessibility, and QoL testing only.".into(),
+        "Routes: /__serve_tools__ (help), /__serve_tools__/status.json, /__clear_cache__.".into(),
+        "Add ?no_tools=1 to any preview URL for a clean page.".into(),
+        "Downloaded CYOA files are never modified; no third-party script is loaded.".into(),
     ]
     .join("\n")
         + "\n"
@@ -455,7 +447,14 @@ fn parser_error(msg: &str) -> ExitCode {
 fn absolute(p: &std::path::Path) -> PathBuf {
     let p = std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf());
     std::fs::canonicalize(&p)
-        .map(|c| PathBuf::from(c.to_string_lossy().trim_start_matches(r"\\?\")))
+        .map(|c| {
+            let s = c.to_string_lossy();
+            // `\\?\UNC\nas\share` -> `\\nas\share` (stripping `\\?\` alone makes it relative).
+            match s.strip_prefix(r"\\?\UNC\") {
+                Some(unc) => PathBuf::from(format!(r"\\{unc}")),
+                None => PathBuf::from(s.trim_start_matches(r"\\?\")),
+            }
+        })
         .unwrap_or(p)
 }
 
@@ -609,6 +608,7 @@ fn serve_after_download(
     last_preview: Option<&std::path::Path>,
     output: &std::path::Path,
     port: u16,
+    cancel: &CancellationToken,
 ) {
     if !saved
         .get("serve_enabled")
@@ -626,7 +626,12 @@ fn serve_after_download(
         );
         return;
     }
-    let server = match cyoa_integrations::preview::PreviewServer::start_on(&dir, port) {
+    let serve_opts = cyoa_engine::serve_tools::ServeOptions::from_settings(saved);
+    let server = match cyoa_integrations::preview::PreviewServer::start_with_tools(
+        &dir,
+        port,
+        serve_opts.snippet(),
+    ) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("error: could not start the local server: {e}");
@@ -642,10 +647,14 @@ fn serve_after_download(
     let shown = dir.display().to_string();
     let shown = shown.strip_prefix(r"\\?\").unwrap_or(&shown);
     println!("Serving {shown} at {}", server.url());
-    open_browser(&clear_url);
-    // Python `serve_forever()`: run until Ctrl+C ends the process.
-    loop {
-        std::thread::park();
+    // `serve_open_browser`: the CLI always opens with cleared storage (Python).
+    if serve_opts.open_browser {
+        open_browser(&clear_url);
+    }
+    // Python `serve_forever()`: run until Ctrl+C. The Ctrl+C handler only
+    // cancels the token, so poll it instead of parking forever.
+    while !cancel.is_cancelled() {
+        std::thread::park_timeout(std::time::Duration::from_millis(200));
     }
 }
 
@@ -881,7 +890,8 @@ async fn main() -> ExitCode {
     if std::env::args_os().len() == 1 {
         use clap::CommandFactory;
         let _ = Args::command().print_help();
-        println!();
+        // `println!` panics on a closed pipe; ignore the write error instead.
+        let _ = std::io::Write::write_all(&mut std::io::stdout(), b"\n");
         return ExitCode::SUCCESS;
     }
     let mut args = Args::parse();
@@ -999,6 +1009,9 @@ async fn main() -> ExitCode {
         Ok(cfg) => cfg,
         Err(code) => return code,
     };
+    // `ai_cli_config` saves through its own store; refresh ours so the later
+    // Cloudflare/network saves don't write back the pre-AI snapshot.
+    let _ = store.load();
     let saved = cyoa_storage::settings::SettingsStore::new(cyoa_storage::settings::default_path())
         .load()
         .cloned()
@@ -1026,7 +1039,8 @@ async fn main() -> ExitCode {
         ytdlp: !args.no_ytdlp,
         ytdlp_cookies,
         discord_token: Some(args.discord_token.trim().to_owned()).filter(|t| !t.is_empty()),
-        discord_refresh: !args.no_discord_refresh,
+        // The flag disables it for this run; the GUI toggle persists it.
+        discord_refresh: !args.no_discord_refresh && saved_bool("discord_refresh_enabled", true),
         selenium: if args.no_selenium {
             false
         } else {
@@ -1556,7 +1570,15 @@ async fn main() -> ExitCode {
             &saved,
             last_preview.as_deref(),
             &args.output,
-            args.serve_port,
+            // An explicit flag (even 0) wins; otherwise the saved `serve_port`.
+            args.serve_port.unwrap_or_else(|| {
+                saved
+                    .get("serve_port")
+                    .and_then(serde_json::Value::as_u64)
+                    .and_then(|p| u16::try_from(p).ok())
+                    .unwrap_or(0)
+            }),
+            &cancel,
         );
     }
     if batch_mode {

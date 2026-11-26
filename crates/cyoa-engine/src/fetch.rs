@@ -533,7 +533,7 @@ pub async fn fetch_one(ctx: &FetchCtx, asset_path: &str) -> FetchOutcome {
         }
     }
     // DEFERRED(F-XXX): browser cookie session retry is not implemented; attempt 2 marks it tried.
-    // DEFERRED(F-XXX): Discord attachment URL refresh is not implemented.
+
     let attempts =
         crate::fetch_plan::direct_attempts(ctx.image_paths.contains(asset_path), &asset_url, false)
             as usize;
@@ -545,7 +545,13 @@ pub async fn fetch_one(ctx: &FetchCtx, asset_path: &str) -> FetchOutcome {
     let mut cookie_header: Option<String> = None;
     let mut transport_exhausted = false;
 
-    for attempt in 0..attempts {
+    // `while` so a refreshed Discord URL gets its own attempt even when the
+    // refresh happened on the last one (a `for` range would just end).
+    let mut attempt_limit = attempts;
+    let mut next_attempt = 0;
+    while next_attempt < attempt_limit {
+        let attempt = next_attempt;
+        next_attempt += 1;
         if ctx.cancel.is_cancelled() {
             return outcome(asset_path, None, "", &asset_url, "fetch cancelled");
         }
@@ -673,6 +679,7 @@ pub async fn fetch_one(ctx: &FetchCtx, asset_path: &str) -> FetchOutcome {
             if !refreshed.is_empty() && refreshed != asset_url {
                 tracing::info!("  [Discord] Refreshed expired attachment URL");
                 asset_url = refreshed;
+                attempt_limit += 1;
                 continue;
             }
             last_error = format!("HTTP {status}: asset not found");
@@ -704,7 +711,8 @@ pub async fn fetch_one(ctx: &FetchCtx, asset_path: &str) -> FetchOutcome {
             }
             continue;
         }
-        if !(200..300).contains(&status) {
+        // 206 to a plain GET is a fragment, not the asset: never save/cache it.
+        if !(200..300).contains(&status) || status == 206 {
             // requests `raise_for_status()` text (Python image_pipeline.py 793).
             let reason = response.status.canonical_reason().unwrap_or("");
             let side = if status < 500 { "Client" } else { "Server" };

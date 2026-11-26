@@ -305,7 +305,15 @@ fn retry_website_assets_with(
         return Err(format!("Output folder not found: {}", root.display()));
     }
     let base = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
-    let base = PathBuf::from(base.to_string_lossy().trim_start_matches(r"\\?\"));
+    let base = {
+        let s = base.to_string_lossy();
+        // `\\?\UNC\server\share` -> `\\server\share`; `\\?\C:\x` -> `C:\x`.
+        if let Some(unc) = s.strip_prefix(r"\\?\UNC\") {
+            PathBuf::from(format!(r"\\{unc}"))
+        } else {
+            PathBuf::from(s.trim_start_matches(r"\\?\"))
+        }
+    };
     let mut summary = WebsiteRecoverySummary::default();
     let mut groups: BTreeMap<PathBuf, Group> = BTreeMap::new();
     for report in reports(&base) {
@@ -639,6 +647,11 @@ pub fn resume_existing_archive(
         bases.insert(k.clone(), json!(v));
     }
     manifest.insert("route_link_bases".into(), Value::Object(bases));
+    // A cancelled crawl drops its queue: publishing this manifest would turn
+    // the unattempted routes into a "successful" resume.
+    if cancel.is_cancelled() {
+        return Err("Archive resume cancelled".into());
+    }
     manifest.insert("pending_routes".into(), json!(crawl.pending));
     manifest.insert("route_limit_reached".into(), json!(crawl.limit_reached));
     manifest.insert(

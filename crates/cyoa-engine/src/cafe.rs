@@ -233,7 +233,9 @@ pub fn fetch_cyoa_cafe_record(f: &mut dyn CafeFetch, url: &str, refresh: bool) -
             quote(&id)
         ));
     }
-    if !refresh {
+    // A slug id (`space-quest`) is only findable through the slug lookup, so a
+    // refresh must still query it or the stale cached viewer is kept.
+    if !refresh || id.contains(['-', '_']) {
         urls.push(slug_url(&id));
     }
     let mut data = None;
@@ -551,10 +553,13 @@ impl<'a> CafeResolver<'a> {
         {
             return true;
         }
-        let base = if u.ends_with('/') {
-            u.clone()
+        // Probe relative to the viewer's directory: drop `?query`/`#frag` before
+        // appending the slash (`/play?lang=en` -> `/play/`).
+        let stem = u.split(['?', '#']).next().unwrap_or(&u);
+        let base = if stem.ends_with('/') {
+            stem.to_owned()
         } else {
-            format!("{u}/")
+            format!("{stem}/")
         };
         let mut valid_platform = false;
         let mut valid_nodes = false;

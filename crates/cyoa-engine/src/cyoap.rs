@@ -302,12 +302,24 @@ async fn fetch_remote(
     ssrf_base: &str,
     cancel: &CancellationToken,
 ) -> Result<(Vec<u8>, String), String> {
+    fetch_remote_final(client, url, ssrf_base, cancel)
+        .await
+        .map(|(body, charset, _)| (body, charset))
+}
+
+/// `fetch_remote` that also returns the final URL after redirects.
+async fn fetch_remote_final(
+    client: &FetchClient,
+    url: &str,
+    ssrf_base: &str,
+    cancel: &CancellationToken,
+) -> Result<(Vec<u8>, String, String), String> {
     if cyoa_parse::discover::ssrf_block_cross_origin(url, ssrf_base, false) {
         tracing::warn!("[SSRF blocked] CYOAP Vue asset: {url}");
         return Err("blocked: cross-origin internal host".into());
     }
     // Python fetch_response returns None for HTTP errors -> "request failed".
-    let (status, ct, body, _) = get(client, url, cancel)
+    let (status, ct, body, final_url) = get(client, url, cancel)
         .await
         .map_err(|_| "request failed".to_owned())?;
     if status >= 400 {
@@ -328,7 +340,7 @@ async fn fetch_remote(
             )
         })
         .unwrap_or_default();
-    Ok((body, charset))
+    Ok((body, charset, final_url))
 }
 
 /// Error text used to carry cancellation out of `try_download_cyoap_vue_site`.
@@ -550,19 +562,34 @@ pub async fn try_download_cyoap_vue_site(
         }
     }
 
-    match fetch_remote(client, start_url, &base, cancel).await {
+    let mut entry_ok = false;
+    match fetch_remote_final(client, start_url, &base, cancel).await {
         Err(e) => res.failed(start_url, "html", &e),
-        Ok((body, cs)) => {
+        Ok((body, cs, final_url)) => {
+            entry_ok = true;
+            // Resolve the page's relative assets against where it actually
+            // lives after redirects (`/demo` -> `/demo/`), same origin only.
+            let page_base =
+                if !final_url.is_empty() && cyoa_core::url::same_origin(&final_url, &base) {
+                    final_url
+                } else {
+                    start_url.to_owned()
+                };
             let page_text = text_of(&body, &cs);
-            let page_local = local(
-                output_folder,
-                &format!("{}/", start_url.trim_end_matches('/')),
-            )?;
+            // An explicit `/demo/index.html` entry is saved as-is; only a
+            // directory URL gets `/` appended (else `index.html/index.html`).
+            let path_lower = crate::localize::py_urlparse(start_url).path.to_lowercase();
+            let entry_url = if path_lower.ends_with(".html") || path_lower.ends_with(".htm") {
+                start_url.to_owned()
+            } else {
+                format!("{}/", start_url.trim_end_matches('/'))
+            };
+            let page_local = local(output_folder, &entry_url)?;
             write_text_mode(&page_local, &page_text)?;
             res.success(output_folder, start_url, &page_local, "html");
             site_assets(
                 client,
-                start_url,
+                &page_base,
                 &base,
                 &page_text,
                 output_folder,
@@ -570,7 +597,7 @@ pub async fn try_download_cyoap_vue_site(
                 cancel,
             )
             .await?;
-            match localize_page(client, &page_local, start_url, cancel).await {
+            match localize_page(client, &page_local, &page_base, cancel).await {
                 Ok((styles, loaders)) => {
                     if styles > 0 {
                         tracing::info!("Localized {styles} external cyoap_vue style reference(s)");
@@ -625,6 +652,13 @@ pub async fn try_download_cyoap_vue_site(
             tracing::debug!("Broken asset report could not be written: {e}");
         }
     }
+    // Without its entry page the archive is not playable: report failure
+    // (reports above are kept for diagnosis) instead of publishing it.
+    if !entry_ok {
+        return Err(format!(
+            "cyoap_vue entry page could not be downloaded: {start_url}"
+        ));
+    }
     if zip_output {
         let name = output_folder
             .file_name()
@@ -633,9 +667,21 @@ pub async fn try_download_cyoap_vue_site(
         let parent = output_folder.parent().unwrap_or(Path::new("."));
         tracing::info!("Zipping → {name}.zip");
         let (folder, parent) = (output_folder.to_path_buf(), parent.to_path_buf());
+        let cancel_b = cancel.clone();
         tokio::task::spawn_blocking(move || {
-            crate::output::zip_package(&folder, &format!("{name}.zip"), &parent)
-                .map_err(|e| e.to_string())?;
+            crate::output::zip_package_cancellable(
+                &folder,
+                &format!("{name}.zip"),
+                &parent,
+                &|| cancel_b.is_cancelled(),
+            )
+            .map_err(|e| {
+                if cancel_b.is_cancelled() {
+                    CYOAP_CANCELLED.to_owned()
+                } else {
+                    e.to_string()
+                }
+            })?;
             let _ = fs::remove_dir_all(&folder);
             Ok::<(), String>(())
         })
@@ -715,7 +761,15 @@ async fn site_assets(
             }
         };
         let p = local(root, &remote)?;
-        if BINARY_SITE_EXT.contains(&ext.as_str()) {
+        // Extensionless/unknown URLs (`/sprite` serving PNG) must not be decoded
+        // as text: keep the bytes whenever they are not valid UTF-8.
+        let texty = matches!(
+            ext.as_str(),
+            ".css" | ".js" | ".mjs" | ".html" | ".htm" | ".json" | ".txt" | ".svg"
+        );
+        if BINARY_SITE_EXT.contains(&ext.as_str())
+            || (!texty && std::str::from_utf8(&body).is_err())
+        {
             write_raw(&p, &body)?;
             res.success(root, &remote, &p, "assets");
             continue;

@@ -7,8 +7,6 @@ use crate::i18n::tr;
 use crate::theme::{self, MODES, Palette, bold};
 use eframe::egui::{self, Color32, CornerRadius, Frame, Margin, RichText, Stroke, vec2};
 
-const NOT_PORTED: &str = "Not ported to the Rust version yet";
-
 /// Python `DNS_PRESETS` (runtime/state.py), in order.
 pub const DNS_PRESETS: &[(&str, &str)] = &[
     ("System (default)", ""),
@@ -210,49 +208,11 @@ impl DownloaderApp {
                         });
                     });
                 ui.add_space(8.0);
-                let mut changed = false;
-                Frame::new()
-                    .fill(p.surface)
-                    .corner_radius(CornerRadius::same(6))
-                    .inner_margin(Margin::same(2))
-                    .show(ui, |ui| {
-                        ui.spacing_mut().item_spacing.x = 2.0;
-                        ui.horizontal(|ui| {
-                            // right-to-left parent: iterate reversed so it reads Dark · Light · System.
-                            for mode in ["System", "Light", "Dark"] {
-                                let on = self.theme_mode == mode;
-                                let (fill, color) = if on {
-                                    (p.accent, Color32::WHITE)
-                                } else {
-                                    (Color32::TRANSPARENT, p.fg)
-                                };
-                                if theme::flat(
-                                    ui,
-                                    RichText::new(mode).size(10.0).color(color),
-                                    fill,
-                                    vec2(52.0, 26.0),
-                                    true,
-                                )
-                                .clicked()
-                                    && !on
-                                {
-                                    self.theme_mode = mode.to_owned();
-                                    changed = true;
-                                }
-                            }
-                        });
-                    });
-                ui.add_space(8.0);
                 ui.label(
                     RichText::new(format!("v{}", cyoa_core::app_version()))
                         .size(10.0)
                         .color(p.muted),
                 );
-                if changed {
-                    theme::apply_theme_mode(ui.ctx(), &self.theme_mode);
-                    let m = self.theme_mode.clone();
-                    self.save_shared_key("theme_mode", m.into());
-                }
             });
         });
     }
@@ -597,9 +557,32 @@ impl DownloaderApp {
                 true,
             );
             ui.add_space(40.0);
-            let mut off = false;
-            theme::checkbox(ui, &p, &mut off, tr("🤖 AI Assist"), p.accent, false)
-                .on_hover_text(NOT_PORTED);
+            // Bound to the session the download worker reads; persisted as
+            // `ai_enabled` like the AI panel's toggle.
+            let before = self.ai_session.enabled;
+            theme::checkbox(
+                ui,
+                &p,
+                &mut self.ai_session.enabled,
+                tr("🤖 AI Assist"),
+                p.accent,
+                true,
+            )
+            .on_hover_text(tr("Provider, mode and key: Settings → AI Assist"));
+            if self.ai_session.enabled != before
+                && let Some((path, _)) = &self.shared
+            {
+                let enabled = self.ai_session.enabled;
+                if let Some(panel) = &mut self.ai_panel {
+                    panel.set_enabled(enabled);
+                }
+                if let Err(e) = crate::net::update_shared(path, |map| {
+                    map.insert("ai_enabled".into(), enabled.into());
+                }) {
+                    self.log
+                        .push(format!("Could not save AI Assist toggle: {e}"));
+                }
+            }
         });
         // Row 3: list actions (right aligned).
         ui.horizontal(|ui| {
@@ -872,7 +855,20 @@ impl DownloaderApp {
                 tracing::info!("{line}");
                 self.log.push(line.to_owned());
             }
-            if self.preview.is_some() {
+            if let Some(url) = self.preview.as_ref().map(|s| s.url()) {
+                if theme::flat(
+                    ui,
+                    RichText::new(tr("⧉ Copy URL")).size(10.5).color(p.muted),
+                    p.surface2,
+                    vec2(96.0, h),
+                    true,
+                )
+                .on_hover_text(url.clone())
+                .clicked()
+                {
+                    ui.ctx().copy_text(url.clone());
+                    self.log.push(format!("[Server] Copied {url}"));
+                }
                 if theme::flat(
                     ui,
                     RichText::new(tr("■ Stop Serve")).size(10.5).color(p.srv_fg),
@@ -892,12 +888,26 @@ impl DownloaderApp {
                     .color(p.srv_fg),
                 p.surface2,
                 vec2(112.0, h),
-                self.last_preview.is_some(),
+                true,
             )
-            .on_hover_text("Serve the last website folder on 127.0.0.1 and open it")
+            .on_hover_text(if self.last_preview.is_some() {
+                "Serve the last website folder on 127.0.0.1 and open it"
+            } else {
+                "Choose a downloaded website folder to serve on 127.0.0.1"
+            })
             .clicked()
             {
-                self.start_preview();
+                // No website downloaded this session: let the user pick one.
+                if self.last_preview.is_none() {
+                    let start = std::path::PathBuf::from(&self.settings.output_dir);
+                    if let Some(dir) = rfd::FileDialog::new().set_directory(start).pick_folder() {
+                        self.last_preview =
+                            Some(cyoa_integrations::preview::select_archive_root(&dir));
+                    }
+                }
+                if self.last_preview.is_some() {
+                    self.start_preview();
+                }
             }
             if theme::flat(
                 ui,

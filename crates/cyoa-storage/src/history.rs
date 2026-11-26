@@ -64,6 +64,26 @@ pub fn record_history(
     metadata_id: &str,
 ) -> Result<(), HistoryError> {
     let path = path.as_ref();
+    // Serialize read-modify-write within the process: two workers recording
+    // different URLs must not both load the same snapshot and drop one entry.
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // Inter-process lock (CLI and GUI at once): an exclusive lock on a sibling
+    // `.lock` file, held until this update is saved. Best effort: if the lock
+    // file cannot be used, the in-process lock still applies.
+    let _file_lock = {
+        let mut lock_path = path.as_os_str().to_owned();
+        lock_path.push(".lock");
+        std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(std::path::PathBuf::from(lock_path))
+            .ok()
+            .filter(|f| f.lock().is_ok())
+    };
     let mut history = load_history(path);
     let mut entry = Map::new();
     entry.insert("last_downloaded".into(), Value::String(clock()));

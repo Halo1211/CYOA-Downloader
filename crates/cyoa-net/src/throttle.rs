@@ -74,7 +74,11 @@ impl BandwidthThrottle {
             return Ok(());
         }
         let limit_bps = limit * 1024.0;
-        let mut window = self.window.lock().await;
+        let mut window = tokio::select! {
+            biased;
+            () = cancel.cancelled() => return Err(ThrottleError::Cancelled),
+            window = self.window.lock() => window,
+        };
         let now = Instant::now();
         let last = *window.last.get_or_insert(now);
         let elapsed = now.duration_since(last).as_secs_f64();
@@ -231,6 +235,20 @@ mod tests {
         tokio::time::advance(Duration::from_millis(10)).await;
         cancel.cancel();
         assert_eq!(task.await.unwrap(), Err(ThrottleError::Cancelled));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn queued_bandwidth_throttling_is_cancellable() {
+        let throttle = BandwidthThrottle::new(1.0);
+        let cancel = CancellationToken::new();
+        let _held_by_other_transfer = throttle.window.lock().await;
+        let mut waiting = std::pin::pin!(throttle.consume(1024, &cancel));
+        assert!(futures_util::poll!(&mut waiting).is_pending());
+        cancel.cancel();
+        assert!(matches!(
+            tokio::time::timeout(Duration::from_millis(1), waiting).await,
+            Ok(Err(ThrottleError::Cancelled))
+        ));
     }
 
     #[tokio::test(start_paused = true)]

@@ -434,6 +434,10 @@ pub fn download_fonts_into_folder(
         tracing::error!("Font directory could not be created: {e}");
         return project.to_owned();
     }
+    if cyoa_core::paths::is_link_or_junction(&dir) {
+        tracing::error!("Refusing linked font directory: {}", dir.display());
+        return project.to_owned();
+    }
     let mut groups: Vec<(String, Vec<String>)> = Vec::new();
     for (u, _) in &fonts {
         let id = font_url_identity(u);
@@ -473,22 +477,40 @@ pub fn download_fonts_into_folder(
             crate::localize::clean_url_path_component(remote)
         };
         let (stem, ext) = splitext(&raw);
-        let mut name = raw.clone();
-        let target = dir.join(&name);
-        let mut same = false;
-        if let Ok(existing) = std::fs::read(&target) {
-            same = existing == response.body;
-        }
-        if !same && (target.exists() || used.contains(&name)) {
-            let mut n = 1;
-            loop {
-                name = crate::localize::clean_url_path_component(&format!("{stem}_{n}{ext}"));
-                if !dir.join(&name).exists() && !used.contains(&name) {
-                    break;
+        // Reserve the name atomically (`create_new`): a plain exists-then-write
+        // lets two concurrent jobs both pick `Regular.woff2` and overwrite each
+        // other. An existing file with identical bytes is reused.
+        let mut n = 0;
+        let reserved = loop {
+            let name = if n == 0 {
+                raw.clone()
+            } else {
+                crate::localize::clean_url_path_component(&format!("{stem}_{n}{ext}"))
+            };
+            n += 1;
+            let path = dir.join(&name);
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+            {
+                Ok(_) if !used.contains(&name) => break Ok((name, false)),
+                Ok(_) => continue,
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    if std::fs::read(&path).is_ok_and(|b| b == response.body) {
+                        break Ok((name, true));
+                    }
                 }
-                n += 1;
+                Err(e) => break Err(e),
             }
-        }
+        };
+        let (name, same) = match reserved {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::error!("Font could not be saved: {} — {}", url, e);
+                continue;
+            }
+        };
         if !same
             && let Err(e) =
                 cyoa_storage::atomic_io::atomic_write_bytes(dir.join(&name), &response.body)

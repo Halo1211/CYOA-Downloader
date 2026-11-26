@@ -35,6 +35,7 @@ pub mod preserved_index;
 pub mod pure;
 pub mod reports;
 pub mod run;
+pub mod serve_tools;
 pub mod updates;
 pub mod verify;
 pub mod viewer_registry;

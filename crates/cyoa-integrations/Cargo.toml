@@ -8,7 +8,7 @@ rust-version.workspace = true
 [dependencies]
 cyoa-core = { path = "../cyoa-core" }
 cyoa-net = { path = "../cyoa-net" }
-cyoa-parse = { version = "1.1.6", path = "../cyoa-parse" }
+cyoa-parse = { version = "1.1.7", path = "../cyoa-parse" }
 cyoa-storage = { path = "../cyoa-storage" }
 percent-encoding = "2.3.2"
 regex = "1.13.1"

@@ -173,6 +173,7 @@ fn apply_offline_viewer_matches_python_trees() {
             },
             fetcher: &fake,
             allow_internal: false,
+            cheat_panel: true,
         });
         let got_res = res.map(|p| {
             p.strip_prefix(&out)

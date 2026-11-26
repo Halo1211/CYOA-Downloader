@@ -135,6 +135,32 @@ fn probe(command: &[String]) -> bool {
         let Ok(mut child) = child.spawn() else {
             continue;
         };
+        // Drain the pipes on threads: a descendant that inherits stdout can keep
+        // it open after the launcher exits, and `wait_with_output` would then
+        // block past the 25 s deadline.
+        let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
+        for pipe in [
+            child
+                .stdout
+                .take()
+                .map(|p| Box::new(p) as Box<dyn std::io::Read + Send>),
+            child
+                .stderr
+                .take()
+                .map(|p| Box::new(p) as Box<dyn std::io::Read + Send>),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            let tx = tx.clone();
+            thread::spawn(move || {
+                let mut pipe = pipe;
+                let mut buf = Vec::new();
+                let _ = std::io::Read::read_to_end(&mut pipe, &mut buf);
+                let _ = tx.send(buf);
+            });
+        }
+        drop(tx);
         let start = Instant::now();
         let status = loop {
             match child.try_wait() {
@@ -149,11 +175,19 @@ fn probe(command: &[String]) -> bool {
                 }
             }
         };
-        let output = child.wait_with_output();
         let Some(status) = status else { continue };
-        let Ok(output) = output else { continue };
-        let text = String::from_utf8_lossy(&output.stdout).to_lowercase()
-            + &String::from_utf8_lossy(&output.stderr).to_lowercase();
+        let mut collected = Vec::new();
+        let deadline = start + Duration::from_secs(27);
+        while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+            match rx.recv_timeout(left) {
+                Ok(chunk) => {
+                    collected.extend_from_slice(&chunk);
+                    collected.push(b'\n');
+                }
+                Err(_) => break,
+            }
+        }
+        let text = String::from_utf8_lossy(&collected).to_lowercase();
         if matches!(status.code(), Some(0..=2))
             && text.contains("itch-dl")
             && (text.contains("--download-to") || text.contains("version"))
@@ -438,12 +472,26 @@ fn prepare_html5_archives(
     page_url: &str,
     fetcher: &dyn crate::offline_viewer::AssetFetcher,
     result: &mut ItchResult,
+    cancel: &CancellationToken,
 ) {
     use crate::itch_html5::{Html5Error, materialize_itch_html5_archive};
     let mut relatives: Vec<&String> = after.keys().collect();
     relatives.sort();
     for relative in relatives {
+        if cancel.is_cancelled() {
+            result.ok = false;
+            result.message = "itch.io: cancelled while preparing HTML5 archives.".into();
+            return;
+        }
         if !relative.to_lowercase().ends_with(".zip") {
+            continue;
+        }
+        // Snapshot keys rewrite `\` to `/`; on Unix a file literally named
+        // `..\..\x.zip` would become a traversal. Never leave `dest`.
+        if relative
+            .split('/')
+            .any(|part| part.is_empty() || part == "." || part == "..")
+        {
             continue;
         }
         let archive = dest.join(relative);
@@ -589,7 +637,14 @@ pub fn download_itch_assets_with(
                         result.saved, result.existing, resolved.source
                     );
                     if let Some(fetcher) = html5 {
-                        prepare_html5_archives(&dest, &after, page_url, fetcher, &mut result);
+                        prepare_html5_archives(
+                            &dest,
+                            &after,
+                            page_url,
+                            fetcher,
+                            &mut result,
+                            cancel,
+                        );
                     }
                 }
             } else {

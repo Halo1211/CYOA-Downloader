@@ -94,6 +94,9 @@ pub struct AiPanel {
     key: String,
     ollama_url: String,
     custom_base: String,
+    /// `ai_max_calls_per_download`, `ai_max_html_chars`, `ai_max_js_chars`,
+    /// `ai_temperature` as typed (validated on Save; blank temperature = default).
+    limits: [String; 4],
     status: String,
     /// The session state to hand back to the app after Save / Clear Key.
     pub updated: Option<AiSession>,
@@ -126,6 +129,17 @@ impl AiPanel {
                 v => v.to_owned(),
             },
             custom_base: text("ai_custom_base_url"),
+            limits: [
+                ("ai_max_calls_per_download", "3"),
+                ("ai_max_html_chars", "8000"),
+                ("ai_max_js_chars", "14000"),
+                ("ai_temperature", ""),
+            ]
+            .map(|(k, d)| match st.get(k) {
+                Some(Value::Number(n)) => n.to_string(),
+                Some(Value::String(v)) if !v.trim().is_empty() => v.trim().to_owned(),
+                _ => d.to_owned(),
+            }),
             status: String::new(),
             updated: None,
             test: None,
@@ -155,6 +169,12 @@ impl AiPanel {
         self.status = ai::key_status_text(&sources, self.storage, &self.key, self.provider);
     }
 
+    /// Keep the panel in step with the main-window AI Assist toggle, so a
+    /// later Save here does not write back a stale `enabled`.
+    pub fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
+    }
+
     /// Python `_save`.
     fn save(&mut self) -> Result<(), String> {
         let prov = self.provider;
@@ -174,6 +194,32 @@ impl AiPanel {
         };
         let plain_key =
             (storage == "plain" && !key.is_empty() && prov != "ollama").then(|| key.clone());
+        let int_field = |i: usize, name: &str, lo: i64, hi: i64| -> Result<i64, String> {
+            let v: i64 = self.limits[i]
+                .trim()
+                .parse()
+                .map_err(|_| format!("{name} must be a whole number."))?;
+            if (lo..=hi).contains(&v) {
+                Ok(v)
+            } else {
+                Err(format!("{name} must be between {lo} and {hi}."))
+            }
+        };
+        let max_calls = int_field(0, "Max AI calls per download", 0, 50)?;
+        let max_html = int_field(1, "Max HTML characters", 1000, 50_000)?;
+        let max_js = int_field(2, "Max JS characters", 1000, 50_000)?;
+        let temperature = match self.limits[3].trim() {
+            "" => Value::Null,
+            t => {
+                let v: f64 = t
+                    .parse()
+                    .map_err(|_| "Temperature must be a number (or blank).".to_owned())?;
+                if !(0.0..=2.0).contains(&v) {
+                    return Err("Temperature must be between 0 and 2.".into());
+                }
+                serde_json::Number::from_f64(v).map_or(Value::Null, Value::Number)
+            }
+        };
         crate::net::update_shared(&self.settings_path, |map| {
             map.insert("ai_enabled".into(), enabled.into());
             map.insert("ai_provider".into(), prov.into());
@@ -182,8 +228,16 @@ impl AiPanel {
             map.insert("ai_key_storage".into(), storage.into());
             map.insert("ollama_url".into(), ollama.into());
             map.insert("ai_custom_base_url".into(), custom.into());
-            ai::clear_plain_keys(map, None);
-            if let Some(k) = plain_key {
+            map.insert("ai_max_calls_per_download".into(), max_calls.into());
+            map.insert("ai_max_html_chars".into(), max_html.into());
+            map.insert("ai_max_js_chars".into(), max_js.into());
+            map.insert("ai_temperature".into(), temperature);
+            if storage != "plain" {
+                // Leaving plaintext storage: scrub every saved plaintext key.
+                ai::clear_plain_keys(map, None);
+            } else if let Some(k) = plain_key {
+                // Plain mode: only this provider's key changes; an empty field
+                // (e.g. saving an unrelated edit) keeps the stored keys.
                 map.insert(ai::plain_key_setting(prov), k.into());
             }
         })?;
@@ -208,17 +262,19 @@ impl AiPanel {
 
     /// Python `_clear_key` (`clear_all=False`).
     fn clear_key(&mut self) {
-        let (storage, prov) = (self.storage, self.provider);
-        let mut result = Ok(());
-        if storage == "plain" {
-            result = crate::net::update_shared(&self.settings_path, |map| {
-                ai::clear_plain_keys(map, Some(prov));
-            });
-        }
-        if storage == "keyring" && prov != "ollama" {
-            result = KeyringBackend::new()
-                .delete(&ai::keyring_username(prov))
-                .map_err(|e| e.to_string());
+        // Clear every stored copy for this provider (plaintext settings and
+        // the OS keyring), whichever storage is currently selected: a key left
+        // in the other store would otherwise keep being used.
+        let prov = self.provider;
+        let mut result = crate::net::update_shared(&self.settings_path, |map| {
+            ai::clear_plain_keys(map, Some(prov));
+        });
+        if prov != "ollama"
+            && let Err(e) = KeyringBackend::new().delete(&ai::keyring_username(prov))
+            && result.is_ok()
+        {
+            // A missing entry already maps to Ok in the backend.
+            result = Err(e.to_string());
         }
         self.key.clear();
         self.updated = Some(AiSession {
@@ -227,7 +283,7 @@ impl AiPanel {
         });
         self.refresh_status();
         self.status = match result {
-            Ok(()) => "Key cleared for the selected storage/provider.".into(),
+            Ok(()) => "Key cleared for this provider (settings and keyring).".into(),
             Err(e) => e,
         };
     }
@@ -423,6 +479,19 @@ impl AiPanel {
                         .hint_text("https://endpoint.example/v1")
                         .desired_width(w1),
                 );
+            });
+            ui.columns(4, |cols| {
+                let labels = [
+                    ("Max calls", "AI calls allowed per download (0–50)."),
+                    ("Max HTML chars", "HTML sent to the model (1000–50000)."),
+                    ("Max JS chars", "JavaScript sent to the model (1000–50000)."),
+                    ("Temperature", "0–2; blank uses the provider default."),
+                ];
+                for (i, (label, help)) in labels.into_iter().enumerate() {
+                    field_label(&mut cols[i], label, help);
+                    let w = cols[i].available_width();
+                    cols[i].add(egui::TextEdit::singleline(&mut self.limits[i]).desired_width(w));
+                }
             });
             ui.add_space(4.0);
             ui.horizontal(|ui| {

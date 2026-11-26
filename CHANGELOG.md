@@ -3,6 +3,43 @@
 User-facing changes are listed by release. Current setup and troubleshooting
 instructions are in [README.md](README.md) and the linked guides.
 
+## v1.1.7 — November 26, 2026
+
+### Fixes
+- Settings: a temporary read failure of `settings.json` is reported instead of silently falling back to defaults that a later save would write over your preferences. CLI network/Cloudflare saves no longer overwrite AI flags saved in the same run.
+- AI keys: clearing the OpenAI key no longer erases the Anthropic key; saving the AI panel no longer wipes other providers' plaintext keys; Clear Key removes the provider's key from both settings and the OS keyring.
+- Safety: writes no longer follow linked `audio`/`fonts` folders or a linked `failed_urls.txt` out of the output folder; crafted itch.io file names cannot escape `itch_assets`; the browser-profile cleanup only removes its own profiles; preview and checkpoints no longer hang on named pipes.
+- Cancellation: ZIP packaging, static CYOA.CAFE galleries, cyoap_vue sites, itch HTML5 preparation and archive route recovery stop on Cancel instead of publishing partial results as success; `--serve` stops on Ctrl+C.
+- Downloads: HTTP 304/206 responses and empty images are no longer saved as successful downloads; cyoap_vue fails when the entry page is missing and keeps extensionless images byte-exact; an explicit `…/index.html` entry is saved in place; a refreshed Discord attachment URL always gets its own attempt.
+- Parsing and scanning: a commented-out declaration no longer wins over the live project; `/*/` comments, cache-busted BGM tracks (`?v=2`) and CR-only batch TXT files are handled; deep scan no longer drops candidates beyond the per-round cap or rewrites hostnames during Vite retries; large bundles scan in linear time.
+- Robustness: concurrent audio conversions and font downloads cannot overwrite each other; history updates within one process are serialized; legacy checkpoint migration keeps records still in the SQLite WAL; very long URL paths produce a bounded folder name; ZIP64 is used for members of 4 GiB or more; `\\server\share` paths stay UNC paths; a `*` proxy bypass also covers IP literals.
+- Modernizer: failed sites count as failed (CLI exit code) and an output folder inside the library is no longer copied into itself.
+
+- More fixes: inline scripts that create elements are no longer dropped; JSON-escaped asset paths no longer add bogus failed assets; deep-scan Vite/CSS/route/AI retries respect the run budget; CYOA.CAFE slug refresh picks up a changed viewer; cyoap_vue follows entry redirects for relative assets; route resumes keep saved link bases; a cached failed fallback can still be repaired by browser capture; headless route fallbacks that redirect out of the story are rejected; download history is locked across processes; DNS answers for unrelated names are ignored (CNAME chains followed); malformed DoH endpoints are rejected; a scheme-less `HTTPS_PROXY` also routes the browser fallback.
+
+### Serve preview
+- Serve now injects native **Serve Tools** into served HTML pages: a ⚡ Tools bar (Clear state, Reveal UI, Clean preview, help) and the ⚙ cheat panel (points, select/deselect, audio unlock; follows the Cheat panel setting). `/__serve_tools__` explains them; `?no_tools=1` gives a clean page. Downloaded files are never modified and no third-party script is loaded.
+
+### Desktop GUI
+- **Serve preview** card: port, open browser on start, inject Serve Tools on/off, start with cleared storage, serve automatically after a website download (`serve_*`, also read by the CLI); **⧉ Copy URL** next to Stop Serve.
+- **Modernize CYOAs**: a whole library or one CYOA folder, viewers from the registered offline viewers or a collection folder, analyze-only report, optional internet fetch for missing viewer assets, live progress, Cancel and Open output.
+- **Appearance** (Settings → Download): theme mode, accent presets + custom color picker/hex, per-color overrides for dark and light palettes, UI scale 80–150 %, reset to defaults (moved out of the header; saved as `theme_mode`, `theme_accent_color`, `theme_custom`, `ui_scale`).
+- **JavaScript Archive presets** (Fast / Balanced / Complete offline) fill all archive limits in one click.
+- **Deep Scan limits**: rounds, candidates per round, max file size, max requests and total size (`deep_scan_*`, also used by the CLI) with presets; defaults unchanged.
+- **Serve preview port** setting (`serve_port`, 0 = random); the CLI uses it when `--serve-port` is not given.
+- Fixed a startup crash when a new Download feature switch had no badge color.
+- **Start Serve** is always clickable; without a website from this session it asks for a folder.
+- Maintenance: **Verify output** (verify / write manifest) and **Modernize library** cards.
+- Download settings: **CYOAP Vue first** switch; itch.io options (mirror web builds, itch.io only, parallel downloads). Analyse fonts without Fonts runs analysis only, like the CLI.
+- Network: session-only **Allow internal network hosts**. Integrations: gallery-dl mode / executable / config controls.
+- The main-window **AI Assist** checkbox now works (it was a placeholder) and is saved as `ai_enabled`.
+- AI panel: new fields for max AI calls, HTML/JS character budgets and temperature.
+- Header accent-color presets (`theme_accent_color`).
+- Discord card: toggle to turn attachment-URL refresh on or off (`discord_refresh_enabled`, also honoured by the CLI).
+- The itch.io downloader toggle now actually runs the itch-dl backend for itch.io URLs, as in the CLI.
+- **Cheat panel** toggle now controls the cheat overlay in generated offline viewers.
+- Shown values now match what runs: HTTP/2 is read from `settings.json`; JavaScript interaction **Off** really runs off; gallery-dl **force** mode is kept when toggled; manual **Serve** respects the Serve preview toggle.
+
 ## v1.1.6 — November 22, 2026
 
 ### Rust application (primary)

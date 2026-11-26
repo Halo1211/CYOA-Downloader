@@ -105,6 +105,39 @@ async fn transport_fetches_documents_and_rejects_errors() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn headless_fetch_does_not_start_browser_when_vpn_is_unavailable() {
+    if chromium_executable().is_none() {
+        eprintln!("skipped: no Chromium-based browser");
+        return;
+    }
+    let server = server().await;
+    let vpn = cyoa_net::vpn::VpnGuard::with_enumerator(
+        cyoa_net::vpn::VpnConfig::new("require", "missing test VPN").unwrap(),
+        Box::new(Vec::new),
+    );
+    let config = ClientConfig {
+        policy: cyoa_net::policy::DestinationPolicy {
+            origin: Some(server.uri().parse().unwrap()),
+            ..Default::default()
+        },
+        vpn: Some(Arc::new(vpn)),
+        ..ClientConfig::default()
+    };
+    let transport = BrowserTransport::new(FetchClient::new(config).unwrap());
+    let result = transport
+        .fetch_headless(
+            &format!("{}/img.png", server.uri()),
+            true,
+            &CancellationToken::new(),
+        )
+        .await;
+    transport.close().await;
+    assert_eq!(transport.stats().launches, 0);
+    assert!(server.received_requests().await.unwrap().is_empty());
+    assert!(result.is_none());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn runtime_capture_scrolls_clicks_safely_and_captures() {
     if chromium_executable().is_none() {
         eprintln!("skipped: no Chromium-based browser");

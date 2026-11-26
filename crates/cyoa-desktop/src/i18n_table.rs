@@ -3,6 +3,11 @@
 
 pub const EN_ID: &[(&str, &str)] = &[
     ("▶  Download All", "▶  Download Semua"),
+    ("⧉ Copy URL", "⧉ Salin URL"),
+    (
+        "Provider, mode and key: Settings → AI Assist",
+        "Provider, mode, dan key: Pengaturan → AI Assist",
+    ),
     ("Browse…", "Browse…"),
     ("Output folder:", "Folder output:"),
     ("YouTube cookies:", "Cookie YouTube:"),
