@@ -543,12 +543,15 @@ pub fn download_fonts_into_folder(
         }
         used.insert(name.clone());
         // The name is a path, not a URL: escape what a URL would read as
-        // query/fragment/escape (`Display#Bold.woff2`).
+        // query/fragment/escape (`Display#Bold.woff2`), and the quotes that would
+        // end a CSS or JSON string (`Display%27Bold.woff2` decodes to `'`).
         let local = format!(
             "fonts/{}",
             name.replace('%', "%25")
                 .replace('#', "%23")
                 .replace('?', "%3F")
+                .replace('\'', "%27")
+                .replace('"', "%22")
         );
         for alias in aliases {
             mapping.insert(alias, local.clone());

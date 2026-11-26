@@ -72,7 +72,7 @@ pub fn build_dns_query_wire(host: &str, qtype: u16, tx_id: u16) -> Result<Vec<u8
 
 /// Decode a (possibly compressed) DNS name at `start`, lowercased, without
 /// the trailing dot. At most 16 pointer jumps, so it cannot loop.
-fn read_name(data: &[u8], start: usize) -> Option<String> {
+fn read_name(data: &[u8], start: usize, backward_pointers_only: bool) -> Option<String> {
     let mut off = start;
     let mut labels: Vec<String> = Vec::new();
     let mut jumps = 0;
@@ -87,7 +87,11 @@ fn read_name(data: &[u8], start: usize) -> Option<String> {
                 return None;
             }
             let lo = *data.get(off + 1)?;
-            off = (usize::from(len & 0x3f) << 8) | usize::from(lo);
+            let target = (usize::from(len & 0x3f) << 8) | usize::from(lo);
+            if backward_pointers_only && target >= off {
+                return None;
+            }
+            off = target;
             continue;
         }
         if len & 0xc0 != 0 {
@@ -134,7 +138,11 @@ pub fn parse_dns_address_response(data: &[u8], tx_id: Option<u16>, qtype: u16) -
     let qd = usize::from(word(4)?);
     let an = usize::from(word(6)?);
     let mut off = 12usize;
-    let qname = if qd > 0 { read_name(data, off) } else { None };
+    let qname = if qd > 0 {
+        read_name(data, off, false)
+    } else {
+        None
+    };
     for _ in 0..qd {
         off = skip_name(data, off) + 4;
     }
@@ -150,7 +158,7 @@ pub fn parse_dns_address_response(data: &[u8], tx_id: Option<u16>, qtype: u16) -
     }
     let mut recs = Vec::new();
     for _ in 0..an {
-        let owner = read_name(data, off);
+        let owner = read_name(data, off, false);
         off = skip_name(data, off);
         let Some(end) = off.checked_add(10).filter(|e| *e <= data.len()) else {
             break;
@@ -175,8 +183,7 @@ pub fn parse_dns_address_response(data: &[u8], tx_id: Option<u16>, qtype: u16) -
     // Names that lead to the address: the question, then CNAME targets
     // (followed until nothing new is added). Without a question section every
     // owner is accepted, as before (also when the question name is unreadable).
-    // A CNAME target must lie inside its own RDATA (an empty or short RDATA
-    // must not borrow the next record's owner name).
+    // The CNAME encoding must occupy its entire RDATA, including any pointer.
     // Owner -> RDATA starts; targets are decoded only for names on the chain,
     // so unrelated CNAMEs cost no allocation.
     let mut targets: std::collections::HashMap<&str, Vec<usize>> = Default::default();
@@ -184,7 +191,7 @@ pub fn parse_dns_address_response(data: &[u8], tx_id: Option<u16>, qtype: u16) -
         .iter()
         .filter(|r| r.typ == 5 && r.class == 1 && r.len > 0)
     {
-        if skip_name(data, r.start) > r.start + r.len {
+        if skip_name(data, r.start) != r.start + r.len {
             continue;
         }
         if let Some(owner) = r.owner.as_deref() {
@@ -196,7 +203,7 @@ pub fn parse_dns_address_response(data: &[u8], tx_id: Option<u16>, qtype: u16) -
     let mut queue: Vec<String> = qname.into_iter().collect();
     while let Some(name) = queue.pop() {
         for &start in targets.get(name.as_str()).into_iter().flatten() {
-            if let Some(t) = read_name(data, start)
+            if let Some(t) = read_name(data, start, true)
                 && chain.insert(t.clone())
             {
                 queue.push(t);
@@ -519,6 +526,23 @@ mod tests {
             "06746172676574047465737400",
             "000100010000003c000401020304"
         ));
+        assert_eq!(parse_dns_address_response(&data, Some(1), 1), None);
+    }
+
+    #[test]
+    fn cname_name_decoder_rejects_forward_pointer() {
+        assert_eq!(read_name(b"\xc0\x02\x01a\0", 0, true), None);
+    }
+
+    #[test]
+    fn cname_rdata_rejects_trailing_bytes() {
+        let mut data = build_dns_query_wire("alias.test", 1, 1).unwrap();
+        data[2] = 0x81;
+        data[7] = 2;
+        let target = u8::try_from(data.len()).unwrap();
+        data.extend_from_slice(b"\x06target\x04test\0");
+        data.extend_from_slice(&[0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 1, 2, 3, 4]);
+        data.extend_from_slice(&[0xc0, 12, 0, 5, 0, 1, 0, 0, 0, 60, 0, 3, 0xc0, target, 0]);
         assert_eq!(parse_dns_address_response(&data, Some(1), 1), None);
     }
 

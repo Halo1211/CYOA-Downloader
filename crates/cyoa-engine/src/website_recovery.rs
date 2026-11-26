@@ -587,10 +587,10 @@ fn resume_existing_archive_with_max_pages(
 
     let mut existing: Vec<(String, String)> = Vec::new();
     let mut pending: Vec<String> = Vec::new();
-    for item in old
-        .get("pages")
-        .and_then(Value::as_array)
+    let mut repairs = BTreeMap::new();
+    for item in ["pages", "route_repairs"]
         .into_iter()
+        .filter_map(|key| old.get(key).and_then(Value::as_array))
         .flatten()
     {
         let (Some(url), Some(local)) = (
@@ -599,12 +599,15 @@ fn resume_existing_archive_with_max_pages(
         ) else {
             continue;
         };
-        match crate::website::mirror::contained_path(folder, local) {
-            Some(p) if p.is_file() => {
-                existing.push((RouteCrawler::canonicalize(url), local.to_owned()))
-            }
-            Some(_) => pending.push(url.to_owned()),
-            None => {}
+        let Some(path) = crate::website::mirror::contained_path(folder, local) else {
+            continue;
+        };
+        let url = RouteCrawler::canonicalize(url);
+        if path.is_file() {
+            existing.push((url, local.to_owned()));
+        } else {
+            pending.push(url.clone());
+            repairs.insert(url, local.to_owned());
         }
     }
     if old.is_empty() {
@@ -696,6 +699,11 @@ fn resume_existing_archive_with_max_pages(
     );
     sink.no_overwrite = true;
     let seed_count = seeds.len();
+    existing.extend(
+        repairs
+            .iter()
+            .map(|(url, local)| (url.clone(), local.clone())),
+    );
     let crawl = sink.crawl_routes_from(
         Some(seeds.into_iter().collect()),
         existing,
@@ -703,6 +711,28 @@ fn resume_existing_archive_with_max_pages(
         max_pages,
         max_depth,
     );
+    // Assets that failed while crawling the recovered routes must reach
+    // failed_assets.txt, or a later Retry Assets never sees them.
+    if !sink.failed.is_empty() {
+        let items: Vec<crate::reports::FailedItem<'_>> = sink
+            .failed
+            .iter()
+            .map(|(u, e)| crate::reports::FailedItem {
+                url: u,
+                path: "",
+                error: e,
+                kind: "",
+            })
+            .collect();
+        if let Err(e) = crate::reports::write_asset_failure_summary(
+            &items,
+            folder,
+            start_url,
+            "Asset Download Failures",
+        ) {
+            tracing::warn!("Archive resume could not record asset failures: {e}");
+        }
+    }
     let mut manifest = old.clone();
     manifest.insert("format".into(), json!(1));
     manifest.insert("start_url".into(), json!(start_url));
@@ -731,6 +761,23 @@ fn resume_existing_archive_with_max_pages(
         bases.insert(k.clone(), json!(v));
     }
     manifest.insert("route_link_bases".into(), Value::Object(bases));
+    // Keep reservations for missing pages that failed again or reached the page cap.
+    for (url, _) in &crawl.pages {
+        repairs.remove(url);
+    }
+    if repairs.is_empty() {
+        manifest.remove("route_repairs");
+    } else {
+        manifest.insert(
+            "route_repairs".into(),
+            Value::Array(
+                repairs
+                    .into_iter()
+                    .map(|(url, local)| json!({"url": url, "local": local}))
+                    .collect(),
+            ),
+        );
+    }
     // A cancelled crawl drops its queue: publishing this manifest would turn
     // the unattempted routes into a "successful" resume.
     if cancel.is_cancelled() {
@@ -871,6 +918,61 @@ mod tests {
         .unwrap();
 
         assert_eq!(counts, (1, 2));
+    }
+
+    #[test]
+    fn resume_restores_colliding_missing_routes_to_recorded_paths() {
+        let (rt, server, client) = resume_fixture();
+        for (url, body) in [("/story/a_b/", "single"), ("/story/a__b/", "double")] {
+            rt.block_on(
+                Mock::given(method("GET"))
+                    .and(path(url))
+                    .respond_with(ResponseTemplate::new(200).set_body_raw(body, "text/html"))
+                    .mount(&server),
+            );
+        }
+        let start = format!("{}/story/", server.uri());
+        let folder = tempfile::tempdir().unwrap();
+        let single_url = format!("{start}a_b/");
+        let double_url = format!("{start}a__b/");
+        let mut crawler = crate::website::routes::RouteCrawler::new(&start);
+        let single = crawler.route_local_path(&single_url);
+        let double = crawler.route_local_path(&double_url);
+        fs::write(
+            folder.path().join("archive_manifest.json"),
+            json!({"pages": [
+                {"url": single_url, "local": single},
+                {"url": double_url, "local": double},
+            ]})
+            .to_string(),
+        )
+        .unwrap();
+
+        for (cap, counts) in [(1, (0, 1)), (2, (1, 2))] {
+            assert_eq!(
+                resume_existing_archive_with_max_pages(
+                    folder.path(),
+                    &start,
+                    &client,
+                    rt.handle(),
+                    &CancellationToken::new(),
+                    Some(cap),
+                )
+                .unwrap(),
+                counts
+            );
+        }
+
+        assert!(
+            fs::read_to_string(folder.path().join(single))
+                .unwrap()
+                .contains("single")
+        );
+        assert!(
+            fs::read_to_string(folder.path().join(double))
+                .unwrap()
+                .contains("double")
+        );
     }
 
     #[test]

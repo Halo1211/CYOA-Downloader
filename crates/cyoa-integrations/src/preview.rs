@@ -7,7 +7,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const CACHE: &str = "no-store, no-cache, must-revalidate, max-age=0";
 const INSTANCE_HEADER: &str = "X-CYOA-Preview-Instance";
@@ -121,37 +121,50 @@ fn accept_loop(
     port: u16,
     tools: Option<Arc<str>>,
 ) {
-    let slots = Arc::new(std::sync::Mutex::new(0usize));
+    let mut clients: Vec<(Arc<TcpStream>, JoinHandle<()>)> = Vec::new();
     let instance: Arc<str> = uuid::Uuid::new_v4().to_string().into();
     while !stop.load(Ordering::Acquire) {
+        for (_, worker) in clients.extract_if(.., |(_, worker)| worker.is_finished()) {
+            let _ = worker.join();
+        }
         match listener.accept() {
-            Ok((stream, _)) => {
-                let mut count = slots.lock().unwrap_or_else(|e| e.into_inner());
-                if *count >= 32 {
-                    drop(count);
-                    let _ = respond(
-                        stream,
+            Ok((mut stream, _)) => {
+                if let Err(e) = stream.set_nonblocking(true) {
+                    tracing::debug!("preview socket setup failed: {e}");
+                    continue;
+                }
+                if clients.len() >= 32 {
+                    let _ = write_headers(
+                        &mut stream,
                         503,
                         "Service Unavailable",
                         "text/plain",
-                        b"",
-                        false,
+                        0,
                         &[],
                     );
+                    let _ = stream.shutdown(Shutdown::Both);
                     continue;
                 }
-                *count += 1;
-                drop(count);
+                let stream = Arc::new(stream);
+                let socket = Arc::clone(&stream);
+                let stop = Arc::clone(&stop);
                 let root = root.clone();
                 let tools = tools.clone();
                 let instance = Arc::clone(&instance);
-                let _ = thread::Builder::new()
+                match thread::Builder::new()
                     .name("cyoa-preview-client".into())
-                    .spawn(connection_task(Arc::clone(&slots), move || {
+                    .spawn(move || {
+                        let stream = ClientStream {
+                            socket: &socket,
+                            stop: &stop,
+                        };
                         if let Err(e) = handle(stream, &root, port, tools.as_deref(), &instance) {
                             tracing::debug!("preview request failed: {e}");
                         }
-                    }));
+                    }) {
+                    Ok(worker) => clients.push((stream, worker)),
+                    Err(e) => tracing::debug!("preview worker spawn failed: {e}"),
+                }
             }
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
                 thread::sleep(Duration::from_millis(10))
@@ -162,21 +175,13 @@ fn accept_loop(
             }
         }
     }
-}
-struct SlotGuard(Arc<std::sync::Mutex<usize>>);
-fn connection_task(slots: Arc<std::sync::Mutex<usize>>, task: impl FnOnce()) -> impl FnOnce() {
-    // The spawn attempt drops the closure if no thread can start.
-    let slot = SlotGuard(slots);
-    move || {
-        let _slot = slot;
-        task();
+    drop(listener);
+    // Shut down every client socket before waiting for any worker to exit.
+    for (socket, _) in &clients {
+        let _ = socket.shutdown(Shutdown::Both);
     }
-}
-
-impl Drop for SlotGuard {
-    fn drop(&mut self) {
-        let mut n = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        *n = n.saturating_sub(1);
+    for (_, worker) in clients {
+        let _ = worker.join();
     }
 }
 
@@ -185,34 +190,66 @@ const HEADER_DEADLINE: Duration = Duration::from_secs(10);
 /// Per-write timeout for response bodies (stalled readers free their slot).
 const WRITE_TIMEOUT: Duration = Duration::from_secs(30);
 
+struct ClientStream<'a> {
+    socket: &'a TcpStream,
+    stop: &'a AtomicBool,
+}
+
+impl ClientStream<'_> {
+    // Winsock can leave a blocking read pending after socket shutdown.
+    fn retry<T>(
+        &self,
+        deadline: Instant,
+        mut operation: impl FnMut(&TcpStream) -> io::Result<T>,
+    ) -> io::Result<T> {
+        loop {
+            if self.stop.load(Ordering::Acquire) {
+                return Err(io::ErrorKind::ConnectionAborted.into());
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(io::ErrorKind::TimedOut.into());
+            }
+            match operation(self.socket) {
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    thread::sleep(remaining.min(Duration::from_millis(10)));
+                }
+                result => return result,
+            }
+        }
+    }
+}
+
+impl Write for ClientStream<'_> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.retry(Instant::now() + WRITE_TIMEOUT, |mut socket| {
+            socket.write(buf)
+        })
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.socket.flush()
+    }
+}
+
 fn handle(
-    mut stream: TcpStream,
+    mut stream: ClientStream<'_>,
     root: &Path,
     port: u16,
     tools: Option<&str>,
     instance: &str,
 ) -> io::Result<()> {
-    // Accepted sockets inherit the listener's non-blocking mode on Windows.
-    stream.set_nonblocking(false)?;
-    stream.set_write_timeout(Some(WRITE_TIMEOUT))?;
-    let deadline = std::time::Instant::now() + HEADER_DEADLINE;
+    let deadline = Instant::now() + HEADER_DEADLINE;
     let mut request = Vec::new();
     let mut buf = [0u8; 1024];
     loop {
         if request.len() >= 16 * 1024 {
             return respond(stream, 400, "Bad Request", "text/plain", b"", false, &[]);
         }
-        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-        if remaining.is_zero() {
-            return respond(stream, 400, "Bad Request", "text/plain", b"", false, &[]);
-        }
-        stream.set_read_timeout(Some(remaining))?;
         let cap = (16 * 1024 - request.len()).min(buf.len());
-        let n = match stream.read(&mut buf[..cap]) {
+        let n = match stream.retry(deadline, |mut socket| socket.read(&mut buf[..cap])) {
             Ok(n) => n,
-            Err(e)
-                if e.kind() == io::ErrorKind::WouldBlock || e.kind() == io::ErrorKind::TimedOut =>
-            {
+            Err(e) if e.kind() == io::ErrorKind::TimedOut => {
                 return respond(stream, 400, "Bad Request", "text/plain", b"", false, &[]);
             }
             Err(e) => return Err(e),
@@ -447,7 +484,7 @@ fn handle(
             }
         }
     }
-    let _ = stream.shutdown(Shutdown::Both);
+    let _ = stream.socket.shutdown(Shutdown::Both);
     Ok(())
 }
 
@@ -778,11 +815,11 @@ const SERVE_TOOLS_PAGE: &str = r#"<!doctype html><meta charset="utf-8"><title>CY
 <div class="card"><h2>Disable</h2><p>Add <code>?no_tools=1</code> to any preview URL, or turn off <i>Cheat panel</i> in Settings to drop the ⚙ panel.</p></div>
 </main>"#;
 
-fn not_found(stream: TcpStream, head: bool) -> io::Result<()> {
+fn not_found(stream: ClientStream<'_>, head: bool) -> io::Result<()> {
     respond(stream, 404, "Not Found", "text/plain", b"", head, &[])
 }
 fn respond(
-    mut stream: TcpStream,
+    mut stream: ClientStream<'_>,
     status: u16,
     reason: &str,
     mime: &str,
@@ -794,11 +831,11 @@ fn respond(
     if !head && !body.is_empty() {
         let _ = stream.write_all(body);
     }
-    let _ = stream.shutdown(Shutdown::Both);
+    let _ = stream.socket.shutdown(Shutdown::Both);
     Ok(())
 }
 fn write_headers(
-    stream: &mut TcpStream,
+    stream: &mut impl Write,
     status: u16,
     reason: &str,
     mime: &str,
@@ -938,14 +975,6 @@ mod tests {
         std::fs::rename(&parent, root.join("old-pages")).expect("rename pages");
         std::os::unix::fs::symlink(&outside, &parent).expect("replace pages with symlink");
         assert!(open_linux_file(&path, &root, &missing_fds).is_err());
-    }
-
-    #[test]
-    fn dropping_unstarted_connection_releases_slot() {
-        let slots = Arc::new(std::sync::Mutex::new(1));
-        let task = connection_task(Arc::clone(&slots), || panic!("task never started"));
-        drop(task);
-        assert_eq!(*slots.lock().expect("slots"), 0);
     }
 
     #[test]
@@ -1157,7 +1186,7 @@ mod tests {
 
     #[test]
     fn slow_client_is_served() {
-        // The request arrives after accept(): the socket must be blocking.
+        // The request arrives after accept(): the worker must wait for it.
         let (d, s) = server();
         std::fs::write(d.path().join("index.html"), "<p>hi</p>").expect("write");
         let mut c = TcpStream::connect(("127.0.0.1", s.port())).expect("connect");
@@ -1202,6 +1231,31 @@ mod tests {
         let (h, _) = get(&s, "GET /escape.txt HTTP/1.1\r\n\r\n");
         assert!(h.contains("404 Not Found"));
     }
+    #[test]
+    fn stop_closes_accepted_connection_with_incomplete_request() {
+        let (_d, s) = server();
+        let mut client = TcpStream::connect(("127.0.0.1", s.port())).expect("connect");
+        client
+            .write_all(format!("GET / HTTP/1.1\r\nHost: 127.0.0.1:{}\r\n", s.port()).as_bytes())
+            .expect("partial request");
+        // A later request passing through the same listener confirms accept() advanced.
+        let (headers, _) = get(&s, "OPTIONS / HTTP/1.1\r\n\r\n");
+        assert!(headers.contains("204 No Content"));
+
+        let start = std::time::Instant::now();
+        s.stop();
+        assert!(start.elapsed() < Duration::from_secs(2));
+
+        client
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .expect("read timeout");
+        match client.read(&mut [0]) {
+            Ok(0) => {}
+            Err(e) if e.kind() == io::ErrorKind::ConnectionReset => {}
+            result => panic!("expected the accepted connection to close: {result:?}"),
+        }
+    }
+
     #[test]
     fn stop_returns_promptly() {
         let (_d, s) = server();

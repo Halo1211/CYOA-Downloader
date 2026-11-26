@@ -1062,10 +1062,9 @@ impl MirrorSink {
         self.crawl_routes_from(None, Vec::new(), Vec::new(), max_pages, max_depth)
     }
 
-    /// Python `RouteCrawler.crawl(seed_urls, existing_pages)`: `existing`
-    /// pages are kept (not refetched) and count toward `max_pages`; `seeds`
-    /// (default: the start URL) are crawled from depth 0. `link_bases` restores
-    /// saved per-page link bases and redirect destinations (`route_link_bases`).
+    /// Crawl from `seeds` (default: the start URL) at depth 0. Keep recorded
+    /// pages that still exist and repair missing pages at their recorded paths.
+    /// `link_bases` restores saved per-page link bases and redirect destinations.
     pub fn crawl_routes_from(
         &mut self,
         seeds: Option<Vec<String>>,
@@ -1093,15 +1092,25 @@ impl MirrorSink {
             restored_order.push(page.clone());
             crawler.page_link_bases.insert(page, base);
         }
-        for (u, l) in &existing {
-            crawler.reserve_existing(u, l);
+        let (existing, repairs): (Vec<_>, Vec<_>) = existing
+            .into_iter()
+            .partition(|(_, local)| self.is_file(local));
+        for (url, local) in existing.iter().chain(&repairs) {
+            crawler.reserve_existing(url, local);
         }
-        let mut queued: std::collections::HashSet<String> =
-            crawler.output_paths.keys().cloned().collect();
+        let mut queued: HashSet<_> = existing
+            .iter()
+            .map(|(url, _)| RouteCrawler::canonicalize(url))
+            .collect();
+        let repair_urls: Vec<_> = repairs
+            .iter()
+            .map(|(url, _)| RouteCrawler::canonicalize(url))
+            .collect();
         let seeds: Vec<_> = seeds
             .unwrap_or_else(|| vec![start.clone()])
             .into_iter()
             .map(|seed| RouteCrawler::canonicalize(&seed))
+            .chain(repair_urls.iter().cloned())
             .collect();
         if redirects.is_empty() {
             // An HTML base can be shared by unrelated pages. For legacy
@@ -1145,7 +1154,13 @@ impl MirrorSink {
                     crawler.response_urls.insert(requested.clone(), requested);
                 }
             }
-            queued.extend(targets.into_iter().cloned());
+            let repair_urls: HashSet<_> = repair_urls.iter().map(String::as_str).collect();
+            queued.extend(
+                targets
+                    .into_iter()
+                    .filter(|target| !repair_urls.contains(target.as_str()))
+                    .cloned(),
+            );
         }
         out.pages = existing;
         let mut queue: std::collections::VecDeque<(String, usize)> =
@@ -2323,6 +2338,46 @@ mod tests {
             assert_eq!(resumed.pages[1].0, next);
             let html = std::fs::read_to_string(tmp.path().join(&resumed.pages[1].1)).unwrap();
             assert!(html.contains("href=\"../old/index.html\""), "{html}");
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn resumed_crawl_repairs_missing_page_despite_redirect_alias() {
+        let server = MockServer::start().await;
+        serve(&server, "/story/chapter/", "text/html", "<p>Repaired</p>").await;
+        let start = format!("{}/story/", server.uri());
+        tokio::task::spawn_blocking(move || {
+            use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
+
+            let tmp = tempfile::tempdir().unwrap();
+            let mut sink = test_sink(tmp.path(), &start);
+            let old = format!("{start}old/");
+            let chapter = format!("{start}chapter/");
+            let chapter_path = "routes/chapter/index.html";
+            sink.write("routes/old/index.html", b"<p>Redirected copy</p>")
+                .unwrap();
+            let redirect = format!(
+                "{ROUTE_REDIRECT_PREFIX}{}",
+                utf8_percent_encode(&old, NON_ALPHANUMERIC)
+            );
+
+            let resumed = sink.crawl_routes_from(
+                Some(vec![chapter.clone()]),
+                vec![
+                    (old, "routes/old/index.html".into()),
+                    (chapter.clone(), chapter_path.into()),
+                ],
+                vec![(redirect, chapter.clone())],
+                2,
+                1,
+            );
+
+            assert!(resumed.failed.is_empty(), "{resumed:?}");
+            assert_eq!(resumed.pages[1], (chapter, chapter_path.into()));
+            let html = std::fs::read_to_string(tmp.path().join(chapter_path)).unwrap();
+            assert!(html.contains("<p>Repaired</p>"), "{html}");
         })
         .await
         .unwrap();

@@ -9,9 +9,10 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::HashSet,
     fs,
-    io::Read,
+    io::{self, Read},
     path::{Path, PathBuf},
 };
+use tokio_util::sync::CancellationToken;
 
 /// `(name, is_dir, encrypted, unix_mode)` of one ZIP member.
 type Member = (String, bool, bool, Option<u32>);
@@ -37,11 +38,21 @@ fn other(e: impl std::fmt::Display) -> Html5Error {
     Html5Error::Other(e.to_string())
 }
 
-fn fingerprint(archive: &Path) -> Result<String, Html5Error> {
+fn check_cancelled(cancel: &CancellationToken) -> Result<(), Html5Error> {
+    if cancel.is_cancelled() {
+        return Err(
+            io::Error::new(io::ErrorKind::Interrupted, "HTML5 preparation cancelled").into(),
+        );
+    }
+    Ok(())
+}
+
+fn fingerprint(archive: &Path, cancel: &CancellationToken) -> Result<String, Html5Error> {
     let mut f = fs::File::open(archive)?;
     let mut h = Sha256::new();
     let mut buf = vec![0_u8; 1024 * 1024];
     loop {
+        check_cancelled(cancel)?;
         let n = f.read(&mut buf)?;
         if n == 0 {
             break;
@@ -94,7 +105,12 @@ fn html_entry(list: &[Member]) -> Result<Option<String>, Html5Error> {
 }
 
 /// `_extract_validated`: returns the entry, or `None` for a non-HTML5 ZIP.
-fn extract_validated(archive: &Path, destination: &Path) -> Result<Option<String>, Html5Error> {
+fn extract_validated(
+    archive: &Path,
+    destination: &Path,
+    cancel: &CancellationToken,
+) -> Result<Option<String>, Html5Error> {
+    check_cancelled(cancel)?;
     let mut z = cyoa_storage::archive::open_validated_zip(fs::File::open(archive)?, limits())
         .map_err(other)?;
     let list = members(&mut z)?;
@@ -108,6 +124,7 @@ fn extract_validated(archive: &Path, destination: &Path) -> Result<Option<String
     let mut seen = HashSet::new();
     let mut total = 0_u64;
     for (i, (name, is_dir, _, mode)) in list.iter().enumerate() {
+        check_cancelled(cancel)?;
         let raw = if *is_dir {
             name.trim_end_matches(['/', '\\'])
         } else {
@@ -132,7 +149,11 @@ fn extract_validated(archive: &Path, destination: &Path) -> Result<Option<String
         // validator only sees declared sizes).
         let reader = z.by_index(i).map_err(other)?;
         let mut writer = fs::File::create(&target)?;
-        let written = std::io::copy(&mut reader.take(MEMBER_MAX + 1), &mut writer)?;
+        let written = crate::output::copy_cancellable(
+            &mut reader.take(MEMBER_MAX + 1),
+            &mut writer,
+            &|| cancel.is_cancelled(),
+        )?;
         if written > MEMBER_MAX {
             return Err(other("HTML5 archive member exceeds 1 GiB"));
         }
@@ -201,6 +222,21 @@ pub fn materialize_itch_html5_archive(
     source_url: &str,
     fetcher: &dyn AssetFetcher,
 ) -> Result<(Option<PathBuf>, bool, bool), Html5Error> {
+    materialize_itch_html5_archive_cancellable(
+        archive_path,
+        source_url,
+        fetcher,
+        &CancellationToken::new(),
+    )
+}
+
+pub(crate) fn materialize_itch_html5_archive_cancellable(
+    archive_path: &Path,
+    source_url: &str,
+    fetcher: &dyn AssetFetcher,
+    cancel: &CancellationToken,
+) -> Result<(Option<PathBuf>, bool, bool), Html5Error> {
+    check_cancelled(cancel)?;
     if cyoa_core::paths::is_link_or_junction(archive_path) {
         return Err(other("HTML5 archive path must not be a symbolic link"));
     }
@@ -214,7 +250,7 @@ pub fn materialize_itch_html5_archive(
     if !is_zip {
         return Ok((None, false, true));
     }
-    let digest = fingerprint(&archive)?;
+    let digest = fingerprint(&archive, cancel)?;
     let stem = archive
         .file_stem()
         .map(|s| s.to_string_lossy().into_owned())
@@ -237,7 +273,7 @@ pub fn materialize_itch_html5_archive(
         ));
     }
     let dest_str = destination.to_string_lossy().into_owned();
-    let (entry, index) = if destination.exists() {
+    if destination.exists() {
         let text = fs::read_to_string(&marker_path)
             .map_err(|_| other("HTML5 offline manifest is unreadable"))?;
         let Ok(Value::Object(marker)) = serde_json::from_str::<Value>(&text) else {
@@ -265,64 +301,240 @@ pub fn materialize_itch_html5_archive(
         {
             return Ok((Some(index), true, true));
         }
-        let _ = fs::remove_file(
-            index
-                .parent()
-                .unwrap_or(&destination)
-                .join("failed_assets.txt"),
-        );
-        (entry, index)
-    } else {
-        let staging = staging_dir(&parent)?;
-        let extracted = (|| -> Result<Option<String>, Html5Error> {
-            let Some(entry) = extract_validated(&archive, &staging)? else {
-                return Ok(None);
-            };
-            cyoa_storage::atomic_io::atomic_write_text(
-                staging.join(HTML5_MARKER_FILENAME),
-                &marker_json(&digest, &entry, false),
-            )
-            .map_err(other)?;
-            fs::rename(&staging, &destination)?;
-            Ok(Some(entry))
-        })();
-        let entry = match extracted {
-            Ok(Some(entry)) => entry,
-            Ok(None) => {
-                let _ = fs::remove_dir_all(&staging);
-                return Ok((None, false, true));
-            }
-            Err(e) => {
-                let _ = fs::remove_dir_all(&staging);
-                return Err(e);
-            }
+        let site = index.parent().unwrap_or(&destination);
+        let report = site.join("failed_assets.txt");
+        let bundled_report = has_bundled_report(&archive, &entry, cancel)?;
+        let complete = localize_index(&index, site, bundled_report, source_url, fetcher, cancel)?;
+        if complete && !bundled_report {
+            let _ = fs::remove_file(report);
+        }
+        check_cancelled(cancel)?;
+        cyoa_storage::atomic_io::atomic_write_text(
+            &marker_path,
+            &marker_json(&digest, &entry, complete),
+        )
+        .map_err(other)?;
+        return Ok((Some(index), false, complete));
+    }
+
+    let staging = staging_dir(&parent)?;
+    let result = (|| {
+        let Some(entry) = extract_validated(&archive, &staging, cancel)? else {
+            return Ok((None, false, true));
         };
         let index = cyoa_core::paths::safe_archive_join(&dest_str, &entry, false).map_err(other)?;
-        (entry, index)
+        let staged_index =
+            cyoa_core::paths::safe_archive_join(&staging.to_string_lossy(), &entry, false)
+                .map_err(other)?;
+        let site = staged_index.parent().unwrap_or(&staging);
+        let complete = localize_index(
+            &staged_index,
+            site,
+            site.join("failed_assets.txt").is_file(),
+            source_url,
+            fetcher,
+            cancel,
+        )?;
+        cyoa_storage::atomic_io::atomic_write_text(
+            staging.join(HTML5_MARKER_FILENAME),
+            &marker_json(&digest, &entry, complete),
+        )
+        .map_err(other)?;
+        check_cancelled(cancel)?;
+        fs::rename(&staging, &destination)?;
+        Ok((Some(index), false, complete))
+    })();
+    if !matches!(result, Ok((Some(_), _, _))) {
+        let _ = fs::remove_dir_all(&staging);
+    }
+    result
+}
+
+fn has_bundled_report(
+    archive: &Path,
+    entry: &str,
+    cancel: &CancellationToken,
+) -> Result<bool, Html5Error> {
+    let report = match entry.rsplit_once('/') {
+        Some((directory, _)) => format!("{directory}/failed_assets.txt"),
+        None => "failed_assets.txt".to_owned(),
     };
+    let mut zip = zip::ZipArchive::new(fs::File::open(archive)?).map_err(other)?;
+    for i in 0..zip.len() {
+        check_cancelled(cancel)?;
+        let member = zip.by_index_raw(i).map_err(other)?;
+        if !member.is_dir() {
+            let path = member.name().map_err(other)?.replace('\\', "/");
+            if path == report || (cfg!(windows) && casefold(&path) == casefold(&report)) {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
+
+fn mirror_for_localization(
+    source: &Path,
+    target: &Path,
+    cancel: &CancellationToken,
+) -> Result<(), Html5Error> {
+    for entry in fs::read_dir(source)? {
+        check_cancelled(cancel)?;
+        let entry = entry?;
+        let path = entry.path();
+        let dest = target.join(entry.file_name());
+        if cyoa_core::paths::is_link_or_junction(&path) {
+            continue;
+        }
+        let kind = entry.file_type()?;
+        if kind.is_dir() {
+            fs::create_dir(&dest)?;
+            mirror_for_localization(&path, &dest, cancel)?;
+        } else if kind.is_file() {
+            // The localizer appends to backup_report.txt in place. All its
+            // other file writes replace the hard link with a new file.
+            if entry.file_name().eq_ignore_ascii_case("backup_report.txt")
+                || fs::hard_link(&path, &dest).is_err()
+            {
+                crate::output::copy_cancellable(
+                    &mut fs::File::open(&path)?,
+                    &mut fs::File::create(&dest)?,
+                    &|| cancel.is_cancelled(),
+                )?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn apply_localized_files(
+    source: &Path,
+    target: &Path,
+    skip_reports: bool,
+    cancel: &CancellationToken,
+) -> Result<(), Html5Error> {
+    for entry in fs::read_dir(source)? {
+        check_cancelled(cancel)?;
+        let entry = entry?;
+        let name = entry.file_name();
+        if skip_reports
+            && [
+                "failed_assets.txt",
+                "backup_report.txt",
+                "broken_assets_report.html",
+            ]
+            .iter()
+            .any(|report| name.eq_ignore_ascii_case(report))
+        {
+            continue;
+        }
+        let dest = target.join(&name);
+        if entry.file_type()?.is_dir() && dest.is_dir() {
+            if cyoa_core::paths::is_link_or_junction(&dest) {
+                return Err(other("HTML5 asset directory must not be a symbolic link"));
+            }
+            apply_localized_files(&entry.path(), &dest, false, cancel)?;
+        } else {
+            fs::rename(entry.path(), &dest)?;
+        }
+    }
+    Ok(())
+}
+
+fn localize_index(
+    index: &Path,
+    site: &Path,
+    bundled_report: bool,
+    source_url: &str,
+    fetcher: &dyn AssetFetcher,
+    cancel: &CancellationToken,
+) -> Result<bool, Html5Error> {
+    check_cancelled(cancel)?;
     // Python `read_text(encoding="utf-8-sig")`: strict UTF-8, BOM dropped,
     // universal newlines.
-    let raw = fs::read(&index)?;
+    let raw = fs::read(index)?;
     let text = String::from_utf8(raw).map_err(other)?;
     let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
     let original = text.replace("\r\n", "\n").replace('\r', "\n");
-    let site = index.parent().unwrap_or(&destination).to_path_buf();
-    let (localized, failures) =
-        localize_preserved_index_assets_counted(&original, source_url, &site, fetcher, false);
-    cyoa_storage::atomic_io::atomic_write_text(&index, &localized).map_err(other)?;
-    // Count this run's failures directly: a bundled report file in the ZIP
-    // must not decide completeness either way.
-    let complete = failures == 0 && !site.join("failed_assets.txt").is_file();
-    cyoa_storage::atomic_io::atomic_write_text(
-        &marker_path,
-        &marker_json(&digest, &entry, complete),
-    )
-    .map_err(other)?;
-    Ok((Some(index), false, complete))
+    let (localized, failures) = if bundled_report {
+        // The shared localizer writes its report alongside the index. Run it
+        // in a sibling directory when that name belongs to the game.
+        let shadow = staging_dir(site.parent().unwrap_or(site))?;
+        let result = (|| -> Result<_, Html5Error> {
+            mirror_for_localization(site, &shadow, cancel)?;
+            let result = localize_preserved_index_assets_counted(
+                &original, source_url, &shadow, fetcher, false,
+            );
+            apply_localized_files(&shadow, site, true, cancel)?;
+            Ok(result)
+        })();
+        let _ = fs::remove_dir_all(&shadow);
+        result?
+    } else {
+        localize_preserved_index_assets_counted(&original, source_url, site, fetcher, false)
+    };
+    check_cancelled(cancel)?;
+    cyoa_storage::atomic_io::atomic_write_text(index, &localized).map_err(other)?;
+    Ok(failures == 0)
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn bundled_failure_report_survives_localization_and_retry() {
+        use crate::offline_viewer::{FetchedAsset, NoNetwork};
+
+        struct GameScript;
+        impl AssetFetcher for GameScript {
+            fn fetch(&self, _url: &str) -> Option<FetchedAsset> {
+                Some(FetchedAsset {
+                    status: 200,
+                    content_type: "text/javascript".into(),
+                    body: b"const game = true;".to_vec(),
+                    too_large: false,
+                })
+            }
+        }
+
+        let tmp = tempfile::tempdir().unwrap();
+        let archive = tmp.path().join("game.zip");
+        let mut zip = zip::ZipWriter::new(fs::File::create(&archive).unwrap());
+        for (name, bytes) in [
+            (
+                "game/index.html",
+                br#"<script src="https://example.com/game.js"></script>"#.as_slice(),
+            ),
+            ("game/failed_assets.txt", b"Bundled game data"),
+        ] {
+            zip.start_file(name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(bytes).unwrap();
+        }
+        drop(zip.finish().unwrap());
+
+        let source = "https://dev.itch.io/game";
+        let (index, reused, complete) =
+            materialize_itch_html5_archive(&archive, source, &NoNetwork).unwrap();
+        let index = index.unwrap();
+        let bundled = index.with_file_name("failed_assets.txt");
+        assert!(!reused && !complete);
+        assert_eq!(fs::read(&bundled).unwrap(), b"Bundled game data");
+
+        assert_eq!(
+            materialize_itch_html5_archive(&archive, source, &GameScript).unwrap(),
+            (Some(index.clone()), false, true),
+        );
+        assert_eq!(fs::read(&bundled).unwrap(), b"Bundled game data");
+        assert_eq!(
+            materialize_itch_html5_archive(&archive, source, &NoNetwork).unwrap(),
+            (Some(index), true, true),
+        );
+    }
+
     #[test]
     fn casefold_matches_python_on_path_cases() {
         // Expected values from Python 3.12 str.casefold().
