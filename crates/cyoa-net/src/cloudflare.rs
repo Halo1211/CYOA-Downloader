@@ -151,9 +151,10 @@ impl CloudflareConfig {
             timeout_s: if timeout_s == 0 {
                 60
             } else {
-                timeout_s.max(5) as u64
+                // Upper bound keeps `timeout_s * 1000` and `+ 10` from overflowing.
+                timeout_s.clamp(5, 86_400) as u64
             },
-            wait_after_s: wait_after_s.max(0) as u64,
+            wait_after_s: wait_after_s.clamp(0, 86_400) as u64,
             proxy_mode: if proxy == "none" {
                 "none".into()
             } else {
@@ -216,6 +217,11 @@ impl FlareSolverr {
         let mut b = Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs((cfg.timeout_s + 10).max(20)));
+        // reqwest reads HTTP(S)_PROXY by default: "none" must really mean no
+        // proxy for the solver API.
+        if cfg.proxy_mode == "none" || proxy_mode == crate::proxy::ProxyMode::Disabled {
+            b = b.no_proxy();
+        }
         if cfg.proxy_mode == "inherit" && proxy_mode == crate::proxy::ProxyMode::Manual {
             let host = Url::parse(&cfg.flaresolverr_url)
                 .ok()
@@ -329,6 +335,9 @@ impl FlareSolverr {
                                     .and_then(|x| x.as_str())
                                     .unwrap_or("request failed")
                             );
+                            // An API error in a 200 reply is not a result
+                            // (no "Connected", no cached phantom session).
+                            return None;
                         }
                         Some(v)
                     }
@@ -448,11 +457,22 @@ impl FlareSolverr {
         }
     }
     pub async fn destroy_sessions(&self) -> usize {
-        let names = self
+        let mut names = self
             .sessions
             .lock()
             .map(|mut s| std::mem::take(&mut *s).into_values().collect::<Vec<_>>())
             .unwrap_or_default();
+        // A fresh client (the desktop "Clear sessions" button) has no local
+        // map: also destroy the app-owned sessions the solver still holds.
+        if let Some(listed) = self.post(json!({"cmd":"sessions.list"}), 10).await
+            && let Some(items) = listed.get("sessions").and_then(Value::as_array)
+        {
+            for s in items.iter().filter_map(Value::as_str) {
+                if s.starts_with("cyoa_") && !names.iter().any(|n| n == s) {
+                    names.push(s.to_owned());
+                }
+            }
+        }
         let mut n = 0;
         for s in names {
             if self

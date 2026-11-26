@@ -354,13 +354,30 @@ impl DownloaderApp {
                 };
                 let out_dir = PathBuf::from(&self.settings.output_dir);
                 let mut added = 0;
+                let mut failed = 0;
                 for j in self
                     .jobs
                     .iter()
                     .filter(|j| matches!(j.status, Status::Done { .. }))
                 {
-                    let fp = out_dir.join(format!("{}.json", j.filename));
-                    let ok = if fp.is_file() {
+                    // The file this run wrote, not whatever `<name>.json`
+                    // already existed (the engine suffixes a taken name).
+                    let lower = |p: &PathBuf| p.to_string_lossy().to_lowercase();
+                    let written = j
+                        .written
+                        .iter()
+                        .find(|p| {
+                            let l = lower(p);
+                            l.ends_with(".json")
+                                && !l.ends_with("_metadata.json")
+                                && !l.ends_with("_original.json")
+                                && p.is_file()
+                        })
+                        .or_else(|| j.written.iter().find(|p| lower(p).ends_with(".zip")))
+                        .cloned();
+                    let fp =
+                        written.unwrap_or_else(|| out_dir.join(format!("{}.json", j.filename)));
+                    let ok = if fp.is_file() && lower(&fp).ends_with(".json") {
                         add_json(&fp, &j.filename, &j.url, &db)
                     } else {
                         add_archive_to_cyoa_manager(
@@ -370,13 +387,19 @@ impl DownloaderApp {
                             &db,
                         )
                     };
-                    if matches!(ok, AddOutcome::Added) {
-                        added += 1;
+                    match ok {
+                        AddOutcome::Added => added += 1,
+                        AddOutcome::Failed => failed += 1,
+                        _ => {}
                     }
                 }
                 mc_status(
                     &mut self.mgr_center,
-                    format!("{added} session project(s) added."),
+                    if failed > 0 {
+                        format!("{added} session project(s) added, {failed} failed.")
+                    } else {
+                        format!("{added} session project(s) added.")
+                    },
                     Some(true),
                 );
             }
@@ -404,6 +427,10 @@ impl DownloaderApp {
                     for e in entries.flatten() {
                         let path = e.path();
                         let name = e.file_name().to_string_lossy().to_lowercase();
+                        // Never follow links/junctions out of the chosen folder.
+                        if cyoa_core::paths::is_link_or_junction(&path) {
+                            continue;
+                        }
                         if path.is_dir() {
                             if !["audio", "images", "css", "js", "fonts"].contains(&name.as_str()) {
                                 stack.push(path);

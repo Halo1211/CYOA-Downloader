@@ -474,7 +474,7 @@ fn prepare_html5_archives(
     result: &mut ItchResult,
     cancel: &CancellationToken,
 ) {
-    use crate::itch_html5::{Html5Error, materialize_itch_html5_archive};
+    use crate::itch_html5::{Html5Error, materialize_itch_html5_archive_cancellable};
     let mut relatives: Vec<&String> = after.keys().collect();
     relatives.sort();
     for relative in relatives {
@@ -495,7 +495,7 @@ fn prepare_html5_archives(
             continue;
         }
         let archive = dest.join(relative);
-        match materialize_itch_html5_archive(&archive, page_url, fetcher) {
+        match materialize_itch_html5_archive_cancellable(&archive, page_url, fetcher, cancel) {
             Ok((None, _, _)) => {}
             Ok((Some(entry), reused, complete)) => {
                 if !complete {
@@ -513,6 +513,7 @@ fn prepare_html5_archives(
                 }
                 result.offline_entries.push(entry);
             }
+            Err(_) if cancel.is_cancelled() => break,
             Err(Html5Error::Encrypted) => {
                 result.offline_encrypted += 1;
                 tracing::warn!("[itch] ZIP needs a password; original retained: {relative}");
@@ -881,6 +882,50 @@ mod tests {
             }
             Ok((self.code, "diagnostic".into()))
         }
+    }
+
+    #[test]
+    fn cancelled_itch_html5_preparation_does_not_publish_the_archive() {
+        use crate::offline_viewer::{AssetFetcher, FetchedAsset};
+        use std::io::Write;
+
+        struct CancellingFetcher<'a>(&'a CancellationToken);
+
+        impl AssetFetcher for CancellingFetcher<'_> {
+            fn fetch(&self, _url: &str) -> Option<FetchedAsset> {
+                self.0.cancel();
+                None
+            }
+        }
+
+        let output = tempfile::tempdir().unwrap();
+        let archive = output.path().join("game.zip");
+        let mut zip = zip::ZipWriter::new(File::create(&archive).unwrap());
+        zip.start_file("index.html", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(br#"<script src="https://example.com/game.js"></script>"#)
+            .unwrap();
+        drop(zip.finish().unwrap());
+
+        let cancel = CancellationToken::new();
+        let mut result = ItchResult {
+            ok: true,
+            ..Default::default()
+        };
+        prepare_html5_archives(
+            output.path(),
+            &HashMap::from([("game.zip".to_owned(), (0, 0))]),
+            "https://dev.itch.io/game",
+            &CancellingFetcher(&cancel),
+            &mut result,
+            &cancel,
+        );
+
+        assert!(cancel.is_cancelled());
+        assert!(!result.ok);
+        assert!(result.offline_entries.is_empty());
+        assert_eq!(fs::read_dir(output.path()).unwrap().count(), 1);
+        assert!(archive.is_file());
     }
 
     #[test]

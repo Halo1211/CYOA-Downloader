@@ -1391,7 +1391,11 @@ impl SettingsDashboard {
             self.net_status = format!("Error: {e}");
             return;
         }
-        *net = next.clone();
+        // Validate is read-only: only "Save & apply" changes the routing of
+        // new downloads (and gets persisted).
+        if !validate {
+            *net = next.clone();
+        }
         self.net_draft = Some(next.clone());
         self.net_preset = crate::app::dns_preset_label(&next.dns);
         let saved = "Saved and applied to new requests.".to_owned();
@@ -2495,6 +2499,12 @@ impl SettingsDashboard {
     /// Export/Import dialogs on a helper thread (Python messageboxes become
     /// the status line).
     fn start_file_job(&mut self, path: &Path, export: bool, ctx: &egui::Context) {
+        // One settings import/export at a time: two imports would read the
+        // same snapshot, overwrite each other and lose the first result.
+        if self.file_job.is_some() {
+            self.status = "Another settings import/export is still running.".into();
+            return;
+        }
         let (tx, rx) = std::sync::mpsc::channel();
         let ctx = ctx.clone();
         let settings_path = path.to_path_buf();
@@ -3012,24 +3022,60 @@ fn run_modernize(
         })
         .flatten();
     let _enter = runtime.as_ref().map(tokio::runtime::Runtime::enter);
-    let net = runtime.as_ref().and_then(|_| {
+    // The download network settings (proxy, DNS, VPN guard) as synced to
+    // settings.json: modernization must not bypass a required VPN.
+    let net_rt = if network {
+        let mut settings = crate::net::NetSettings::default();
+        if let Ok(map) =
+            cyoa_storage::settings::SettingsStore::new(cyoa_storage::settings::default_path())
+                .load()
+        {
+            settings.overlay_python(map);
+        }
+        match settings.build() {
+            Ok(rt) => Some(rt),
+            Err(e) => return format!("Network settings are invalid: {e}"),
+        }
+    } else {
+        None
+    };
+    let net = runtime.as_ref().zip(net_rt).and_then(|(_, rt)| {
         cyoa_engine::offline_viewer::NetworkAssetFetcher::new(
             "",
-            cyoa_net::proxy::ProxyConfig::default(),
-            None,
-            None,
+            rt.proxy,
+            rt.dns,
+            rt.vpn,
             false,
             tokio_util::sync::CancellationToken::new(),
         )
     });
     let no_net = cyoa_engine::offline_viewer::NoNetwork;
-    let fetcher: &dyn cyoa_engine::offline_viewer::AssetFetcher = match &net {
+    let inner: &dyn cyoa_engine::offline_viewer::AssetFetcher = match &net {
         Some(f) => f,
         None => &no_net,
     };
+    // Cancel stops further asset fetches (each one can otherwise stall).
+    struct Cancellable<'a>(
+        &'a dyn cyoa_engine::offline_viewer::AssetFetcher,
+        &'a std::sync::atomic::AtomicBool,
+    );
+    impl cyoa_engine::offline_viewer::AssetFetcher for Cancellable<'_> {
+        fn fetch(&self, url: &str) -> Option<cyoa_engine::offline_viewer::FetchedAsset> {
+            if self.1.load(std::sync::atomic::Ordering::Relaxed) {
+                return None;
+            }
+            self.0.fetch(url)
+        }
+    }
+    let cancellable = Cancellable(inner, cancel);
+    let fetcher: &dyn cyoa_engine::offline_viewer::AssetFetcher = &cancellable;
     if target == 1 {
         set_progress(format!("[1/1] {}", source.display()));
         return match m::modernize_site(source, output, None, &templates, "", fetcher) {
+            Ok(r) if cancel.load(std::sync::atomic::Ordering::Relaxed) => format!(
+                "Cancelled: assets were not all fetched. Partial output: {}",
+                r.destination.display()
+            ),
             Ok(r) => format!(
                 "{}: {} ({}) — {} file(s) changed. {}\nOutput: {}",
                 r.status,

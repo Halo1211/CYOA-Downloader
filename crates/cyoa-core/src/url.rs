@@ -57,13 +57,12 @@ fn parse(s: &str) -> Result<Parsed, UrlError> {
     let (before_q, q) = without_frag.split_once('?').unwrap_or((without_frag, ""));
     p.query = q.to_owned();
     p.path = before_q.to_owned();
-    if let Some((path, params)) = p
-        .path
-        .split_once(';')
-        .map(|(a, b)| (a.to_owned(), b.to_owned()))
-    {
-        p.path = path;
-        p.params = params;
+    // Python `_splitparams`: only the last path segment carries `;params`
+    // (`/dist/nodes;v=1/a.json` keeps its full path).
+    let last = p.path.rfind('/').map_or(0, |i| i + 1);
+    if let Some(i) = p.path[last..].find(';').map(|i| i + last) {
+        p.params = p.path[i + 1..].to_owned();
+        p.path.truncate(i);
     }
     Ok(p)
 }

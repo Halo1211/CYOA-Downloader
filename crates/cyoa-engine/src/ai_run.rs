@@ -36,6 +36,15 @@ impl AiRunConfig {
         }
     }
 
+    /// The same settings with a fresh runtime (and call budget): one per
+    /// download, so a batch row never inherits an earlier row's spent budget.
+    pub fn for_new_download(&self) -> Self {
+        Self {
+            runtime: Arc::default(),
+            ..self.clone()
+        }
+    }
+
     /// The download's AI runtime (created on first use).
     pub fn runtime(
         &self,
@@ -94,6 +103,9 @@ impl AiRuntime {
             proxy: proxy.clone(),
             dns,
             vpn,
+            // A cold local model can take far longer than 20 s to send its
+            // first byte; each call keeps its own provider deadline (<= 120 s).
+            read_timeout: std::time::Duration::from_secs(180),
             ..ClientConfig::default()
         })
         .ok()?;
@@ -148,7 +160,13 @@ impl AiRuntime {
             })
             .await?;
         let text = crate::discover_net::fetch_page_text(client, &candidate, cancel).await?;
-        if !matches!(text.trim_start().chars().next(), Some('{' | '[')) {
+        // An error object (`{"error": ...}`) is JSON too: require a project
+        // shape so the website fallback still runs.
+        let looks_ok = serde_json::from_str::<Value>(text.trim_start_matches('\u{feff}'))
+            .ok()
+            .is_some_and(|v| v.is_object() && cyoa_parse::project::looks_like_project_object(&v));
+        if !looks_ok {
+            tracing::info!("  AI candidate is not a project payload: {candidate}");
             return None;
         }
         tracing::info!("  AI candidate confirmed: {candidate}");

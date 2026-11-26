@@ -141,8 +141,7 @@ impl CustomResolver {
 
     async fn tcp(&self, query: &[u8], tx: u16, qtype: u16) -> Option<IpAddr> {
         let (host, port) = split_dns_endpoint(&self.config.server, "tcp", self.config.port).ok()?;
-        let addr = lookup_host((host.as_str(), port)).await.ok()?.next()?;
-        let mut stream = TcpStream::connect(addr).await.ok()?;
+        let mut stream = connect_any(&host, port).await?;
         stream
             .write_all(&(query.len() as u16).to_be_bytes())
             .await
@@ -241,10 +240,22 @@ impl CustomResolver {
     }
 }
 
+/// Connect to the first reachable address of a (dual-stack) DNS endpoint:
+/// an unreachable IPv6 address must not force the system DNS fallback.
+async fn connect_any(host: &str, port: u16) -> Option<TcpStream> {
+    for addr in lookup_host((host, port)).await.ok()? {
+        if let Ok(Ok(stream)) =
+            tokio::time::timeout(std::time::Duration::from_secs(3), TcpStream::connect(addr)).await
+        {
+            return Some(stream);
+        }
+    }
+    None
+}
+
 /// DNS-over-TLS exchange with platform certificate + hostname verification.
 async fn dot_exchange(host: String, port: u16, query: Vec<u8>) -> Option<Vec<u8>> {
-    let addr = lookup_host((host.as_str(), port)).await.ok()?.next()?;
-    let stream = TcpStream::connect(addr).await.ok()?;
+    let stream = connect_any(&host, port).await?;
     let verifier = rustls_platform_verifier::Verifier::new(std::sync::Arc::new(
         tokio_rustls::rustls::crypto::aws_lc_rs::default_provider(),
     ))

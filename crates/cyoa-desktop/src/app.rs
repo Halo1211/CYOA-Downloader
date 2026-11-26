@@ -336,6 +336,9 @@ pub struct Job {
     /// Output filename (empty: derived) and resolved mode for a pending row.
     pub filename: String,
     pub mode: Result<Mode, String>,
+    /// Paths the finished run actually wrote (a suffixed name when the
+    /// default one already existed).
+    pub written: Vec<PathBuf>,
 }
 
 pub struct DownloaderApp {
@@ -402,6 +405,8 @@ pub struct DownloaderApp {
     retry_rx: Option<std::sync::mpsc::Receiver<String>>,
     /// Failed assets reported by finished/running jobs (Reports Center).
     asset_failures: Vec<crate::reports_panel::ResultRow>,
+    /// Parent token of the Retry Assets/Images/Audio operations.
+    retry_cancel: tokio_util::sync::CancellationToken,
     reports: Option<crate::reports_panel::ReportsPanel>,
     preflight: Option<crate::preflight_panel::PreflightPanel>,
 }
@@ -559,6 +564,7 @@ impl DownloaderApp {
             paused: false,
             retry_rx: None,
             asset_failures: Vec::new(),
+            retry_cancel: tokio_util::sync::CancellationToken::new(),
             reports: None,
             preflight: None,
             manager,
@@ -603,21 +609,6 @@ impl DownloaderApp {
             } => {
                 if !ok {
                     self.log.push(format!("FAILED asset: {name}"));
-                    if self.asset_failures.len() < 100_000 {
-                        let mode = self
-                            .job_mut(job)
-                            .and_then(|j| j.mode.as_ref().ok().copied())
-                            .map(|m| crate::theme::mode_entry(m).key.to_owned())
-                            .unwrap_or_default();
-                        self.asset_failures.push(crate::reports_panel::ResultRow {
-                            result_type: "asset".into(),
-                            status: "FAIL".into(),
-                            url: name.clone(),
-                            mode,
-                            filename: String::new(),
-                            error: "download failed".into(),
-                        });
-                    }
                 }
                 if let Some(j) = self.job_mut(job) {
                     j.status = Status::Running { done, total };
@@ -625,6 +616,26 @@ impl DownloaderApp {
                 }
             }
             Event::Finished { job, result } => {
+                if let JobResult::Done(s) = &result {
+                    let mode = self
+                        .job_mut(job)
+                        .and_then(|j| j.mode.as_ref().ok().copied())
+                        .map(|m| crate::theme::mode_entry(m).key.to_owned())
+                        .unwrap_or_default();
+                    for (url, error) in &s.failures {
+                        if self.asset_failures.len() >= 100_000 {
+                            break;
+                        }
+                        self.asset_failures.push(crate::reports_panel::ResultRow {
+                            result_type: "asset".into(),
+                            status: "FAIL".into(),
+                            url: url.clone(),
+                            mode: mode.clone(),
+                            filename: String::new(),
+                            error: error.clone(),
+                        });
+                    }
+                }
                 // Folder website outputs become the Serve target.
                 if let JobResult::Done(s) = &result
                     && let Some(dir) = s.written.iter().map(PathBuf::from).find(|p| p.is_dir())
@@ -640,6 +651,7 @@ impl DownloaderApp {
                     j.current.clear();
                     match result {
                         JobResult::Done(s) => {
+                            j.written = s.written.iter().map(PathBuf::from).collect();
                             j.status = Status::Done {
                                 failed_assets: s.failed_assets,
                             };
@@ -693,6 +705,7 @@ impl DownloaderApp {
             current: String::new(),
             filename,
             mode,
+            written: Vec::new(),
         });
     }
 
@@ -1108,6 +1121,7 @@ impl eframe::App for DownloaderApp {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.retry_cancel.cancel();
         if let Some(mut w) = self.worker.take() {
             // Cancellation is signalled instantly; wait only briefly so closing
             // the window never feels stuck. The engine cleans temp dirs on drop.
@@ -1151,6 +1165,7 @@ mod tests {
                     current: String::new(),
                     filename: String::new(),
                     mode: Ok(Mode::Embed),
+                    written: Vec::new(),
                 })
                 .collect(),
             selected: None,
@@ -1190,6 +1205,7 @@ mod tests {
             paused: false,
             retry_rx: None,
             asset_failures: Vec::new(),
+            retry_cancel: tokio_util::sync::CancellationToken::new(),
             reports: None,
             preflight: None,
         }

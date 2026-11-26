@@ -292,6 +292,9 @@ pub fn fetch_cyoa_cafe_record(f: &mut dyn CafeFetch, url: &str, refresh: bool) -
         );
         Some(v)
     } else {
+        // A confirmed miss (e.g. a deleted game) must not keep serving the
+        // previously cached record.
+        c.records.remove(&key);
         c.misses.insert(key, Instant::now() + MISS_TTL);
         if c.misses.len() > MAX_CACHE {
             if let Some(k) = c

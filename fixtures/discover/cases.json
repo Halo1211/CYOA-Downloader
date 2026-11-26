@@ -70,6 +70,10 @@
           "window.__PROJECT__ = 'proj/x.json'; fetch('y.zip')"
         ],
         [
+          "inline_script_5",
+          "var s=document.createElement('script'); s.src='js/app.123.js'"
+        ],
+        [
           "https://ex.com/game/js/chunk-vendors.js",
           "vendor"
         ]

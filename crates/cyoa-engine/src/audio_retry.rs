@@ -119,6 +119,11 @@ pub fn group_entries(
             .iter()
             .filter(|(_, t)| keys.iter().any(|k| t.contains(k.as_str())))
             .collect();
+        // Two downloads can reference the same video: the project beside the
+        // skip report that listed it comes first.
+        if matches.iter().any(|(p, _)| p.starts_with(report_folder)) {
+            matches.retain(|(p, _)| p.starts_with(report_folder));
+        }
         let rank = |p: &PathBuf| {
             let lower = p.to_string_lossy().to_lowercase();
             let base = p
@@ -179,7 +184,10 @@ pub fn retry_audio_groups(
         let urls: Vec<String> = group.urls.iter().cloned().collect();
         let result = download_youtube_audio(&urls, folder, folder, "", cfg, ytdlp, cancel);
         downloaded += result.len();
-        for (path, text) in &group.projects {
+        for (path, snapshot) in &group.projects {
+            // yt-dlp can run for minutes: patch the file as it is now, not the
+            // grouping-time snapshot, so edits made meanwhile survive.
+            let text = &std::fs::read_to_string(path).unwrap_or_else(|_| snapshot.clone());
             let new = patch_youtube_refs_in_json(text, &result);
             if &new == text {
                 continue;

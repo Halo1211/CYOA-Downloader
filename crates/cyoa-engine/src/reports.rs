@@ -263,6 +263,14 @@ pub fn write_asset_failure_summary(
     {
         return Ok(());
     }
+    // Another job (batch rows sharing an output folder) or an earlier stage
+    // already listed failures: add a section instead of erasing them.
+    let log = dir.join("failed_assets.txt");
+    if fs::symlink_metadata(&log).is_ok_and(|m| m.is_file() && m.len() > 0)
+        && append_asset_failures_to_backup_report(items, &log, source_url, title).is_ok()
+    {
+        return Ok(());
+    }
     write_failed_assets_log(items, dir, source_url, title)
 }
 

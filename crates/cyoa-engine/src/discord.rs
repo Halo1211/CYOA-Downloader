@@ -106,7 +106,9 @@ pub struct DiscordRefresher {
     token: String,
     api_root: String,
     client: FetchClient,
-    refreshed: tokio::sync::Mutex<HashMap<String, String>>,
+    /// Per-URL cells: callers for one URL share one API call, while other
+    /// URLs are not held up behind it.
+    refreshed: std::sync::Mutex<HashMap<String, std::sync::Arc<tokio::sync::OnceCell<String>>>>,
 }
 
 impl std::fmt::Debug for DiscordRefresher {
@@ -123,7 +125,7 @@ impl DiscordRefresher {
             token: token.trim().to_owned(),
             api_root: format!("{}/v{API_VERSION}", api_root.trim_end_matches('/')),
             client,
-            refreshed: tokio::sync::Mutex::new(HashMap::new()),
+            refreshed: std::sync::Mutex::new(HashMap::new()),
         }
     }
 
@@ -133,19 +135,21 @@ impl DiscordRefresher {
         if !is_discord_attachment_url(original) {
             return String::new();
         }
-        let mut memo = self.refreshed.lock().await;
-        if let Some(v) = memo.get(original) {
-            return v.clone();
-        }
-        let refreshed = match self.refresh_urls(&[original.to_owned()], cancel).await {
-            Ok(map) => map.get(original).cloned().unwrap_or_default(),
-            Err(e) => {
-                tracing::warn!("Discord URL refresh failed: {e}");
-                String::new()
-            }
+        let cell = match self.refreshed.lock() {
+            Ok(mut memo) => memo.entry(original.to_owned()).or_default().clone(),
+            Err(_) => return String::new(),
         };
-        memo.insert(original.to_owned(), refreshed.clone());
-        refreshed
+        cell.get_or_init(|| async {
+            match self.refresh_urls(&[original.to_owned()], cancel).await {
+                Ok(map) => map.get(original).cloned().unwrap_or_default(),
+                Err(e) => {
+                    tracing::warn!("Discord URL refresh failed: {e}");
+                    String::new()
+                }
+            }
+        })
+        .await
+        .clone()
     }
 
     /// Python `DiscordAttachmentClient.refresh_urls`.

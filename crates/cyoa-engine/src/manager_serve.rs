@@ -115,12 +115,18 @@ pub fn prepare_cyoa_manager_serve_folder(
     // Python registers bundled viewers before choosing one.
     crate::viewer_registry::auto_register_bundled_viewers_default();
     let project = fs::canonicalize(project_json_path).map_err(|e| e.to_string())?;
-    let project = PathBuf::from(
-        project
-            .to_string_lossy()
-            .strip_prefix(r"\\?\")
-            .map_or_else(|| project.to_string_lossy().into_owned(), str::to_owned),
-    );
+    // Drop the verbatim prefix; `\\?\UNC\server\share` must become
+    // `\\server\share`, not the relative `UNC\server\share`.
+    let project = {
+        let text = project.to_string_lossy();
+        if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+            PathBuf::from(format!(r"\\{rest}"))
+        } else if let Some(rest) = text.strip_prefix(r"\\?\") {
+            PathBuf::from(rest)
+        } else {
+            project.clone()
+        }
+    };
     let suffix = project
         .extension()
         .map(|e| format!(".{}", e.to_string_lossy().to_lowercase()))
@@ -213,12 +219,18 @@ pub fn prepare_cyoa_manager_serve_folder(
         .join(cache_key)
         .join(&hex(&sig.finalize())[..16]);
     let cached = cache_root.join("manager_offline").join("index.html");
-    if cached.is_file() {
+    // Only a build that finished every step is reused.
+    let complete_marker = cache_root.join(".complete");
+    if cached.is_file() && complete_marker.is_file() {
         let cached_json = cache_root.join("manager_offline").join("project.json");
         if !cached_json.is_file() {
             fs::write(&cached_json, &project_text).map_err(|e| e.to_string())?;
         }
         return Ok(cache_root.join("manager_offline"));
+    }
+    // An interrupted earlier build is rebuilt from scratch.
+    if cache_root.exists() {
+        let _ = fs::remove_dir_all(&cache_root);
     }
     fs::create_dir_all(&cache_root).map_err(|e| e.to_string())?;
     let shared_assets = cache_root
@@ -253,5 +265,6 @@ pub fn prepare_cyoa_manager_serve_folder(
     if localized.is_dir() {
         let _ = cyoa_core::paths::copytree_merge_safe(&localized, &shared_assets, "shared");
     }
+    fs::write(&complete_marker, b"").map_err(|e| e.to_string())?;
     Ok(site)
 }

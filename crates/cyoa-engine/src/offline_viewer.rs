@@ -1543,17 +1543,19 @@ pub fn localize_preserved_index_assets_counted(
             kind = "css";
         }
         if let Some(existing) = loc.safe_existing(&reference, &index_path) {
-            if kind == "css" {
-                if let Some(css) = read_lossy(&existing) {
-                    let css_url = urljoin(source_url, &reference);
-                    let processed = loc.process_css(&css, &css_url, &existing);
-                    write_text(&existing, &processed);
-                }
-            } else if kind == "js" {
-                if let Some(js) = read_lossy(&existing) {
-                    let js_url = urljoin(source_url, &reference);
-                    let processed = loc.process_js(&js, &js_url, &existing, false);
-                    write_text(&existing, &processed);
+            if matches!(kind, "css" | "js") {
+                let url = urljoin(source_url, &reference);
+                if let Some(text) = read_lossy(&existing) {
+                    let processed = if kind == "css" {
+                        loc.process_css(&text, &url, &existing)
+                    } else {
+                        loc.process_js(&text, &url, &existing, false)
+                    };
+                    if !write_text(&existing, &processed) {
+                        loc.fail(&url, "could not write localized asset", kind);
+                    }
+                } else {
+                    loc.fail(&url, "could not read localized asset", kind);
                 }
             }
             if let Some(el) = element_at(&mut doc, p) {
@@ -2061,6 +2063,48 @@ mod tests {
         assert_eq!(n, MAX_LOCALIZE_DEPTH);
         let report = fs::read_to_string(tmp.path().join("failed_assets.txt")).unwrap();
         assert!(report.contains("localization budget exceeded"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn existing_asset_read_and_write_failures_are_counted() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let css = tmp.path().join("style.css");
+        let js = tmp.path().join("app.js");
+        fs::write(&css, "p {}").unwrap();
+        fs::write(&js, "const app = {};").unwrap();
+        let _css_lock = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&css)
+            .unwrap();
+        let _js_lock = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1) // FILE_SHARE_READ
+            .open(&js)
+            .unwrap();
+        let html = r#"<link rel="stylesheet" href="style.css"><script src="app.js"></script>"#;
+
+        let (_, failed) = localize_preserved_index_assets_counted(
+            html,
+            "https://story.test/",
+            tmp.path(),
+            &NoNetwork,
+            false,
+        );
+
+        assert_eq!(failed, 2);
+        let report = fs::read_to_string(tmp.path().join("failed_assets.txt")).unwrap();
+        assert!(
+            report.contains("could not read localized asset"),
+            "{report}"
+        );
+        assert!(
+            report.contains("could not write localized asset"),
+            "{report}"
+        );
     }
 
     #[test]

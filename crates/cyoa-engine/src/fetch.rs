@@ -269,6 +269,11 @@ async fn stream_spooled(
         }
         Err(error) => return Streamed::Failed(error.to_string()),
     };
+    // A 200 with no bytes is not an asset (broken file / empty data URI).
+    if len == 0 {
+        remove_spool(path).await;
+        return Streamed::Failed("empty response body".to_owned());
+    }
     let read_path = path.clone();
     let prefix = match tokio::task::spawn_blocking(move || file_prefix(&read_path)).await {
         Ok(Ok(prefix)) => prefix,
@@ -659,7 +664,11 @@ pub async fn fetch_one(ctx: &FetchCtx, asset_path: &str) -> FetchOutcome {
                 format!("HTTP {status}: server error")
             };
             let backoff = ctx.domain.record_failure(&asset_url, || 0.5);
-            let delay = policy.status_delay(attempt, status, backoff, retry_value.as_deref(), 0.0);
+            // An HTTP-date Retry-After is relative to now, not to the Unix epoch.
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0.0, |d| d.as_secs_f64());
+            let delay = policy.status_delay(attempt, status, backoff, retry_value.as_deref(), now);
             drop(response);
             if let Some(delay) = delay
                 && !cancel_sleep(delay, &ctx.cancel).await
@@ -785,6 +794,10 @@ pub async fn fetch_one(ctx: &FetchCtx, asset_path: &str) -> FetchOutcome {
                 .is_err()
         {
             return outcome(asset_path, None, "", &asset_url, "fetch cancelled");
+        }
+        if data.is_empty() {
+            last_error = "empty response body".to_owned();
+            continue;
         }
         if asset_is_error_document(&mime, &data, true) {
             // image_pipeline.py 801-826: a MediaWiki `File:` description page

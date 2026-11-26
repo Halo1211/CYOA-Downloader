@@ -67,6 +67,9 @@ fn tree(root: &Path, home: &Path) -> BTreeMap<String, Vec<u8>> {
             let p = e.unwrap().path();
             if p.is_dir() {
                 stack.push(p);
+            } else if p.file_name().is_some_and(|n| n == ".complete") {
+                // Rust-only cache completion marker (not in the Python tree).
+                continue;
             } else {
                 let rel = p
                     .strip_prefix(home)

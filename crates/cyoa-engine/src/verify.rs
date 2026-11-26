@@ -60,15 +60,36 @@ fn walk(root: &Path, report: bool) -> (Vec<PathBuf>, Vec<String>) {
     let mut files = Vec::new();
     let mut issues = Vec::new();
     while let Some(d) = todo.pop() {
+        // An unreadable directory or entry must not let an incomplete scan pass.
         let Ok(rd) = std::fs::read_dir(&d) else {
+            if report {
+                issues.push(format!(
+                    "unreadable directory in package: {}",
+                    rel(root, &d)
+                ));
+            }
             continue;
         };
-        let mut es: Vec<_> = rd.flatten().collect();
+        let mut es = Vec::new();
+        for e in rd {
+            match e {
+                Ok(e) => es.push(e),
+                Err(_) if report => {
+                    issues.push(format!("unreadable entry in package: {}", rel(root, &d)));
+                }
+                Err(_) => {}
+            }
+        }
         es.sort_by_key(|e| e.file_name());
         let mut dirs = Vec::new();
         for e in es {
             let p = e.path();
-            let Ok(ft) = e.file_type() else { continue };
+            let Ok(ft) = e.file_type() else {
+                if report {
+                    issues.push(format!("unreadable entry in package: {}", rel(root, &p)));
+                }
+                continue;
+            };
             if ft.is_dir() {
                 if is_link(&p) || !contained(root, &p) {
                     if report {
@@ -302,7 +323,8 @@ pub fn verify_output_package(folder: &Path) -> (bool, String) {
     );
     let mut project = None;
     let pj = root.join("project.json");
-    if pj.is_file() {
+    // A linked project.json was already flagged by the walk: never read it.
+    if pj.is_file() && !is_link(&pj) && contained(&root, &pj) {
         match std::fs::read_to_string(&pj)
             .ok()
             .and_then(|s| serde_json::from_str::<Value>(&s).ok())

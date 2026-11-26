@@ -235,6 +235,17 @@ pub fn find_script_sources(
                 {
                     if let Some(content) = fetch(&src) {
                         results.push((src, content, None));
+                        // The inline loader may also carry the project payload.
+                        if script.value().attr("src").is_none() {
+                            let inline: String = script.text().collect();
+                            if !inline.trim().is_empty() {
+                                results.push((
+                                    format!("inline_script_{}", index + 1),
+                                    inline,
+                                    None,
+                                ));
+                            }
+                        }
                         continue;
                     }
                     failed_loader = Some(src);

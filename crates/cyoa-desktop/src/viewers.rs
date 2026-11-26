@@ -482,8 +482,11 @@ impl ViewerPanel {
                         "Remove '{id}' from the registry? The archive remains on disk."
                     ));
                     if ui.button("Yes").clicked() {
-                        unregister_offline_viewer(&viewers_dir(), &id, false);
-                        self.status = format!("Removed: {id}");
+                        self.status = if unregister_offline_viewer(&viewers_dir(), &id, false) {
+                            format!("Removed: {id}")
+                        } else {
+                            format!("Could not remove '{id}' (registry not updated)")
+                        };
                         self.confirm_remove = None;
                         let saved = selected_id(&self.manifest, &self.preferred);
                         self.refresh(&saved);

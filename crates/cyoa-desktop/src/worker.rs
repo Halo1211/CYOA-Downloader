@@ -33,6 +33,9 @@ pub type JobId = u64;
 pub struct JobSummary {
     pub written: Vec<String>,
     pub failed_assets: usize,
+    /// `(url, error)` of every failed asset: the Reports rows come from here
+    /// (progress events can be dropped when the UI channel is full).
+    pub failures: Vec<(String, String)>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -66,7 +69,10 @@ pub type Waker = Box<dyn Fn() + Send + Sync>;
 /// Shared cancellation state; every method is non-blocking for the UI.
 #[derive(Default)]
 struct Control {
-    tokens: Mutex<HashMap<JobId, CancellationToken>>,
+    /// Per job: (attempt generation, token). A retry of the same job id gets
+    /// a fresh token, and the previous attempt's cleanup cannot remove it.
+    tokens: Mutex<HashMap<JobId, (u64, CancellationToken)>>,
+    next_gen: std::sync::atomic::AtomicU64,
     shutdown: CancellationToken,
     /// Wakes the worker loop so cancelled queued jobs are finished promptly.
     changed: Notify,
@@ -75,12 +81,28 @@ struct Control {
 }
 
 impl Control {
-    fn token(&self, job: JobId) -> CancellationToken {
+    fn fresh(&self) -> (u64, CancellationToken) {
+        let attempt = self
+            .next_gen
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        (attempt, CancellationToken::new())
+    }
+    /// A new attempt: replaces any token left by an earlier attempt.
+    fn register(&self, job: JobId) -> u64 {
+        let entry = self.fresh();
+        let attempt = entry.0;
+        self.tokens
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(job, entry);
+        attempt
+    }
+    fn token(&self, job: JobId) -> (u64, CancellationToken) {
         self.tokens
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .entry(job)
-            .or_default()
+            .or_insert_with(|| self.fresh())
             .clone()
     }
     fn forget(&self, job: JobId) {
@@ -88,6 +110,13 @@ impl Control {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .remove(&job);
+    }
+    /// Remove the token only if it still belongs to attempt `attempt`.
+    fn forget_gen(&self, job: JobId, attempt: u64) {
+        let mut tokens = self.tokens.lock().unwrap_or_else(PoisonError::into_inner);
+        if tokens.get(&job).is_some_and(|(g, _)| *g == attempt) {
+            tokens.remove(&job);
+        }
     }
     #[cfg(test)]
     fn live_tokens(&self) -> usize {
@@ -149,10 +178,10 @@ impl WorkerHandle {
     pub fn start(&self, job: JobId, opts: impl Into<JobSpec>) -> bool {
         let opts = opts.into();
         // Register the token first so a Cancel issued right away is never lost.
-        let _ = self.control.token(job);
+        let attempt = self.control.register(job);
         let ok = self.jobs.try_send((job, opts)).is_ok();
         if !ok {
-            self.control.forget(job);
+            self.control.forget_gen(job, attempt);
         }
         ok
     }
@@ -166,7 +195,7 @@ impl WorkerHandle {
             .unwrap_or_else(PoisonError::into_inner)
             .get(&job)
         {
-            t.cancel();
+            t.1.cancel();
         }
         self.control.changed.notify_one();
     }
@@ -185,7 +214,7 @@ impl WorkerHandle {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .values()
-            .for_each(CancellationToken::cancel);
+            .for_each(|(_, t)| t.cancel());
         self.control.changed.notify_one();
     }
 
@@ -266,13 +295,13 @@ async fn worker_loop(
     control: Arc<Control>,
 ) {
     let mut queue: VecDeque<(JobId, JobSpec)> = VecDeque::new();
-    let mut running: Option<(JobId, tokio::task::JoinHandle<()>)> = None;
+    let mut running: Option<(JobId, u64, tokio::task::JoinHandle<()>)> = None;
 
     loop {
         // Finish cancelled queued jobs immediately, independent of the running job.
         let mut cancelled = Vec::new();
         queue.retain(|(id, _)| {
-            let c = control.token(*id).is_cancelled();
+            let c = control.token(*id).1.is_cancelled();
             if c {
                 cancelled.push(*id);
             }
@@ -288,7 +317,7 @@ async fn worker_loop(
         }
 
         if control.shutdown.is_cancelled() {
-            if let Some((id, mut h)) = running.take() {
+            if let Some((id, _, mut h)) = running.take() {
                 if tokio::time::timeout(Duration::from_secs(2), &mut h)
                     .await
                     .is_err()
@@ -304,19 +333,23 @@ async fn worker_loop(
             && !control.paused.load(std::sync::atomic::Ordering::SeqCst)
             && let Some((id, opts)) = queue.pop_front()
         {
-            let token = control.token(id);
-            running = Some((id, tokio::spawn(run_job(id, opts, token, link.clone()))));
+            let (attempt, token) = control.token(id);
+            running = Some((
+                id,
+                attempt,
+                tokio::spawn(run_job(id, opts, token, link.clone())),
+            ));
         }
 
         tokio::select! {
             joined = async {
                 match running.as_mut() {
-                    Some((_, h)) => h.await,
+                    Some((_, _, h)) => h.await,
                     None => std::future::pending().await,
                 }
             }, if running.is_some() => {
-                if let Some((id, _)) = running.take() {
-                    control.forget(id);
+                if let Some((id, attempt, _)) = running.take() {
+                    control.forget_gen(id, attempt);
                     if let Err(e) = joined {
                         // Panic/abort after Started: never leave the UI showing Running.
                         link.lifecycle(Event::Finished {
@@ -529,6 +562,11 @@ async fn run_job(job: JobId, spec: JobSpec, cancel: CancellationToken, link: Arc
                     .map(|p| p.display().to_string())
                     .collect(),
                 failed_assets: report.failed_assets.len(),
+                failures: report
+                    .failed_assets
+                    .iter()
+                    .map(|f| (f.url.clone(), f.error.clone()))
+                    .collect(),
             })
         }
         Err(RunError::Cancelled) => JobResult::Cancelled,

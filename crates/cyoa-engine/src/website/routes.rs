@@ -6,7 +6,11 @@ use crate::{
     localize::{clean_url_path_component, unquote},
 };
 use sha1::{Digest, Sha1};
-use std::{collections::HashMap, fs, path::Path};
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    path::Path,
+};
 
 const GUARD: &str = "<script data-cyoa-offline-route-guard>document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a[data-cyoa-local-route]');if(a){e.preventDefault();e.stopImmediatePropagation();location.href=a.href;}},true);</script>";
 
@@ -115,6 +119,7 @@ pub struct RouteCrawler {
     pub origin: (String, String),
     pub scope_path: String,
     pub local_route_owners: HashMap<String, String>,
+    local_route_dirs: HashSet<String>,
     pub page_link_bases: HashMap<String, String>,
     /// Python dict: iteration follows first-insertion order (the rewrite
     /// lets a later redirect target win, exactly like Python).
@@ -132,6 +137,7 @@ impl RouteCrawler {
             origin: (scheme, netloc),
             scope_path,
             local_route_owners: HashMap::new(),
+            local_route_dirs: HashSet::new(),
             page_link_bases: HashMap::new(),
             response_urls: PyDict::default(),
             output_paths: HashMap::new(),
@@ -238,18 +244,28 @@ impl RouteCrawler {
         let test = decoded.trim_end_matches('/');
         test == start || decoded.starts_with(&self.scope_path)
     }
-    /// Reserve local paths already used by an earlier run, so a resumed crawl
-    /// never hands a different URL the same `routes/.../index.html`.
+    /// Reserve the recorded file and its parent directories.
     pub fn reserve_existing(&mut self, url: &str, rel: &str) {
-        let canonical = Self::canonicalize(url);
-        self.local_route_owners
-            .insert(owner_key(rel), canonical.clone());
+        self.reserve_path(Self::canonicalize(url), rel);
+    }
+
+    fn reserve_path(&mut self, canonical: String, rel: &str) {
+        let key = owner_key(rel);
+        for (end, _) in key.match_indices('/') {
+            self.local_route_dirs.insert(key[..end].to_owned());
+        }
+        self.local_route_owners.insert(key, canonical.clone());
         self.output_paths.insert(canonical, rel.to_owned());
     }
     pub fn route_local_path(&mut self, url: &str) -> String {
         let canonical = Self::canonicalize(url);
+        if !canonical.is_empty()
+            && let Some(rel) = self.output_paths.get(&canonical)
+        {
+            return rel.clone();
+        }
         if canonical == self.start_url {
-            self.output_paths.insert(canonical, "index.html".into());
+            self.reserve_path(canonical, "index.html");
             return "index.html".into();
         }
         let (_, _, path, _, query, _) = parse_url(url);
@@ -272,40 +288,41 @@ impl RouteCrawler {
         if parts.is_empty() {
             parts.push("route".into());
         }
+        let last = parts.len() - 1;
         if !query.is_empty() {
-            let last = parts.len() - 1;
             parts[last] = clean_url_path_component(&format!("{}_{}", parts[last], sha1_8(&query)));
         }
-        let mut rel = format!("routes/{}/index.html", parts.join("/"));
-        let mut key = owner_key(&rel);
-        if self
-            .local_route_owners
-            .get(&key)
-            .is_some_and(|owner| owner != &canonical)
-        {
-            let last = parts.len() - 1;
-            let stem = parts[last].clone();
-            let hash = sha1_8(&canonical);
-            for attempt in 1usize.. {
+        let mut directory = String::from("routes");
+        let mut hash = None;
+        for (index, stem) in parts.iter().enumerate() {
+            let mut candidate = format!("{directory}/{stem}");
+            let mut attempt = 1;
+            loop {
+                let key = owner_key(&candidate);
+                let directory_is_file = self.local_route_owners.contains_key(&key);
+                let file_is_reserved = index == last && {
+                    let file = format!("{key}/index.html");
+                    self.local_route_owners
+                        .get(&file)
+                        .is_some_and(|owner| owner != &canonical)
+                        || self.local_route_dirs.contains(&file)
+                };
+                if !directory_is_file && !file_is_reserved {
+                    break;
+                }
+                let hash = hash.get_or_insert_with(|| sha1_8(&canonical));
                 let component = if attempt == 1 {
                     format!("{stem}_{hash}")
                 } else {
                     format!("{stem}_{hash}_{attempt}")
                 };
-                parts[last] = clean_url_path_component(&component);
-                rel = format!("routes/{}/index.html", parts.join("/"));
-                key = owner_key(&rel);
-                if self
-                    .local_route_owners
-                    .get(&key)
-                    .is_none_or(|owner| owner == &canonical)
-                {
-                    break;
-                }
+                candidate = format!("{directory}/{}", clean_url_path_component(&component));
+                attempt += 1;
             }
+            directory = candidate;
         }
-        self.local_route_owners.insert(key, canonical.clone());
-        self.output_paths.insert(canonical, rel.clone());
+        let rel = format!("{directory}/index.html");
+        self.reserve_path(canonical, &rel);
         rel
     }
     pub fn links_from(&mut self, html: &str, page_url: &str) -> Vec<String> {
@@ -548,6 +565,33 @@ mod tests {
             assert_eq!(resumed.route_local_path(owner), path);
         }
         assert_eq!(resumed.route_local_path(url), local);
+    }
+
+    #[test]
+    fn route_paths_avoid_file_and_directory_collisions_in_both_orders() {
+        let start = "https://story.test/story/";
+        let parent = format!("{start}chapter/");
+        let child = format!("{start}chapter/index.html/appendix/");
+        for (first, second) in [(&parent, &child), (&child, &parent)] {
+            let mut crawler = RouteCrawler::new(start);
+            let first_path = crawler.route_local_path(first);
+            let second_path = crawler.route_local_path(second);
+
+            let tmp = tempfile::tempdir().unwrap();
+            for (path, content) in [(&first_path, first), (&second_path, second)] {
+                let file = tmp.path().join(path);
+                fs::create_dir_all(file.parent().unwrap()).unwrap();
+                fs::write(file, content).unwrap();
+            }
+            assert_eq!(
+                fs::read_to_string(tmp.path().join(&first_path)).unwrap(),
+                *first
+            );
+
+            let mut resumed = RouteCrawler::new(start);
+            resumed.reserve_existing(first, &first_path);
+            assert_eq!(resumed.route_local_path(second), second_path);
+        }
     }
 
     #[test]

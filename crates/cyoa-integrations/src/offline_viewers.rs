@@ -169,6 +169,23 @@ pub fn safe_viewer_relative_path(v: &Value, default: &str) -> String {
     }
     cyoa_core::paths::safe_archive_rel_path(s, false).unwrap_or_default()
 }
+/// `load_manifest` for a read-modify-write: `None` when `viewers.json` exists
+/// but cannot be read or is not a JSON object, so an update never replaces
+/// the registry with only the new entry.
+pub fn load_manifest_for_update(dir: &Path) -> Option<Map<String, Value>> {
+    let path = dir.join("viewers.json");
+    match fs::read_to_string(&path) {
+        Ok(data) => {
+            if !matches!(serde_json::from_str::<Value>(&data), Ok(Value::Object(_))) {
+                return None;
+            }
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => return None,
+    }
+    Some(load_manifest(dir))
+}
+
 pub fn load_manifest(dir: &Path) -> Map<String, Value> {
     let path = dir.join("viewers.json");
     let Ok(data) = fs::read_to_string(path) else {
@@ -356,14 +373,15 @@ fn zip_names(dir: &Path, meta: &Map<String, Value>) -> Option<Vec<String>> {
     let mut z = zip::ZipArchive::new(f).ok()?;
     let mut names = Vec::new();
     for i in 0..z.len() {
-        if let Ok(mut f) = z.by_index(i) {
+        // Names come from the central directory: nothing is decompressed (a
+        // large viewer must not stall the recommendations panel).
+        if let Ok(f) = z.by_index_raw(i) {
             let n = f
                 .name()
                 .unwrap_or(std::borrow::Cow::Borrowed(" "))
                 .replace('\\', "/")
                 .to_lowercase();
             names.push(n.trim_start_matches("./").to_owned());
-            let _ = std::io::copy(&mut f, &mut std::io::sink());
         }
     }
     Some(names)

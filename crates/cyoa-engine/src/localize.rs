@@ -361,6 +361,25 @@ pub fn asset_rel_path(
     let ext = media_content_extension(resolved, mime, content);
     let ext = if ext.is_empty() { ".bin" } else { &ext };
     let kind = if is_image { "image" } else { "audio" };
-    let safe = safe_rel_path(&name, &format!("{kind}{ext}"));
+    // safe_rel_path decodes `%23`/`%3F` after cutting at `#`/`?`; left in,
+    // the writer would read `map#day.svg` as `map` + fragment.
+    let safe = safe_rel_path(&name, &format!("{kind}{ext}")).replace(['#', '?'], "_");
     format!("{}/{safe}", if is_image { "images" } else { "audio" })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn encoded_hash_keeps_the_extension() {
+        let rel = asset_rel_path(
+            "https://x.test/img/map%23day.svg",
+            "https://x.test/",
+            "image/svg+xml",
+            b"<svg/>",
+            true,
+        );
+        assert!(rel.ends_with("map_day.svg"), "{rel}");
+    }
 }

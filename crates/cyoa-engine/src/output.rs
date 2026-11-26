@@ -181,49 +181,112 @@ fn create_owned_temp(directory: &Path) -> io::Result<(OwnedTemp, File)> {
     }
 }
 
+fn check_cancelled(cancelled: &dyn Fn() -> bool) -> io::Result<()> {
+    if cancelled() {
+        return Err(io::Error::new(
+            io::ErrorKind::Interrupted,
+            "Output cancelled",
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn copy_cancellable(
+    source: &mut impl Read,
+    target: &mut impl Write,
+    cancelled: &dyn Fn() -> bool,
+) -> io::Result<u64> {
+    let mut buffer = [0; 64 * 1024];
+    let mut written = 0;
+    loop {
+        check_cancelled(cancelled)?;
+        let n = source.read(&mut buffer)?;
+        if n == 0 {
+            return Ok(written);
+        }
+        target.write_all(&buffer[..n])?;
+        written += n as u64;
+    }
+}
+
+fn no_free_output_name() -> io::Error {
+    io::Error::new(io::ErrorKind::AlreadyExists, "no free output file name")
+}
+
+fn publish_copy(
+    source: &Path,
+    directory: &Path,
+    targets: impl Iterator<Item = PathBuf>,
+    cancelled: &dyn Fn() -> bool,
+) -> io::Result<PathBuf> {
+    let (temp, mut out) = create_owned_temp(directory)?;
+    copy_cancellable(&mut File::open(source)?, &mut out, cancelled)?;
+    out.sync_all()?;
+    drop(out);
+    for target in targets {
+        check_cancelled(cancelled)?;
+        // Reserve the name only after the copy is complete. Rename replaces the
+        // empty reservation we own, while concurrent publishers skip it.
+        match OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&target)
+        {
+            Ok(reservation) => drop(reservation),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+        let published = check_cancelled(cancelled).and_then(|()| fs::rename(&temp.0, &target));
+        if let Err(e) = published {
+            let _ = fs::remove_file(&target);
+            return Err(e);
+        }
+        return Ok(target);
+    }
+    Err(no_free_output_name())
+}
+
 /// Write via `fill` into an owned temp file, then publish it under the first free
-/// candidate name WITHOUT replacing anything (hard link, or create_new + copy where
-/// links are unsupported). Concurrent writers each get a distinct name.
+/// candidate name without replacing existing output. Concurrent writers each
+/// get a distinct name.
 pub fn publish_no_clobber(
     filename: &str,
     directory: &Path,
     fill: impl FnOnce(File) -> io::Result<File>,
+) -> io::Result<PathBuf> {
+    publish_no_clobber_cancellable(filename, directory, fill, &|| false)
+}
+
+fn publish_no_clobber_cancellable(
+    filename: &str,
+    directory: &Path,
+    fill: impl FnOnce(File) -> io::Result<File>,
+    cancelled: &dyn Fn() -> bool,
 ) -> io::Result<PathBuf> {
     fs::create_dir_all(directory)?;
     let (temp, file) = create_owned_temp(directory)?;
     let file = fill(file)?;
     file.sync_all()?;
     drop(file);
-    for name in output_candidates(filename).take(100_000) {
-        let target = directory.join(name);
+    let mut targets = output_candidates(filename)
+        .take(100_000)
+        .map(|name| directory.join(name));
+    while let Some(target) = targets.next() {
+        check_cancelled(cancelled)?;
         match fs::hard_link(&temp.0, &target) {
             Ok(()) => return Ok(target),
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(_) => match OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&target)
-            {
-                Ok(mut out) => {
-                    let copied = File::open(&temp.0)
-                        .and_then(|mut src| io::copy(&mut src, &mut out))
-                        .and_then(|_| out.sync_all());
-                    if let Err(e) = copied {
-                        drop(out);
-                        let _ = fs::remove_file(&target);
-                        return Err(e);
-                    }
-                    return Ok(target);
-                }
-                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
-                Err(e) => return Err(e),
-            },
+            Err(_) => {
+                return publish_copy(
+                    &temp.0,
+                    directory,
+                    std::iter::once(target).chain(targets),
+                    cancelled,
+                );
+            }
         }
     }
-    Err(io::Error::new(
-        io::ErrorKind::AlreadyExists,
-        "no free output file name",
-    ))
+    Err(no_free_output_name())
 }
 
 pub fn save_embedded_json(
@@ -372,7 +435,7 @@ pub fn zip_package_cancellable(
         entries.push((relative, path));
     }
     let mut zip_err = None;
-    let published = publish_no_clobber(filename, directory, |file| {
+    let fill_zip = |file| {
         let mut archive = ZipWriter::new(file);
         let res = (|| -> Result<(), OutputError> {
             for (relative, path) in &entries {
@@ -417,15 +480,9 @@ pub fn zip_package_cancellable(
         // sync_all needs a writable handle on Windows (FlushFileBuffers); the
         // publisher syncs the returned writer handle.
         archive.finish().map_err(io::Error::other)
-    });
+    };
+    let published = publish_no_clobber_cancellable(filename, directory, fill_zip, cancelled);
     match (published, zip_err) {
-        // A cancel during publication (e.g. the copy fallback where hard links
-        // are unsupported) must not leave a ZIP that lets the caller delete
-        // the source folder.
-        (Ok(p), _) if cancelled() => {
-            let _ = fs::remove_file(&p);
-            Err(io::Error::new(io::ErrorKind::Interrupted, "ZIP cancelled").into())
-        }
         (Ok(p), _) => Ok(p),
         (Err(_), Some(e)) => Err(e),
         (Err(e), None) => Err(e.into()),
@@ -577,6 +634,63 @@ mod tests {
         assert!(finalize_site_folder_cancellable(&site, "game", true, &out, &|| true).is_err());
         assert!(site.join("index.html").is_file());
         assert!(fs::read_dir(&out).unwrap().next().is_none());
+    }
+
+    #[test]
+    fn copy_fallback_cancels_without_exposing_partial_output() {
+        use std::cell::Cell;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let directory = tmp.path();
+        let source = directory.join("source.zip");
+        let target = directory.join("game.zip");
+        fs::write(&source, vec![0; 2 << 20]).unwrap();
+
+        let checks = Cell::new(0);
+        let error = publish_copy(&source, directory, std::iter::once(target.clone()), &|| {
+            assert!(!target.exists());
+            checks.set(checks.get() + 1);
+            checks.get() == 2
+        })
+        .unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::Interrupted);
+        assert_eq!(fs::read_dir(directory).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn copy_fallback_cancels_before_renaming_and_preserves_existing_output() {
+        let tmp = tempfile::tempdir().unwrap();
+        let directory = tmp.path();
+        let source = directory.join("source.zip");
+        let existing = directory.join("game.zip");
+        let target = directory.join("game_1.zip");
+        fs::write(&source, b"new").unwrap();
+        fs::write(&existing, b"existing").unwrap();
+
+        let error = publish_copy(
+            &source,
+            directory,
+            [existing.clone(), target.clone()].into_iter(),
+            &|| target.exists(),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::Interrupted);
+        assert_eq!(fs::read(&existing).unwrap(), b"existing");
+        assert_eq!(fs::read_dir(directory).unwrap().count(), 2);
+
+        let published = publish_copy(
+            &source,
+            directory,
+            [existing.clone(), target.clone()].into_iter(),
+            &|| false,
+        )
+        .unwrap();
+        assert_eq!(published, target);
+        assert_eq!(fs::read(published).unwrap(), b"new");
+        assert_eq!(fs::read(existing).unwrap(), b"existing");
+        assert_eq!(fs::read_dir(directory).unwrap().count(), 3);
     }
 
     #[test]

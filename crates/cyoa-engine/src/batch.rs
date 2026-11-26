@@ -181,6 +181,13 @@ fn parse_excel(path: &Path) -> Vec<BatchItem> {
     };
     // Calamine starts the range at the first used cell; pandas starts at A1.
     let (r0, c0) = range.start().unwrap_or((0, 0));
+    // Data starting below row 1 leaves the header row empty: no URL column,
+    // so nothing to import. Return before allocating r0 empty rows (a stray
+    // cell far down the sheet would otherwise allocate a huge rectangle).
+    if r0 > 0 {
+        tracing::warn!("Batch import: no URL/Link column found.");
+        return Vec::new();
+    }
     let width = range.width() + c0 as usize;
     let mut rows: Vec<Vec<String>> = vec![vec![String::new(); width]; r0 as usize];
     for row in range.rows() {
@@ -479,6 +486,7 @@ pub async fn import_batch_source(
             .get(&parsed, &opts, cancel)
             .await
             .map_err(|e| e.to_string())?;
+        let final_url = resp.final_url.to_string();
         let charset = resp
             .headers
             .get(CONTENT_TYPE)
@@ -497,11 +505,25 @@ pub async fn import_batch_source(
         } else {
             charset.as_str()
         };
-        Ok::<_, String>(cyoa_parse::project::try_decode_bytes(&body, preferred))
+        Ok::<_, String>((
+            final_url,
+            cyoa_parse::project::try_decode_bytes(&body, preferred),
+        ))
     }
     .await;
     match text {
-        Ok(t) => parse_remote_list(&url, &t),
+        // An extensionless share link redirecting to `queue.txt` is a TXT list.
+        Ok((final_url, t)) => {
+            let is_txt = |u: &str| {
+                url::Url::parse(u).is_ok_and(|u| u.path().to_lowercase().ends_with(".txt"))
+            };
+            let parse_url = if !is_txt(&url) && is_txt(&final_url) {
+                final_url.as_str()
+            } else {
+                url.as_str()
+            };
+            parse_remote_list(parse_url, &t)
+        }
         Err(e) => {
             tracing::error!("Failed to import remote list: {e}");
             Vec::new()

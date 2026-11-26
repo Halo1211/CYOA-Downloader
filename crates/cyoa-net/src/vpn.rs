@@ -217,6 +217,16 @@ fn platform_interfaces() -> Vec<NetInterface> {
     else {
         return Vec::new();
     };
+    // Drain stdout while PowerShell runs: a full pipe would block it until
+    // the deadline.
+    let reader = child.stdout.take().map(|mut stdout| {
+        std::thread::spawn(move || {
+            use std::io::Read;
+            let mut out = String::new();
+            let _ = stdout.read_to_string(&mut out);
+            out
+        })
+    });
     let deadline = Instant::now() + Duration::from_secs(4);
     loop {
         match child.try_wait() {
@@ -230,11 +240,7 @@ fn platform_interfaces() -> Vec<NetInterface> {
             Ok(None) => std::thread::sleep(Duration::from_millis(25)),
         }
     }
-    let mut out = String::new();
-    if let Some(mut stdout) = child.stdout.take() {
-        use std::io::Read;
-        let _ = stdout.read_to_string(&mut out);
-    }
+    let out = reader.and_then(|r| r.join().ok()).unwrap_or_default();
     parse_tab_lines(&out)
 }
 

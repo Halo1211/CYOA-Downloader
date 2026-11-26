@@ -11,7 +11,7 @@
 #![allow(clippy::collapsible_if)]
 
 use cyoa_integrations::offline_viewers::{
-    VIEWER_TYPE_HINTS, classic_viewer_family, load_manifest, safe_viewer_archive_name,
+    VIEWER_TYPE_HINTS, classic_viewer_family, load_manifest_for_update, safe_viewer_archive_name,
     safe_viewer_relative_path, save_manifest,
 };
 use serde_json::{Map, Value};
@@ -205,7 +205,14 @@ pub fn register_offline_viewer(
         let _ = fs::remove_dir_all(&staging);
         return id;
     }
-    let is_rar = source_name.to_lowercase().ends_with(".rar");
+    // Copying an archive named like the manifest (or a temp file) would
+    // replace the registry itself.
+    let lower_name = source_name.to_lowercase();
+    if lower_name == "viewers.json" || lower_name.starts_with(".viewer-") {
+        tracing::error!("Offline viewer archive name is reserved: {source_name}");
+        return None;
+    }
+    let is_rar = lower_name.ends_with(".rar");
     let entry_point =
         safe_viewer_relative_path(&Value::String(opts.entry_point.clone()), "index.html");
     let raw_project = opts.project_json_path.trim();
@@ -329,7 +336,11 @@ pub fn register_offline_viewer(
                 return Err(e.to_string());
             }
         }
-        let mut manifest = load_manifest(viewers_dir);
+        let _registry = MANIFEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut manifest = load_manifest_for_update(viewers_dir)
+            .ok_or_else(|| "viewer registry (viewers.json) is unreadable".to_owned())?;
         let mut entry = Map::new();
         let name = if opts.name.is_empty() {
             viewer_id.clone()
@@ -390,8 +401,18 @@ fn uuid_like() -> String {
 }
 
 /// Python `unregister_offline_viewer`.
+/// Serializes viewers.json read-modify-write: a registration and a removal
+/// running at once must not save from the same snapshot.
+static MANIFEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 pub fn unregister_offline_viewer(viewers_dir: &Path, viewer_id: &str, delete_zip: bool) -> bool {
-    let mut manifest = load_manifest(viewers_dir);
+    let _registry = MANIFEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Some(mut manifest) = load_manifest_for_update(viewers_dir) else {
+        tracing::error!("Viewer registry (viewers.json) is unreadable");
+        return false;
+    };
     let Some(entry) = manifest.shift_remove(viewer_id) else {
         return false;
     };

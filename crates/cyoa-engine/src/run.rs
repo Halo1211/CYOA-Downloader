@@ -680,7 +680,8 @@ pub async fn run_download(
         let zip = opts.mode == OutputMode::IccZip;
         match crate::cyoap::try_download_cyoap_vue_site(
             &client,
-            &opts.url,
+            // The resolved CYOA.CAFE viewer, not the catalogue page.
+            &website_url,
             &site,
             zip,
             opts.workers,
@@ -971,10 +972,11 @@ pub async fn run_download(
             output::save_embedded_json(&dl_str, "project.json", &pkg)
                 .map_err(|e| RunError::OutputStage(format!("localized ZIP JSON: {e}")))?;
             check()?;
-            written.push(output::zip_package(
+            written.push(output::zip_package_cancellable(
                 &pkg,
                 &format!("{stem}.zip"),
                 &output_dir,
+                &|| stage_cancel.is_cancelled(),
             )?);
         }
         // Python opens `{file_name}_metadata.json` with "w" (overwrites, no suffix).

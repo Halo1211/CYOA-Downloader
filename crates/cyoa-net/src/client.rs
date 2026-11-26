@@ -151,12 +151,55 @@ impl Default for FetchOptions {
 struct PolicyResolver(
     DestinationPolicy,
     Option<Arc<crate::dns_resolve::CustomResolver>>,
+    /// Configured proxy hosts: trusted endpoints, not request destinations
+    /// (a corporate proxy usually resolves to a private address).
+    Arc<Vec<String>>,
 );
+
+/// Host names of the proxies this configuration can route through.
+fn proxy_hosts(cfg: &crate::proxy::ProxyConfig) -> Vec<String> {
+    use crate::proxy::ProxyMode;
+    let mut raw: Vec<String> = match cfg.mode {
+        ProxyMode::Disabled => Vec::new(),
+        ProxyMode::Manual => [&cfg.common, &cfg.http, &cfg.https]
+            .into_iter()
+            .flatten()
+            .cloned()
+            .collect(),
+        ProxyMode::InheritEnv => [
+            "HTTP_PROXY",
+            "http_proxy",
+            "HTTPS_PROXY",
+            "https_proxy",
+            "ALL_PROXY",
+            "all_proxy",
+        ]
+        .iter()
+        .filter_map(|k| std::env::var(k).ok())
+        .collect(),
+    };
+    raw.retain(|v| !v.trim().is_empty());
+    raw.iter()
+        .filter_map(|v| {
+            let v = v.trim();
+            let with_scheme = if v.contains("://") {
+                v.to_owned()
+            } else {
+                format!("http://{v}")
+            };
+            Url::parse(&with_scheme).ok().and_then(|u| {
+                u.host_str()
+                    .map(|h| h.trim_end_matches('.').to_ascii_lowercase())
+            })
+        })
+        .collect()
+}
 
 impl Resolve for PolicyResolver {
     fn resolve(&self, name: Name) -> Resolving {
         let policy = self.0.clone();
         let custom_dns = self.1.clone();
+        let proxies = self.2.clone();
         Box::pin(async move {
             let host = name.as_str();
             let addrs: Vec<SocketAddr> = if let Some(resolver) = custom_dns {
@@ -171,6 +214,9 @@ impl Resolve for PolicyResolver {
                 tokio::net::lookup_host((host, 0)).await?.collect()
             };
             let exempt = policy.allow_internal
+                || proxies
+                    .iter()
+                    .any(|p| p.eq_ignore_ascii_case(host.trim_end_matches('.')))
                 || policy
                     .origin
                     .as_ref()
@@ -394,6 +440,7 @@ impl FetchClient {
             .dns_resolver(Arc::new(PolicyResolver(
                 cfg.policy.clone(),
                 cfg.dns.clone(),
+                Arc::new(proxy_hosts(&cfg.proxy)),
             )))
             .connect_timeout(cfg.connect_timeout)
             .read_timeout(cfg.read_timeout)
@@ -481,17 +528,19 @@ impl FetchClient {
             .and_then(|t| Instant::now().checked_add(t));
         check(cancel, end)?;
         self.cfg.policy.check(url)?;
-        if let Some(vpn) = &self.cfg.vpn
-            && !vpn.satisfied_async().await
-        {
-            return Err(E::VpnBlocked);
-        }
         let _lease = wait(
             cancel,
             end,
             self.cfg.budget.acquire(url.as_str(), 0, cancel),
         )
         .await??;
+        // After admission, right before the send (the tunnel can drop while
+        // the request waits in the queue).
+        if let Some(vpn) = &self.cfg.vpn
+            && !vpn.satisfied_async().await
+        {
+            return Err(E::VpnBlocked);
+        }
         let resp = wait(
             cancel,
             end,
@@ -833,23 +882,31 @@ impl FetchClient {
             .and_then(|t| Instant::now().checked_add(t));
         check(cancel, end)?;
         self.cfg.policy.check(url)?;
-        if let Some(vpn) = &self.cfg.vpn
-            && !vpn.satisfied_async().await
-        {
-            return Err(E::VpnBlocked);
-        }
-        let mut headers = HeaderMap::new();
-        for (k, v) in get_headers_for_url(url.as_str()) {
-            let k = HeaderName::from_bytes(k.as_bytes()).map_err(|_| PolicyError::InvalidUrl)?;
-            let v = HeaderValue::from_str(&v).map_err(|_| PolicyError::InvalidUrl)?;
-            headers.insert(k, v);
-        }
-        headers.extend(opts.headers.clone());
-        if let Ok(map) = self.user_agent.read()
-            && let Some(ua) = map.get(&origin_key(url))
-        {
-            headers.insert(reqwest::header::USER_AGENT, ua.clone());
-        }
+        // Per-URL defaults (CDN Referer etc.) are rebuilt for every hop: a
+        // generic URL can redirect to a hotlink-protected CDN.
+        let headers_for = |at: &Url, cross_origin: bool| -> Result<HeaderMap, E> {
+            let mut headers = HeaderMap::new();
+            for (k, v) in get_headers_for_url(at.as_str()) {
+                let k =
+                    HeaderName::from_bytes(k.as_bytes()).map_err(|_| PolicyError::InvalidUrl)?;
+                let v = HeaderValue::from_str(&v).map_err(|_| PolicyError::InvalidUrl)?;
+                headers.insert(k, v);
+            }
+            headers.extend(opts.headers.clone());
+            if let Ok(map) = self.user_agent.read()
+                && let Some(ua) = map.get(&origin_key(at))
+            {
+                headers.insert(reqwest::header::USER_AGENT, ua.clone());
+            }
+            if cross_origin {
+                for h in CROSS_ORIGIN_SENSITIVE_HEADERS {
+                    headers.remove(*h);
+                }
+            }
+            Ok(headers)
+        };
+        let mut cross_origin = false;
+        let mut headers = headers_for(url, false)?;
         let mut lease = wait(
             cancel,
             end,
@@ -862,6 +919,13 @@ impl FetchClient {
             check(cancel, end)?;
             self.cfg.policy.check(&at)?;
             let pinned = self.pin_for(&at, cancel, end).await?;
+            // Checked after admission and before every hop: the tunnel can
+            // drop while a request waits in the queue.
+            if let Some(vpn) = &self.cfg.vpn
+                && !vpn.satisfied_async().await
+            {
+                return Err(E::VpnBlocked);
+            }
             if !at.username().is_empty() || at.password().is_some() {
                 return Err(PolicyError::InvalidUrl.into());
             }
@@ -888,10 +952,9 @@ impl FetchClient {
                     .join(location.to_str().map_err(|_| PolicyError::InvalidUrl)?)
                     .map_err(|_| PolicyError::InvalidUrl)?;
                 if self.cfg.policy.redirect_check(&at, &to)? {
-                    for h in CROSS_ORIGIN_SENSITIVE_HEADERS {
-                        headers.remove(*h);
-                    }
+                    cross_origin = true;
                 }
+                headers = headers_for(&to, cross_origin)?;
                 drop(body);
                 lease = wait(
                     cancel,
@@ -963,7 +1026,7 @@ impl FetchClient {
                 .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "file writer stopped"))?;
             Ok(n)
         };
-        let mut result = tokio::select! {
+        let result = tokio::select! {
             biased;
             () = cancel.cancelled() => Err(E::Cancelled),
             () = root.cancelled() => Err(E::Cancelled),
@@ -973,18 +1036,26 @@ impl FetchClient {
             op.cancel();
         }
         drop(tx);
+        let mut late_cancel = None;
         let saved = match wait(cancel, None, &mut writer).await {
             Ok(v) => v,
             Err(e) => {
                 op.cancel();
-                result = Err(e);
+                late_cancel = Some(e);
                 writer.await
             }
         }
         .map_err(|_| io::Error::other("file writer task failed"))?;
-        let n = result?;
-        saved?;
-        Ok(n)
+        match (result, saved) {
+            // The writer's rename is the commit point: a cancel that arrives
+            // after it must not report failure for a file that now exists.
+            (Ok(n), Ok(())) => Ok(n),
+            (Err(E::Cancelled), _) => Err(E::Cancelled),
+            (_, Err(e)) => Err(late_cancel.unwrap_or(e)),
+            // The pump only fails with "file writer stopped" when the writer
+            // stopped; the writer's own error (disk full) is reported above.
+            (Err(e), Ok(())) => Err(e),
+        }
     }
 
     /// Bounded body read (lossy UTF-8; charset handling is a documented TODO).
@@ -1002,6 +1073,20 @@ impl FetchClient {
     }
 
     /// Bounded response body read, preserving the response cancellation token.
+    /// The first `n` bytes of the body (fewer if it is shorter); the rest is
+    /// not read, so a server ignoring `Range` costs at most one extra chunk.
+    pub async fn prefix(mut resp: FetchResponse, n: usize) -> Result<Bytes, E> {
+        let mut bytes = Vec::new();
+        while bytes.len() < n {
+            let Some(chunk) = resp.chunk().await? else {
+                break;
+            };
+            bytes.extend_from_slice(&chunk);
+        }
+        bytes.truncate(n);
+        Ok(Bytes::from(bytes))
+    }
+
     pub async fn bytes(mut resp: FetchResponse, max: u64) -> Result<Bytes, E> {
         resp.size_check(max)?;
         let mut bytes = Vec::new();

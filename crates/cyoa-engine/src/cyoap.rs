@@ -194,6 +194,32 @@ async fn get(
         .to_vec();
     Ok((status, ct, b, final_url))
 }
+/// Auto-detect probe that follows the entry page's redirect like the
+/// downloader: `/play` -> `/game/index.html` probes `/game/dist/` first.
+pub async fn probe_cyoap_vue_redirect_aware(
+    client: &FetchClient,
+    start_url: &str,
+    cancel: &CancellationToken,
+) -> bool {
+    let original_base = crate::website::js::directory_base_url(start_url);
+    if let Ok((_, _, _, final_url)) = get(client, start_url, cancel).await
+        && final_url != start_url
+        && cyoa_core::url::same_origin(&final_url, &original_base)
+    {
+        let page_base = crate::fetch_plan::python_urljoin(&final_url, "./");
+        if page_base != original_base
+            && probe_cyoap_vue_structure(client, &page_base, cancel)
+                .await
+                .is_some()
+        {
+            return true;
+        }
+    }
+    probe_cyoap_vue_structure(client, &original_base, cancel)
+        .await
+        .is_some()
+}
+
 pub async fn probe_cyoap_vue_structure(
     client: &FetchClient,
     base_url: &str,
@@ -418,21 +444,22 @@ async fn fetch_dist(
     client: &FetchClient,
     base: &str,
     cancel: &CancellationToken,
-) -> Option<(Value, String, String)> {
+) -> Option<(Value, String, Vec<Value>, String)> {
     let join = crate::fetch_plan::python_urljoin;
     let platform = fetch_remote(client, &join(base, "dist/platform.json"), base, cancel)
         .await
         .ok()?;
     let platform_text = text_of(&platform.body, &platform.charset);
-    let platform_obj = serde_json::from_str(&platform_text).ok()?;
+    let platform_obj: Value = serde_json::from_str(&platform_text).ok()?;
+    if !platform_obj.is_object() {
+        return None;
+    }
     let list = fetch_remote(client, &join(base, "dist/nodes/list.json"), base, cancel)
         .await
         .ok()?;
-    Some((
-        platform_obj,
-        platform_text,
-        text_of(&list.body, &list.charset),
-    ))
+    let list_text = text_of(&list.body, &list.charset);
+    let file_list = serde_json::from_str(&list_text).ok()?;
+    Some((platform_obj, platform_text, file_list, list_text))
 }
 
 /// Python `try_download_cyoap_vue_site`. Assets are processed sequentially
@@ -457,22 +484,29 @@ pub async fn try_download_cyoap_vue_site(
         .map(|response| response.final_url.as_str())
         .filter(|url| cyoa_core::url::same_origin(url, &original_base))
         .unwrap_or(start_url);
-    let archive_base = if crate::localize::py_urlparse(page_url).path.ends_with('/') {
-        crate::website::js::directory_base_url(page_url)
+    let page_is_html = matches!(url_ext(page_url).as_str(), ".html" | ".htm");
+    let page_base = join(page_url, "./");
+    let archive_base = if page_is_html || crate::localize::py_urlparse(page_url).path.ends_with('/')
+    {
+        page_base.as_str()
     } else {
-        original_base.clone()
+        original_base.as_str()
     };
-    let mut base = archive_base.as_str();
+    let mut base = if page_url == start_url {
+        original_base.as_str()
+    } else {
+        page_base.as_str()
+    };
     let mut dist = fetch_dist(client, base, cancel).await;
     if dist.is_none() && base != original_base && !cancel.is_cancelled() {
         // Some aliases expose the shell at the redirect target and dist at the start URL.
-        base = &original_base;
+        base = original_base.as_str();
         dist = fetch_dist(client, base, cancel).await;
     }
     if cancel.is_cancelled() {
         return Err(CYOAP_CANCELLED.into());
     }
-    let Some((platform_obj, platform_text, list_text)) = dist else {
+    let Some((platform_obj, platform_text, file_list, list_text)) = dist else {
         return Ok(None);
     };
     let platform_url = join(base, "dist/platform.json");
@@ -483,7 +517,7 @@ pub async fn try_download_cyoap_vue_site(
     let output_folder = &reserve_output_folder(output_base).map_err(|e| e.to_string())?;
     let project_local = |remote: &str| match remote.strip_prefix(base) {
         Some(relative) if base != archive_base => {
-            local(output_folder, &join(&archive_base, relative))
+            local(output_folder, &join(archive_base, relative))
         }
         _ => local(output_folder, remote),
     };
@@ -494,11 +528,6 @@ pub async fn try_download_cyoap_vue_site(
     let (mut images, mut media) = (BTreeSet::new(), BTreeSet::new());
     scan_cyoap_assets(&platform_obj, &mut images, &mut media);
 
-    let file_list = match serde_json::from_str::<Value>(&list_text) {
-        Ok(Value::Array(a)) => a,
-        Ok(_) => return Err("cyoap_vue list.json invalid: list.json is not a list".into()),
-        Err(e) => return Err(format!("cyoap_vue list.json invalid: {e}")),
-    };
     let list_local = project_local(&list_url)?;
     write_text_mode(&list_local, &list_text)?;
     res.success(output_folder, &list_url, &list_local, "json");
@@ -634,12 +663,14 @@ pub async fn try_download_cyoap_vue_site(
         Err(e) => res.failed(start_url, "html", e),
         Ok(page_text) => {
             entry_ok = true;
-            let entry_url = if !crate::localize::py_urlparse(page_url).path.ends_with('/')
+            let entry_url = if page_is_html {
+                page_url.to_owned()
+            } else if !crate::localize::py_urlparse(page_url).path.ends_with('/')
                 && matches!(url_ext(start_url).as_str(), ".html" | ".htm")
             {
                 start_url.to_owned()
             } else {
-                join(&archive_base, "index.html")
+                join(archive_base, "index.html")
             };
             let page_local = local(output_folder, &entry_url)?;
             if let Some(dir) = page_local.parent() {
@@ -771,11 +802,22 @@ async fn site_assets(
 ) -> Result<(), String> {
     let join = crate::fetch_plan::python_urljoin;
     let mut queue = std::collections::VecDeque::new();
+    let without_fragment = |mut url: String| {
+        if let Some(offset) = url.find('#') {
+            url.truncate(offset);
+        }
+        url
+    };
     // Resolve each reference against both the live document and its archived location.
     let resolve = |remote_base: &str, saved_base: &str, raw: &str| {
-        let remote = join(remote_base, raw);
-        cyoa_core::url::same_origin(&remote, start_url).then(|| (remote, join(saved_base, raw)))
+        if raw.is_empty() || raw.starts_with('#') {
+            return None;
+        }
+        let remote = without_fragment(join(remote_base, raw));
+        cyoa_core::url::same_origin(&remote, start_url)
+            .then(|| (remote, without_fragment(join(saved_base, raw))))
     };
+    let src_tags = ["script", "img", "audio", "video", "source"];
     if let Ok(doc) = crate::website::html::parse(page_text) {
         let mut links = Vec::new();
         let mut srcs = Vec::new();
@@ -785,7 +827,7 @@ async fn site_assets(
             {
                 links.push(cyoa_core::paths::py_strip(h).to_owned());
             }
-            if ["script", "img", "audio", "video", "source"].contains(&e.name.as_str())
+            if src_tags.contains(&e.name.as_str())
                 && let Some(s) = e.attr("src")
             {
                 srcs.push(cyoa_core::paths::py_strip(s).to_owned());
@@ -798,11 +840,37 @@ async fn site_assets(
         }
     }
     queue.extend(resolve(start_url, entry_url, "favicon.ico"));
-    let import_re = regex::Regex::new(r#"(?i)@import\s+(?:url\()?["']?([^"')\s]+)"#).ok();
-    let url_re = regex::Regex::new(r"(?i)url\(([^)]+)\)").ok();
+    let css_refs =
+        regex::Regex::new(r#"(?i)(?:@import\s+)?url\(([^)]+)\)|@import\s+["']?([^"')\s]+)"#).ok();
     let mut seen = BTreeSet::new();
     let mut downloaded = Vec::new();
     let mut stylesheets = BTreeMap::new();
+    let mut relocated_assets = BTreeMap::new();
+    let path_key = |path: &Path| {
+        let relative = rel_of(root, path);
+        if cfg!(windows) {
+            relative.to_lowercase()
+        } else {
+            relative
+        }
+    };
+    let mut occupied_paths: BTreeMap<String, String> = res
+        .ok
+        .iter()
+        .map(|item| {
+            (
+                path_key(&root.join(&item.local)),
+                without_fragment(item.url.clone()),
+            )
+        })
+        .collect();
+    let path_exists = |path: &Path, paths: &BTreeMap<String, String>| {
+        if paths.contains_key(&path_key(path)) {
+            Ok(true)
+        } else {
+            path.try_exists().map_err(|e| e.to_string())
+        }
+    };
     while let Some((remote, saved_url)) = queue.pop_front() {
         if cancel.is_cancelled() {
             return Err(CYOAP_CANCELLED.into());
@@ -814,8 +882,8 @@ async fn site_assets(
             tracing::warn!("cyoap_vue site asset limit reached ({MAX_CYOAP_SITE_REQUESTS})");
             break;
         }
-        let p = local(root, &saved_url)?;
-        if p.try_exists().map_err(|e| e.to_string())? {
+        let mut p = local(root, &saved_url)?;
+        if occupied_paths.get(&path_key(&p)) == Some(&remote) {
             continue;
         }
         let ext = url_ext(&remote);
@@ -824,7 +892,7 @@ async fn site_assets(
             body,
             charset,
             content_type,
-            ..
+            final_url,
         } = match fetched {
             Ok(v) => v,
             Err(e) => {
@@ -837,6 +905,22 @@ async fn site_assets(
                 .split(';')
                 .next()
                 .is_some_and(|mime| mime.trim().eq_ignore_ascii_case("text/css"));
+        if path_exists(&p, &occupied_paths)? {
+            let stem = p.file_stem().unwrap_or_default().to_string_lossy();
+            let ext = p
+                .extension()
+                .map(|ext| format!(".{}", ext.to_string_lossy()))
+                .unwrap_or_default();
+            for suffix in 1.. {
+                let candidate = p.with_file_name(format!("{stem}_{suffix}{ext}"));
+                if !path_exists(&candidate, &occupied_paths)? {
+                    p = candidate;
+                    break;
+                }
+            }
+            relocated_assets.insert((remote.clone(), saved_url.clone()), p.clone());
+        }
+        occupied_paths.insert(path_key(&p), remote.clone());
         // Extensionless/unknown URLs (`/sprite` serving PNG) must not be decoded
         // as text: keep the bytes whenever they are not valid UTF-8.
         let texty = matches!(
@@ -861,57 +945,65 @@ async fn site_assets(
             "assets"
         };
         if is_css {
-            stylesheets.insert(p.clone(), saved_url.clone());
-            if let Some(re) = &import_re {
+            // Remote dependencies resolve against the stylesheet's final URL
+            // (`/theme` -> `/assets/theme.css` makes `url(icon.svg)` mean
+            // `/assets/icon.svg`); local paths stay relative to the saved file.
+            let css_base = if final_url.is_empty() {
+                remote.clone()
+            } else {
+                final_url
+            };
+            if let Some(re) = &css_refs {
                 for c in re.captures_iter(&text) {
-                    if let Some(m) = c.get(1) {
-                        queue.extend(resolve(&remote, &saved_url, m.as_str()));
+                    if let Some(m) = c.get(1).or_else(|| c.get(2)) {
+                        let raw = m.as_str().trim().trim_matches(['\'', '"']);
+                        queue.extend(resolve(&css_base, &saved_url, raw));
                     }
                 }
             }
-            if let Some(re) = &url_re {
-                for c in re.captures_iter(&text) {
-                    let raw = c
-                        .get(1)
-                        .map_or("", |m| m.as_str())
-                        .trim()
-                        .trim_matches(['\'', '"']);
-                    if raw.is_empty() || raw.starts_with("data:") {
-                        continue;
-                    }
-                    queue.extend(resolve(&remote, &saved_url, raw));
-                }
-            }
+            stylesheets.insert(p.clone(), (remote.clone(), saved_url, css_base));
         }
         downloaded.push((remote, p, kind));
     }
 
     // Allocate suffixes after the crawl so real .css assets keep their paths.
     let mut renamed_styles = BTreeMap::new();
-    for (path, url) in &stylesheets {
-        if !url_ext(url).is_empty() || path.extension().is_some_and(|ext| ext == "css") {
+    for (path, (remote, saved_url, _)) in &stylesheets {
+        if !url_ext(saved_url).is_empty() || path.extension().is_some_and(|ext| ext == "css") {
             continue;
         }
         let mut dest = path.with_extension("css");
         for suffix in 1.. {
-            if !dest.try_exists().map_err(|e| e.to_string())? {
+            if !path_exists(&dest, &occupied_paths)? {
                 break;
             }
             dest = path.with_extension(format!("{suffix}.css"));
         }
         fs::rename(path, &dest).map_err(|e| e.to_string())?;
+        occupied_paths.remove(&path_key(path));
+        occupied_paths.insert(path_key(&dest), remote.clone());
+        relocated_assets.insert((remote.clone(), saved_url.clone()), dest.clone());
         renamed_styles.insert(path.clone(), dest);
     }
-    if !renamed_styles.is_empty() {
-        let reference = |source_url: &str, source: &Path, raw: &str| {
-            if raw.is_empty() || raw.starts_with('#') {
+    if !relocated_assets.is_empty() {
+        let reference = |remote_base: &str, saved_base: &str, source: &Path, raw: &str| {
+            let target = resolve(remote_base, saved_base, raw)?;
+            let preferred;
+            let dest = if let Some(dest) = relocated_assets.get(&target) {
+                dest
+            } else if raw.starts_with('?') {
+                // A query-only reference inherits the stylesheet's filename.
+                preferred = local(root, &target.1).ok()?;
+                if preferred == source
+                    || occupied_paths.get(&path_key(&preferred)) != Some(&target.0)
+                {
+                    return None;
+                }
+                &preferred
+            } else {
                 return None;
-            }
-            let target_url = Url::parse(&join(source_url, raw)).ok()?;
-            if !cyoa_core::url::same_origin(target_url.as_str(), entry_url) {
-                return None;
-            }
-            let dest = renamed_styles.get(&local(root, target_url.as_str()).ok()?)?;
+            };
+            let target_url = Url::parse(&join(saved_base, raw)).ok()?;
             let offline_url = |path| {
                 Url::parse(&format!(
                     "https://offline.invalid/{}",
@@ -924,45 +1016,48 @@ async fn site_assets(
             dest_url.set_fragment(target_url.fragment());
             offline_url(source)?.make_relative(&dest_url)
         };
-        for (path, url) in &stylesheets {
-            let path = renamed_styles.get(path).unwrap_or(path);
-            let css = fs::read_to_string(path).map_err(|e| e.to_string())?;
-            let mut revised = std::borrow::Cow::Borrowed(css.as_str());
-            for re in [&import_re, &url_re].into_iter().flatten() {
-                revised = std::borrow::Cow::Owned(
-                    re.replace_all(&revised, |c: &regex::Captures<'_>| {
-                        let matched = &c[0];
-                        let Some(value) = c.get(1) else {
-                            return matched.to_owned();
-                        };
-                        let raw = value.as_str().trim().trim_matches(['\'', '"']);
-                        let Some(replacement) = reference(url, path, raw) else {
-                            return matched.to_owned();
-                        };
-                        let start = value.start() - c.get(0).map_or(0, |m| m.start())
-                            + value.as_str().find(raw).unwrap_or(0);
-                        format!(
-                            "{}{replacement}{}",
-                            &matched[..start],
-                            &matched[start + raw.len()..]
-                        )
-                    })
-                    .into_owned(),
-                );
-            }
-            if revised != css {
-                write_raw(path, revised.as_bytes())?;
+        if let Some(re) = &css_refs {
+            for (path, (_, url, css_base)) in &stylesheets {
+                let path = renamed_styles.get(path).unwrap_or(path);
+                let css = fs::read_to_string(path).map_err(|e| e.to_string())?;
+                let revised = re.replace_all(&css, |c: &regex::Captures<'_>| {
+                    let matched = &c[0];
+                    let Some(value) = c.get(1).or_else(|| c.get(2)) else {
+                        return matched.to_owned();
+                    };
+                    let raw = value.as_str().trim().trim_matches(['\'', '"']);
+                    let Some(replacement) = reference(css_base, url, path, raw) else {
+                        return matched.to_owned();
+                    };
+                    let start = value.start() - c.get(0).map_or(0, |m| m.start())
+                        + value.as_str().find(raw).unwrap_or(0);
+                    format!(
+                        "{}{replacement}{}",
+                        &matched[..start],
+                        &matched[start + raw.len()..]
+                    )
+                });
+                if revised != css {
+                    write_raw(path, revised.as_bytes())?;
+                }
             }
         }
         if let Ok(mut doc) = crate::website::html::parse(page_text) {
             let path = local(root, entry_url)?;
             let mut changed = false;
             collect_mut(&mut doc, &mut |tag| {
-                if tag.name == "link"
-                    && let Some(href) = tag.attr("href")
-                    && let Some(replacement) = reference(entry_url, &path, href.trim())
+                let attr = if tag.name == "link" {
+                    "href"
+                } else if src_tags.contains(&tag.name.as_str()) {
+                    "src"
+                } else {
+                    return;
+                };
+                if let Some(raw) = tag.attr(attr)
+                    && let Some(replacement) =
+                        reference(start_url, entry_url, &path, cyoa_core::paths::py_strip(raw))
                 {
-                    tag.set_attr("href", replacement);
+                    tag.set_attr(attr, replacement);
                     changed = true;
                 }
             });
@@ -1394,6 +1489,85 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn redirected_document_parent_is_probed_before_original_base() {
+        let (server, client) = mock_cyoap_site(
+            "/old/",
+            ResponseTemplate::new(302).insert_header("location", "/new/index.html"),
+        )
+        .await;
+        for (route, body) in [
+            ("/new/index.html", "<html>new</html>"),
+            ("/new/dist/platform.json", r#"{"new":true}"#),
+            ("/new/dist/nodes/list.json", "[]"),
+        ] {
+            Mock::given(path(route))
+                .respond_with(ResponseTemplate::new(200).set_body_string(body))
+                .mount(&server)
+                .await;
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        let start = format!("{}/old/", server.uri());
+        let written = try_download_cyoap_vue_site(
+            &client,
+            &start,
+            &tmp.path().join("game"),
+            false,
+            1,
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(
+            fs::read_to_string(written.join("new/dist/platform.json")).unwrap(),
+            r#"{"new":true}"#
+        );
+        assert!(written.join("new/index.html").is_file());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn invalid_dist_pair_falls_back_to_original_base() {
+        for (platform, list) in [("{}", "<html>shell</html>"), ("{}", "{}"), ("[]", "[]")] {
+            let (server, client) = mock_cyoap_site(
+                "/old/",
+                ResponseTemplate::new(302).insert_header("location", "/new/"),
+            )
+            .await;
+            for (route, body) in [
+                ("/new/", "<html>new</html>"),
+                ("/new/dist/platform.json", platform),
+                ("/new/dist/nodes/list.json", list),
+            ] {
+                Mock::given(path(route))
+                    .respond_with(ResponseTemplate::new(200).set_body_string(body))
+                    .mount(&server)
+                    .await;
+            }
+            let tmp = tempfile::tempdir().unwrap();
+            let start = format!("{}/old/", server.uri());
+            let written = try_download_cyoap_vue_site(
+                &client,
+                &start,
+                &tmp.path().join("game"),
+                false,
+                1,
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+
+            let report = fs::read_to_string(written.join("backup_report.txt")).unwrap();
+            assert!(report.contains("/old/dist/platform.json"));
+            assert_eq!(
+                fs::read_to_string(written.join("new/dist/nodes/list.json")).unwrap(),
+                "[]"
+            );
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn redirect_to_json_variant_preserves_data_and_entry() {
         let (server, client) = mock_cyoap_site(
             "/demo/",
@@ -1566,6 +1740,81 @@ mod tests {
         assert_eq!(
             fs::read_to_string(written.join("demo/nested.css")).unwrap(),
             "body { color: red; }"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn colliding_site_assets_keep_distinct_content_and_references() {
+        use wiremock::matchers::query_param;
+
+        let (server, client) = mock_cyoap_site(
+            "/demo/",
+            ResponseTemplate::new(200).set_body_string(concat!(
+                r#"<link rel="stylesheet" href="theme.css?variant=light">"#,
+                r#"<link rel="stylesheet" href="theme.css?variant=dark">"#,
+                r#"<link rel="stylesheet" href="THEME.css?variant=upper">"#,
+                r#"<link rel="stylesheet" href="bundle.css">"#,
+            )),
+        )
+        .await;
+        for (route, variant, body) in [
+            ("/demo/theme.css", "light", "body { color: white; }"),
+            (
+                "/demo/theme.css",
+                "dark",
+                r#"@import "?variant=light"; body { color: black; }"#,
+            ),
+            ("/demo/THEME.css", "upper", "body { color: red; }"),
+        ] {
+            Mock::given(path(route))
+                .and(query_param("variant", variant))
+                .respond_with(ResponseTemplate::new(200).set_body_raw(body, "text/css"))
+                .expect(1)
+                .mount(&server)
+                .await;
+        }
+        Mock::given(path("/demo/bundle.css"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_raw(r#"@import url("theme.css?variant=dark#part");"#, "text/css"),
+            )
+            .mount(&server)
+            .await;
+        let tmp = tempfile::tempdir().unwrap();
+        let start = format!("{}/demo/", server.uri());
+        let written = try_download_cyoap_vue_site(
+            &client,
+            &start,
+            &tmp.path().join("game"),
+            false,
+            1,
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let folder = written.join("demo");
+        let page = fs::read_to_string(folder.join("index.html")).unwrap();
+        let upper = if cfg!(windows) {
+            "THEME_2.css"
+        } else {
+            "THEME.css"
+        };
+        for (file, variant, body) in [
+            ("theme.css", "light", "body { color: white; }"),
+            (
+                "theme_1.css",
+                "dark",
+                r#"@import "theme.css?variant=light"; body { color: black; }"#,
+            ),
+            (upper, "upper", "body { color: red; }"),
+        ] {
+            assert!(page.contains(&format!(r#"href="{file}?variant={variant}""#)));
+            assert_eq!(fs::read_to_string(folder.join(file)).unwrap(), body);
+        }
+        assert_eq!(
+            fs::read_to_string(folder.join("bundle.css")).unwrap(),
+            r#"@import url("theme_1.css?variant=dark#part");"#
         );
     }
 

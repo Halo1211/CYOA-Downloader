@@ -135,11 +135,7 @@ pub async fn detect_auto(
         }
     }
 
-    let base = crate::website::js::directory_base_url(&probe);
-    if crate::cyoap::probe_cyoap_vue_structure(client, &base, cancel)
-        .await
-        .is_some()
-    {
+    if crate::cyoap::probe_cyoap_vue_redirect_aware(client, &probe, cancel).await {
         let mode = output_variant("cyoap_vue", pref);
         tracing::info!("[Auto-detect] → cyoap_vue detected → {mode}");
         return AutoDetection {
