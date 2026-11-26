@@ -203,8 +203,34 @@ async fn write_idle<W: tokio::io::AsyncWrite + Unpin>(
     Ok(())
 }
 
-/// Copy `from` -> `to` until EOF or [`IDLE_TIMEOUT`] without read or write progress.
-async fn copy_idle<R, W>(from: &mut R, to: &mut W) -> std::io::Result<()>
+/// Last progress in either direction of a tunnel (ms since its start).
+struct Activity {
+    start: std::time::Instant,
+    last_ms: std::sync::atomic::AtomicU64,
+}
+
+impl Activity {
+    fn new() -> Self {
+        Self {
+            start: std::time::Instant::now(),
+            last_ms: std::sync::atomic::AtomicU64::new(0),
+        }
+    }
+    fn touch(&self) {
+        let ms = self.start.elapsed().as_millis() as u64;
+        self.last_ms.store(ms, std::sync::atomic::Ordering::Relaxed);
+    }
+    fn idle_for(&self) -> std::time::Duration {
+        let last = self.last_ms.load(std::sync::atomic::Ordering::Relaxed);
+        self.start
+            .elapsed()
+            .saturating_sub(std::time::Duration::from_millis(last))
+    }
+}
+
+/// Copy `from` -> `to` until EOF or [`IDLE_TIMEOUT`] without progress in
+/// EITHER direction: a WebSocket that only receives keeps its send side open.
+async fn copy_idle<R, W>(from: &mut R, to: &mut W, activity: &Activity) -> std::io::Result<()>
 where
     R: tokio::io::AsyncRead + Unpin,
     W: tokio::io::AsyncWrite + Unpin,
@@ -213,21 +239,28 @@ where
     loop {
         let n = match tokio::time::timeout(IDLE_TIMEOUT, from.read(&mut buf)).await {
             Ok(r) => r?,
+            Err(_) if activity.idle_for() < IDLE_TIMEOUT => continue,
             Err(_) => return Ok(()),
         };
         if n == 0 {
             let _ = to.shutdown().await;
             return Ok(());
         }
+        activity.touch();
         write_idle(to, &buf[..n]).await?;
+        activity.touch();
     }
 }
 
-/// Bidirectional tunnel with idle timeouts on both directions.
+/// Bidirectional tunnel with a shared idle timeout.
 async fn tunnel(client: TcpStream, server: TcpStream) {
     let (mut cr, mut cw) = client.into_split();
     let (mut sr, mut sw) = server.into_split();
-    let _ = tokio::try_join!(copy_idle(&mut cr, &mut sw), copy_idle(&mut sr, &mut cw));
+    let activity = Activity::new();
+    let _ = tokio::try_join!(
+        copy_idle(&mut cr, &mut sw, &activity),
+        copy_idle(&mut sr, &mut cw, &activity)
+    );
 }
 
 /// Request body framing: exactly one exchange per relayed connection.
@@ -441,7 +474,7 @@ async fn handle(
     }
     let (mut sr, _sw) = server.into_split();
     let (_cr, mut cw) = client.into_split();
-    let _ = copy_idle(&mut sr, &mut cw).await;
+    let _ = copy_idle(&mut sr, &mut cw, &Activity::new()).await;
     Ok(())
 }
 
@@ -513,7 +546,7 @@ mod tests {
         let (mut writer, _idle_peer) = tokio::io::duplex(1);
         let copied = tokio::time::timeout(
             IDLE_TIMEOUT + Duration::from_millis(1),
-            copy_idle(&mut payload, &mut writer),
+            copy_idle(&mut payload, &mut writer, &Activity::new()),
         )
         .await;
         assert!(matches!(copied, Ok(Err(e)) if e.kind() == std::io::ErrorKind::TimedOut));

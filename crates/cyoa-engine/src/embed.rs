@@ -187,7 +187,17 @@ pub fn project_chunks(
         } else {
             None
         };
-        let mut values = pieces(raw);
+        // `é` (json.dumps ensure_ascii) or other `\u` escapes: the
+        // fetched URL is the decoded value, so match that too.
+        let decoded_hit = raw
+            .contains("\\u")
+            .then(|| serde_json::from_str::<String>(&format!("\"{raw}\"")).ok())
+            .flatten()
+            .and_then(|d| lookup(&d).cloned());
+        let mut values = match decoded_hit {
+            Some(r) => vec![r],
+            None => pieces(raw),
+        };
         let preserve = values.first().is_some_and(|v| match v {
             Replacement::Media(_) => true,
             Replacement::Text(t) => is_data_uri(t),

@@ -591,8 +591,12 @@ pub fn build_preserved_index(
                     }
                 }
             }
-            if !has_reference(&html, "js/app.js")
-                || !RUNTIME_ANY.as_ref().is_some_and(|r| r.is_match(&html))
+            // A commented-out `<script src="js/app.js">` does not run.
+            let active = regex::Regex::new(r"(?s)<!--.*?-->")
+                .map(|re| re.replace_all(&html, "").into_owned())
+                .unwrap_or_else(|_| html.clone());
+            if !has_reference(&active, "js/app.js")
+                || !RUNTIME_ANY.as_ref().is_some_and(|r| r.is_match(&active))
             {
                 html = inject_before_body_end(&html, "<script src=\"./js/app.js\"></script>");
             }

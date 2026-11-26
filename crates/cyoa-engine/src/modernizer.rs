@@ -1014,6 +1014,26 @@ fn backup_original(site_root: &Path, target: &Path) -> Result<Option<String>, St
 }
 
 fn overlay_template(template_dir: &Path, dest: &Path) -> Result<Vec<String>, String> {
+    // Validate every target first: a conflict found halfway would leave the
+    // viewer with some runtime files replaced and others not.
+    for source in files_under(template_dir) {
+        let rel = rel_posix(&source, template_dir);
+        let target = rel.split('/').fold(dest.to_path_buf(), |p, s| p.join(s));
+        ensure_no_link_below(dest, &target)?;
+        if target.is_dir() {
+            return Err(format!("template file conflicts with a directory: {rel}"));
+        }
+        let mut parent = target.parent();
+        while let Some(p) = parent {
+            if p == dest || !p.starts_with(dest) {
+                break;
+            }
+            if p.is_file() {
+                return Err(format!("template path conflicts with a file: {rel}"));
+            }
+            parent = p.parent();
+        }
+    }
     let mut changed = Vec::new();
     for source in files_under(template_dir) {
         let lname = source

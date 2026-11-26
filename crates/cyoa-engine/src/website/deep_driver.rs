@@ -680,7 +680,11 @@ impl DeepScan<'_> {
             requests: 0,
             total_bytes: 0,
             limits: self.limits,
-            plugins: cyoa_integrations::plugins::PluginRegistry::load_default(),
+            plugins: {
+                let mut reg = cyoa_integrations::plugins::PluginRegistry::load_default();
+                reg.cancel = Some(self.cancel.clone());
+                reg
+            },
         };
         let mut round = 0;
         // Candidates cut by the per-round cap: their source files are already

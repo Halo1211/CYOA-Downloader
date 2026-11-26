@@ -290,8 +290,21 @@ impl GalleryDl {
         };
         let mut files = Vec::new();
         collect_files(&dest, &mut files);
+        // Only image outputs: a post's MP4 must not be embedded as an image.
+        let is_image = |p: &Path| {
+            p.extension()
+                .and_then(|e| e.to_str())
+                .map(str::to_ascii_lowercase)
+                .is_some_and(|e| {
+                    matches!(
+                        e.as_str(),
+                        "jpg" | "jpeg" | "png" | "gif" | "webp" | "avif" | "bmp" | "svg" | "jfif"
+                    )
+                })
+        };
         let Some(best) = files
             .iter()
+            .filter(|(p, _)| is_image(p))
             .max_by_key(|(_, len)| *len)
             .map(|(p, _)| p.clone())
         else {

@@ -39,7 +39,42 @@ async fn ok_status(
     }
 }
 
-/// Python `_parallel_head_check`: candidates answering 200/206 (input order).
+/// 200/206 whose first bytes are not an HTML document: SPA hosts answer 200
+/// with their HTML shell for any path, which is not a project.json.
+async fn project_like(
+    client: &FetchClient,
+    url: &str,
+    opts: &FetchOptions,
+    secs: u64,
+    cancel: &CancellationToken,
+) -> bool {
+    let Ok(parsed) = url::Url::parse(url) else {
+        return false;
+    };
+    let probe = async {
+        let r = client.get(&parsed, opts, cancel).await.ok()?;
+        if !matches!(r.status.as_u16(), 200 | 206) {
+            return None;
+        }
+        FetchClient::prefix(r, 4096).await.ok()
+    };
+    match tokio::time::timeout(Duration::from_secs(secs), probe).await {
+        Ok(Some(body)) => !looks_like_html(&body),
+        _ => false,
+    }
+}
+
+fn looks_like_html(body: &[u8]) -> bool {
+    let text = String::from_utf8_lossy(body);
+    let head = text
+        .trim_start_matches('\u{feff}')
+        .trim_start()
+        .to_ascii_lowercase();
+    head.starts_with("<!doctype html") || head.starts_with("<html") || head.starts_with("<head")
+}
+
+/// Python `_parallel_head_check`: candidates answering 200/206 (input order)
+/// with a non-HTML body.
 pub async fn parallel_head_check(
     client: &FetchClient,
     candidates: &[String],
@@ -65,10 +100,7 @@ pub async fn parallel_head_check(
             (client.clone(), cancel.clone(), gate.clone(), opts.clone());
         set.spawn(async move {
             let _p = gate.acquire_owned().await.ok();
-            let ok = matches!(
-                ok_status(&client, &url, &opts, timeout_secs, &cancel).await,
-                Ok(200 | 206)
-            );
+            let ok = project_like(&client, &url, &opts, timeout_secs, &cancel).await;
             (i, ok)
         });
     }

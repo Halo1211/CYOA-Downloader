@@ -296,6 +296,14 @@ impl UsageBudget {
 
     /// `AIUsageBudget()` from `ai_max_calls_per_download` (default 3, 0..50).
     pub fn from_settings(settings: &Settings) -> Self {
+        // An explicit 0 means unlimited (int_setting treats a falsy 0 as unset).
+        if settings
+            .get("ai_max_calls_per_download")
+            .and_then(py_int)
+            .is_some_and(|v| v == 0)
+        {
+            return Self::new(0);
+        }
         Self::new(int_setting(settings, "ai_max_calls_per_download", 3, 0, 50))
     }
 

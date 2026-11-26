@@ -424,7 +424,8 @@ fn register(
     project_json_url: Option<String>,
     viewer: &str,
 ) -> rusqlite::Result<Option<String>> {
-    let con = Connection::open(db)?;
+    let mut con = Connection::open(db)?;
+    con.busy_timeout(std::time::Duration::from_secs(10))?;
     con.execute_batch(
         "CREATE TABLE IF NOT EXISTS library_meta (
             key TEXT PRIMARY KEY, value TEXT NOT NULL
@@ -450,7 +451,10 @@ fn register(
             [],
         )?;
     }
-    let existing: Option<String> = con
+    // Lookup and insert in one write transaction: two processes must not
+    // both see the project as absent and insert it under different IDs.
+    let tx = con.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let existing: Option<String> = tx
         .query_row(
             "SELECT id FROM library_projects WHERE file_path = ?",
             [abs],
@@ -460,7 +464,7 @@ fn register(
     if existing.is_some() {
         return Ok(existing);
     }
-    con.execute(
+    tx.execute(
         "INSERT INTO library_projects
             (id, name, description, cover_image, source_url, project_json_url, file_path,
              viewer_preference, favorite, exclude_from_perk_index,
@@ -478,6 +482,7 @@ fn register(
             python_json_list(opts.tags),
         ],
     )?;
+    tx.commit()?;
     Ok(None)
 }
 
@@ -657,7 +662,7 @@ fn find_project_json(root: &Path) -> Option<PathBuf> {
             if ft.is_dir() {
                 stack.push((e.path(), depth + 1));
             } else if ft.is_file()
-                && e.file_name() == "project.json"
+                && is_project_json(&e.file_name())
                 && best.as_ref().is_none_or(|(d, _)| depth < *d)
             {
                 best = Some((depth, e.path()));
@@ -665,6 +670,16 @@ fn find_project_json(root: &Path) -> Option<PathBuf> {
         }
     }
     best.map(|(_, p)| p)
+}
+
+/// `project.json`; Windows file names are case-insensitive (`Project.json`).
+fn is_project_json(name: &std::ffi::OsStr) -> bool {
+    if cfg!(windows) {
+        name.to_str()
+            .is_some_and(|n| n.eq_ignore_ascii_case("project.json"))
+    } else {
+        name == "project.json"
+    }
 }
 
 /// `add_archive_to_cyoa_manager`: extract beside the ZIP (reusing a matching

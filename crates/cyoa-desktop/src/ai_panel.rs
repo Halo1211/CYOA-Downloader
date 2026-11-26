@@ -101,6 +101,9 @@ pub struct AiPanel {
     /// The session state to hand back to the app after Save / Clear Key.
     pub updated: Option<AiSession>,
     test: Option<Receiver<String>>,
+    /// Session key of the last saved provider: toggling AI Assist must not
+    /// publish an unsaved draft key for another provider.
+    saved_session_key: String,
 }
 
 impl AiPanel {
@@ -142,6 +145,7 @@ impl AiPanel {
             }),
             status: String::new(),
             updated: None,
+            saved_session_key: String::new(),
             test: None,
             settings_path,
         };
@@ -220,6 +224,36 @@ impl AiPanel {
                 serde_json::Number::from_f64(v).map_or(Value::Null, Value::Number)
             }
         };
+        // Moving to keyring storage: migrate every saved plaintext key into
+        // the keyring BEFORE the plaintext copies are scrubbed (the key field
+        // is blank after a restart, so it cannot be relied on).
+        if storage == "keyring" {
+            let saved = cyoa_storage::settings::SettingsStore::new(&self.settings_path)
+                .load()
+                .ok()
+                .cloned()
+                .unwrap_or_default();
+            for p in ai::PROVIDERS.iter().filter(|p| **p != "ollama") {
+                if *p == prov && !key.is_empty() {
+                    continue; // written from the field below
+                }
+                let plain = saved
+                    .get(&ai::plain_key_setting(p))
+                    .and_then(Value::as_str)
+                    .filter(|k| !k.trim().is_empty())
+                    .or_else(|| {
+                        (*p == "anthropic")
+                            .then(|| saved.get("ai_api_key").and_then(Value::as_str))
+                            .flatten()
+                            .filter(|k| !k.trim().is_empty())
+                    });
+                if let Some(k) = plain {
+                    KeyringBackend::new()
+                        .set(&ai::keyring_username(p), k.trim())
+                        .map_err(|e| format!("keyring write failed: {e}"))?;
+                }
+            }
+        }
         crate::net::update_shared(&self.settings_path, |map| {
             map.insert("ai_enabled".into(), enabled.into());
             map.insert("ai_provider".into(), prov.into());
@@ -252,6 +286,7 @@ impl AiPanel {
             _ => String::new(),
         };
         self.model = model;
+        self.saved_session_key = session_key.clone();
         self.updated = Some(AiSession {
             enabled,
             key: session_key,
@@ -379,7 +414,7 @@ impl AiPanel {
                     if toggle(ui, &mut self.enabled, purple) {
                         self.updated = Some(AiSession {
                             enabled: self.enabled,
-                            key: self.key.trim().to_owned(),
+                            key: self.saved_session_key.clone(),
                         });
                     }
                 });

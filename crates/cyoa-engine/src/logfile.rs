@@ -96,9 +96,11 @@ impl Rotating {
         // Python text mode: "\n" terminator translated to CRLF on Windows.
         let bytes = crate::reports::os_text(&format!("{line}\n")).into_bytes();
         // Python: rollover when tell() + len(msg) >= maxBytes (and the file is non-empty).
+        // A failed rollover (a backup held open on Windows) must not drop the
+        // line: keep appending and retry after another MAX_BYTES.
         if self.size > 0 && self.size + bytes.len() as u64 >= MAX_BYTES && self.rollover().is_err()
         {
-            return;
+            self.size = 0;
         }
         if self.file.write_all(&bytes).is_ok() {
             self.size += bytes.len() as u64;

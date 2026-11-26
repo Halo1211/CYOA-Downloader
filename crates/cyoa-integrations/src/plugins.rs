@@ -67,6 +67,8 @@ pub struct PluginRegistry {
     plugins: Vec<Plugin>,
     /// Per-call time limit (default 20 s).
     pub timeout: Duration,
+    /// Run cancellation: kills a running plugin and skips the rest.
+    pub cancel: Option<tokio_util::sync::CancellationToken>,
 }
 
 /// `~/.cyoa_downloader/plugins`.
@@ -85,6 +87,7 @@ impl PluginRegistry {
             dir: dir.to_path_buf(),
             plugins: Vec::new(),
             timeout: CALL_TIMEOUT,
+            cancel: None,
         };
         let Ok(text) = std::fs::read_to_string(dir.join("plugins.json")) else {
             return reg;
@@ -140,6 +143,7 @@ impl PluginRegistry {
                 dir: PathBuf::new(),
                 plugins: Vec::new(),
                 timeout: CALL_TIMEOUT,
+                cancel: None,
             },
             |d| Self::load(&d),
         )
@@ -179,6 +183,9 @@ impl PluginRegistry {
             .iter()
             .filter(|p| p.kind == PluginKind::AssetScanner)
         {
+            if self.cancel.as_ref().is_some_and(|c| c.is_cancelled()) {
+                break;
+            }
             match self
                 .call(p, &request)
                 .and_then(|reply| scanner_urls(&reply))
@@ -251,7 +258,16 @@ impl PluginRegistry {
         let deadline = Instant::now() + self.timeout;
         loop {
             match child.try_wait() {
+                // A plugin that fails must not have a partial reply accepted.
+                Ok(Some(status)) if !status.success() => {
+                    return Err(format!("exited with {status}"));
+                }
                 Ok(Some(_)) => break,
+                Ok(None) if self.cancel.as_ref().is_some_and(|c| c.is_cancelled()) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err("cancelled".into());
+                }
                 Ok(None) if Instant::now() >= deadline => {
                     let _ = child.kill();
                     let _ = child.wait();
@@ -371,6 +387,22 @@ mod tests {
         let found = reg.run_engine_detectors("<html>", "auto").unwrap();
         assert_eq!(found["engine"], "x");
         assert_eq!(found["mode"], "auto");
+
+        // A valid reply from a failing plugin is rejected.
+        write(
+            d,
+            "fail.py",
+            "import sys
+print('{\"urls\": [\"x\"]}')
+sys.exit(3)
+",
+        );
+        let fail = Plugin {
+            name: "fail".into(),
+            kind: PluginKind::AssetScanner,
+            command: vec![py.clone(), "fail.py".into()],
+        };
+        assert!(reg.call(&fail, &json!({})).is_err());
 
         // Timeout kills the process.
         let slow = Plugin {

@@ -194,6 +194,32 @@ async fn get(
         .to_vec();
     Ok((status, ct, b, final_url))
 }
+/// Auto-detect probe that follows the entry page's redirect like the
+/// downloader: `/play` -> `/game/index.html` probes `/game/dist/` first.
+pub async fn probe_cyoap_vue_redirect_aware(
+    client: &FetchClient,
+    start_url: &str,
+    cancel: &CancellationToken,
+) -> bool {
+    let original_base = crate::website::js::directory_base_url(start_url);
+    if let Ok((_, _, _, final_url)) = get(client, start_url, cancel).await
+        && final_url != start_url
+        && cyoa_core::url::same_origin(&final_url, &original_base)
+    {
+        let page_base = crate::fetch_plan::python_urljoin(&final_url, "./");
+        if page_base != original_base
+            && probe_cyoap_vue_structure(client, &page_base, cancel)
+                .await
+                .is_some()
+        {
+            return true;
+        }
+    }
+    probe_cyoap_vue_structure(client, &original_base, cancel)
+        .await
+        .is_some()
+}
+
 pub async fn probe_cyoap_vue_structure(
     client: &FetchClient,
     base_url: &str,

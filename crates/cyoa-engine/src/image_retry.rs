@@ -141,6 +141,42 @@ async fn fetch_data_uri(
     ))
 }
 
+/// Characters that continue a URL: a match followed by one is a prefix of
+/// a longer URL (`a.png` in `a.png?size=2`), not a reference to it.
+fn continues_url(c: char) -> bool {
+    c.is_ascii_alphanumeric() || "?&=._~%/-+#".contains(c)
+}
+
+fn find_bounded(text: &str, needle: &str) -> Option<usize> {
+    if needle.is_empty() {
+        return None;
+    }
+    let mut from = 0;
+    while let Some(i) = text[from..].find(needle).map(|i| i + from) {
+        let end = i + needle.len();
+        if !text[end..].chars().next().is_some_and(continues_url) {
+            return Some(i);
+        }
+        from = i + 1;
+        while !text.is_char_boundary(from) {
+            from += 1;
+        }
+    }
+    None
+}
+
+fn replace_bounded(text: &str, needle: &str, with: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(i) = find_bounded(rest, needle) {
+        out.push_str(&rest[..i]);
+        out.push_str(with);
+        rest = &rest[i + needle.len()..];
+    }
+    out.push_str(rest);
+    out
+}
+
 /// Python `_do_retry`: returns the number of patched references.
 pub async fn retry_failed_images(
     client: &FetchClient,
@@ -159,27 +195,32 @@ pub async fn retry_failed_images(
             continue;
         };
         let mut text = String::from_utf8_lossy(&bytes).into_owned();
+        let mut file_patched = 0usize;
         let mut changed = false;
+        // Counted only once the file is written (a locked file patches nothing).
         for url in urls {
+            // Bounded matches only: a bare substring replace would also
+            // rewrite the prefix of `a.png?size=2`.
+            let plain = url.as_str();
             let escaped = url.replace('/', "\\/");
-            if !text.contains(url.as_str()) && !text.contains(&escaped) {
+            if find_bounded(&text, plain).is_none() && find_bounded(&text, &escaped).is_none() {
                 continue;
             }
             let name = url.rsplit('/').next().unwrap_or(url);
             if let Some(uri) = embedded.get(url) {
-                text = text.replace(url.as_str(), uri).replace(&escaped, uri);
+                text = replace_bounded(&replace_bounded(&text, plain, uri), &escaped, uri);
                 changed = true;
-                patched += 1;
+                file_patched += 1;
                 tracing::info!("  Reused retry image: {name}");
                 continue;
             }
             match fetch_data_uri(client, url, cancel).await {
                 Ok(uri) => {
-                    text = text.replace(url.as_str(), &uri).replace(&escaped, &uri);
+                    text = replace_bounded(&replace_bounded(&text, plain, &uri), &escaped, &uri);
                     embedded.insert(url.clone(), uri);
                     tracing::info!("  ✓ Re-embedded: {name}");
                     changed = true;
-                    patched += 1;
+                    file_patched += 1;
                 }
                 Err(e) => {
                     let short: String = url.chars().take(60).collect();
@@ -189,12 +230,15 @@ pub async fn retry_failed_images(
         }
         if changed {
             match cyoa_storage::atomic_io::atomic_write_text(path, &text) {
-                Ok(_) => tracing::info!(
-                    "  Updated: {}",
-                    path.file_name()
-                        .map(|n| n.to_string_lossy().into_owned())
-                        .unwrap_or_default()
-                ),
+                Ok(_) => {
+                    patched += file_patched;
+                    tracing::info!(
+                        "  Updated: {}",
+                        path.file_name()
+                            .map(|n| n.to_string_lossy().into_owned())
+                            .unwrap_or_default()
+                    )
+                }
                 Err(e) => tracing::error!("  Write failed for {}: {e}", path.display()),
             }
         }
@@ -211,6 +255,16 @@ pub async fn retry_failed_images(
 mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
+
+    #[test]
+    fn bounded_replace_skips_longer_urls() {
+        let text =
+            r#"{"a":"https://x/a.png","b":"https://x/a.png?size=2","c":"url(https://x/a.png)"}"#;
+        assert_eq!(
+            replace_bounded(text, "https://x/a.png", "data:"),
+            r#"{"a":"data:","b":"https://x/a.png?size=2","c":"url(data:)"}"#
+        );
+    }
 
     #[test]
     fn plan_reads_reports_and_projects() {

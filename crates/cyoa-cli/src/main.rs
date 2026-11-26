@@ -686,17 +686,31 @@ fn ai_cli_config(
     if args.ai_clear_key {
         // `_clear_ai_api_key_storage(clear_all=True)`: plain copies and the
         // OS credential entry for the provider.
-        if store.load().is_ok() {
-            ai::clear_plain_keys(store.values_mut(), Some(provider));
-            if let Err(e) = store.save() {
-                tracing::warn!("Could not save settings: {e}");
+        // A key left behind must not be reported as cleared (exit 0).
+        let mut cleared = true;
+        match store.load() {
+            Ok(_) => {
+                ai::clear_plain_keys(store.values_mut(), Some(provider));
+                if let Err(e) = store.save() {
+                    tracing::warn!("Could not save settings: {e}");
+                    cleared = false;
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Could not read settings: {e}");
+                cleared = false;
             }
         }
         if provider != "ollama" {
             use cyoa_storage::secrets::SecretBackend;
             if let Err(e) = keyring.delete(&ai::keyring_username(provider)) {
                 tracing::warn!("AI keyring write failed: {e}");
+                cleared = false;
             }
+        }
+        if !cleared {
+            tracing::error!("AI API key storage was not fully cleared.");
+            return Err(ExitCode::FAILURE);
         }
         tracing::info!("AI API key storage cleared.");
         return Err(ExitCode::SUCCESS);
@@ -1011,7 +1025,12 @@ async fn main() -> ExitCode {
     };
     // `ai_cli_config` saves through its own store; refresh ours so the later
     // Cloudflare/network saves don't write back the pre-AI snapshot.
-    let _ = store.load();
+    // A failed reload leaves a stale/default snapshot: never save it back
+    // over the user's real settings.
+    let store_loaded = store.load().is_ok();
+    if !store_loaded {
+        tracing::warn!("Could not reload settings; flags will not be saved this run");
+    }
     let saved = cyoa_storage::settings::SettingsStore::new(cyoa_storage::settings::default_path())
         .load()
         .cloned()
@@ -1113,7 +1132,7 @@ async fn main() -> ExitCode {
             || args.flaresolverr_timeout.is_some()
             || args.flaresolverr_wait.is_some()
             || args.flaresolverr_proxy.is_some();
-        if explicit {
+        if explicit && store_loaded {
             let values = store.values_mut();
             for (k, v) in [
                 ("cloudflare_mode", serde_json::Value::from(cfg.mode.clone())),
@@ -1218,7 +1237,7 @@ async fn main() -> ExitCode {
     };
     let vpn = (vpn_cfg.policy == cyoa_net::vpn::VpnPolicy::Require)
         .then(|| std::sync::Arc::new(cyoa_net::vpn::VpnGuard::new(vpn_cfg)));
-    if !net_updates.is_empty() {
+    if !net_updates.is_empty() && store_loaded {
         let values = store.values_mut();
         for (key, value) in net_updates {
             values.insert(key.to_owned(), value);
@@ -1533,7 +1552,9 @@ async fn main() -> ExitCode {
             analysis_only: args.analyse_fonts && !args.fonts,
             // Settings `offline_viewer_json_enabled` / `offline_viewer_preferred_id`.
             offline_viewer: cyoa_engine::run::OfflineViewerOptions::from_settings(&saved),
-            ai: ai_config.clone(),
+            ai: ai_config
+                .as_ref()
+                .map(cyoa_engine::ai_run::AiRunConfig::for_new_download),
             // cli.py: engine per row (cyoap_vue* rows) or from the flags.
             engine: if item.mode.starts_with("cyoap_vue")
                 || args.cyoap_vue_website

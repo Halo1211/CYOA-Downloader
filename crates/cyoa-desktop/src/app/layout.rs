@@ -1105,9 +1105,13 @@ impl DownloaderApp {
                 true,
             )
             .clicked()
-                && let Some(w) = &self.worker
             {
-                w.cancel_all();
+                if let Some(w) = &self.worker {
+                    w.cancel_all();
+                }
+                // Retry Assets/Images/Audio run outside the worker.
+                self.retry_cancel.cancel();
+                self.retry_cancel = tokio_util::sync::CancellationToken::new();
             }
             let last_error = self.jobs.iter().rev().find_map(|j| match &j.status {
                 Status::Failed(e) => Some(format!("{}: {e}", j.url)),
@@ -1237,6 +1241,8 @@ impl DownloaderApp {
     /// Python `_retry_failed`: website recovery when the output folder has
     /// work, else re-run failed queue rows, else the "nothing found" notice.
     fn retry_assets(&mut self, ctx: &egui::Context) {
+        // Child of the app-wide retry token: Cancel and shutdown stop it.
+        let retry_cancel = self.retry_cancel.child_token();
         let outdir = std::path::PathBuf::from(&self.settings.output_dir);
         if cyoa_engine::website_recovery::has_website_recovery_work(&outdir) {
             let net = match self.net_runtime() {
@@ -1271,7 +1277,7 @@ impl DownloaderApp {
                                 ..Default::default()
                             })
                             .map_err(|e| e.to_string())?;
-                        let cancel = tokio_util::sync::CancellationToken::new();
+                        let cancel = retry_cancel.clone();
                         let s = cyoa_engine::website_recovery::retry_website_assets(
                             &outdir,
                             &client,
@@ -1329,6 +1335,8 @@ impl DownloaderApp {
 
     /// Python `_retry_failed_images` (dialogs, then a background re-embed).
     fn retry_images(&mut self, ctx: &egui::Context) {
+        // Child of the app-wide retry token: Cancel and shutdown stop it.
+        let retry_cancel = self.retry_cancel.child_token();
         use cyoa_engine::image_retry::{RetryImagesPlan, plan_retry_images};
         let outdir = std::path::absolute(&self.settings.output_dir)
             .unwrap_or_else(|_| std::path::PathBuf::from(&self.settings.output_dir));
@@ -1415,7 +1423,7 @@ impl DownloaderApp {
                             ..Default::default()
                         })
                         .map_err(|e| e.to_string())?;
-                    let cancel = tokio_util::sync::CancellationToken::new();
+                    let cancel = retry_cancel.clone();
                     let n = rt.block_on(cyoa_engine::image_retry::retry_failed_images(
                         &client,
                         &urls,
@@ -1440,6 +1448,8 @@ impl DownloaderApp {
 
     /// Python `_retry_youtube_audio` (status texts, background yt-dlp run).
     fn retry_audio(&mut self, ctx: &egui::Context) {
+        // Child of the app-wide retry token: Cancel and shutdown stop it.
+        let retry_cancel = self.retry_cancel.child_token();
         let out = std::path::absolute(&self.settings.output_dir)
             .unwrap_or_else(|_| std::path::PathBuf::from(&self.settings.output_dir));
         let Some(entries) = cyoa_engine::audio_retry::skipped_audio_entries(&out) else {
@@ -1485,7 +1495,7 @@ impl DownloaderApp {
                     &groups,
                     &cfg,
                     &cyoa_engine::audio::YtDlpExe::default(),
-                    &tokio_util::sync::CancellationToken::new(),
+                    &retry_cancel,
                 );
                 let _ = tx.send(format!("Retry YT audio selesai: {ok}/{total} berhasil"));
                 ctx.request_repaint();

@@ -361,6 +361,7 @@ fn write_no_clobber(
     rel: &str,
     payload: &crate::fetch::Payload,
     cancel: &tokio_util::sync::CancellationToken,
+    reserved: Option<&Path>,
 ) -> std::io::Result<Option<String>> {
     fs::create_dir_all(root)?;
     let rel = cyoa_core::paths::safe_rel_path(rel, "");
@@ -383,6 +384,11 @@ fn write_no_clobber(
         } else {
             format!("{folder}/{stem}_{index}{ext}")
         };
+        // ICC: staged files are merged into the site folder, so a name the
+        // website mirror already used there must not be reused.
+        if reserved.is_some_and(|site| fs::symlink_metadata(site.join(&candidate)).is_ok()) {
+            continue;
+        }
         let target = root.join(&candidate);
         let parent = target.parent().unwrap_or(root);
         let rel_parent = Path::new(&candidate).parent().unwrap_or(Path::new(""));
@@ -412,10 +418,30 @@ fn write_no_clobber(
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
                 let _ = fs::remove_file(temp);
             }
-            Err(error) => {
-                let _ = fs::remove_file(temp);
-                return Err(error);
-            }
+            // No hard links (exFAT/FAT32, some network shares): reserve the
+            // name exclusively, then replace the empty reservation we own.
+            Err(_) => match fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&target)
+            {
+                Ok(reservation) => {
+                    drop(reservation);
+                    if let Err(error) = fs::rename(&temp, &target) {
+                        let _ = fs::remove_file(&temp);
+                        let _ = fs::remove_file(&target);
+                        return Err(error);
+                    }
+                    return Ok(Some(candidate));
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    let _ = fs::remove_file(temp);
+                }
+                Err(error) => {
+                    let _ = fs::remove_file(temp);
+                    return Err(error);
+                }
+            },
         }
     }
     Err(std::io::Error::other(
@@ -713,8 +739,9 @@ pub async fn process_images(
             let rel_for_write = rel.clone();
             let data = data.clone();
             let cancel = ctx.cancel.clone();
+            let reserved = opts.site_folder.clone();
             let written = tokio::task::spawn_blocking(move || {
-                write_no_clobber(&root, &rel_for_write, &data, &cancel)
+                write_no_clobber(&root, &rel_for_write, &data, &cancel, reserved.as_deref())
             })
             .await?;
             if ctx.cancel.is_cancelled() {
@@ -1253,6 +1280,7 @@ mod tests {
             "images/a.png",
             &crate::fetch::Payload::Mem(tokio_util::bytes::Bytes::from_static(b"new")),
             &cancel,
+            None,
         )
         .unwrap()
         .unwrap();

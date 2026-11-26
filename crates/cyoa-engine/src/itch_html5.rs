@@ -391,9 +391,12 @@ fn mirror_for_localization(
             fs::create_dir(&dest)?;
             mirror_for_localization(&path, &dest, cancel)?;
         } else if kind.is_file() {
-            // The localizer appends to backup_report.txt in place. All its
-            // other file writes replace the hard link with a new file.
-            if entry.file_name().eq_ignore_ascii_case("backup_report.txt")
+            // The localizer appends to backup_report.txt / failed_assets.txt
+            // in place. All its other file writes replace the hard link with
+            // a new file.
+            let name = entry.file_name();
+            if name.eq_ignore_ascii_case("backup_report.txt")
+                || name.eq_ignore_ascii_case("failed_assets.txt")
                 || fs::hard_link(&path, &dest).is_err()
             {
                 crate::output::copy_cancellable(

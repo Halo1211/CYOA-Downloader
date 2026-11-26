@@ -47,6 +47,8 @@ pub struct BrowserCookie {
     pub secure: bool,
     pub name: String,
     pub value: String,
+    /// Unix expiry; 0 = session cookie.
+    pub expires: u64,
 }
 
 /// Browser-cookie import can be switched off with
@@ -161,6 +163,7 @@ pub fn parse_netscape(text: &str) -> Vec<BrowserCookie> {
             secure: f[3].eq_ignore_ascii_case("TRUE"),
             name: f[5].to_owned(),
             value: f[6..].join("\t"),
+            expires: f[4].trim().parse().unwrap_or(0),
         });
     }
     out
@@ -172,8 +175,14 @@ pub fn cookie_header_for(cookies: &[BrowserCookie], url: &url::Url) -> Option<St
     let host = url.host_str()?.trim_end_matches('.').to_lowercase();
     let path = url.path();
     let secure = url.scheme() == "https";
+    // The jar is cached for the process lifetime: expired cookies are dropped
+    // at request time.
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
     let pairs: Vec<String> = cookies
         .iter()
+        .filter(|c| c.expires == 0 || c.expires > now)
         .filter(|c| {
             let d = c.domain.trim_start_matches('.').to_lowercase();
             let domain_ok = host == d

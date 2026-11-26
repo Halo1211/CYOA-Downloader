@@ -133,6 +133,11 @@ pub fn identity_total_length(h: &HeaderMap) -> Option<u64> {
             }
         }
     }
+    // A partial response without a numeric total (`bytes 0-0/*`): its
+    // Content-Length is the slice, not the file size.
+    if !cr.is_empty() {
+        return None;
+    }
     get("content-length").parse().ok()
 }
 
@@ -386,7 +391,15 @@ mod tests {
                 ("content-range", "bytes 0-0/abc"),
                 ("content-length", "1")
             ])),
-            Some(1)
+            None
+        );
+        // Unknown total: the 1-byte slice is not the file size.
+        assert_eq!(
+            identity_total_length(&h(&[
+                ("content-range", "bytes 0-0/*"),
+                ("content-length", "1")
+            ])),
+            None
         );
     }
 

@@ -195,7 +195,12 @@ pub fn patch_youtube_refs_in_json(project: &str, yt_map: &[(String, String)]) ->
             Value::Array(a) => {
                 for x in a {
                     if let Value::String(s) = x {
-                        *s = patch_text(s, map, ids)
+                        // `bgmList: ["dQw4w9WgXcQ"]`: a bare ID whose audio
+                        // was downloaded becomes its local path.
+                        *s = match ids.get(s.trim()) {
+                            Some(p) => p.clone(),
+                            None => patch_text(s, map, ids),
+                        }
                     } else {
                         walk(x, map, refs, ids, paths)
                     }
@@ -448,13 +453,11 @@ impl YtDlp for YtDlpExe {
         let started = Instant::now();
         loop {
             if cancel.is_cancelled() {
-                let _ = child.kill();
-                let _ = child.wait();
+                kill_tree(&mut child);
                 return Err("download cancelled".into());
             }
             if started.elapsed() > YTDLP_DEADLINE {
-                let _ = child.kill();
-                let _ = child.wait();
+                kill_tree(&mut child);
                 return Err("yt-dlp timed out".into());
             }
             if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
@@ -468,6 +471,23 @@ impl YtDlp for YtDlpExe {
             thread::sleep(Duration::from_millis(250));
         }
     }
+}
+/// Kill yt-dlp and its children (ffmpeg postprocessing keeps writing
+/// otherwise); Windows does not kill child processes with the parent.
+fn kill_tree(child: &mut std::process::Child) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let _ = Command::new("taskkill")
+            .args(["/PID", &child.id().to_string(), "/T", "/F"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .creation_flags(0x08000000)
+            .status();
+    }
+    let _ = child.kill();
+    let _ = child.wait();
 }
 /// Spawn, poll every 100 ms, kill on cancellation or deadline; true when
 /// the process exited successfully in time.
